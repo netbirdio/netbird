@@ -14,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/relay/messages/address"
+	auth2 "github.com/netbirdio/netbird/relay/messages/auth"
 )
 
 const (
@@ -238,21 +240,31 @@ func (c *Client) connect() error {
 }
 
 func (c *Client) handShake() error {
-	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
+	authMsg := &auth2.Msg{
+		AuthAlgorithm:  auth2.AlgoHMACSHA256,
+		AdditionalData: c.authTokenStore.TokenBinary(),
+	}
+
+	authData, err := authMsg.Marshal()
 	if err != nil {
-		log.Errorf("failed to marshal auth message: %s", err)
+		return fmt.Errorf("marshal auth message: %w", err)
+	}
+
+	msg, err := messages.MarshalHelloMsg(c.hashedID, authData)
+	if err != nil {
+		log.Errorf("failed to marshal hello message: %s", err)
 		return err
 	}
 
 	_, err = c.relayConn.Write(msg)
 	if err != nil {
-		log.Errorf("failed to send auth message: %s", err)
+		log.Errorf("failed to send hello message: %s", err)
 		return err
 	}
-	buf := make([]byte, messages.MaxHandshakeRespSize)
+	buf := make([]byte, messages.MaxHandshakeSize)
 	n, err := c.readWithTimeout(buf)
 	if err != nil {
-		log.Errorf("failed to read auth response: %s", err)
+		log.Errorf("failed to read hello response: %s", err)
 		return err
 	}
 
@@ -267,18 +279,23 @@ func (c *Client) handShake() error {
 		return err
 	}
 
-	if msgType != messages.MsgTypeAuthResponse {
+	if msgType != messages.MsgTypeHelloResponse {
 		log.Errorf("unexpected message type: %s", msgType)
 		return fmt.Errorf("unexpected message type")
 	}
 
-	addr, err := messages.UnmarshalAuthResponse(buf[messages.SizeOfProtoHeader:n])
+	additionalData, err := messages.UnmarshalHelloResponse(buf[messages.SizeOfProtoHeader:n])
 	if err != nil {
 		return err
 	}
 
+	addr, err := address.Unmarshal(additionalData)
+	if err != nil {
+		return fmt.Errorf("unmarshal address: %w", err)
+	}
+
 	c.muInstanceURL.Lock()
-	c.instanceURL = &RelayAddr{addr: addr}
+	c.instanceURL = &RelayAddr{addr: addr.URL}
 	c.muInstanceURL.Unlock()
 	return nil
 }

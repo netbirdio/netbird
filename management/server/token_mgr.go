@@ -93,12 +93,12 @@ func (m *TimeBasedAuthSecretsManager) GenerateRelayToken() (*Token, error) {
 		return nil, fmt.Errorf("relay configuration is not set")
 	}
 	relayToken, err := m.relayHmacToken.GenerateToken()
-
 	if err != nil {
 		return nil, fmt.Errorf("generate relay token: %s", err)
 	}
+
 	return &Token{
-		Payload:   base64.StdEncoding.EncodeToString(relayToken.Payload),
+		Payload:   string(relayToken.Payload),
 		Signature: base64.StdEncoding.EncodeToString(relayToken.Signature),
 	}, nil
 }
@@ -220,7 +220,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, pe
 		WiretrusteeConfig: &proto.WiretrusteeConfig{
 			Relay: &proto.RelayConfig{
 				Urls:           m.relayCfg.Addresses,
-				TokenPayload:   base64.StdEncoding.EncodeToString(relayToken.Payload),
+				TokenPayload:   string(relayToken.Payload),
 				TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
 			},
 			// omit Turns to avoid updates there

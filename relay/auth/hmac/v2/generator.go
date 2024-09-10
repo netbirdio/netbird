@@ -2,9 +2,9 @@ package v2
 
 import (
 	"crypto/hmac"
-	"encoding/binary"
 	"fmt"
 	"hash"
+	"strconv"
 	"time"
 )
 
@@ -29,8 +29,7 @@ func NewGenerator(algo AuthAlgo, secret []byte, timeToLive time.Duration) (*Gene
 func (g *Generator) GenerateToken() (*Token, error) {
 	expirationTime := time.Now().Add(g.timeToLive).Unix()
 
-	payload := make([]byte, 8)
-	binary.BigEndian.PutUint64(payload, uint64(expirationTime))
+	payload := []byte(strconv.FormatInt(expirationTime, 10))
 
 	h := hmac.New(g.algo, g.secret)
 	h.Write(payload)

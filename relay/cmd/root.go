@@ -141,8 +141,8 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 	srvListenerCfg.TLSConfig = tlsConfig
 
-	authenticator := auth.NewTimedHMACValidator(cobraConfig.AuthSecret, 24*time.Hour)
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
+	authenticator := auth.NewTimedHMACValidator(string(hashedSecret[:]), 24*time.Hour)
 	authenticatorV2 := authv2.NewValidator(hashedSecret[:])
 
 	srv, err := server.NewServer(metricsServer.Meter, cobraConfig.ExposedAddress, tlsSupport, authenticator, authenticatorV2)

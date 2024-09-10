@@ -2,9 +2,9 @@ package v2
 
 import (
 	"crypto/hmac"
-	"encoding/binary"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -44,9 +44,13 @@ func (v *Validator) Validate(data any) error {
 		return errors.New("invalid payload: insufficient length")
 	}
 
-	timestamp := int64(binary.BigEndian.Uint64(token.Payload[:8]))
+	timestamp, err := strconv.ParseInt(string(token.Payload), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid payload: %w", err)
+	}
+
 	if time.Now().Unix() > timestamp {
-		return errors.New("token expired")
+		return fmt.Errorf("expired token")
 	}
 
 	return nil
