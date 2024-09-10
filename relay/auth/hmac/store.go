@@ -1,9 +1,11 @@
 package hmac
 
 import (
+	"encoding/base64"
+	"fmt"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
+	v2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
 )
 
 // TokenStore is a simple in-memory store for token
@@ -20,12 +22,18 @@ func (a *TokenStore) UpdateToken(token *Token) error {
 		return nil
 	}
 
-	t, err := marshalToken(*token)
+	sig, err := base64.StdEncoding.DecodeString(token.Signature)
 	if err != nil {
-		log.Debugf("failed to marshal token: %s", err)
-		return err
+		return fmt.Errorf("decode signature: %w", err)
 	}
-	a.token = t
+
+	tok := v2.Token{
+		AuthAlgo:  v2.AuthAlgoHMACSHA256,
+		Signature: sig,
+		Payload:   []byte(token.Payload),
+	}
+
+	a.token = tok.Marshal()
 	return nil
 }
 
