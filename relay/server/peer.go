@@ -68,21 +68,19 @@ func (p *Peer) Work() {
 			return
 		}
 
-		msg := buf[:n]
-
-		_, err = messages.ValidateVersion(msg)
+		_, err = messages.ValidateVersion(buf[:n])
 		if err != nil {
 			p.log.Warnf("failed to validate protocol version: %s", err)
 			return
 		}
 
-		msgType, err := messages.DetermineClientMessageType(msg[messages.SizeOfVersionByte:])
+		msgType, err := messages.DetermineClientMessageType(buf[:n])
 		if err != nil {
 			p.log.Errorf("failed to determine message type: %s", err)
 			return
 		}
 
-		p.handleMsgType(ctx, msgType, hc, n, msg)
+		p.handleMsgType(ctx, msgType, hc, n, buf[:n])
 	}
 }
 
@@ -175,7 +173,7 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 }
 
 func (p *Peer) handleTransportMsg(msg []byte) {
-	peerID, err := messages.UnmarshalTransportID(msg[messages.SizeOfProtoHeader:])
+	peerID, err := messages.UnmarshalTransportID(msg)
 	if err != nil {
 		p.log.Errorf("failed to unmarshal transport message: %s", err)
 		return
@@ -188,7 +186,7 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 
-	err = messages.UpdateTransportMsg(msg[messages.SizeOfProtoHeader:], p.idB)
+	err = messages.UpdateTransportMsg(msg, p.idB)
 	if err != nil {
 		p.log.Errorf("failed to update transport message: %s", err)
 		return

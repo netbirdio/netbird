@@ -23,20 +23,20 @@ const (
 	MsgTypeAuth                  = 6
 	MsgTypeAuthResponse          = 7
 
-	SizeOfVersionByte = 1
-	SizeOfMsgType     = 1
+	sizeOfVersionByte = 1
+	sizeOfMsgType     = 1
 
-	SizeOfProtoHeader = SizeOfVersionByte + SizeOfMsgType
+	sizeOfCommonHeader = sizeOfVersionByte + sizeOfMsgType
 
 	sizeOfMagicByte = 4
 
-	headerSizeTransport = IDSize
+	headerSizeTransport = sizeOfCommonHeader + IDSize
 
-	headerSizeHello     = sizeOfMagicByte + IDSize
-	headerSizeHelloResp = 0
+	headerSizeHello     = sizeOfCommonHeader + sizeOfMagicByte + IDSize
+	headerSizeHelloResp = sizeOfCommonHeader + sizeOfCommonHeader
 
-	headerSizeAuth     = sizeOfMagicByte + IDSize
-	headerSizeAuthResp = 0
+	headerSizeAuth     = sizeOfCommonHeader + sizeOfMagicByte + IDSize
+	headerSizeAuthResp = sizeOfCommonHeader
 )
 
 var (
@@ -73,7 +73,7 @@ func (m MsgType) String() string {
 
 // ValidateVersion checks if the given version is supported by the protocol
 func ValidateVersion(msg []byte) (int, error) {
-	if len(msg) < SizeOfVersionByte {
+	if len(msg) < sizeOfCommonHeader {
 		return 0, ErrInvalidMessageLength
 	}
 	version := int(msg[0])
@@ -85,11 +85,11 @@ func ValidateVersion(msg []byte) (int, error) {
 
 // DetermineClientMessageType determines the message type from the first the message
 func DetermineClientMessageType(msg []byte) (MsgType, error) {
-	if len(msg) < SizeOfMsgType {
+	if len(msg) < sizeOfCommonHeader {
 		return 0, ErrInvalidMessageLength
 	}
 
-	msgType := MsgType(msg[0])
+	msgType := MsgType(msg[1])
 	switch msgType {
 	case
 		MsgTypeHello,
@@ -105,11 +105,11 @@ func DetermineClientMessageType(msg []byte) (MsgType, error) {
 
 // DetermineServerMessageType determines the message type from the first the message
 func DetermineServerMessageType(msg []byte) (MsgType, error) {
-	if len(msg) < SizeOfMsgType {
+	if len(msg) < sizeOfCommonHeader {
 		return 0, ErrInvalidMessageLength
 	}
 
-	msgType := MsgType(msg[0])
+	msgType := MsgType(msg[1])
 	switch msgType {
 	case
 		MsgTypeHelloResponse,
@@ -134,12 +134,12 @@ func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
 	}
 
-	msg := make([]byte, SizeOfProtoHeader+sizeOfMagicByte, SizeOfProtoHeader+headerSizeHello+len(additions))
+	msg := make([]byte, sizeOfCommonHeader+sizeOfMagicByte, sizeOfCommonHeader+headerSizeHello+len(additions))
 
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeHello)
 
-	copy(msg[SizeOfProtoHeader:SizeOfProtoHeader+sizeOfMagicByte], magicHeader)
+	copy(msg[sizeOfCommonHeader:sizeOfCommonHeader+sizeOfMagicByte], magicHeader)
 
 	msg = append(msg, peerID...)
 	msg = append(msg, additions...)
@@ -154,11 +154,11 @@ func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 	if len(msg) < headerSizeHello {
 		return nil, nil, ErrInvalidMessageLength
 	}
-	if !bytes.Equal(msg[:sizeOfMagicByte], magicHeader) {
+	if !bytes.Equal(msg[sizeOfCommonHeader:sizeOfCommonHeader+sizeOfMagicByte], magicHeader) {
 		return nil, nil, errors.New("invalid magic header")
 	}
 
-	return msg[sizeOfMagicByte:headerSizeHello], msg[headerSizeHello:], nil
+	return msg[sizeOfCommonHeader+sizeOfMagicByte : headerSizeHello], msg[headerSizeHello:], nil
 }
 
 // Deprecated: Use MarshalAuthResponse instead.
@@ -167,7 +167,7 @@ func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 // instance URL. This URL will be used by choose the common Relay server in case if the peers are in different Relay
 // servers.
 func MarshalHelloResponse(additionalData []byte) ([]byte, error) {
-	msg := make([]byte, SizeOfProtoHeader, SizeOfProtoHeader+headerSizeHelloResp+len(additionalData))
+	msg := make([]byte, headerSizeHelloResp, headerSizeHelloResp+len(additionalData))
 
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeHelloResponse)
@@ -196,12 +196,12 @@ func MarshalAuthMsg(peerID []byte, authPayload []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
 	}
 
-	msg := make([]byte, SizeOfProtoHeader+sizeOfMagicByte, SizeOfProtoHeader+headerSizeAuth+len(authPayload))
+	msg := make([]byte, sizeOfCommonHeader+sizeOfMagicByte, sizeOfCommonHeader+headerSizeAuth+len(authPayload))
 
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeAuth)
 
-	copy(msg[SizeOfProtoHeader:SizeOfProtoHeader+sizeOfMagicByte], magicHeader)
+	copy(msg[sizeOfCommonHeader:sizeOfCommonHeader+sizeOfMagicByte], magicHeader)
 
 	msg = append(msg, peerID...)
 	msg = append(msg, authPayload...)
@@ -227,7 +227,7 @@ func UnmarshalAuthMsg(msg []byte) ([]byte, []byte, error) {
 // servers.
 func MarshalAuthResponse(address string) ([]byte, error) {
 	ab := []byte(address)
-	msg := make([]byte, SizeOfProtoHeader, SizeOfProtoHeader+headerSizeAuthResp+len(ab))
+	msg := make([]byte, sizeOfCommonHeader, headerSizeAuthResp+len(ab))
 
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeAuthResponse)
@@ -239,7 +239,7 @@ func MarshalAuthResponse(address string) ([]byte, error) {
 
 // UnmarshalAuthResponse it is a confirmation message to auth success
 func UnmarshalAuthResponse(msg []byte) (string, error) {
-	if len(msg) < headerSizeAuthResp+1 {
+	if len(msg) < headerSizeAuthResp+1 { // +1 is the minimum expected size of the address
 		return "", ErrInvalidMessageLength
 	}
 	return string(msg), nil
@@ -249,7 +249,7 @@ func UnmarshalAuthResponse(msg []byte) (string, error) {
 // The close message is used to close the connection gracefully between the client and the server. The server and the
 // client can send this message. After receiving this message, the server or client will close the connection.
 func MarshalCloseMsg() []byte {
-	msg := make([]byte, SizeOfProtoHeader)
+	msg := make([]byte, sizeOfCommonHeader)
 
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeClose)
@@ -265,12 +265,12 @@ func MarshalTransportMsg(peerID []byte, payload []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
 	}
 
-	msg := make([]byte, SizeOfProtoHeader+headerSizeTransport, SizeOfProtoHeader+headerSizeTransport+len(payload))
+	msg := make([]byte, headerSizeTransport, headerSizeTransport+len(payload))
 
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeTransport)
 
-	copy(msg[SizeOfProtoHeader:], peerID)
+	copy(msg[sizeOfCommonHeader:], peerID)
 
 	msg = append(msg, payload...)
 
@@ -283,7 +283,7 @@ func UnmarshalTransportMsg(buf []byte) ([]byte, []byte, error) {
 		return nil, nil, ErrInvalidMessageLength
 	}
 
-	return buf[:headerSizeTransport], buf[headerSizeTransport:], nil
+	return buf[sizeOfCommonHeader:headerSizeTransport], buf[headerSizeTransport:], nil
 }
 
 // UnmarshalTransportID extracts the peerID from the transport message.
@@ -291,7 +291,7 @@ func UnmarshalTransportID(buf []byte) ([]byte, error) {
 	if len(buf) < headerSizeTransport {
 		return nil, ErrInvalidMessageLength
 	}
-	return buf[:headerSizeTransport], nil
+	return buf[sizeOfCommonHeader:headerSizeTransport], nil
 }
 
 // UpdateTransportMsg updates the peerID in the transport message.

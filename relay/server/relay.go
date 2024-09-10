@@ -164,7 +164,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		return nil, fmt.Errorf("validate version from %s: %w", conn.RemoteAddr(), err)
 	}
 
-	msgType, err := messages.DetermineClientMessageType(buf[messages.SizeOfVersionByte:n])
+	msgType, err := messages.DetermineClientMessageType(buf[:n])
 	if err != nil {
 		return nil, fmt.Errorf("determine message type from %s: %w", conn.RemoteAddr(), err)
 	}
@@ -175,9 +175,9 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 	)
 	switch msgType {
 	case messages.MsgTypeHello:
-		responseMsg, err = r.handleHelloMsg(buf[messages.SizeOfProtoHeader:n], conn.RemoteAddr())
+		responseMsg, err = r.handleHelloMsg(buf[:n], conn.RemoteAddr())
 	case messages.MsgTypeAuth:
-		responseMsg, err = r.handleAuthMsg(buf[messages.SizeOfProtoHeader:n], conn.RemoteAddr())
+		responseMsg, err = r.handleAuthMsg(buf[:n], conn.RemoteAddr())
 	default:
 		return nil, fmt.Errorf("invalid message type %d from %s", msgType, conn.RemoteAddr())
 	}
