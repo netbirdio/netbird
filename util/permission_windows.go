@@ -55,22 +55,23 @@ func EnforcePermission(file string) error {
 }
 
 func sids() (*windows.SID, *windows.SID, error) {
-	t, err := windows.OpenCurrentProcessToken()
+	var token windows.Token
+	err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer func() {
-		if err := t.Close(); err != nil {
+		if err := token.Close(); err != nil {
 			log.Errorf("failed to close proces token: %v", err)
 		}
 	}()
 
-	tu, err := t.GetTokenUser()
+	tu, err := token.GetTokenUser()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	pg, err := t.GetTokenPrimaryGroup()
+	pg, err := token.GetTokenPrimaryGroup()
 	if err != nil {
 		return nil, nil, err
 	}
