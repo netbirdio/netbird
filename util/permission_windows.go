@@ -29,10 +29,10 @@ func EnforcePermission(file string) error {
 
 	explicitAccess := []windows.EXPLICIT_ACCESS{
 		{
-			windows.GENERIC_ALL,
-			windows.SET_ACCESS,
-			windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-			windows.TRUSTEE{
+			AccessPermissions: windows.GENERIC_ALL,
+			AccessMode:        windows.SET_ACCESS,
+			Inheritance:       windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+			Trustee: windows.TRUSTEE{
 				MultipleTrusteeOperation: windows.NO_MULTIPLE_TRUSTEE,
 				TrusteeForm:              windows.TRUSTEE_IS_SID,
 				TrusteeType:              windows.TRUSTEE_IS_USER,
@@ -40,10 +40,10 @@ func EnforcePermission(file string) error {
 			},
 		},
 		{
-			windows.GENERIC_ALL,
-			windows.SET_ACCESS,
-			windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-			windows.TRUSTEE{
+			AccessPermissions: windows.GENERIC_ALL,
+			AccessMode:        windows.SET_ACCESS,
+			Inheritance:       windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+			Trustee: windows.TRUSTEE{
 				MultipleTrusteeOperation: windows.NO_MULTIPLE_TRUSTEE,
 				TrusteeForm:              windows.TRUSTEE_IS_SID,
 				TrusteeType:              windows.TRUSTEE_IS_WELL_KNOWN_GROUP,
