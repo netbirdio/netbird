@@ -1,3 +1,4 @@
+// Deprecated: This package is deprecated and will be removed in a future release.
 package auth
 
 import (
@@ -28,15 +29,6 @@ func (a Algorithm) String() string {
 type Msg struct {
 	AuthAlgorithm  Algorithm
 	AdditionalData []byte
-}
-
-func (msg *Msg) Marshal() ([]byte, error) {
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	if err := enc.Encode(msg); err != nil {
-		return nil, fmt.Errorf("encode Msg: %w", err)
-	}
-	return buf.Bytes(), nil
 }
 
 func UnmarshalMsg(data []byte) (*Msg, error) {

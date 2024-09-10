@@ -21,9 +21,10 @@ import (
 
 // Relay represents the relay server
 type Relay struct {
-	metrics       *metrics.Metrics
-	metricsCancel context.CancelFunc
-	validator     auth.Validator
+	metrics        *metrics.Metrics
+	metricsCancel  context.CancelFunc
+	validator      auth.Validator
+	validatorDummy auth.Validator // todo: this is just a dummy variable. Replace it with the proper validator
 
 	store       *Store
 	instanceURL string
@@ -168,14 +169,36 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		return nil, fmt.Errorf("determine message type from %s: %w", conn.RemoteAddr(), err)
 	}
 
-	if msgType != messages.MsgTypeHello {
-		return nil, fmt.Errorf("invalid message type from %s", conn.RemoteAddr())
+	var (
+		responseMsg []byte
+		peerID      []byte
+	)
+	switch msgType {
+	case messages.MsgTypeHello:
+		responseMsg, err = r.handleHelloMsg(buf[messages.SizeOfProtoHeader:n], conn.RemoteAddr())
+	case messages.MsgTypeAuth:
+		responseMsg, err = r.handleAuthMsg(buf[messages.SizeOfProtoHeader:n], conn.RemoteAddr())
+	default:
+		return nil, fmt.Errorf("invalid message type %d from %s", msgType, conn.RemoteAddr())
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	peerID, authData, err := messages.UnmarshalHelloMsg(buf[messages.SizeOfProtoHeader:n])
+	_, err = conn.Write(responseMsg)
+	if err != nil {
+		return nil, fmt.Errorf("write to %s (%s): %w", peerID, conn.RemoteAddr(), err)
+	}
+
+	return peerID, nil
+}
+
+func (r *Relay) handleHelloMsg(buf []byte, remoteAddr net.Addr) ([]byte, error) {
+	peerID, authData, err := messages.UnmarshalHelloMsg(buf)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal hello message: %w", err)
 	}
+	log.Warnf("peer is using depracated initial message type: %s (%s)", peerID, remoteAddr)
 
 	authMsg, err := authmsg.UnmarshalMsg(authData)
 	if err != nil {
@@ -183,24 +206,36 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 	}
 
 	if err := r.validator.Validate(sha256.New, authMsg.AdditionalData); err != nil {
-		return nil, fmt.Errorf("validate %s (%s): %w", peerID, conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("validate %s (%s): %w", peerID, remoteAddr, err)
 	}
 
 	addr := &address.Address{URL: r.instanceURL}
 	addrData, err := addr.Marshal()
 	if err != nil {
-		return nil, fmt.Errorf("marshal addressc to %s (%s): %w", peerID, conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("marshal addressc to %s (%s): %w", peerID, remoteAddr, err)
 	}
 
-	msg, err := messages.MarshalHelloResponse(addrData)
+	responseMsg, err := messages.MarshalHelloResponse(addrData)
 	if err != nil {
-		return nil, fmt.Errorf("marshal hello response to %s (%s): %w", peerID, conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("marshal hello response to %s (%s): %w", peerID, remoteAddr, err)
 	}
+	return responseMsg, nil
+}
 
-	_, err = conn.Write(msg)
+func (r *Relay) handleAuthMsg(buf []byte, addr net.Addr) ([]byte, error) {
+	peerID, authPayload, err := messages.UnmarshalAuthMsg(buf)
 	if err != nil {
-		return nil, fmt.Errorf("write to %s (%s): %w", peerID, conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("unmarshal hello message: %w", err)
 	}
 
-	return peerID, nil
+	// todo use the proper validator
+	if err := r.validatorDummy.Validate(sha256.New, authPayload); err != nil {
+		return nil, fmt.Errorf("validate %s (%s): %w", peerID, addr, err)
+	}
+
+	responseMsg, err := messages.MarshalAuthResponse(r.instanceURL)
+	if err != nil {
+		return nil, fmt.Errorf("marshal hello response to %s (%s): %w", peerID, addr, err)
+	}
+	return responseMsg, nil
 }
