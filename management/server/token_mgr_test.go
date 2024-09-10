@@ -63,7 +63,8 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		t.Errorf("expected generated relay signature not to be empty, got empty")
 	}
 
-	validateMAC(t, sha256.New, relayCredentials.Payload, relayCredentials.Signature, []byte(secret))
+	hashedSecret := sha256.Sum256([]byte(secret))
+	validateMAC(t, sha256.New, relayCredentials.Payload, relayCredentials.Signature, hashedSecret[:])
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
