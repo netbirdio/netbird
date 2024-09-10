@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 )
 
@@ -93,7 +94,7 @@ func (ec *FieldEncrypt) Decrypt(data string) (string, error) {
 
 	nonceSize := ec.gcm.NonceSize()
 	if len(cipherText) < nonceSize {
-		return "", fmt.Errorf("cipher text too short")
+		return "", errors.New("cipher text too short")
 	}
 
 	nonce, cipherText := cipherText[:nonceSize], cipherText[nonceSize:]

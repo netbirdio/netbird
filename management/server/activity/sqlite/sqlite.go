@@ -69,10 +69,12 @@ const (
 			and some selfhosted deployments might have duplicates already so we need to clean the table first.
 	*/
 
-	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?)`
+	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name, enc_algo) VALUES(?, ?, ?, ?)`
 
 	fallbackName  = "unknown"
 	fallbackEmail = "unknown@unknown.com"
+
+	gcmEncAlgo = "GCM"
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
@@ -112,10 +114,9 @@ func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (
 		return nil, err
 	}
 
-	err = updateDeletedUsersTable(ctx, db)
-	if err != nil {
+	if err := migrate(ctx, crypt, db); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
 	insertStmt, err := db.Prepare(insertQuery)
@@ -311,7 +312,7 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 		return nil, err
 	}
 
-	_, err = store.deleteUserStmt.Exec(event.TargetID, encryptedEmail, encryptedName)
+	_, err = store.deleteUserStmt.Exec(event.TargetID, encryptedEmail, encryptedName, gcmEncAlgo)
 	if err != nil {
 		return nil, err
 	}
@@ -332,43 +333,34 @@ func (store *Store) Close(_ context.Context) error {
 	return nil
 }
 
-func updateDeletedUsersTable(ctx context.Context, db *sql.DB) error {
-	log.WithContext(ctx).Debugf("check deleted_users table version")
-	rows, err := db.Query(`PRAGMA table_info(deleted_users);`)
+// checkColumnExists checks if a column exists in a specified table
+func checkColumnExists(db *sql.DB, tableName, columnName string) (bool, error) {
+	query := fmt.Sprintf("PRAGMA table_info(%s);", tableName)
+	rows, err := db.Query(query)
 	if err != nil {
-		return err
+		return false, fmt.Errorf("failed to query table info: %w", err)
 	}
 	defer rows.Close()
-	found := false
+
 	for rows.Next() {
-		var (
-			cid      int
-			name     string
-			dataType string
-			notNull  int
-			dfltVal  sql.NullString
-			pk       int
-		)
-		err := rows.Scan(&cid, &name, &dataType, &notNull, &dfltVal, &pk)
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue sql.NullString
+
+		err = rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk)
 		if err != nil {
-			return err
+			return false, fmt.Errorf("failed to scan row: %w", err)
 		}
-		if name == "name" {
-			found = true
-			break
+
+		if name == columnName {
+			return true, nil
 		}
 	}
 
-	err = rows.Err()
-	if err != nil {
-		return err
+	if err = rows.Err(); err != nil {
+		return false, err
 	}
 
-	if found {
-		return nil
-	}
-
-	log.WithContext(ctx).Debugf("update delted_users table")
-	_, err = db.Exec(`ALTER TABLE deleted_users ADD COLUMN name TEXT;`)
-	return err
+	return false, nil
 }
