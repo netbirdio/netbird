@@ -199,7 +199,7 @@ func MarshalAuthMsg(peerID []byte, authPayload []byte) ([]byte, error) {
 	msg := make([]byte, SizeOfProtoHeader+sizeOfMagicByte, SizeOfProtoHeader+headerSizeAuth+len(authPayload))
 
 	msg[0] = byte(CurrentProtocolVersion)
-	msg[1] = byte(MsgTypeHello)
+	msg[1] = byte(MsgTypeAuth)
 
 	copy(msg[SizeOfProtoHeader:SizeOfProtoHeader+sizeOfMagicByte], magicHeader)
 
@@ -230,7 +230,7 @@ func MarshalAuthResponse(address string) ([]byte, error) {
 	msg := make([]byte, SizeOfProtoHeader, SizeOfProtoHeader+headerSizeAuthResp+len(ab))
 
 	msg[0] = byte(CurrentProtocolVersion)
-	msg[1] = byte(MsgTypeHelloResponse)
+	msg[1] = byte(MsgTypeAuthResponse)
 
 	msg = append(msg, ab...)
 
