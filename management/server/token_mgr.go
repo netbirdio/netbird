@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/proto"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
+	authv2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
 )
 
 const defaultDuration = 12 * time.Hour
@@ -30,7 +32,7 @@ type TimeBasedAuthSecretsManager struct {
 	turnCfg        *TURNConfig
 	relayCfg       *Relay
 	turnHmacToken  *auth.TimedHMAC
-	relayHmacToken *auth.TimedHMAC
+	relayHmacToken *authv2.Generator
 	updateManager  *PeersUpdateManager
 	turnCancelMap  map[string]chan struct{}
 	relayCancelMap map[string]chan struct{}
@@ -63,7 +65,11 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *
 			duration = defaultDuration
 		}
 
-		mgr.relayHmacToken = auth.NewTimedHMAC(relayCfg.Secret, duration)
+		hashedSecret := sha256.Sum256([]byte(relayCfg.Secret))
+		var err error
+		if mgr.relayHmacToken, err = authv2.NewGenerator(authv2.AuthAlgoHMACSHA256, hashedSecret[:], duration); err != nil {
+			log.Errorf("failed to create relay token generator: %s", err)
+		}
 	}
 
 	return mgr
@@ -76,7 +82,7 @@ func (m *TimeBasedAuthSecretsManager) GenerateTurnToken() (*Token, error) {
 	}
 	turnToken, err := m.turnHmacToken.GenerateToken(sha1.New)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate TURN token: %s", err)
+		return nil, fmt.Errorf("generate TURN token: %s", err)
 	}
 	return (*Token)(turnToken), nil
 }
@@ -86,11 +92,15 @@ func (m *TimeBasedAuthSecretsManager) GenerateRelayToken() (*Token, error) {
 	if m.relayHmacToken == nil {
 		return nil, fmt.Errorf("relay configuration is not set")
 	}
-	relayToken, err := m.relayHmacToken.GenerateToken(sha256.New)
+	relayToken, err := m.relayHmacToken.GenerateToken()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate relay token: %s", err)
+		return nil, fmt.Errorf("generate relay token: %s", err)
 	}
-	return (*Token)(relayToken), nil
+
+	return &Token{
+		Payload:   string(relayToken.Payload),
+		Signature: base64.StdEncoding.EncodeToString(relayToken.Signature),
+	}, nil
 }
 
 func (m *TimeBasedAuthSecretsManager) cancelTURN(peerID string) {
@@ -200,7 +210,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNTokens(ctx context.Context, pee
 }
 
 func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, peerID string) {
-	relayToken, err := m.relayHmacToken.GenerateToken(sha256.New)
+	relayToken, err := m.relayHmacToken.GenerateToken()
 	if err != nil {
 		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
 		return
@@ -210,8 +220,8 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, pe
 		WiretrusteeConfig: &proto.WiretrusteeConfig{
 			Relay: &proto.RelayConfig{
 				Urls:           m.relayCfg.Addresses,
-				TokenPayload:   relayToken.Payload,
-				TokenSignature: relayToken.Signature,
+				TokenPayload:   string(relayToken.Payload),
+				TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
 			},
 			// omit Turns to avoid updates there
 		},

@@ -20,6 +20,22 @@ func TestMarshalHelloMsg(t *testing.T) {
 	}
 }
 
+func TestMarshalAuthMsg(t *testing.T) {
+	peerID := []byte("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
+	bHello, err := MarshalAuthMsg(peerID, []byte{})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	receivedPeerID, _, err := UnmarshalAuthMsg(bHello[SizeOfProtoHeader:])
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if string(receivedPeerID) != string(peerID) {
+		t.Errorf("expected %s, got %s", peerID, receivedPeerID)
+	}
+}
+
 func TestMarshalTransportMsg(t *testing.T) {
 	peerID := []byte("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
 	payload := []byte("payload")

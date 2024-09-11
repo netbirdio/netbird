@@ -1,8 +1,8 @@
 package hmac
 
 import (
+	"crypto/sha256"
 	"fmt"
-	"hash"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -19,7 +19,7 @@ func NewTimedHMACValidator(secret string, duration time.Duration) *TimedHMACVali
 	}
 }
 
-func (a *TimedHMACValidator) Validate(algo func() hash.Hash, credentials any) error {
+func (a *TimedHMACValidator) Validate(credentials any) error {
 	b, ok := credentials.([]byte)
 	if !ok {
 		return fmt.Errorf("invalid credentials type")
@@ -29,5 +29,5 @@ func (a *TimedHMACValidator) Validate(algo func() hash.Hash, credentials any) er
 		log.Debugf("failed to unmarshal token: %s", err)
 		return err
 	}
-	return a.TimedHMAC.Validate(algo, c)
+	return a.TimedHMAC.Validate(sha256.New, c)
 }
