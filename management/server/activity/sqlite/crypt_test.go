@@ -15,12 +15,42 @@ func TestGenerateKey(t *testing.T) {
 		t.Fatalf("failed to init email encryption: %s", err)
 	}
 
-	encrypted := ee.Encrypt(testData)
+	encrypted, err := ee.Encrypt(testData)
+	if err != nil {
+		t.Fatalf("failed to encrypt data: %s", err)
+	}
+
 	if encrypted == "" {
 		t.Fatalf("invalid encrypted text")
 	}
 
 	decrypted, err := ee.Decrypt(encrypted)
+	if err != nil {
+		t.Fatalf("failed to decrypt data: %s", err)
+	}
+
+	if decrypted != testData {
+		t.Fatalf("decrypted data is not match with test data: %s, %s", testData, decrypted)
+	}
+}
+
+func TestGenerateKeyLegacy(t *testing.T) {
+	testData := "exampl@netbird.io"
+	key, err := GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %s", err)
+	}
+	ee, err := NewFieldEncrypt(key)
+	if err != nil {
+		t.Fatalf("failed to init email encryption: %s", err)
+	}
+
+	encrypted := ee.LegacyEncrypt(testData)
+	if encrypted == "" {
+		t.Fatalf("invalid encrypted text")
+	}
+
+	decrypted, err := ee.LegacyDecrypt(encrypted)
 	if err != nil {
 		t.Fatalf("failed to decrypt data: %s", err)
 	}
@@ -41,7 +71,11 @@ func TestCorruptKey(t *testing.T) {
 		t.Fatalf("failed to init email encryption: %s", err)
 	}
 
-	encrypted := ee.Encrypt(testData)
+	encrypted, err := ee.Encrypt(testData)
+	if err != nil {
+		t.Fatalf("failed to encrypt data: %s", err)
+	}
+
 	if encrypted == "" {
 		t.Fatalf("invalid encrypted text")
 	}
