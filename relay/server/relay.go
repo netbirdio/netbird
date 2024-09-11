@@ -13,7 +13,9 @@ import (
 
 	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/messages"
+	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/messages/address"
+	//nolint:staticcheck
 	authmsg "github.com/netbirdio/netbird/relay/messages/auth"
 	"github.com/netbirdio/netbird/relay/metrics"
 )
@@ -172,6 +174,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		peerID      []byte
 	)
 	switch msgType {
+	//nolint:staticcheck
 	case messages.MsgTypeHello:
 		peerID, responseMsg, err = r.handleHelloMsg(buf[messages.SizeOfProtoHeader:n], conn.RemoteAddr())
 	case messages.MsgTypeAuth:
@@ -192,6 +195,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 }
 
 func (r *Relay) handleHelloMsg(buf []byte, remoteAddr net.Addr) ([]byte, []byte, error) {
+	//nolint:staticcheck
 	rawPeerID, authData, err := messages.UnmarshalHelloMsg(buf)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unmarshal hello message: %w", err)
@@ -205,6 +209,7 @@ func (r *Relay) handleHelloMsg(buf []byte, remoteAddr net.Addr) ([]byte, []byte,
 		return nil, nil, fmt.Errorf("unmarshal auth message: %w", err)
 	}
 
+	//nolint:staticcheck
 	if err := r.validator.ValidateHelloMsgType(authMsg.AdditionalData); err != nil {
 		return nil, nil, fmt.Errorf("validate %s (%s): %w", peerID, remoteAddr, err)
 	}
@@ -215,6 +220,7 @@ func (r *Relay) handleHelloMsg(buf []byte, remoteAddr net.Addr) ([]byte, []byte,
 		return nil, nil, fmt.Errorf("marshal addressc to %s (%s): %w", peerID, remoteAddr, err)
 	}
 
+	//nolint:staticcheck
 	responseMsg, err := messages.MarshalHelloResponse(addrData)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal hello response to %s (%s): %w", peerID, remoteAddr, err)
