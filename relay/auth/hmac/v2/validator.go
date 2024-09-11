@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const minLengthUnixTimestamp = 10
+
 type Validator struct {
 	secret []byte
 }
@@ -27,6 +29,10 @@ func (v *Validator) Validate(data any) error {
 		return fmt.Errorf("unmarshal token: %w", err)
 	}
 
+	if len(token.Payload) < minLengthUnixTimestamp {
+		return errors.New("invalid payload: insufficient length")
+	}
+
 	hashFunc := token.AuthAlgo.New()
 	if hashFunc == nil {
 		return fmt.Errorf("unsupported auth algorithm: %s", token.AuthAlgo)
@@ -38,10 +44,6 @@ func (v *Validator) Validate(data any) error {
 
 	if !hmac.Equal(token.Signature, expectedMAC) {
 		return errors.New("invalid signature")
-	}
-
-	if len(token.Payload) < 8 {
-		return errors.New("invalid payload: insufficient length")
 	}
 
 	timestamp, err := strconv.ParseInt(string(token.Payload), 10, 64)
