@@ -232,7 +232,7 @@ require (
 	k8s.io/apimachinery v0.26.2 // indirect
 )
 
-replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20240904111318-17777758453a
+replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502
 
 replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20231030152038-ef1ed2a27949
 
