@@ -184,7 +184,7 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 	stringPeerID := messages.HashIDToString(peerID)
 	dp, ok := p.store.Peer(stringPeerID)
 	if !ok {
-		p.log.Errorf("peer not found: %s", stringPeerID)
+		p.log.Debugf("peer not found: %s", stringPeerID)
 		return
 	}
 
