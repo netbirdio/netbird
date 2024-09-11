@@ -103,7 +103,7 @@ func (m *Metrics) PeerActivity(peerID string) {
 	select {
 	case m.peerActivityChan <- peerID:
 	default:
-		log.Errorf("peer activity channel is full, dropping activity metrics for peer %s", peerID)
+		log.Tracef("peer activity channel is full, dropping activity metrics for peer %s", peerID)
 	}
 }
 
