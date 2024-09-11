@@ -234,6 +234,10 @@ func MarshalAuthResponse(address string) ([]byte, error) {
 
 	msg = append(msg, ab...)
 
+	if len(msg) > MaxHandshakeRespSize {
+		return nil, fmt.Errorf("invalid message length: %d", len(msg))
+	}
+
 	return msg, nil
 }
 
