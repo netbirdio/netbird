@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
+	"os"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -26,7 +26,7 @@ const (
 		"meta TEXT," +
 		" target_id TEXT);"
 
-	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, enc_algo TEXT NOT NULL);`
+	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT);`
 
 	selectDescQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
 		FROM events 
@@ -69,7 +69,7 @@ const (
 			and some selfhosted deployments might have duplicates already so we need to clean the table first.
 	*/
 
-	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name, enc_algo) VALUES(?, ?, ?, ?)`
+	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?)`
 
 	fallbackName  = "unknown"
 	fallbackEmail = "unknown@unknown.com"
@@ -89,9 +89,15 @@ type Store struct {
 }
 
 // NewSQLiteStore creates a new Store with an event table if not exists.
-func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
-	dbFile := filepath.Join(dataDir, eventSinkDB)
-	db, err := sql.Open("sqlite3", dbFile)
+func NewSQLiteStore(ctx context.Context, dbPath string, encryptionKey string) (*Store, error) {
+	//dbFile := filepath.Join(dataDir, eventSinkDB)
+	stats, err := os.Stat(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	_ = stats
+
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -102,10 +108,10 @@ func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (
 		return nil, err
 	}
 
-	if err = migrate(ctx, crypt, db); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("events database migration: %w", err)
-	}
+	//if err = migrate(ctx, crypt, db); err != nil {
+	//	_ = db.Close()
+	//	return nil, fmt.Errorf("events database migration: %w", err)
+	//}
 
 	return createStore(crypt, db)
 }
