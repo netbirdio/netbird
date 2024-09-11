@@ -1,3 +1,4 @@
+// Deprecated: This package is deprecated and will be removed in a future release.
 package address
 
 import (
@@ -17,14 +18,4 @@ func (addr *Address) Marshal() ([]byte, error) {
 		return nil, fmt.Errorf("encode Address: %w", err)
 	}
 	return buf.Bytes(), nil
-}
-
-func Unmarshal(data []byte) (*Address, error) {
-	var addr Address
-	buf := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(buf)
-	if err := dec.Decode(&addr); err != nil {
-		return nil, fmt.Errorf("decode Address: %w", err)
-	}
-	return &addr, nil
 }

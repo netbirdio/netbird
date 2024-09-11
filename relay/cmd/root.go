@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -16,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/encryption"
-	auth "github.com/netbirdio/netbird/relay/auth/hmac"
+	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/util"
@@ -139,7 +140,9 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 	srvListenerCfg.TLSConfig = tlsConfig
 
-	authenticator := auth.NewTimedHMACValidator(cobraConfig.AuthSecret, 24*time.Hour)
+	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
+	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
+
 	srv, err := server.NewServer(metricsServer.Meter, cobraConfig.ExposedAddress, tlsSupport, authenticator)
 	if err != nil {
 		log.Debugf("failed to create relay server: %v", err)
