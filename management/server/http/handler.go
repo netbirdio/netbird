@@ -115,6 +115,7 @@ func (apiHandler *apiHandler) addPeersEndpoint() {
 	apiHandler.Router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
+	apiHandler.Router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
 }
 
 func (apiHandler *apiHandler) addUsersEndpoint() {
