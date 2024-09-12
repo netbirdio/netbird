@@ -251,7 +251,7 @@ components:
         - name
         - ssh_enabled
         - login_expiration_enabled
-    PeerBase:
+    Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
         - type: object
@@ -378,25 +378,40 @@ components:
               description: User ID of the user that enrolled this peer
               type: string
               example: google-oauth2|277474792786460067937
+            os:
+              description: Peer's operating system and version
+              type: string
+              example: linux
+            country_code:
+              $ref: '#/components/schemas/CountryCode'
+            city_name:
+              $ref: '#/components/schemas/CityName'
+            geoname_id:
+              description: Unique identifier from the GeoNames database for a specific geographical location.
+              type: integer
+              example: 2643743
+            connected:
+              description: Peer to Management connection status
+              type: boolean
+              example: true
+            last_seen:
+              description: Last time peer connected to Netbird's management service
+              type: string
+              format: date-time
+              example: "2023-05-05T10:05:26.420578Z"
           required:
             - ip
             - dns_label
             - user_id
-    Peer:
-      allOf:
-        - $ref: '#/components/schemas/PeerBase'
-        - type: object
-          properties:
-            accessible_peers:
-              description: List of accessible peers
-              type: array
-              items:
-                $ref: '#/components/schemas/AccessiblePeer'
-          required:
-            - accessible_peers
+            - os
+            - country_code
+            - city_name
+            - geoname_id
+            - connected
+            - last_seen
     PeerBatch:
       allOf:
-        - $ref: '#/components/schemas/PeerBase'
+        - $ref: '#/components/schemas/Peer'
         - type: object
           properties:
             accessible_peers_count:
@@ -1798,6 +1813,38 @@ paths:
         '200':
           description: Delete status code
           content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/accessible-peers:
+    get:
+      summary: List accessible Peers
+      description: Returns a list of peers that the specified peer can connect to within the network.
+      tags: [ Peers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a peer
+      responses:
+        '200':
+          description: A JSON Array of Accessible Peers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AccessiblePeer'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
