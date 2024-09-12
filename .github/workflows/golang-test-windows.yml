@@ -23,7 +23,7 @@ jobs:
         uses: actions/setup-go@v5
         id: go
         with:
-          go-version: "1.21.x"
+          go-version: "1.23.x"
 
       - name: Download wintun
         uses: carlosperate/download-file-action@v2
