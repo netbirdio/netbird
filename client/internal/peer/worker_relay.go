@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	wgHandshakePeriod   = 2 * time.Minute
+	wgHandshakePeriod   = 3 * time.Minute
 	wgHandshakeOvertime = 30 * time.Second
 )
 
