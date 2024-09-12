@@ -1825,7 +1825,7 @@ paths:
     get:
       summary: List accessible Peers
       description: Returns a list of peers that the specified peer can connect to within the network.
-      tags: [ Accessible Peers ]
+      tags: [ Peers ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
