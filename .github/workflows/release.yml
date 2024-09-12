@@ -10,7 +10,7 @@ on:
 
 
 env:
-  SIGN_PIPE_VER: "v0.0.12"
+  SIGN_PIPE_VER: "v0.0.14"
   GORELEASER_VER: "v1.14.1"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "Wiretrustee UG (haftungsbeschreankt)"
@@ -36,18 +36,18 @@ jobs:
         run: echo "flags=--snapshot" >> $GITHUB_ENV
       -
         name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
       -
         name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.23"
           cache: false
       -
         name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/go/pkg/mod
@@ -93,28 +93,28 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       -
         name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release
           path: dist/
           retention-days: 3
       -
         name: upload linux packages
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-packages
           path: dist/netbird_linux**
           retention-days: 3
       -
         name: upload windows packages
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-packages
           path: dist/netbird_windows**
           retention-days: 3
       -
         name: upload macos packages
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-packages
           path: dist/netbird_darwin**
@@ -133,17 +133,17 @@ jobs:
       - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: echo "flags=--snapshot" >> $GITHUB_ENV
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.23"
           cache: false
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: | 
             ~/go/pkg/mod
@@ -176,7 +176,7 @@ jobs:
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       - name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release-ui
           path: dist/
@@ -189,18 +189,18 @@ jobs:
         run: echo "flags=--snapshot" >> $GITHUB_ENV
       -
         name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
       -
         name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.23"
           cache: false
       -
         name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/go/pkg/mod
@@ -225,35 +225,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       -
         name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release-ui-darwin
           path: dist/
           retention-days: 3
 
-  trigger_windows_signer:
+  trigger_signer:
     runs-on: ubuntu-latest
-    needs: [release,release_ui]
+    needs: [release,release_ui,release_ui_darwin]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Trigger Windows binaries sign pipeline
+      - name: Trigger binaries sign pipelines
         uses: benc-uk/workflow-dispatch@v1
         with:
-          workflow: Sign windows bin and installer
-          repo: netbirdio/sign-pipelines
-          ref: ${{ env.SIGN_PIPE_VER }}
-          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
-          inputs: '{ "tag": "${{ github.ref }}" }'
-
-  trigger_darwin_signer:
-    runs-on: ubuntu-latest
-    needs: [release,release_ui_darwin]
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Trigger Darwin App binaries sign pipeline
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: Sign darwin ui app with dispatch
+          workflow: Sign bin and installer
           repo: netbirdio/sign-pipelines
           ref: ${{ env.SIGN_PIPE_VER }}
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}

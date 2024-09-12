@@ -56,8 +56,9 @@ func (c *wgKernelConfigurer) updatePeer(peerKey string, allowedIps string, keepA
 		return err
 	}
 	peer := wgtypes.PeerConfig{
-		PublicKey:                   peerKeyParsed,
-		ReplaceAllowedIPs:           true,
+		PublicKey:         peerKeyParsed,
+		ReplaceAllowedIPs: false,
+		// don't replace allowed ips, wg will handle duplicated peer IP
 		AllowedIPs:                  []net.IPNet{*ipNet},
 		PersistentKeepaliveInterval: &keepAlive,
 		Endpoint:                    endpoint,

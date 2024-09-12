@@ -15,23 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Install Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.21.x"
+          go-version: "1.23.x"
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: 8512546
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: "11"
           distribution: "adopt"
       - name: NDK Cache
         id: ndk-cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /usr/local/lib/android/sdk/ndk
           key: ndk-cache-23.1.7779620
@@ -50,11 +50,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Install Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.21.x"
+          go-version: "1.23.x"
       - name: install gomobile
         run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20240404231514-09dbf07665ed
       - name: gomobile init

@@ -136,6 +136,12 @@ func (s *SqlStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (u
 
 func (s *SqlStore) SaveAccount(ctx context.Context, account *Account) error {
 	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if elapsed > 1*time.Second {
+			log.WithContext(ctx).Tracef("SaveAccount for account %s exceeded 1s, took: %v", account.Id, elapsed)
+		}
+	}()
 
 	// todo: remove this check after the issue is resolved
 	s.checkAccountDomainBeforeSave(ctx, account.Id, account.Domain)
@@ -514,6 +520,13 @@ func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*Account) {
 }
 
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if elapsed > 1*time.Second {
+			log.WithContext(ctx).Tracef("GetAccount for account %s exceeded 1s, took: %v", accountID, elapsed)
+		}
+	}()
 
 	var account Account
 	result := s.db.Model(&account).

@@ -581,8 +581,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 
 	if peer.UserID != "" {
-		log.Infof("Peer has no userID")
-
 		user, err := account.FindUser(peer.UserID)
 		if err != nil {
 			return nil, nil, nil, err
@@ -995,7 +993,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 
 			postureChecks := am.getPeerPostureChecks(account, p)
 			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
-			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
 		}(peer)
 	}

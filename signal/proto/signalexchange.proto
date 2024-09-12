@@ -60,6 +60,9 @@ message Body {
 
   // RosenpassConfig is a Rosenpass config of the remote peer our peer tries to connect to
   RosenpassConfig rosenpassConfig = 7;
+
+  // relayServerAddress is url of the relay server
+  string relayServerAddress = 8;
 }
 
 // Mode indicates a connection mode

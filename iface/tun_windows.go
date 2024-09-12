@@ -14,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 )
 
+const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
+
 type tunDevice struct {
 	name    string
 	address WGAddress
@@ -40,11 +42,24 @@ func newTunDevice(name string, address WGAddress, port int, key string, mtu int,
 	}
 }
 
+func getGUID() (windows.GUID, error) {
+	guidString := defaultWindowsGUIDSTring
+	if CustomWindowsGUIDString != "" {
+		guidString = CustomWindowsGUIDString
+	}
+	return windows.GUIDFromString(guidString)
+}
+
 func (t *tunDevice) Create() (wgConfigurer, error) {
-	log.Info("create tun interface")
-	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
+	guid, err := getGUID()
 	if err != nil {
+		log.Errorf("failed to get GUID: %s", err)
 		return nil, err
+	}
+	log.Info("create tun interface")
+	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, t.mtu)
+	if err != nil {
+		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
 	t.nativeTunDevice = tunDevice.(*tun.NativeTun)
 	t.wrapper = newDeviceWrapper(tunDevice)
@@ -74,7 +89,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	err = t.assignAddr()
 	if err != nil {
 		t.device.Close()
-		return nil, err
+		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
 	t.configurer = newWGUSPConfigurer(t.device, t.name)
@@ -82,7 +97,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	if err != nil {
 		t.device.Close()
 		t.configurer.close()
-		return nil, err
+		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 	return t.configurer, nil
 }

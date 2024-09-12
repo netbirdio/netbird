@@ -81,7 +81,9 @@ services:
     - traefik.http.routers.netbird-management.service=netbird-management
     - traefik.http.services.netbird-management.loadbalancer.server.port=443
     - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
-
+    environment:
+      - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
+      
   # Coturn
   coturn:
     image: coturn/coturn:$COTURN_TAG
