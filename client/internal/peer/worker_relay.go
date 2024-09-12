@@ -157,32 +157,41 @@ func (w *WorkerRelay) CloseConn() {
 	}
 }
 
-// wgStateCheck help to check the state of the wireguard handshake and relay connection
+// wgStateCheck help to check the state of the WireGuard handshake and relay connection
 func (w *WorkerRelay) wgStateCheck(ctx context.Context) {
 	timer := time.NewTimer(wgHandshakeOvertime)
 	defer timer.Stop()
-	expected := wgHandshakeOvertime
+
+	lastHandshake, err := w.wgState()
+	if err != nil {
+		w.log.Errorf("failed to read wg stats: %v", err)
+	}
+
 	for {
 		select {
 		case <-timer.C:
-			lastHandshake, err := w.wgState()
+
+			handshake, err := w.wgState()
 			if err != nil {
 				w.log.Errorf("failed to read wg stats: %v", err)
+				timer.Reset(wgHandshakeOvertime)
 				continue
 			}
-			w.log.Tracef("last handshake: %v", lastHandshake)
 
-			if time.Since(lastHandshake) > expected {
-				w.log.Infof("Wireguard handshake timed out, closing relay connection")
+			w.log.Tracef("previous handshake, current last handshake: %v, %v", lastHandshake, handshake)
+
+			if handshake.Equal(lastHandshake) {
+				w.log.Infof("WireGuard handshake timed out, closing relay connection: %v", handshake)
 				w.relayLock.Lock()
 				_ = w.relayedConn.Close()
 				w.relayLock.Unlock()
 				w.callBacks.OnDisconnected()
 				return
 			}
-			resetTime := time.Until(lastHandshake.Add(wgHandshakePeriod + wgHandshakeOvertime))
+
+			resetTime := time.Until(handshake.Add(wgHandshakePeriod + wgHandshakeOvertime))
+			lastHandshake = handshake
 			timer.Reset(resetTime)
-			expected = wgHandshakePeriod
 		case <-ctx.Done():
 			w.log.Debugf("WireGuard watcher stopped")
 			return
