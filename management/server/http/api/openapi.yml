@@ -1823,7 +1823,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/peers/{peerId}/accessible-peers:
     get:
-      summary: List of accessible peers
+      summary: List accessible Peers
       description: Returns a list of peers that the specified peer can connect to within the network.
       tags: [ Accessible Peers ]
       security:
