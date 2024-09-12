@@ -108,7 +108,7 @@ func (registry *Registry) Deregister(peer *Peer) {
 				peer.Id, pp.StreamID, peer.StreamID)
 			return
 		}
-		registry.metrics.ActivePeers.Add(context.Background(), 1)
+		registry.metrics.ActivePeers.Add(context.Background(), -1)
 		log.Debugf("peer deregistered [%s]", peer.Id)
 		registry.metrics.Deregistrations.Add(context.Background(), 1)
 	}
