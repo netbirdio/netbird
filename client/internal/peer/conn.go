@@ -484,11 +484,11 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	// switch back to relay connection
 	if conn.endpointRelay != nil && conn.currentConnPriority != connPriorityRelay {
 		conn.log.Debugf("ICE disconnected, set Relay to active connection")
+		conn.workerRelay.EnableWgWatcher(conn.ctx)
 		err := conn.configureWGEndpoint(conn.endpointRelay)
 		if err != nil {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
-		conn.workerRelay.EnableWgWatcher(conn.ctx)
 		conn.currentConnPriority = connPriorityRelay
 	}
 
@@ -551,6 +551,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		}
 	}
 
+	conn.workerRelay.EnableWgWatcher(conn.ctx)
 	err = conn.configureWGEndpoint(endpointUdpAddr)
 	if err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
@@ -560,7 +561,6 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 	wgConfigWorkaround()
-	conn.workerRelay.EnableWgWatcher(conn.ctx)
 
 	if conn.wgProxyRelay != nil {
 		if err := conn.wgProxyRelay.CloseConn(); err != nil {
