@@ -232,7 +232,7 @@ func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request
 
 	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
-		log.WithContext(r.Context()).Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
 		return
 	}
