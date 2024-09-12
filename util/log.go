@@ -55,9 +55,11 @@ func getLogMaxSize() int {
 	if sizeVar, ok := os.LookupEnv("NB_LOG_MAX_SIZE_MB"); ok {
 		size, err := strconv.ParseInt(sizeVar, 10, 64)
 		if err != nil {
-			log.Errorf("Failed parsing log-size %s: %s", sizeVar, err)
+			log.Errorf("Failed parsing log-size %s: %s. Should be just an integer", sizeVar, err)
 			return defaultLogSize
 		}
+
+		log.Infof("Setting log file max size to %d MB", size)
 
 		return int(size)
 	}
