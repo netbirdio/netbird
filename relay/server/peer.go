@@ -115,6 +115,7 @@ func (p *Peer) Write(b []byte) (int, error) {
 // connection.
 func (p *Peer) CloseGracefully(ctx context.Context) {
 	p.connMu.Lock()
+	defer p.connMu.Unlock()
 	err := p.writeWithTimeout(ctx, messages.MarshalCloseMsg())
 	if err != nil {
 		p.log.Errorf("failed to send close message to peer: %s", p.String())
@@ -124,8 +125,15 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 	if err != nil {
 		p.log.Errorf("failed to close connection to peer: %s", err)
 	}
+}
 
+func (p *Peer) Close() {
+	p.connMu.Lock()
 	defer p.connMu.Unlock()
+
+	if err := p.conn.Close(); err != nil {
+		p.log.Errorf("failed to close connection to peer: %s", err)
+	}
 }
 
 // String returns the peer ID

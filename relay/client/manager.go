@@ -3,7 +3,6 @@ package client
 import (
 	"container/list"
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -18,7 +17,6 @@ import (
 var (
 	relayCleanupInterval = 60 * time.Second
 	connectionTimeout    = 30 * time.Second
-	maxConcurrentServers = 7
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
@@ -92,67 +90,26 @@ func (m *Manager) Serve() error {
 	}
 	log.Debugf("starting relay client manager with %v relay servers", m.serverURLs)
 
-	totalServers := len(m.serverURLs)
-
-	successChan := make(chan *Client, 1)
-	errChan := make(chan error, len(m.serverURLs))
-
 	ctx, cancel := context.WithTimeout(m.ctx, connectionTimeout)
 	defer cancel()
 
-	sem := make(chan struct{}, maxConcurrentServers)
-
-	for _, url := range m.serverURLs {
-		sem <- struct{}{}
-		go func(url string) {
-			defer func() { <-sem }()
-			m.connect(m.ctx, url, successChan, errChan)
-		}(url)
+	sp := ServerPicker{
+		TokenStore: m.tokenStore,
+		PeerID:     m.peerID,
 	}
 
-	var errCount int
-
-	for {
-		select {
-		case client := <-successChan:
-			log.Infof("Successfully connected to relay server: %s", client.connectionURL)
-
-			m.relayClient = client
-
-			m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
-			m.relayClient.SetOnDisconnectListener(func() {
-				m.onServerDisconnected(client.connectionURL)
-			})
-			m.startCleanupLoop()
-			return nil
-		case err := <-errChan:
-			errCount++
-			log.Warnf("Connection attempt failed: %v", err)
-			if errCount == totalServers {
-				return errors.New("failed to connect to any relay server: all attempts failed")
-			}
-		case <-ctx.Done():
-			return fmt.Errorf("failed to connect to any relay server: %w", ctx.Err())
-		}
+	client, err := sp.PickServer(ctx, m.serverURLs)
+	if err != nil {
+		return err
 	}
-}
+	m.relayClient = client
 
-func (m *Manager) connect(ctx context.Context, serverURL string, successChan chan<- *Client, errChan chan<- error) {
-	// TODO: abort the connection if another connection was successful
-	relayClient := NewClient(ctx, serverURL, m.tokenStore, m.peerID)
-	if err := relayClient.Connect(); err != nil {
-		errChan <- fmt.Errorf("failed to connect to %s: %w", serverURL, err)
-		return
-	}
-
-	select {
-	case successChan <- relayClient:
-		// This client was the first to connect successfully
-	default:
-		if err := relayClient.Close(); err != nil {
-			log.Debugf("failed to close relay client: %s", err)
-		}
-	}
+	m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
+	m.relayClient.SetOnDisconnectListener(func() {
+		m.onServerDisconnected(client.connectionURL)
+	})
+	m.startCleanupLoop()
+	return nil
 }
 
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
