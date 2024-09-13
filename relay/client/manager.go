@@ -16,7 +16,6 @@ import (
 
 var (
 	relayCleanupInterval = 60 * time.Second
-	connectionTimeout    = 30 * time.Second
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
@@ -90,15 +89,12 @@ func (m *Manager) Serve() error {
 	}
 	log.Debugf("starting relay client manager with %v relay servers", m.serverURLs)
 
-	ctx, cancel := context.WithTimeout(m.ctx, connectionTimeout)
-	defer cancel()
-
 	sp := ServerPicker{
 		TokenStore: m.tokenStore,
 		PeerID:     m.peerID,
 	}
 
-	client, err := sp.PickServer(ctx, m.serverURLs)
+	client, err := sp.PickServer(m.ctx, m.serverURLs)
 	if err != nil {
 		return err
 	}

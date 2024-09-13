@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -11,6 +12,7 @@ import (
 )
 
 const (
+	connectionTimeout    = 30 * time.Second
 	maxConcurrentServers = 7
 )
 
@@ -25,7 +27,10 @@ type ServerPicker struct {
 	PeerID     string
 }
 
-func (sp *ServerPicker) PickServer(ctx context.Context, urls []string) (*Client, error) {
+func (sp *ServerPicker) PickServer(parentCtx context.Context, urls []string) (*Client, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, connectionTimeout)
+	defer cancel()
+
 	totalServers := len(urls)
 
 	connResultChan := make(chan connResult, totalServers)
@@ -36,7 +41,7 @@ func (sp *ServerPicker) PickServer(ctx context.Context, urls []string) (*Client,
 		concurrentLimiter <- struct{}{}
 		go func(url string) {
 			defer func() { <-concurrentLimiter }()
-			sp.startConnection(ctx, connResultChan, url)
+			sp.startConnection(parentCtx, connResultChan, url)
 		}(url)
 	}
 
@@ -55,6 +60,7 @@ func (sp *ServerPicker) PickServer(ctx context.Context, urls []string) (*Client,
 }
 
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
+	log.Infof("try to connecting to relay server: %s", url)
 	relayClient := NewClient(ctx, url, sp.TokenStore, sp.PeerID)
 	err := relayClient.Connect()
 	resultChan <- connResult{
