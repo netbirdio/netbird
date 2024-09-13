@@ -158,6 +158,7 @@ func (c *ConnectClient) run(
 	}
 
 	defer c.statusRecorder.ClientStop()
+	runningChanOpen := true
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		if c.isContextCancelled() {
@@ -267,6 +268,12 @@ func (c *ConnectClient) run(
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
+		if c.engine != nil && c.engine.ctx.Err() != nil {
+			log.Info("Stopping Netbird Engine")
+			if err := c.engine.Stop(); err != nil {
+				log.Errorf("Failed to stop engine: %v", err)
+			}
+		}
 		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
 
 		c.engineMutex.Unlock()
@@ -279,9 +286,10 @@ func (c *ConnectClient) run(
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
-		if runningChan != nil {
+		if runningChan != nil && runningChanOpen {
 			runningChan <- nil
 			close(runningChan)
+			runningChanOpen = false
 		}
 
 		<-engineCtx.Done()
