@@ -121,7 +121,7 @@ type Client struct {
 func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
 	hashedID, hashedStringId := messages.HashID(peerID)
 	return &Client{
-		log:            log.WithField("client_id", hashedStringId),
+		log:            log.WithFields(log.Fields{"client_id": hashedStringId, "relay": serverURL}),
 		parentCtx:      ctx,
 		connectionURL:  serverURL,
 		authTokenStore: authTokenStore,
@@ -138,7 +138,7 @@ func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.Token
 
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect() error {
-	c.log.Infof("connecting to relay server: %s", c.connectionURL)
+	c.log.Infof("connecting to relay server")
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
 
@@ -159,7 +159,7 @@ func (c *Client) Connect() error {
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
 
-	c.log.Infof("relay connection established with: %s", c.connectionURL)
+	c.log.Infof("relay connection established")
 	return nil
 }
 
@@ -181,7 +181,7 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 		return nil, ErrConnAlreadyExists
 	}
 
-	log.Infof("open connection to peer: %s", hashedStringID)
+	c.log.Infof("open connection to peer: %s", hashedStringID)
 	msgChannel := make(chan Msg, 2)
 	conn := NewConn(c, hashedID, hashedStringID, msgChannel, c.instanceURL)
 
@@ -252,7 +252,7 @@ func (c *Client) handShake() error {
 	buf := make([]byte, messages.MaxHandshakeRespSize)
 	n, err := c.readWithTimeout(buf)
 	if err != nil {
-		log.Errorf("failed to read auth response: %s", err)
+		c.log.Errorf("failed to read auth response: %s", err)
 		return err
 	}
 
@@ -263,12 +263,12 @@ func (c *Client) handShake() error {
 
 	msgType, err := messages.DetermineServerMessageType(buf[messages.SizeOfVersionByte:n])
 	if err != nil {
-		log.Errorf("failed to determine message type: %s", err)
+		c.log.Errorf("failed to determine message type: %s", err)
 		return err
 	}
 
 	if msgType != messages.MsgTypeAuthResponse {
-		log.Errorf("unexpected message type: %s", msgType)
+		c.log.Errorf("unexpected message type: %s", msgType)
 		return fmt.Errorf("unexpected message type")
 	}
 
@@ -297,6 +297,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 		buf := *bufPtr
 		n, errExit = relayConn.Read(buf)
 		if errExit != nil {
+			c.log.Infof("start to Relay read loop exit")
 			c.mu.Lock()
 			if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
 				c.log.Debugf("failed to read message from relay server: %s", errExit)
@@ -412,14 +413,14 @@ func (c *Client) writeTo(connReference *Conn, id string, dstID []byte, payload [
 	// todo: use buffer pool instead of create new transport msg.
 	msg, err := messages.MarshalTransportMsg(dstID, payload)
 	if err != nil {
-		log.Errorf("failed to marshal transport message: %s", err)
+		c.log.Errorf("failed to marshal transport message: %s", err)
 		return 0, err
 	}
 
 	// the write always return with 0 length because the underling does not support the size feedback.
 	_, err = c.relayConn.Write(msg)
 	if err != nil {
-		log.Errorf("failed to write transport message: %s", err)
+		c.log.Errorf("failed to write transport message: %s", err)
 	}
 	return len(payload), err
 }
@@ -482,6 +483,7 @@ func (c *Client) close(gracefullyExit bool) error {
 	}
 
 	c.serviceIsRunning = false
+	c.log.Infof("closing all peer connections")
 	c.closeAllConns()
 	if gracefullyExit {
 		c.writeCloseMsg()
@@ -489,8 +491,9 @@ func (c *Client) close(gracefullyExit bool) error {
 	err = c.relayConn.Close()
 	c.mu.Unlock()
 
+	c.log.Infof("waiting for read loop to close")
 	c.wgReadLoop.Wait()
-	c.log.Infof("relay connection closed with: %s", c.connectionURL)
+	c.log.Infof("relay connection closed")
 	return err
 }
 
