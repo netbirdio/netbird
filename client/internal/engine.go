@@ -1115,10 +1115,7 @@ func (e *Engine) close() {
 	}
 
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	if e.dnsServer != nil {
-		e.dnsServer.Stop()
-		e.dnsServer = nil
-	}
+	e.stopDNSServer()
 
 	if e.routeManager != nil {
 		e.routeManager.Stop()
@@ -1360,12 +1357,16 @@ func (e *Engine) probeTURNs() []relay.ProbeResult {
 }
 
 func (e *Engine) restartEngine() {
+	log.Info("restarting engine")
+	CtxGetState(e.ctx).Set(StatusConnecting)
+
 	if err := e.Stop(); err != nil {
 		log.Errorf("Failed to stop engine: %v", err)
 	}
-	if err := e.Start(); err != nil {
-		log.Errorf("Failed to start engine: %v", err)
-	}
+
+	_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+	log.Infof("cancelling client, engine will be recreated")
+	e.clientCancel()
 }
 
 func (e *Engine) startNetworkMonitor() {
@@ -1387,6 +1388,7 @@ func (e *Engine) startNetworkMonitor() {
 			defer mu.Unlock()
 
 			if debounceTimer != nil {
+				log.Infof("Network monitor: detected network change, reset debounceTimer")
 				debounceTimer.Stop()
 			}
 
@@ -1396,7 +1398,7 @@ func (e *Engine) startNetworkMonitor() {
 				mu.Lock()
 				defer mu.Unlock()
 
-				log.Infof("Network monitor detected network change, restarting engine")
+				log.Infof("Network monitor: detected network change, restarting engine")
 				e.restartEngine()
 			})
 		})
@@ -1419,6 +1421,20 @@ func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 	}
 
 	return false, netip.Prefix{}, nil
+}
+
+func (e *Engine) stopDNSServer() {
+	err := fmt.Errorf("DNS server stopped")
+	nsGroupStates := e.statusRecorder.GetDNSStates()
+	for i := range nsGroupStates {
+		nsGroupStates[i].Enabled = false
+		nsGroupStates[i].Error = err
+	}
+	e.statusRecorder.UpdateDNSStates(nsGroupStates)
+	if e.dnsServer != nil {
+		e.dnsServer.Stop()
+		e.dnsServer = nil
+	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.
