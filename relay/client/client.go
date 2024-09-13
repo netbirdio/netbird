@@ -63,32 +63,53 @@ type connContainer struct {
 	messages    chan Msg
 	msgChanLock sync.Mutex
 	closed      bool // flag to check if channel is closed
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 func newConnContainer(conn *Conn, messages chan Msg) *connContainer {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &connContainer{
 		conn:     conn,
 		messages: messages,
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 }
 
 func (cc *connContainer) writeMsg(msg Msg) {
 	cc.msgChanLock.Lock()
 	defer cc.msgChanLock.Unlock()
+
 	if cc.closed {
+		msg.Free()
 		return
 	}
-	cc.messages <- msg
+
+	select {
+	case cc.messages <- msg:
+	case <-cc.ctx.Done():
+		msg.Free()
+	}
 }
 
 func (cc *connContainer) close() {
+	cc.cancel()
+
 	cc.msgChanLock.Lock()
 	defer cc.msgChanLock.Unlock()
+
 	if cc.closed {
 		return
 	}
-	close(cc.messages)
+
 	cc.closed = true
+	close(cc.messages)
+
+	for msg := range cc.messages {
+		msg.Free()
+	}
 }
 
 // Client is a client for the relay server. It is responsible for establishing a connection to the relay server and
@@ -464,8 +485,8 @@ func (c *Client) closeConn(connReference *Conn, id string) error {
 	if container.conn != connReference {
 		return fmt.Errorf("conn reference mismatch")
 	}
-	container.close()
 	delete(c.conns, id)
+	container.close()
 
 	return nil
 }
