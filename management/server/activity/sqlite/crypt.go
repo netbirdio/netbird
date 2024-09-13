@@ -119,7 +119,7 @@ func pkcs5Padding(ciphertext []byte) []byte {
 func pkcs5UnPadding(src []byte) ([]byte, error) {
 	srcLen := len(src)
 	paddingLen := int(src[srcLen-1])
-	if paddingLen >= srcLen || paddingLen > aes.BlockSize {
+	if paddingLen > aes.BlockSize {
 		return nil, fmt.Errorf("padding size error")
 	}
 	return src[:srcLen-paddingLen], nil
