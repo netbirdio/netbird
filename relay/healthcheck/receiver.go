@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	heartbeatTimeout = healthCheckInterval + 3*time.Second
+	heartbeatTimeout = healthCheckInterval + 10*time.Second
 )
 
 // Receiver is a healthcheck receiver
