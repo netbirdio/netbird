@@ -618,6 +618,87 @@ func TestCloseByClient(t *testing.T) {
 	}
 }
 
+func TestCloseNotDrainedChannel(t *testing.T) {
+	ctx := context.Background()
+	idAlice := "alice"
+	idBob := "bob"
+	srvCfg := server.ListenerConfig{Address: serverListenAddr}
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
+	errChan := make(chan error, 1)
+	go func() {
+		err := srv.Listen(srvCfg)
+		if err != nil {
+			errChan <- err
+		}
+	}()
+
+	defer func() {
+		err := srv.Shutdown(ctx)
+		if err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	// wait for servers to start
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
+	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
+	err = clientAlice.Connect()
+	if err != nil {
+		t.Fatalf("failed to connect to server: %s", err)
+	}
+	defer func() {
+		err := clientAlice.Close()
+		if err != nil {
+			t.Errorf("failed to close Alice client: %s", err)
+		}
+	}()
+
+	clientBob := NewClient(ctx, serverURL, hmacTokenStore, idBob)
+	err = clientBob.Connect()
+	if err != nil {
+		t.Fatalf("failed to connect to server: %s", err)
+	}
+	defer func() {
+		err := clientBob.Close()
+		if err != nil {
+			t.Errorf("failed to close Bob client: %s", err)
+		}
+	}()
+
+	connAliceToBob, err := clientAlice.OpenConn(idBob)
+	if err != nil {
+		t.Fatalf("failed to bind channel: %s", err)
+	}
+
+	connBobToAlice, err := clientBob.OpenConn(idAlice)
+	if err != nil {
+		t.Fatalf("failed to bind channel: %s", err)
+	}
+
+	payload := "hello bob, I am alice"
+	// the internal channel buffer size is 2. So we should overflow it
+	for i := 0; i < 5; i++ {
+		_, err = connAliceToBob.Write([]byte(payload))
+		if err != nil {
+			t.Fatalf("failed to write to channel: %s", err)
+		}
+
+	}
+
+	// wait for delivery
+	time.Sleep(1 * time.Second)
+	err = connBobToAlice.Close()
+	if err != nil {
+		t.Errorf("failed to close channel: %s", err)
+	}
+}
+
 func waitForServerToStart(errChan chan error) error {
 	select {
 	case err := <-errChan:
