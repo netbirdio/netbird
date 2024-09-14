@@ -7,7 +7,7 @@ import (
 
 var (
 	healthCheckInterval = 25 * time.Second
-	healthCheckTimeout  = 5 * time.Second
+	healthCheckTimeout  = 20 * time.Second
 )
 
 // Sender is a healthcheck sender
