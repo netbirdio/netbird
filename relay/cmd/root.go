@@ -23,15 +23,12 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-const (
-	metricsPort = 9090
-)
-
 type Config struct {
 	ListenAddress string
 	// in HA every peer connect to a common domain, the instance domain has been distributed during the p2p connection
 	// it is a domain:port or ip:port
 	ExposedAddress     string
+	MetricsPort        int
 	LetsencryptEmail   string
 	LetsencryptDataDir string
 	LetsencryptDomains []string
@@ -80,6 +77,7 @@ func init() {
 	cobraConfig = &Config{}
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ListenAddress, "listen-address", "l", ":443", "listen address")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ExposedAddress, "exposed-address", "e", "", "instance domain address (or ip) and port, it will be distributes between peers")
+	rootCmd.PersistentFlags().IntVar(&cobraConfig.MetricsPort, "metrics-port", 9090, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.LetsencryptDataDir, "letsencrypt-data-dir", "d", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
 	rootCmd.PersistentFlags().StringSliceVarP(&cobraConfig.LetsencryptDomains, "letsencrypt-domains", "a", nil, "list of domains to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
@@ -116,7 +114,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize log: %s", err)
 	}
 
-	metricsServer, err := metrics.NewServer(metricsPort, "")
+	metricsServer, err := metrics.NewServer(cobraConfig.MetricsPort, "")
 	if err != nil {
 		log.Debugf("setup metrics: %v", err)
 		return fmt.Errorf("setup metrics: %v", err)
