@@ -229,7 +229,7 @@ func (c *Client) connect() error {
 	if err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
-			log.Errorf("failed to close connection: %s", cErr)
+			c.log.Errorf("failed to close connection: %s", cErr)
 		}
 		return err
 	}
@@ -240,13 +240,13 @@ func (c *Client) connect() error {
 func (c *Client) handShake() error {
 	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
 	if err != nil {
-		log.Errorf("failed to marshal auth message: %s", err)
+		c.log.Errorf("failed to marshal auth message: %s", err)
 		return err
 	}
 
 	_, err = c.relayConn.Write(msg)
 	if err != nil {
-		log.Errorf("failed to send auth message: %s", err)
+		c.log.Errorf("failed to send auth message: %s", err)
 		return err
 	}
 	buf := make([]byte, messages.MaxHandshakeRespSize)
@@ -344,7 +344,7 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
 	case messages.MsgTypeClose:
-		log.Debugf("relay connection close by server")
+		c.log.Debugf("relay connection close by server")
 		c.bufPool.Put(bufPtr)
 		return false
 	}
@@ -439,7 +439,7 @@ func (c *Client) listenForStopEvents(hc *healthcheck.Receiver, conn net.Conn, in
 		case <-c.parentCtx.Done():
 			err := c.close(true)
 			if err != nil {
-				log.Errorf("failed to teardown connection: %s", err)
+				c.log.Errorf("failed to teardown connection: %s", err)
 			}
 			return
 		}
@@ -479,6 +479,7 @@ func (c *Client) close(gracefullyExit bool) error {
 	var err error
 	if !c.serviceIsRunning {
 		c.mu.Unlock()
+		c.log.Warn("relay connection was already marked as not running")
 		return nil
 	}
 
