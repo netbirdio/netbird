@@ -293,8 +293,10 @@ func TestPKCS5UnPadding(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := pkcs5UnPadding(tt.input)
-			if tt.expectError && err == nil {
-				t.Errorf("Expected error but got nil")
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got nil")
+				}
 			} else {
 				if err != nil {
 					t.Errorf("Did not expect error but got: %v", err)
