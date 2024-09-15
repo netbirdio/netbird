@@ -175,6 +175,7 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 			if err != nil {
 				p.log.Errorf("failed to close connection to peer: %s", err)
 			}
+			p.log.Info("peer connection closed due healthcheck timeout")
 			return
 		case <-ctx.Done():
 			return
