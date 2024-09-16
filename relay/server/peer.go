@@ -49,7 +49,7 @@ func (p *Peer) Work() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	hc := healthcheck.NewSender()
+	hc := healthcheck.NewSender(p.log)
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
 

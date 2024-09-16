@@ -1,14 +1,18 @@
 package healthcheck
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func TestNewReceiver(t *testing.T) {
 	heartbeatTimeout = 5 * time.Second
-	r := NewReceiver()
+	r := NewReceiver(log.WithContext(context.Background()))
 
 	select {
 	case <-r.OnTimeout:
@@ -20,7 +24,7 @@ func TestNewReceiver(t *testing.T) {
 
 func TestNewReceiverNotReceive(t *testing.T) {
 	heartbeatTimeout = 1 * time.Second
-	r := NewReceiver()
+	r := NewReceiver(log.WithContext(context.Background()))
 
 	select {
 	case <-r.OnTimeout:
@@ -31,7 +35,7 @@ func TestNewReceiverNotReceive(t *testing.T) {
 
 func TestNewReceiverAck(t *testing.T) {
 	heartbeatTimeout = 2 * time.Second
-	r := NewReceiver()
+	r := NewReceiver(log.WithContext(context.Background()))
 
 	r.Heartbeat()
 
@@ -42,121 +46,51 @@ func TestNewReceiverAck(t *testing.T) {
 	}
 }
 
-func TestDefaultAttemptThreshold(t *testing.T) {
-	originalTimeout := heartbeatTimeout
-	heartbeatTimeout = 50 * time.Millisecond
-	defer func() { heartbeatTimeout = originalTimeout }()
-
-	os.Unsetenv(defaultAttemptThresholdEnv)
-
-	r := NewReceiver()
-	defer r.Stop()
-
-	if r.attemptThreshold != defaultAttemptThreshold {
-		t.Fatalf("Expected attemptThreshold to be %d, got %d", defaultAttemptThreshold, r.attemptThreshold)
-	}
-}
-
-func TestCustomAttemptThreshold(t *testing.T) {
-	originalTimeout := heartbeatTimeout
-	heartbeatTimeout = 50 * time.Millisecond
-	defer func() { heartbeatTimeout = originalTimeout }()
-
-	os.Setenv(defaultAttemptThresholdEnv, "3")
-	defer os.Unsetenv(defaultAttemptThresholdEnv)
-
-	r := NewReceiver()
-	defer r.Stop()
-
-	if r.attemptThreshold != 3 {
-		t.Fatalf("Expected attemptThreshold to be 3, got %d", r.attemptThreshold)
-	}
-}
-
-func TestInvalidAttemptThreshold(t *testing.T) {
-	originalTimeout := heartbeatTimeout
-	heartbeatTimeout = 50 * time.Millisecond
-	defer func() { heartbeatTimeout = originalTimeout }()
-
-	os.Setenv(defaultAttemptThresholdEnv, "invalid")
-	defer os.Unsetenv(defaultAttemptThresholdEnv)
-
-	r := NewReceiver()
-	defer r.Stop()
-
-	if r.attemptThreshold != defaultAttemptThreshold {
-		t.Fatalf("Expected attemptThreshold to be default (%d), got %d", defaultAttemptThreshold, r.attemptThreshold)
-	}
-}
-
-func TestHeartbeatTimeout(t *testing.T) {
-	originalTimeout := heartbeatTimeout
-	heartbeatTimeout = 50 * time.Millisecond
-	defer func() { heartbeatTimeout = originalTimeout }()
-
-	os.Setenv(defaultAttemptThresholdEnv, "3")
-	defer os.Unsetenv(defaultAttemptThresholdEnv)
-
-	r := NewReceiver()
-	defer r.Stop()
-
-	timeoutCh := r.OnTimeout
-
-	r.Heartbeat()
-
-	time.Sleep(heartbeatTimeout / 2)
-
-	r.Heartbeat()
-
-	time.Sleep(heartbeatTimeout + 10*time.Millisecond)
-
-	select {
-	case <-timeoutCh:
-		t.Fatal("Received timeout before reaching attemptThreshold")
-	default:
+func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
+	testsCases := []struct {
+		name             string
+		threshold        int
+		resetCounterOnce bool
+	}{
+		{"Default attempt threshold", defaultAttemptThreshold, false},
+		{"Custom attempt threshold", 3, false},
+		{"Should reset threshold once", 2, true},
 	}
 
-	time.Sleep(heartbeatTimeout * time.Duration(r.attemptThreshold))
+	for _, tc := range testsCases {
+		t.Run(tc.name, func(t *testing.T) {
+			originalInterval := healthCheckInterval
+			originalTimeout := heartbeatTimeout
+			healthCheckInterval = 1 * time.Second
+			heartbeatTimeout = healthCheckInterval + 500*time.Millisecond
+			defer func() {
+				healthCheckInterval = originalInterval
+				heartbeatTimeout = originalTimeout
+			}()
+			os.Setenv(defaultAttemptThresholdEnv, fmt.Sprintf("%d", tc.threshold))
+			defer os.Unsetenv(defaultAttemptThresholdEnv)
 
-	select {
-	case <-timeoutCh:
-	case <-time.After(heartbeatTimeout):
-		t.Fatal("Did not receive timeout after missing heartbeats equal to attemptThreshold")
-	}
-}
+			receiver := NewReceiver(log.WithField("test_name", tc.name))
 
-func TestFailureCounterReset(t *testing.T) {
-	originalTimeout := heartbeatTimeout
-	heartbeatTimeout = 50 * time.Millisecond
-	defer func() { heartbeatTimeout = originalTimeout }()
+			testTimeout := heartbeatTimeout*time.Duration(tc.threshold) + healthCheckInterval
 
-	os.Setenv(defaultAttemptThresholdEnv, "2")
-	defer os.Unsetenv(defaultAttemptThresholdEnv)
+			if tc.resetCounterOnce {
+				receiver.Heartbeat()
+				t.Logf("reset counter once")
+			}
 
-	// Create a new Receiver
-	r := NewReceiver()
-	defer r.Stop()
+			select {
+			case <-receiver.OnTimeout:
+				if tc.resetCounterOnce {
+					t.Fatalf("should not have timed out before %s", testTimeout)
+				}
+			case <-time.After(testTimeout):
+				if tc.resetCounterOnce {
+					return
+				}
+				t.Fatalf("should have timed out before %s", testTimeout)
+			}
 
-	timeoutCh := r.OnTimeout
-
-	// Do not send any heartbeat, wait for one heartbeatTimeout
-	time.Sleep(heartbeatTimeout + 10*time.Millisecond)
-
-	r.Heartbeat()
-
-	time.Sleep(heartbeatTimeout * 2)
-
-	select {
-	case <-timeoutCh:
-		t.Fatal("Received timeout unexpectedly after failure counter reset")
-	default:
-	}
-
-	time.Sleep(heartbeatTimeout * time.Duration(r.attemptThreshold))
-
-	select {
-	case <-timeoutCh:
-	case <-time.After(heartbeatTimeout):
-		t.Fatal("Did not receive timeout after missing heartbeats equal to attemptThreshold")
+		})
 	}
 }

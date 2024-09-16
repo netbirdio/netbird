@@ -306,7 +306,7 @@ func (c *Client) handShake() error {
 
 func (c *Client) readLoop(relayConn net.Conn) {
 	internallyStoppedFlag := newInternalStopFlag()
-	hc := healthcheck.NewReceiver()
+	hc := healthcheck.NewReceiver(c.log)
 	go c.listenForStopEvents(hc, relayConn, internallyStoppedFlag)
 
 	var (
