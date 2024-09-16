@@ -31,6 +31,7 @@ type Sender struct {
 	Timeout chan struct{}
 
 	ack              chan struct{}
+	alive            bool
 	attemptThreshold int
 }
 
@@ -59,8 +60,8 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	ticker := time.NewTicker(healthCheckInterval)
 	defer ticker.Stop()
 
-	timeoutTimer := time.NewTimer(hc.getTimeoutTime())
-	defer timeoutTimer.Stop()
+	timeoutTicker := time.NewTicker(hc.getTimeoutTime())
+	defer timeoutTicker.Stop()
 
 	defer close(hc.HealthCheck)
 	defer close(hc.Timeout)
@@ -70,18 +71,22 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			hc.HealthCheck <- struct{}{}
-		case <-timeoutTimer.C:
+		case <-timeoutTicker.C:
+			if hc.alive {
+				hc.alive = false
+				continue
+			}
+
 			failureCounter++
 			if failureCounter < hc.attemptThreshold {
 				hc.log.Warnf("Health check failed attempt %d.", failureCounter)
-				timeoutTimer.Reset(hc.getTimeoutTime())
 				continue
 			}
 			hc.Timeout <- struct{}{}
 			return
 		case <-hc.ack:
 			failureCounter = 0
-			timeoutTimer.Reset(hc.getTimeoutTime())
+			hc.alive = true
 		case <-ctx.Done():
 			return
 		}
