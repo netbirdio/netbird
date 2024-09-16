@@ -81,6 +81,7 @@ type AccountManager interface {
 	GetAccountFromPAT(ctx context.Context, pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	MarkPATUsed(ctx context.Context, tokenID string) error
+	GetUserByID(ctx context.Context, userID string) (*User, error)
 	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*User, error)
 	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
@@ -2033,26 +2034,25 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 // CheckUserAccessByJWTGroups checks if the user has access, particularly in cases where the admin enabled JWT
 // group propagation and set the list of groups with access permissions.
 func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error {
-	account, _, err := am.GetAccountFromToken(ctx, claims)
+	accountID := claims.AccountId
+	if accountID == "" {
+		user, err := am.GetUserByID(ctx, claims.UserId)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve account for user %s: %v", claims.UserId, err)
+		}
+		accountID = user.AccountID
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return err
 	}
 
 	// Ensures JWT group synchronization to the management is enabled before,
 	// filtering access based on the allowed groups.
-	if account.Settings != nil && account.Settings.JWTGroupsEnabled {
-		if allowedGroups := account.Settings.JWTAllowGroups; len(allowedGroups) > 0 {
-			userJWTGroups := make([]string, 0)
-
-			if claim, ok := claims.Raw[account.Settings.JWTGroupsClaimName]; ok {
-				if claimGroups, ok := claim.([]interface{}); ok {
-					for _, g := range claimGroups {
-						if group, ok := g.(string); ok {
-							userJWTGroups = append(userJWTGroups, group)
-						}
-					}
-				}
-			}
+	if settings != nil && settings.JWTGroupsEnabled {
+		if allowedGroups := settings.JWTAllowGroups; len(allowedGroups) > 0 {
+			userJWTGroups := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
 
 			if !userHasAllowedGroup(allowedGroups, userJWTGroups) {
 				return fmt.Errorf("user does not belong to any of the allowed JWT groups")
@@ -2183,6 +2183,25 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Ac
 		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
+}
+
+// extractJWTGroups extracts the group names from a JWT token's claims.
+func extractJWTGroups(ctx context.Context, claimName string, claims jwtclaims.AuthorizationClaims) []string {
+	userJWTGroups := make([]string, 0)
+
+	if claim, ok := claims.Raw[claimName]; ok {
+		if claimGroups, ok := claim.([]interface{}); ok {
+			for _, g := range claimGroups {
+				if group, ok := g.(string); ok {
+					userJWTGroups = append(userJWTGroups, group)
+				} else {
+					log.WithContext(ctx).Debugf("JWT claim %q contains a non-string group (type: %T): %v", claimName, g, g)
+				}
+			}
+		}
+	}
+
+	return userJWTGroups
 }
 
 // userHasAllowedGroup checks if a user belongs to any of the allowed groups.

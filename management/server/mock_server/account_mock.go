@@ -27,6 +27,7 @@ type MockAccountManager struct {
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*server.SetupKey, error)
 	GetSetupKeyFunc                     func(ctx context.Context, accountID, userID, keyID string) (*server.SetupKey, error)
 	GetAccountByUserOrAccountIdFunc     func(ctx context.Context, userId, accountId, domain string) (*server.Account, error)
+	GetUserByIDFunc                     func(ctx context.Context, userID string) (*server.User, error)
 	GetUserFunc                         func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.User, error)
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*server.User, error)
 	GetPeersFunc                        func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
@@ -406,6 +407,14 @@ func (am *MockAccountManager) UpdatePeerMeta(ctx context.Context, peerID string,
 		return am.UpdatePeerMetaFunc(ctx, peerID, meta)
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdatePeerMeta is not implemented")
+}
+
+// GetUserByID mock implementation of GetUserByID from server.AccountManager interface
+func (am *MockAccountManager) GetUserByID(ctx context.Context, userID string) (*server.User, error) {
+	if am.GetUserByIDFunc != nil {
+		return am.GetUserByIDFunc(ctx, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetUser is not implemented")
 }
 
 // GetUser mock implementation of GetUser from server.AccountManager interface
