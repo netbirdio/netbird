@@ -19,10 +19,14 @@ func NewStore() *Store {
 }
 
 // AddPeer adds a peer to the store
-// todo: consider to close peer conn if the peer already exists
 func (s *Store) AddPeer(peer *Peer) {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
+	odlPeer, ok := s.peers[peer.String()]
+	if ok {
+		odlPeer.Close()
+	}
+
 	s.peers[peer.String()] = peer
 }
 
