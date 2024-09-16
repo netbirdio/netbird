@@ -89,10 +89,6 @@ func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
 	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
 }
 
-func (u *User) updateLastLogin(login time.Time) {
-	u.LastLogin = login
-}
-
 // HasAdminPower returns true if the user has admin or owner roles, false otherwise
 func (u *User) HasAdminPower() bool {
 	return u.Role == UserRoleAdmin || u.Role == UserRoleOwner
@@ -386,7 +382,7 @@ func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.A
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
 	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
 
-	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(ctx, account.Id, claims.UserId, claims.LastLogin)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed saving user last login: %v", err)
 	}

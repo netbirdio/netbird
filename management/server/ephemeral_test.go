@@ -7,6 +7,7 @@ import (
 	"time"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 type MockStore struct {
@@ -24,7 +25,7 @@ func (s *MockStore) GetAccountByPeerID(_ context.Context, peerId string) (*Accou
 		return s.account, nil
 	}
 
-	return nil, fmt.Errorf("account not found")
+	return nil, status.NewPeerNotFoundError(peerId)
 }
 
 type MocAccountManager struct {
