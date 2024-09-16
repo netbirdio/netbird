@@ -74,12 +74,13 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 	var hasSuccess bool
 	for cr := range resultChan {
 		if cr.Err != nil {
+			log.Debugf("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
 			continue
 		}
-		log.Infof("connected to relay server: %s", cr.Url)
+		log.Infof("connected to Relay server: %s", cr.Url)
 
 		if hasSuccess {
-			log.Infof("closing unnecessary connection to %s", cr.Url)
+			log.Infof("closing unnecessary Relay connection to: %s", cr.Url)
 			if err := cr.RelayClient.Close(); err != nil {
 				log.Errorf("failed to close connection to %s: %v", cr.Url, err)
 			}
