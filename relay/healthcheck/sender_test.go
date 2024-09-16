@@ -126,6 +126,8 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 				healthCheckInterval = originalInterval
 				healthCheckTimeout = originalTimeout
 			}()
+
+			//nolint:tenv
 			os.Setenv(defaultAttemptThresholdEnv, fmt.Sprintf("%d", tc.threshold))
 			defer os.Unsetenv(defaultAttemptThresholdEnv)
 
@@ -172,6 +174,7 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 
 }
 
+//nolint:tenv
 func TestGetAttemptThresholdFromEnv(t *testing.T) {
 	tests := []struct {
 		name     string

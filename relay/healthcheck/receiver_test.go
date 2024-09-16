@@ -67,6 +67,7 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 				healthCheckInterval = originalInterval
 				heartbeatTimeout = originalTimeout
 			}()
+			//nolint:tenv
 			os.Setenv(defaultAttemptThresholdEnv, fmt.Sprintf("%d", tc.threshold))
 			defer os.Unsetenv(defaultAttemptThresholdEnv)
 
