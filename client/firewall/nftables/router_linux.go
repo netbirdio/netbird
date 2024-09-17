@@ -197,12 +197,13 @@ func (r *router) AddRouteFiltering(
 	chain := r.chains[chainNameRoutingFw]
 	var exprs []expr.Any
 
-	if len(sources) == 1 && sources[0].Bits() == 0 {
+	switch {
+	case len(sources) == 1 && sources[0].Bits() == 0:
 		// If it's 0.0.0.0/0, we don't need to add any source matching
-	} else if len(sources) == 1 {
+	case len(sources) == 1:
 		// If there's only one source, we can use it directly
 		exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionIN, sources[0])...)
-	} else {
+	default:
 		// If there are multiple sources, create or get an ipset
 		setName := firewall.GenerateSetName(sources)
 		ref, err := r.ipsetCounter.Increment(setName, sources)
