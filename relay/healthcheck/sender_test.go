@@ -2,9 +2,12 @@ package healthcheck
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func TestMain(m *testing.M) {
@@ -18,7 +21,7 @@ func TestMain(m *testing.M) {
 func TestNewHealthPeriod(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	hc := NewSender()
+	hc := NewSender(log.WithContext(ctx))
 	go hc.StartHealthCheck(ctx)
 
 	iterations := 0
@@ -38,7 +41,7 @@ func TestNewHealthPeriod(t *testing.T) {
 func TestNewHealthFailed(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	hc := NewSender()
+	hc := NewSender(log.WithContext(ctx))
 	go hc.StartHealthCheck(ctx)
 
 	select {
@@ -50,7 +53,7 @@ func TestNewHealthFailed(t *testing.T) {
 
 func TestNewHealthcheckStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	hc := NewSender()
+	hc := NewSender(log.WithContext(ctx))
 	go hc.StartHealthCheck(ctx)
 
 	time.Sleep(100 * time.Millisecond)
@@ -75,7 +78,7 @@ func TestNewHealthcheckStop(t *testing.T) {
 func TestTimeoutReset(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	hc := NewSender()
+	hc := NewSender(log.WithContext(ctx))
 	go hc.StartHealthCheck(ctx)
 
 	iterations := 0
@@ -99,5 +102,104 @@ func TestTimeoutReset(t *testing.T) {
 		t.Fatalf("context is done")
 	case <-time.After(10 * time.Second):
 		t.Fatalf("is not exited")
+	}
+}
+
+func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
+	testsCases := []struct {
+		name             string
+		threshold        int
+		resetCounterOnce bool
+	}{
+		{"Default attempt threshold", defaultAttemptThreshold, false},
+		{"Custom attempt threshold", 3, false},
+		{"Should reset threshold once", 2, true},
+	}
+
+	for _, tc := range testsCases {
+		t.Run(tc.name, func(t *testing.T) {
+			originalInterval := healthCheckInterval
+			originalTimeout := healthCheckTimeout
+			healthCheckInterval = 1 * time.Second
+			healthCheckTimeout = 500 * time.Millisecond
+			defer func() {
+				healthCheckInterval = originalInterval
+				healthCheckTimeout = originalTimeout
+			}()
+
+			//nolint:tenv
+			os.Setenv(defaultAttemptThresholdEnv, fmt.Sprintf("%d", tc.threshold))
+			defer os.Unsetenv(defaultAttemptThresholdEnv)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sender := NewSender(log.WithField("test_name", tc.name))
+			go sender.StartHealthCheck(ctx)
+
+			go func() {
+				responded := false
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case _, ok := <-sender.HealthCheck:
+						if !ok {
+							return
+						}
+						if tc.resetCounterOnce && !responded {
+							responded = true
+							sender.OnHCResponse()
+						}
+					}
+				}
+			}()
+
+			testTimeout := sender.getTimeoutTime()*time.Duration(tc.threshold) + healthCheckInterval
+
+			select {
+			case <-sender.Timeout:
+				if tc.resetCounterOnce {
+					t.Fatalf("should not have timed out before %s", testTimeout)
+				}
+			case <-time.After(testTimeout):
+				if tc.resetCounterOnce {
+					return
+				}
+				t.Fatalf("should have timed out before %s", testTimeout)
+			}
+
+		})
+	}
+
+}
+
+//nolint:tenv
+func TestGetAttemptThresholdFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		expected int
+	}{
+		{"Default attempt threshold when env is not set", "", defaultAttemptThreshold},
+		{"Custom attempt threshold when env is set to a valid integer", "3", 3},
+		{"Default attempt threshold when env is set to an invalid value", "invalid", defaultAttemptThreshold},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue == "" {
+				os.Unsetenv(defaultAttemptThresholdEnv)
+			} else {
+				os.Setenv(defaultAttemptThresholdEnv, tt.envValue)
+			}
+
+			result := getAttemptThresholdFromEnv()
+			if result != tt.expected {
+				t.Fatalf("Expected %d, got %d", tt.expected, result)
+			}
+
+			os.Unsetenv(defaultAttemptThresholdEnv)
+		})
 	}
 }
