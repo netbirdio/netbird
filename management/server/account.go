@@ -1786,68 +1786,54 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 			log.WithContext(ctx).Errorf("JWT groups are enabled but no claim name is set")
 			return account, user, nil
 		}
-		if claim, ok := claims.Raw[account.Settings.JWTGroupsClaimName]; ok {
-			if slice, ok := claim.([]interface{}); ok {
-				var groupsNames []string
-				for _, item := range slice {
-					if g, ok := item.(string); ok {
-						groupsNames = append(groupsNames, g)
-					} else {
-						log.WithContext(ctx).Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
-					}
-				}
 
-				oldGroups := make([]string, len(user.AutoGroups))
-				copy(oldGroups, user.AutoGroups)
-				// if groups were added or modified, save the account
-				if account.SetJWTGroups(claims.UserId, groupsNames) {
-					if account.Settings.GroupsPropagationEnabled {
-						if user, err := account.FindUser(claims.UserId); err == nil {
-							addNewGroups := difference(user.AutoGroups, oldGroups)
-							removeOldGroups := difference(oldGroups, user.AutoGroups)
-							account.UserGroupsAddToPeers(claims.UserId, addNewGroups...)
-							account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
-							account.Network.IncSerial()
-							if err := am.Store.SaveAccount(ctx, account); err != nil {
-								log.WithContext(ctx).Errorf("failed to save account: %v", err)
-							} else {
-								log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-								am.updateAccountPeers(ctx, account)
-								unlock()
-								alreadyUnlocked = true
-								for _, g := range addNewGroups {
-									if group := account.GetGroup(g); group != nil {
-										am.StoreEvent(ctx, user.Id, user.Id, account.Id, activity.GroupAddedToUser,
-											map[string]any{
-												"group":           group.Name,
-												"group_id":        group.ID,
-												"is_service_user": user.IsServiceUser,
-												"user_name":       user.ServiceUserName})
-									}
-								}
-								for _, g := range removeOldGroups {
-									if group := account.GetGroup(g); group != nil {
-										am.StoreEvent(ctx, user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
-											map[string]any{
-												"group":           group.Name,
-												"group_id":        group.ID,
-												"is_service_user": user.IsServiceUser,
-												"user_name":       user.ServiceUserName})
-									}
-								}
+		jwtGroupsNames := extractJWTGroups(ctx, account.Settings.JWTGroupsClaimName, claims)
+
+		oldGroups := make([]string, len(user.AutoGroups))
+		copy(oldGroups, user.AutoGroups)
+		// if groups were added or modified, save the account
+		if account.SetJWTGroups(claims.UserId, jwtGroupsNames) {
+			if account.Settings.GroupsPropagationEnabled {
+				if user, err := account.FindUser(claims.UserId); err == nil {
+					addNewGroups := difference(user.AutoGroups, oldGroups)
+					removeOldGroups := difference(oldGroups, user.AutoGroups)
+					account.UserGroupsAddToPeers(claims.UserId, addNewGroups...)
+					account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
+					account.Network.IncSerial()
+					if err := am.Store.SaveAccount(ctx, account); err != nil {
+						log.WithContext(ctx).Errorf("failed to save account: %v", err)
+					} else {
+						log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
+						am.updateAccountPeers(ctx, account)
+						unlock()
+						alreadyUnlocked = true
+						for _, g := range addNewGroups {
+							if group := account.GetGroup(g); group != nil {
+								am.StoreEvent(ctx, user.Id, user.Id, account.Id, activity.GroupAddedToUser,
+									map[string]any{
+										"group":           group.Name,
+										"group_id":        group.ID,
+										"is_service_user": user.IsServiceUser,
+										"user_name":       user.ServiceUserName})
 							}
 						}
-					} else {
-						if err := am.Store.SaveAccount(ctx, account); err != nil {
-							log.WithContext(ctx).Errorf("failed to save account: %v", err)
+						for _, g := range removeOldGroups {
+							if group := account.GetGroup(g); group != nil {
+								am.StoreEvent(ctx, user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
+									map[string]any{
+										"group":           group.Name,
+										"group_id":        group.ID,
+										"is_service_user": user.IsServiceUser,
+										"user_name":       user.ServiceUserName})
+							}
 						}
 					}
 				}
 			} else {
-				log.WithContext(ctx).Debugf("JWT claim %q is not a string array", account.Settings.JWTGroupsClaimName)
+				if err := am.Store.SaveAccount(ctx, account); err != nil {
+					log.WithContext(ctx).Errorf("failed to save account: %v", err)
+				}
 			}
-		} else {
-			log.WithContext(ctx).Debugf("JWT claim %q not found", account.Settings.JWTGroupsClaimName)
 		}
 	}
 
