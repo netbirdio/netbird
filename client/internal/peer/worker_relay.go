@@ -109,10 +109,10 @@ func (w *WorkerRelay) EnableWgWatcher(ctx context.Context) {
 	}
 
 	ctx, ctxCancel := context.WithCancel(ctx)
-	w.wgStateCheck(ctx)
 	w.ctxWgWatch = ctx
 	w.ctxCancelWgWatch = ctxCancel
 
+	w.wgStateCheck(ctx, ctxCancel)
 }
 
 func (w *WorkerRelay) DisableWgWatcher() {
@@ -158,21 +158,22 @@ func (w *WorkerRelay) CloseConn() {
 }
 
 // wgStateCheck help to check the state of the WireGuard handshake and relay connection
-func (w *WorkerRelay) wgStateCheck(ctx context.Context) {
+func (w *WorkerRelay) wgStateCheck(ctx context.Context, ctxCancel context.CancelFunc) {
+	w.log.Debugf("WireGuard watcher started")
 	lastHandshake, err := w.wgState()
 	if err != nil {
-		w.log.Errorf("failed to read wg stats: %v", err)
+		w.log.Warnf("failed to read wg stats: %v", err)
 		lastHandshake = time.Time{}
 	}
 
 	go func(lastHandshake time.Time) {
 		timer := time.NewTimer(wgHandshakeOvertime)
 		defer timer.Stop()
+		defer ctxCancel()
 
 		for {
 			select {
 			case <-timer.C:
-
 				handshake, err := w.wgState()
 				if err != nil {
 					w.log.Errorf("failed to read wg stats: %v", err)
