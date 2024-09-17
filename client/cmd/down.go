@@ -26,7 +26,7 @@ var downCmd = &cobra.Command{
 			return err
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
 		defer cancel()
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
@@ -42,6 +42,8 @@ var downCmd = &cobra.Command{
 			log.Errorf("call service down method: %v", err)
 			return err
 		}
+
+		cmd.Println("Disconnected")
 		return nil
 	},
 }

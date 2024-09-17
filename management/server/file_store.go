@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,11 +41,163 @@ type FileStore struct {
 	mux       sync.Mutex `json:"-"`
 	storeFile string     `json:"-"`
 
-	// sync.Mutex indexed by accountID
-	accountLocks      sync.Map   `json:"-"`
+	// sync.Mutex indexed by resource ID
+	resourceLocks     sync.Map   `json:"-"`
 	globalAccountLock sync.Mutex `json:"-"`
 
 	metrics telemetry.AppMetrics `json:"-"`
+}
+
+func (s *FileStore) ExecuteInTransaction(ctx context.Context, f func(store Store) error) error {
+	return f(s)
+}
+
+func (s *FileStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKeyID)]
+	if !ok {
+		return status.NewSetupKeyNotFoundError()
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	account.SetupKeys[setupKeyID].UsedTimes++
+
+	return s.SaveAccount(ctx, account)
+}
+
+func (s *FileStore) AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	allGroup, err := account.GetGroupAll()
+	if err != nil || allGroup == nil {
+		return errors.New("all group not found")
+	}
+
+	allGroup.Peers = append(allGroup.Peers, peerID)
+
+	return nil
+}
+
+func (s *FileStore) AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountId)
+	if err != nil {
+		return err
+	}
+
+	account.Groups[groupID].Peers = append(account.Groups[groupID].Peers, peerId)
+
+	return nil
+}
+
+func (s *FileStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, ok := s.Accounts[peer.AccountID]
+	if !ok {
+		return status.NewAccountNotFoundError(peer.AccountID)
+	}
+
+	account.Peers[peer.ID] = peer
+	return s.SaveAccount(ctx, account)
+}
+
+func (s *FileStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, ok := s.Accounts[accountId]
+	if !ok {
+		return status.NewAccountNotFoundError(accountId)
+	}
+
+	account.Network.Serial++
+
+	return s.SaveAccount(ctx, account)
+}
+
+func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(key)]
+	if !ok {
+		return nil, status.NewSetupKeyNotFoundError()
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	setupKey, ok := account.SetupKeys[key]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "setup key not found")
+	}
+
+	return setupKey, nil
+}
+
+func (s *FileStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]net.IP, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	var takenIps []net.IP
+	for _, existingPeer := range account.Peers {
+		takenIps = append(takenIps, existingPeer.IP)
+	}
+
+	return takenIps, nil
+}
+
+func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	existingLabels := []string{}
+	for _, peer := range account.Peers {
+		if peer.DNSLabel != "" {
+			existingLabels = append(existingLabels, peer.DNSLabel)
+		}
+	}
+	return existingLabels, nil
+}
+
+func (s *FileStore) GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountID string) (*Network, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Network, nil
 }
 
 type StoredAccount struct{}
@@ -281,26 +435,26 @@ func (s *FileStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	return unlock
 }
 
-// AcquireAccountWriteLock acquires account lock for writing to a resource and returns a function that releases the lock
-func (s *FileStore) AcquireAccountWriteLock(ctx context.Context, accountID string) (unlock func()) {
-	log.WithContext(ctx).Debugf("acquiring lock for account %s", accountID)
+// AcquireWriteLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
+func (s *FileStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+	log.WithContext(ctx).Debugf("acquiring lock for ID %s", uniqueID)
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.Mutex{})
 	mtx := value.(*sync.Mutex)
 	mtx.Lock()
 
 	unlock = func() {
 		mtx.Unlock()
-		log.WithContext(ctx).Debugf("released lock for account %s in %v", accountID, time.Since(start))
+		log.WithContext(ctx).Debugf("released lock for ID %s in %v", uniqueID, time.Since(start))
 	}
 
 	return unlock
 }
 
-// AcquireAccountReadLock AcquireAccountWriteLock acquires account lock for reading a resource and returns a function that releases the lock
+// AcquireReadLockByUID acquires an ID lock for reading a resource and returns a function that releases the lock
 // This method is still returns a write lock as file store can't handle read locks
-func (s *FileStore) AcquireAccountReadLock(ctx context.Context, accountID string) (unlock func()) {
-	return s.AcquireAccountWriteLock(ctx, accountID)
+func (s *FileStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+	return s.AcquireWriteLockByUID(ctx, uniqueID)
 }
 
 func (s *FileStore) SaveAccount(ctx context.Context, account *Account) error {
@@ -422,7 +576,7 @@ func (s *FileStore) GetAccountBySetupKey(_ context.Context, setupKey string) (*A
 
 	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+		return nil, status.NewSetupKeyNotFoundError()
 	}
 
 	account, err := s.getAccount(accountID)
@@ -469,6 +623,35 @@ func (s *FileStore) GetUserByTokenID(_ context.Context, tokenID string) (*User, 
 	return account.Users[userID].Copy(), nil
 }
 
+func (s *FileStore) GetUserByUserID(_ context.Context, _ LockingStrength, userID string) (*User, error) {
+	accountID, ok := s.UserID2AccountID[userID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "accountID not found: provided userID doesn't exists")
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Users[userID].Copy(), nil
+}
+
+func (s *FileStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	groupsSlice := make([]*nbgroup.Group, 0, len(account.Groups))
+
+	for _, group := range account.Groups {
+		groupsSlice = append(groupsSlice, group)
+	}
+
+	return groupsSlice, nil
+}
+
 // GetAllAccounts returns all accounts
 func (s *FileStore) GetAllAccounts(_ context.Context) (all []*Account) {
 	s.mux.Lock()
@@ -484,7 +667,7 @@ func (s *FileStore) GetAllAccounts(_ context.Context) (all []*Account) {
 func (s *FileStore) getAccount(accountID string) (*Account, error) {
 	account, ok := s.Accounts[accountID]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "account not found")
+		return nil, status.NewAccountNotFoundError(accountID)
 	}
 
 	return account, nil
@@ -610,13 +793,13 @@ func (s *FileStore) GetAccountIDBySetupKey(_ context.Context, setupKey string) (
 
 	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !ok {
-		return "", status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+		return "", status.NewSetupKeyNotFoundError()
 	}
 
 	return accountID, nil
 }
 
-func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, peerKey string) (*nbpeer.Peer, error) {
+func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, _ LockingStrength, peerKey string) (*nbpeer.Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -639,7 +822,7 @@ func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, peerKey string) (*nbp
 	return nil, status.NewPeerNotFoundError(peerKey)
 }
 
-func (s *FileStore) GetAccountSettings(_ context.Context, accountID string) (*Settings, error) {
+func (s *FileStore) GetAccountSettings(_ context.Context, _ LockingStrength, accountID string) (*Settings, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -664,6 +847,26 @@ func (s *FileStore) SaveInstallationID(ctx context.Context, ID string) error {
 	s.InstallationID = ID
 
 	return s.persist(ctx, s.storeFile)
+}
+
+// SavePeer saves the peer in the account
+func (s *FileStore) SavePeer(_ context.Context, accountID string, peer *nbpeer.Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	newPeer := peer.Copy()
+
+	account.Peers[peer.ID] = newPeer
+
+	s.PeerKeyID2AccountID[peer.Key] = accountID
+	s.PeerID2AccountID[peer.ID] = accountID
+
+	return nil
 }
 
 // SavePeerStatus stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
@@ -709,7 +912,7 @@ func (s *FileStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.
 }
 
 // SaveUserLastLogin stores the last login time for a user in memory. It doesn't attempt to persist data to speed up things.
-func (s *FileStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
+func (s *FileStore) SaveUserLastLogin(_ context.Context, accountID, userID string, lastLogin time.Time) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -745,4 +948,12 @@ func (s *FileStore) Close(ctx context.Context) error {
 // GetStoreEngine returns FileStoreEngine
 func (s *FileStore) GetStoreEngine() StoreEngine {
 	return FileStoreEngine
+}
+
+func (s *FileStore) SaveUsers(accountID string, users map[string]*User) error {
+	return status.Errorf(status.Internal, "SaveUsers is not implemented")
+}
+
+func (s *FileStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
+	return status.Errorf(status.Internal, "SaveGroups is not implemented")
 }

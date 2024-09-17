@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -541,13 +542,19 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MocIntegratedValidator{})
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		log.Fatalf("failed creating metrics: %v", err)
+	}
+
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
+
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, nil)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {

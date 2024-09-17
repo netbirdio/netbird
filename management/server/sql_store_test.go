@@ -41,11 +41,22 @@ func TestSqlite_NewStore(t *testing.T) {
 }
 
 func TestSqlite_SaveAccount_Large(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" || runtime.GOOS == "windows" {
+		t.Skip("skip large test on non-linux OS due to environment restrictions")
 	}
+	t.Run("SQLite", func(t *testing.T) {
+		store := newSqliteStore(t)
+		runLargeTest(t, store)
+	})
+	// create store outside to have a better time counter for the test
+	store := newPostgresqlStore(t)
+	t.Run("PostgreSQL", func(t *testing.T) {
+		runLargeTest(t, store)
+	})
+}
 
-	store := newSqliteStore(t)
+func runLargeTest(t *testing.T, store Store) {
+	t.Helper()
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 	groupALL, err := account.GetGroupAll()
@@ -54,7 +65,7 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 	}
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	const numPerAccount = 2000
+	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
 		netIP := randomIPv4()
 		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
@@ -351,6 +362,54 @@ func TestSqlite_GetAccount(t *testing.T) {
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
+func TestSqlite_SavePeer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
+
+	// save status of non-existing peer
+	peer := &nbpeer.Peer{
+		Key:      "peerkey",
+		ID:       "testpeer",
+		SetupKey: "peerkeysetupkey",
+		IP:       net.IP{127, 0, 0, 1},
+		Meta:     nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
+		Name:     "peer name",
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	}
+	ctx := context.Background()
+	err = store.SavePeer(ctx, account.Id, peer)
+	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+
+	// save new status of existing peer
+	account.Peers[peer.ID] = peer
+
+	err = store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	updatedPeer := peer.Copy()
+	updatedPeer.Status.Connected = false
+	updatedPeer.Meta.Hostname = "updatedpeer"
+
+	err = store.SavePeer(ctx, account.Id, updatedPeer)
+	require.NoError(t, err)
+
+	account, err = store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
+
+	actual := account.Peers[peer.ID]
+	assert.Equal(t, updatedPeer.Status, actual.Status)
+	assert.Equal(t, updatedPeer.Meta, actual.Meta)
+}
+
 func TestSqlite_SavePeerStatus(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
@@ -362,7 +421,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// save status of non-existing peer
-	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
+	newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
@@ -377,7 +436,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 		IP:       net.IP{127, 0, 0, 1},
 		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
@@ -391,7 +450,19 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 
 	actual := account.Peers["testpeer"].Status
 	assert.Equal(t, newStatus, *actual)
+
+	newStatus.Connected = true
+
+	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
+	require.NoError(t, err)
+
+	account, err = store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
+
+	actual = account.Peers["testpeer"].Status
+	assert.Equal(t, newStatus, *actual)
 }
+
 func TestSqlite_SavePeerLocation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
@@ -931,4 +1002,164 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 	user, err := store.GetUserByTokenID(context.Background(), id)
 	require.NoError(t, err)
 	require.Equal(t, id, user.PATs[id].ID)
+}
+
+func TestSqlite_GetTakenIPs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	takenIPs, err := store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, []net.IP{}, takenIPs)
+
+	peer1 := &nbpeer.Peer{
+		ID:        "peer1",
+		AccountID: existingAccountID,
+		IP:        net.IP{1, 1, 1, 1},
+	}
+	err = store.AddPeerToAccount(context.Background(), peer1)
+	require.NoError(t, err)
+
+	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
+	require.NoError(t, err)
+	ip1 := net.IP{1, 1, 1, 1}.To16()
+	assert.Equal(t, []net.IP{ip1}, takenIPs)
+
+	peer2 := &nbpeer.Peer{
+		ID:        "peer2",
+		AccountID: existingAccountID,
+		IP:        net.IP{2, 2, 2, 2},
+	}
+	err = store.AddPeerToAccount(context.Background(), peer2)
+	require.NoError(t, err)
+
+	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
+	require.NoError(t, err)
+	ip2 := net.IP{2, 2, 2, 2}.To16()
+	assert.Equal(t, []net.IP{ip1, ip2}, takenIPs)
+
+}
+
+func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{}, labels)
+
+	peer1 := &nbpeer.Peer{
+		ID:        "peer1",
+		AccountID: existingAccountID,
+		DNSLabel:  "peer1.domain.test",
+	}
+	err = store.AddPeerToAccount(context.Background(), peer1)
+	require.NoError(t, err)
+
+	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"peer1.domain.test"}, labels)
+
+	peer2 := &nbpeer.Peer{
+		ID:        "peer2",
+		AccountID: existingAccountID,
+		DNSLabel:  "peer2.domain.test",
+	}
+	err = store.AddPeerToAccount(context.Background(), peer2)
+	require.NoError(t, err)
+
+	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"peer1.domain.test", "peer2.domain.test"}, labels)
+}
+
+func TestSqlite_GetAccountNetwork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	network, err := store.GetAccountNetwork(context.Background(), LockingStrengthShare, existingAccountID)
+	require.NoError(t, err)
+	ip := net.IP{100, 64, 0, 0}.To16()
+	assert.Equal(t, ip, network.Net.IP)
+	assert.Equal(t, net.IPMask{255, 255, 0, 0}, network.Net.Mask)
+	assert.Equal(t, "", network.Dns)
+	assert.Equal(t, "af1c8024-ha40-4ce2-9418-34653101fc3c", network.Identifier)
+	assert.Equal(t, uint64(0), network.Serial)
+}
+
+func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	require.NoError(t, err)
+	assert.Equal(t, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB", setupKey.Key)
+	assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", setupKey.AccountID)
+	assert.Equal(t, "Default key", setupKey.Name)
+}
+
+func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	require.NoError(t, err)
+	assert.Equal(t, 0, setupKey.UsedTimes)
+
+	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
+	require.NoError(t, err)
+
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	require.NoError(t, err)
+	assert.Equal(t, 1, setupKey.UsedTimes)
+
+	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
+	require.NoError(t, err)
+
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	require.NoError(t, err)
+	assert.Equal(t, 2, setupKey.UsedTimes)
 }

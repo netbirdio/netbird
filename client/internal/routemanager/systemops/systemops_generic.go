@@ -50,7 +50,7 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP) (nbnet.AddHookFunc, nbn
 			nexthop, err := r.addRouteToNonVPNIntf(prefix, r.wgInterface, initialNexthop)
 			if errors.Is(err, vars.ErrRouteNotAllowed) || errors.Is(err, vars.ErrRouteNotFound) {
 				log.Tracef("Adding for prefix %s: %v", prefix, err)
-				// These errors are not critical but also we should not track and try to remove the routes either.
+				// These errors are not critical, but also we should not track and try to remove the routes either.
 				return nexthop, refcounter.ErrIgnore
 			}
 			return nexthop, err
@@ -122,7 +122,7 @@ func (r *SysOps) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 
 // addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
 // If the next hop or interface is pointing to the VPN interface, it will return the initial values.
-func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNextHop Nexthop) (Nexthop, error) {
+func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf iface.IWGIface, initialNextHop Nexthop) (Nexthop, error) {
 	addr := prefix.Addr()
 	switch {
 	case addr.IsLoopback(),
@@ -133,6 +133,11 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIfac
 		addr.IsMulticast():
 
 		return Nexthop{}, vars.ErrRouteNotAllowed
+	}
+
+	// Check if the prefix is part of any local subnets
+	if isLocal, subnet := r.isPrefixInLocalSubnets(prefix); isLocal {
+		return Nexthop{}, fmt.Errorf("prefix %s is part of local subnet %s: %w", prefix, subnet, vars.ErrRouteNotAllowed)
 	}
 
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route
@@ -165,6 +170,36 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIfac
 	}
 
 	return exitNextHop, nil
+}
+
+func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet) {
+	localInterfaces, err := net.Interfaces()
+	if err != nil {
+		log.Errorf("Failed to get local interfaces: %v", err)
+		return false, nil
+	}
+
+	for _, intf := range localInterfaces {
+		addrs, err := intf.Addrs()
+		if err != nil {
+			log.Errorf("Failed to get addresses for interface %s: %v", intf.Name, err)
+			continue
+		}
+
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				log.Errorf("Failed to convert address to IPNet: %v", addr)
+				continue
+			}
+
+			if ipnet.Contains(prefix.Addr().AsSlice()) {
+				return true, ipnet
+			}
+		}
+	}
+
+	return false, nil
 }
 
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
@@ -392,7 +427,7 @@ func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
-	routes, err := getRoutesFromTable()
+	routes, err := GetRoutesFromTable()
 	if err != nil {
 		return false, fmt.Errorf("get routes from table: %w", err)
 	}
@@ -405,7 +440,7 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 }
 
 func isSubRange(prefix netip.Prefix) (bool, error) {
-	routes, err := getRoutesFromTable()
+	routes, err := GetRoutesFromTable()
 	if err != nil {
 		return false, fmt.Errorf("get routes from table: %w", err)
 	}

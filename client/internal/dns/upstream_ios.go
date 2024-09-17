@@ -4,6 +4,7 @@ package dns
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"syscall"
 	"time"
@@ -17,9 +18,9 @@ import (
 
 type upstreamResolverIOS struct {
 	*upstreamResolverBase
-	lIP    net.IP
-	lNet   *net.IPNet
-	iIndex int
+	lIP           net.IP
+	lNet          *net.IPNet
+	interfaceName string
 }
 
 func newUpstreamResolver(
@@ -32,17 +33,11 @@ func newUpstreamResolver(
 ) (*upstreamResolverIOS, error) {
 	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder)
 
-	index, err := getInterfaceIndex(interfaceName)
-	if err != nil {
-		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
-		return nil, err
-	}
-
 	ios := &upstreamResolverIOS{
 		upstreamResolverBase: upstreamResolverBase,
 		lIP:                  ip,
 		lNet:                 net,
-		iIndex:               index,
+		interfaceName:        interfaceName,
 	}
 	ios.upstreamClient = ios
 
@@ -53,7 +48,7 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	client := &dns.Client{}
 	upstreamHost, _, err := net.SplitHostPort(upstream)
 	if err != nil {
-		log.Errorf("error while parsing upstream host: %s", err)
+		return nil, 0, fmt.Errorf("error while parsing upstream host: %s", err)
 	}
 
 	timeout := upstreamTimeout
@@ -65,26 +60,35 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	upstreamIP := net.ParseIP(upstreamHost)
 	if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
 		log.Debugf("using private client to query upstream: %s", upstream)
-		client = u.getClientPrivate(timeout)
+		client, err = GetClientPrivate(u.lIP, u.interfaceName, timeout)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error while creating private client: %s", err)
+		}
 	}
 
 	// Cannot use client.ExchangeContext because it overwrites our Dialer
 	return client.Exchange(r, upstream)
 }
 
-// getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
+// GetClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
 // This method is needed for iOS
-func (u *upstreamResolverIOS) getClientPrivate(dialTimeout time.Duration) *dns.Client {
+func GetClientPrivate(ip net.IP, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
+	index, err := getInterfaceIndex(interfaceName)
+	if err != nil {
+		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
+		return nil, err
+	}
+
 	dialer := &net.Dialer{
 		LocalAddr: &net.UDPAddr{
-			IP:   u.lIP,
+			IP:   ip,
 			Port: 0, // Let the OS pick a free port
 		},
 		Timeout: dialTimeout,
 		Control: func(network, address string, c syscall.RawConn) error {
 			var operr error
 			fn := func(s uintptr) {
-				operr = unix.SetsockoptInt(int(s), unix.IPPROTO_IP, unix.IP_BOUND_IF, u.iIndex)
+				operr = unix.SetsockoptInt(int(s), unix.IPPROTO_IP, unix.IP_BOUND_IF, index)
 			}
 
 			if err := c.Control(fn); err != nil {
@@ -101,7 +105,7 @@ func (u *upstreamResolverIOS) getClientPrivate(dialTimeout time.Duration) *dns.C
 	client := &dns.Client{
 		Dialer: dialer,
 	}
-	return client
+	return client, nil
 }
 
 func getInterfaceIndex(interfaceName string) (int, error) {

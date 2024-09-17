@@ -151,6 +151,22 @@ add_aur_repo() {
     ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
 }
 
+prepare_tun_module() {
+  # Create the necessary file structure for /dev/net/tun
+  if [ ! -c /dev/net/tun ]; then
+    if [ ! -d /dev/net ]; then
+      mkdir -m 755 /dev/net
+    fi
+    mknod /dev/net/tun c 10 200
+    chmod 0755 /dev/net/tun
+  fi
+
+  # Load the tun module if not already loaded
+  if ! lsmod | grep -q "^tun\s"; then
+    insmod /lib/modules/tun.ko
+  fi
+}
+
 install_native_binaries() {
     # Checks  for supported architecture
     case "$ARCH" in
@@ -226,6 +242,13 @@ install_netbird() {
             ${SUDO} dnf -y install netbird-ui
         fi
     ;;
+    rpm-ostree)
+        add_rpm_repo
+        ${SUDO} rpm-ostree -y install netbird
+        if ! $SKIP_UI_APP; then
+            ${SUDO} rpm-ostree -y install netbird-ui
+        fi
+    ;;
     pacman)
         ${SUDO} pacman -Syy
         add_aur_repo
@@ -268,16 +291,22 @@ install_netbird() {
     ;;
     esac
 
+    if [ "$OS_NAME" = "synology" ]; then
+        prepare_tun_module
+    fi
+
     # Add package manager to config
     ${SUDO} mkdir -p "$CONFIG_FOLDER"
     echo "package_manager=$PACKAGE_MANAGER" | ${SUDO} tee "$CONFIG_FILE" > /dev/null
 
     # Load and start netbird service
-    if  ! ${SUDO} netbird service install 2>&1; then
-        echo "NetBird service has already been loaded"
-    fi
-    if  ! ${SUDO} netbird service start 2>&1; then
-        echo "NetBird service has already been started"
+    if [ "$PACKAGE_MANAGER" != "rpm-ostree" ]; then
+        if ! ${SUDO} netbird service install 2>&1; then
+            echo "NetBird service has already been loaded"
+        fi
+        if ! ${SUDO} netbird service start 2>&1; then
+            echo "NetBird service has already been started"
+        fi
     fi
 
 
@@ -383,6 +412,9 @@ if type uname >/dev/null 2>&1; then
               elif [ -x "$(command -v dnf)" ]; then
                   PACKAGE_MANAGER="dnf"
                   echo "The installation will be performed using dnf package manager"
+              elif [ -x "$(command -v rpm-ostree)" ]; then
+                  PACKAGE_MANAGER="rpm-ostree"
+                  echo "The installation will be performed using rpm-ostree package manager"
               elif [ -x "$(command -v yum)" ]; then
                   PACKAGE_MANAGER="yum"
                   echo "The installation will be performed using yum package manager"

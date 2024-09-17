@@ -4,6 +4,7 @@ package networkmonitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -21,8 +22,17 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 		return fmt.Errorf("failed to open routing socket: %v", err)
 	}
 	defer func() {
-		if err := unix.Close(fd); err != nil {
+		err := unix.Close(fd)
+		if err != nil && !errors.Is(err, unix.EBADF) {
 			log.Errorf("Network monitor: failed to close routing socket: %v", err)
+		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		err := unix.Close(fd)
+		if err != nil && !errors.Is(err, unix.EBADF) {
+			log.Debugf("Network monitor: closed routing socket")
 		}
 	}()
 
@@ -34,7 +44,9 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			buf := make([]byte, 2048)
 			n, err := unix.Read(fd, buf)
 			if err != nil {
-				log.Errorf("Network monitor: failed to read from routing socket: %v", err)
+				if !errors.Is(err, unix.EBADF) && !errors.Is(err, unix.EINVAL) {
+					log.Errorf("Network monitor: failed to read from routing socket: %v", err)
+				}
 				continue
 			}
 			if n < unix.SizeofRtMsghdr {
@@ -53,7 +65,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 					continue
 				}
 
-				if !route.Dst.Addr().IsUnspecified() {
+				if route.Dst.Bits() != 0 {
 					continue
 				}
 

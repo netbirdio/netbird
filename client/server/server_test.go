@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -19,6 +20,7 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 )
@@ -72,7 +74,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(maxRetryTimeVar, "5s")
 	t.Setenv(retryMultiplierVar, "1")
 
-	s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}
@@ -120,12 +122,17 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 		return nil, "", err
 	}
 	ia, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	require.NoError(t, err)
+
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics)
 	if err != nil {
 		return nil, "", err
 	}
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
+
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

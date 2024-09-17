@@ -34,6 +34,7 @@ const (
 type Config struct {
 	Stuns      []*Host
 	TURNConfig *TURNConfig
+	Relay      *Relay
 	Signal     *Host
 
 	Datadir                string
@@ -56,6 +57,10 @@ type Config struct {
 func (c Config) GetAuthAudiences() []string {
 	audiences := []string{c.HttpConfig.AuthAudience}
 
+	if c.HttpConfig.ExtraAuthAudience != "" {
+		audiences = append(audiences, c.HttpConfig.ExtraAuthAudience)
+	}
+
 	if c.DeviceAuthorizationFlow != nil && c.DeviceAuthorizationFlow.ProviderConfig.Audience != "" {
 		audiences = append(audiences, c.DeviceAuthorizationFlow.ProviderConfig.Audience)
 	}
@@ -69,6 +74,12 @@ type TURNConfig struct {
 	CredentialsTTL       util.Duration
 	Secret               string
 	Turns                []*Host
+}
+
+type Relay struct {
+	Addresses      []string
+	CredentialsTTL util.Duration
+	Secret         string
 }
 
 // HttpServerConfig is a config of the HTTP Management service server
@@ -90,6 +101,8 @@ type HttpServerConfig struct {
 	OIDCConfigEndpoint string
 	// IdpSignKeyRefreshEnabled identifies the signing key is currently being rotated or not
 	IdpSignKeyRefreshEnabled bool
+	// Extra audience
+	ExtraAuthAudience string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)

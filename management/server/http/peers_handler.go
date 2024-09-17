@@ -71,11 +71,8 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 		return
 	}
 
-	netMap := account.GetPeerNetworkMap(ctx, peerID, h.accountManager.GetDNSDomain(), validPeers)
-	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
-
 	_, valid := validPeers[peer.ID]
-	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers, valid))
+	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, valid))
 }
 
 func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -115,12 +112,10 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
 		return
 	}
-	netMap := account.GetPeerNetworkMap(ctx, peerID, h.accountManager.GetDNSDomain(), validPeers)
-	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
 	_, valid := validPeers[peer.ID]
 
-	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers, valid))
+	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, valid))
 }
 
 func (h *PeersHandler) deletePeer(ctx context.Context, accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -194,9 +189,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		}
 		groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
 
-		accessiblePeerNumbers, _ := h.accessiblePeersNumber(r.Context(), account, peer.ID)
-
-		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, accessiblePeerNumbers))
+		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}
 
 	validPeersMap, err := h.accountManager.GetValidatedPeers(account)
@@ -210,16 +203,6 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, respBody)
 }
 
-func (h *PeersHandler) accessiblePeersNumber(ctx context.Context, account *server.Account, peerID string) (int, error) {
-	validatedPeersMap, err := h.accountManager.GetValidatedPeers(account)
-	if err != nil {
-		return 0, err
-	}
-
-	netMap := account.GetPeerNetworkMap(ctx, peerID, h.accountManager.GetDNSDomain(), validatedPeersMap)
-	return len(netMap.Peers) + len(netMap.OfflinePeers), nil
-}
-
 func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approvedPeersMap map[string]struct{}) {
 	for _, peer := range respBody {
 		_, ok := approvedPeersMap[peer.Id]
@@ -229,30 +212,64 @@ func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approv
 	}
 }
 
+// GetAccessiblePeers returns a list of all peers that the specified peer can connect to within the network.
+func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
+	claims := h.claimsExtractor.FromRequestContext(r)
+	account, _, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	if len(peerID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
+		return
+	}
+
+	dnsDomain := h.accountManager.GetDNSDomain()
+
+	validPeers, err := h.accountManager.GetValidatedPeers(account)
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
+		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
+		return
+	}
+
+	customZone := account.GetPeersCustomZone(r.Context(), h.accountManager.GetDNSDomain())
+	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, nil)
+
+	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
+}
+
 func toAccessiblePeers(netMap *server.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
 	for _, p := range netMap.Peers {
-		ap := api.AccessiblePeer{
-			Id:       p.ID,
-			Name:     p.Name,
-			Ip:       p.IP.String(),
-			DnsLabel: fqdn(p, dnsDomain),
-			UserId:   p.UserID,
-		}
-		accessiblePeers = append(accessiblePeers, ap)
+		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
 	}
 
 	for _, p := range netMap.OfflinePeers {
-		ap := api.AccessiblePeer{
-			Id:       p.ID,
-			Name:     p.Name,
-			Ip:       p.IP.String(),
-			DnsLabel: fqdn(p, dnsDomain),
-			UserId:   p.UserID,
-		}
-		accessiblePeers = append(accessiblePeers, ap)
+		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
 	}
+
 	return accessiblePeers
+}
+
+func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePeer {
+	return api.AccessiblePeer{
+		CityName:    peer.Location.CityName,
+		Connected:   peer.Status.Connected,
+		CountryCode: peer.Location.CountryCode,
+		DnsLabel:    fqdn(peer, dnsDomain),
+		GeonameId:   int(peer.Location.GeoNameID),
+		Id:          peer.ID,
+		Ip:          peer.IP.String(),
+		LastSeen:    peer.Status.LastSeen,
+		Name:        peer.Name,
+		Os:          peer.Meta.OS,
+		UserId:      peer.UserID,
+	}
 }
 
 func toGroupsInfo(groups map[string]*nbgroup.Group, peerID string) []api.GroupMinimum {
@@ -279,7 +296,7 @@ func toGroupsInfo(groups map[string]*nbgroup.Group, peerID string) []api.GroupMi
 	return groupsInfo
 }
 
-func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer, approved bool) *api.Peer {
+func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
@@ -305,7 +322,6 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
-		AccessiblePeers:        accessiblePeer,
 		ApprovalRequired:       !approved,
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,

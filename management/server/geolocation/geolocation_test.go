@@ -2,8 +2,8 @@ package geolocation
 
 import (
 	"net"
-	"os"
 	"path"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -13,21 +13,15 @@ import (
 )
 
 // from https://github.com/maxmind/MaxMind-DB/blob/main/test-data/GeoLite2-City-Test.mmdb
-var mmdbPath = "../testdata/GeoLite2-City-Test.mmdb"
+var mmdbPath = "../testdata/GeoLite2-City_20240305.mmdb"
 
 func TestGeoLite_Lookup(t *testing.T) {
 	tempDir := t.TempDir()
-	filename := path.Join(tempDir, MMDBFileName)
+	filename := path.Join(tempDir, filepath.Base(mmdbPath))
 	err := util.CopyFileContents(mmdbPath, filename)
 	assert.NoError(t, err)
-	defer func() {
-		err := os.Remove(filename)
-		if err != nil {
-			t.Errorf("os.Remove: %s", err)
-		}
-	}()
 
-	db, err := openDB(mmdbPath)
+	db, err := openDB(filename)
 	assert.NoError(t, err)
 
 	geo := &Geolocation{

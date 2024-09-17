@@ -123,6 +123,8 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			flag.Parse()
+
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 			//nolint
@@ -178,11 +180,11 @@ var (
 				}
 			}
 
-			geo, err := geolocation.NewGeolocation(ctx, config.Datadir)
+			geo, err := geolocation.NewGeolocation(ctx, config.Datadir, !disableGeoliteUpdate)
 			if err != nil {
-				log.WithContext(ctx).Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
+				log.WithContext(ctx).Warnf("could not initialize geolocation service. proceeding without geolocation support: %v", err)
 			} else {
-				log.WithContext(ctx).Infof("geo location service has been initialized from %s", config.Datadir)
+				log.WithContext(ctx).Infof("geolocation service has been initialized from %s", config.Datadir)
 			}
 
 			integratedPeerValidator, err := integrations.NewIntegratedValidator(ctx, eventStore)
@@ -190,12 +192,12 @@ var (
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
 
-			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+			secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 			trustedPeers := config.ReverseProxy.TrustedPeers
 			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
@@ -271,7 +273,7 @@ var (
 			ephemeralManager.LoadInitialPeers(ctx)
 
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(ctx, config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
+			srv, err := server.NewServer(ctx, config, accountManager, peersUpdateManager, secretsManager, appMetrics, ephemeralManager)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
@@ -536,6 +538,10 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 				oidcConfig.AuthorizationEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
 			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
 		}
+	}
+
+	if loadedConfig.Relay != nil {
+		log.Infof("Relay addresses: %v", loadedConfig.Relay.Addresses)
 	}
 
 	return loadedConfig, err

@@ -10,7 +10,7 @@ import (
 func EncryptMessage(remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key, message pb.Message) ([]byte, error) {
 	byteResp, err := pb.Marshal(message)
 	if err != nil {
-		log.Errorf("failed marshalling message %v", err)
+		log.Errorf("failed marshalling message %v, %+v", err, message.String())
 		return nil, err
 	}
 

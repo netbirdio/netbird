@@ -47,21 +47,21 @@ func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
 	t.nsTun = netstack.NewNetStackTun(t.listenAddress, t.address.IP.String(), t.mtu)
 	tunIface, err := t.nsTun.Create()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
 	t.wrapper = newDeviceWrapper(tunIface)
 
 	t.device = device.NewDevice(
 		t.wrapper,
 		t.iceBind,
-		device.NewLogger(device.LogLevelSilent, "[netbird] "),
+		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
 	t.configurer = newWGUSPConfigurer(t.device, t.name)
 	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()
-		return nil, err
+		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 
 	log.Debugf("device has been created: %s", t.name)

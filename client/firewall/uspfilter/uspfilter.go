@@ -357,7 +357,6 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]Rule, d *decode
 			if rule.dPort != 0 && rule.dPort == uint16(d.udp.DstPort) {
 				return rule.drop, true
 			}
-			return rule.drop, true
 		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
 			return rule.drop, true
 		}

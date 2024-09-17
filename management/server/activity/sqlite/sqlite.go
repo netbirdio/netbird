@@ -26,7 +26,7 @@ const (
 		"meta TEXT," +
 		" target_id TEXT);"
 
-	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT);`
+	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, enc_algo TEXT NOT NULL);`
 
 	selectDescQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
 		FROM events 
@@ -69,10 +69,12 @@ const (
 			and some selfhosted deployments might have duplicates already so we need to clean the table first.
 	*/
 
-	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?)`
+	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name, enc_algo) VALUES(?, ?, ?, ?)`
 
 	fallbackName  = "unknown"
 	fallbackEmail = "unknown@unknown.com"
+
+	gcmEncAlgo = "GCM"
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
@@ -100,58 +102,12 @@ func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (
 		return nil, err
 	}
 
-	_, err = db.Exec(createTableQuery)
-	if err != nil {
+	if err = migrate(ctx, crypt, db); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("events database migration: %w", err)
 	}
 
-	_, err = db.Exec(creatTableDeletedUsersQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	err = updateDeletedUsersTable(ctx, db)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	insertStmt, err := db.Prepare(insertQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	selectDescStmt, err := db.Prepare(selectDescQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	selectAscStmt, err := db.Prepare(selectAscQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	deleteUserStmt, err := db.Prepare(insertDeleteUserQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	s := &Store{
-		db:                  db,
-		fieldEncrypt:        crypt,
-		insertStatement:     insertStmt,
-		selectDescStatement: selectDescStmt,
-		selectAscStatement:  selectAscStmt,
-		deleteUserStmt:      deleteUserStmt,
-	}
-
-	return s, nil
+	return createStore(crypt, db)
 }
 
 func (store *Store) processResult(ctx context.Context, result *sql.Rows) ([]*activity.Event, error) {
@@ -302,9 +258,16 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 		return event.Meta, nil
 	}
 
-	encryptedEmail := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", email))
-	encryptedName := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", name))
-	_, err := store.deleteUserStmt.Exec(event.TargetID, encryptedEmail, encryptedName)
+	encryptedEmail, err := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", email))
+	if err != nil {
+		return nil, err
+	}
+	encryptedName, err := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", name))
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = store.deleteUserStmt.Exec(event.TargetID, encryptedEmail, encryptedName, gcmEncAlgo)
 	if err != nil {
 		return nil, err
 	}
@@ -325,43 +288,70 @@ func (store *Store) Close(_ context.Context) error {
 	return nil
 }
 
-func updateDeletedUsersTable(ctx context.Context, db *sql.DB) error {
-	log.WithContext(ctx).Debugf("check deleted_users table version")
-	rows, err := db.Query(`PRAGMA table_info(deleted_users);`)
+// createStore initializes and returns a new Store instance with prepared SQL statements.
+func createStore(crypt *FieldEncrypt, db *sql.DB) (*Store, error) {
+	insertStmt, err := db.Prepare(insertQuery)
 	if err != nil {
-		return err
+		_ = db.Close()
+		return nil, err
+	}
+
+	selectDescStmt, err := db.Prepare(selectDescQuery)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	selectAscStmt, err := db.Prepare(selectAscQuery)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	deleteUserStmt, err := db.Prepare(insertDeleteUserQuery)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return &Store{
+		db:                  db,
+		fieldEncrypt:        crypt,
+		insertStatement:     insertStmt,
+		selectDescStatement: selectDescStmt,
+		selectAscStatement:  selectAscStmt,
+		deleteUserStmt:      deleteUserStmt,
+	}, nil
+}
+
+// checkColumnExists checks if a column exists in a specified table
+func checkColumnExists(db *sql.DB, tableName, columnName string) (bool, error) {
+	query := fmt.Sprintf("PRAGMA table_info(%s);", tableName)
+	rows, err := db.Query(query)
+	if err != nil {
+		return false, fmt.Errorf("failed to query table info: %w", err)
 	}
 	defer rows.Close()
-	found := false
+
 	for rows.Next() {
-		var (
-			cid      int
-			name     string
-			dataType string
-			notNull  int
-			dfltVal  sql.NullString
-			pk       int
-		)
-		err := rows.Scan(&cid, &name, &dataType, &notNull, &dfltVal, &pk)
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue sql.NullString
+
+		err = rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk)
 		if err != nil {
-			return err
+			return false, fmt.Errorf("failed to scan row: %w", err)
 		}
-		if name == "name" {
-			found = true
-			break
+
+		if name == columnName {
+			return true, nil
 		}
 	}
 
-	err = rows.Err()
-	if err != nil {
-		return err
+	if err = rows.Err(); err != nil {
+		return false, err
 	}
 
-	if found {
-		return nil
-	}
-
-	log.WithContext(ctx).Debugf("update delted_users table")
-	_, err = db.Exec(`ALTER TABLE deleted_users ADD COLUMN name TEXT;`)
-	return err
+	return false, nil
 }

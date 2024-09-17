@@ -31,9 +31,14 @@ Please specify whether you use NetBird Cloud or self-host NetBird's control plan
 
 `netbird version`
 
-**NetBird status -d output:**
+**NetBird status -dA output:**
 
-If applicable, add the `netbird status -d' command output.
+If applicable, add the `netbird status -dA' command output.
+
+**Do you face any (non-mobile) client issues?**
+
+Please provide the file created by `netbird debug for 1m -AS`.
+We advise reviewing the anonymized files for any remaining PII.
 
 **Screenshots**
 
