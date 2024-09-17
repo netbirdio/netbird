@@ -1,10 +1,9 @@
 package geolocation
 
 import (
+	"context"
 	"encoding/csv"
-	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path"
 	"strconv"
@@ -20,26 +19,27 @@ const (
 	geoLiteCityZipURL       = "https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City-CSV/download?suffix=zip"
 	geoLiteCitySha256TarURL = "https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City/download?suffix=tar.gz.sha256"
 	geoLiteCitySha256ZipURL = "https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City-CSV/download?suffix=zip.sha256"
+	geoLiteCityMMDB         = "GeoLite2-City.mmdb"
+	geoLiteCityCSV          = "GeoLite2-City-Locations-en.csv"
 )
 
 // loadGeolocationDatabases loads the MaxMind databases.
-func loadGeolocationDatabases(dataDir string) error {
-	files := []string{MMDBFileName, GeoSqliteDBFile}
-	for _, file := range files {
+func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile string, geonamesdbFile string) error {
+	for _, file := range []string{mmdbFile, geonamesdbFile} {
 		exists, _ := fileExists(path.Join(dataDir, file))
 		if exists {
 			continue
 		}
 
-		log.Infof("geo location file %s not found , file will be downloaded", file)
+		log.WithContext(ctx).Infof("Geolocation database file %s not found, file will be downloaded", file)
 
 		switch file {
-		case MMDBFileName:
+		case mmdbFile:
 			extractFunc := func(src string, dst string) error {
 				if err := decompressTarGzFile(src, dst); err != nil {
 					return err
 				}
-				return copyFile(path.Join(dst, MMDBFileName), path.Join(dataDir, MMDBFileName))
+				return copyFile(path.Join(dst, geoLiteCityMMDB), path.Join(dataDir, mmdbFile))
 			}
 			if err := loadDatabase(
 				geoLiteCitySha256TarURL,
@@ -49,13 +49,13 @@ func loadGeolocationDatabases(dataDir string) error {
 				return err
 			}
 
-		case GeoSqliteDBFile:
+		case geonamesdbFile:
 			extractFunc := func(src string, dst string) error {
 				if err := decompressZipFile(src, dst); err != nil {
 					return err
 				}
-				extractedCsvFile := path.Join(dst, "GeoLite2-City-Locations-en.csv")
-				return importCsvToSqlite(dataDir, extractedCsvFile)
+				extractedCsvFile := path.Join(dst, geoLiteCityCSV)
+				return importCsvToSqlite(dataDir, extractedCsvFile, geonamesdbFile)
 			}
 
 			if err := loadDatabase(
@@ -79,7 +79,12 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 	}
 	defer os.RemoveAll(temp)
 
-	checksumFile := path.Join(temp, getDatabaseFileName(checksumURL))
+	checksumFilename, err := getFilenameFromURL(checksumURL)
+	if err != nil {
+		return err
+	}
+	checksumFile := path.Join(temp, checksumFilename)
+
 	err = downloadFile(checksumURL, checksumFile)
 	if err != nil {
 		return err
@@ -90,7 +95,12 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 		return err
 	}
 
-	dbFile := path.Join(temp, getDatabaseFileName(fileURL))
+	dbFilename, err := getFilenameFromURL(fileURL)
+	if err != nil {
+		return err
+	}
+	dbFile := path.Join(temp, dbFilename)
+
 	err = downloadFile(fileURL, dbFile)
 	if err != nil {
 		return err
@@ -104,13 +114,13 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 }
 
 // importCsvToSqlite imports a CSV file into a SQLite database.
-func importCsvToSqlite(dataDir string, csvFile string) error {
+func importCsvToSqlite(dataDir string, csvFile string, geonamesdbFile string) error {
 	geonames, err := loadGeonamesCsv(csvFile)
 	if err != nil {
 		return err
 	}
 
-	db, err := gorm.Open(sqlite.Open(path.Join(dataDir, GeoSqliteDBFile)), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(path.Join(dataDir, geonamesdbFile)), &gorm.Config{
 		Logger:          logger.Default.LogMode(logger.Silent),
 		CreateBatchSize: 1000,
 		PrepareStmt:     true,
@@ -176,18 +186,6 @@ func loadGeonamesCsv(filepath string) ([]GeoNames, error) {
 	}
 
 	return geoNames, nil
-}
-
-// getDatabaseFileName extracts the file name from a given URL string.
-func getDatabaseFileName(urlStr string) string {
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		panic(err)
-	}
-
-	ext := u.Query().Get("suffix")
-	fileName := fmt.Sprintf("%s.%s", path.Base(u.Path), ext)
-	return fileName
 }
 
 // copyFile performs a file copy operation from the source file to the destination.

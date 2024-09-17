@@ -2,6 +2,13 @@ package internal
 
 import "context"
 
+type ProbeHolder struct {
+	MgmProbe    *Probe
+	SignalProbe *Probe
+	RelayProbe  *Probe
+	WgProbe     *Probe
+}
+
 // Probe allows to run on-demand callbacks from different code locations.
 // Pass the probe to a receiving and a sending end. The receiving end starts listening
 // to requests with Receive and executes a callback when the sending end requests it

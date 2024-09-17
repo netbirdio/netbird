@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -73,7 +74,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(maxRetryTimeVar, "5s")
 	t.Setenv(retryMultiplierVar, "1")
 
-	s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}
@@ -129,8 +130,9 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	if err != nil {
 		return nil, "", err
 	}
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
+
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

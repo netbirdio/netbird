@@ -12,7 +12,6 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"golang.org/x/exp/maps"
-
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	log "github.com/sirupsen/logrus"
@@ -143,9 +142,11 @@ func (s *Server) Start() error {
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 
-	if !config.DisableAutoConnect {
-		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+	if config.DisableAutoConnect {
+		return nil
 	}
+
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
 
 	return nil
 }
@@ -154,7 +155,7 @@ func (s *Server) Start() error {
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
 func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
-	mgmProbe *internal.Probe, signalProbe *internal.Probe, relayProbe *internal.Probe, wgProbe *internal.Probe,
+	runningChan chan error,
 ) {
 	backOff := getConnectWithBackoff(ctx)
 	retryStarted := false
@@ -185,7 +186,15 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	runOperation := func() error {
 		log.Tracef("running client connection")
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
-		err := s.connectClient.RunWithProbes(mgmProbe, signalProbe, relayProbe, wgProbe)
+
+		probes := internal.ProbeHolder{
+			MgmProbe:    s.mgmProbe,
+			SignalProbe: s.signalProbe,
+			RelayProbe:  s.relayProbe,
+			WgProbe:     s.wgProbe,
+		}
+
+		err := s.connectClient.RunWithProbes(&probes, runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
@@ -576,9 +585,22 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+	runningChan := make(chan error)
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan)
 
-	return &proto.UpResponse{}, nil
+	for {
+		select {
+		case err := <-runningChan:
+			if err != nil {
+				log.Debugf("waiting for engine to become ready failed: %s", err)
+			} else {
+				return &proto.UpResponse{}, nil
+			}
+		case <-callerCtx.Done():
+			log.Debug("context done, stopping the wait for engine to become ready")
+			return nil, callerCtx.Err()
+		}
+	}
 }
 
 // Down engine work in the daemon.
@@ -590,28 +612,19 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 		return nil, fmt.Errorf("service is not up")
 	}
 	s.actCancel()
+
+	err := s.connectClient.Stop()
+	if err != nil {
+		log.Errorf("failed to shut down properly: %v", err)
+		return nil, err
+	}
+
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
 
-	maxWaitTime := 5 * time.Second
-	timeout := time.After(maxWaitTime)
+	log.Infof("service is down")
 
-	engine := s.connectClient.Engine()
-
-	for {
-		if !engine.IsWGIfaceUp() {
-			return &proto.DownResponse{}, nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return &proto.DownResponse{}, nil
-		case <-timeout:
-			return nil, fmt.Errorf("failed to shut down properly")
-		default:
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
+	return &proto.DownResponse{}, nil
 }
 
 // Status returns the daemon status
@@ -745,11 +758,11 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			ConnStatus:                 peerState.ConnStatus.String(),
 			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
 			Relayed:                    peerState.Relayed,
-			Direct:                     peerState.Direct,
 			LocalIceCandidateType:      peerState.LocalIceCandidateType,
 			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
 			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
 			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
+			RelayAddress:               peerState.RelayServerAddress,
 			Fqdn:                       peerState.FQDN,
 			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
 			BytesRx:                    peerState.BytesRx,
@@ -763,7 +776,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 
 	for _, relayState := range fullStatus.Relays {
 		pbRelayState := &proto.RelayState{
-			URI:       relayState.URI.String(),
+			URI:       relayState.URI,
 			Available: relayState.Err == nil,
 		}
 		if err := relayState.Err; err != nil {

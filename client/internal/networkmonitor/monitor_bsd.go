@@ -65,7 +65,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 					continue
 				}
 
-				if !route.Dst.Addr().IsUnspecified() {
+				if route.Dst.Bits() != 0 {
 					continue
 				}
 

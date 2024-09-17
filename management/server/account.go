@@ -161,6 +161,8 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  *geolocation.Geolocation
 
+	requestBuffer *AccountRequestBuffer
+
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
 	// This value will be set to false if management service has more than one account.
@@ -259,6 +261,11 @@ type Account struct {
 // Subclass used in gorm to only load settings and not whole account
 type AccountSettings struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+}
+
+// Subclass used in gorm to only load network and not whole account
+type AccountNetwork struct {
+	Network *Network `gorm:"embedded;embeddedPrefix:network_"`
 }
 
 type UserPermissions struct {
@@ -476,6 +483,12 @@ func (a *Account) GetPeerNetworkMap(
 		objectCount := int64(len(peersToConnect) + len(expiredPeers) + len(routesUpdate) + len(firewallRules))
 		metrics.CountNetworkMapObjects(objectCount)
 		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+
+		if objectCount > 5000 {
+			log.WithContext(ctx).Tracef("account: %s has a total resource count of %d objects, "+
+				"peers to connect: %d, expired peers: %d, routes: %d, firewall rules: %d",
+				a.Id, objectCount, len(peersToConnect), len(expiredPeers), len(routesUpdate), len(firewallRules))
+		}
 	}
 
 	return nm
@@ -694,14 +707,6 @@ func (a *Account) GetPeerGroupsList(peerID string) []string {
 	return grps
 }
 
-func (a *Account) getUserGroups(userID string) ([]string, error) {
-	user, err := a.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-	return user.AutoGroups, nil
-}
-
 func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
 	peerGroups := a.getPeerGroups(peerID)
 	enabled := true
@@ -726,14 +731,6 @@ func (a *Account) getPeerGroups(peerID string) lookupMap {
 		}
 	}
 	return groupList
-}
-
-func (a *Account) getSetupKeyGroups(setupKey string) ([]string, error) {
-	key, err := a.FindSetupKey(setupKey)
-	if err != nil {
-		return nil, err
-	}
-	return key.AutoGroups, nil
 }
 
 func (a *Account) getTakenIPs() []net.IP {
@@ -969,6 +966,7 @@ func BuildManager(
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
+		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 	}
 	allAccounts := store.GetAllAccounts(ctx)
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -2075,7 +2073,7 @@ func (am *DefaultAccountManager) GetAccountIDForPeerKey(ctx context.Context, pee
 }
 
 func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpeer.Peer, settings *Settings) (bool, error) {
-	user, err := am.Store.GetUserByUserID(ctx, peer.UserID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, peer.UserID)
 	if err != nil {
 		return false, err
 	}
@@ -2094,6 +2092,25 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpee
 	}
 
 	return false, nil
+}
+
+func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, store Store, accountID string, peerHostName string) (string, error) {
+	existingLabels, err := store.GetPeerLabelsInAccount(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
+	}
+
+	labelMap := ConvertSliceToMap(existingLabels)
+	newLabel, err := getPeerHostLabel(peerHostName, labelMap)
+	if err != nil {
+		return "", fmt.Errorf("failed to get new host label: %w", err)
+	}
+
+	if newLabel == "" {
+		return "", fmt.Errorf("failed to get new host label: %w", err)
+	}
+
+	return newLabel, nil
 }
 
 // addAllGroup to account object if it doesn't exist

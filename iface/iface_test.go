@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -171,6 +173,72 @@ func Test_Close(t *testing.T) {
 	err = iface.Close()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRecreation(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		t.Run(fmt.Sprintf("down-%d", i), func(t *testing.T) {
+			ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
+			wgIP := "10.99.99.2/32"
+			wgPort := 33100
+			newNet, err := stdnet.NewNet()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			iface, err := NewWGIFace(ifaceName, wgIP, wgPort, key, DefaultMTU, newNet, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for {
+				_, err = net.InterfaceByName(ifaceName)
+				if err != nil {
+					t.Logf("interface %s not found: err: %s", ifaceName, err)
+					break
+				}
+				t.Logf("interface %s found", ifaceName)
+			}
+
+			err = iface.Create()
+			if err != nil {
+				t.Fatal(err)
+			}
+			wg, err := wgctrl.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				err = wg.Close()
+				if err != nil {
+					t.Error(err)
+				}
+			}()
+
+			_, err = iface.Up()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for {
+				_, err = net.InterfaceByName(ifaceName)
+				if err == nil {
+					t.Logf("interface %s found", ifaceName)
+
+					break
+				}
+				t.Logf("interface %s not found: err: %s", ifaceName, err)
+
+			}
+
+			start := time.Now()
+			err = iface.Close()
+			t.Logf("down time: %s", time.Since(start))
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -345,6 +413,9 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	guid := fmt.Sprintf("{%s}", uuid.New().String())
+	CustomWindowsGUIDString = strings.ToLower(guid)
+
 	iface1, err := NewWGIFace(peer1ifaceName, peer1wgIP, peer1wgPort, peer1Key.String(), DefaultMTU, newNet, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -363,6 +434,9 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	guid = fmt.Sprintf("{%s}", uuid.New().String())
+	CustomWindowsGUIDString = strings.ToLower(guid)
 
 	newNet, err = stdnet.NewNet()
 	if err != nil {

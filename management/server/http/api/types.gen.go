@@ -152,8 +152,20 @@ const (
 
 // AccessiblePeer defines model for AccessiblePeer.
 type AccessiblePeer struct {
+	// CityName Commonly used English name of the city
+	CityName CityName `json:"city_name"`
+
+	// Connected Peer to Management connection status
+	Connected bool `json:"connected"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode CountryCode `json:"country_code"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId int `json:"geoname_id"`
 
 	// Id Peer ID
 	Id string `json:"id"`
@@ -161,8 +173,14 @@ type AccessiblePeer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// LastSeen Last time peer connected to Netbird's management service
+	LastSeen time.Time `json:"last_seen"`
+
 	// Name Peer's hostname
 	Name string `json:"name"`
+
+	// Os Peer's operating system and version
+	Os string `json:"os"`
 
 	// UserId User ID of the user that enrolled this peer
 	UserId string `json:"user_id"`
@@ -490,81 +508,6 @@ type OSVersionCheck struct {
 
 // Peer defines model for Peer.
 type Peer struct {
-	// AccessiblePeers List of accessible peers
-	AccessiblePeers []AccessiblePeer `json:"accessible_peers"`
-
-	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired bool `json:"approval_required"`
-
-	// CityName Commonly used English name of the city
-	CityName CityName `json:"city_name"`
-
-	// Connected Peer to Management connection status
-	Connected bool `json:"connected"`
-
-	// ConnectionIp Peer's public connection IP address
-	ConnectionIp string `json:"connection_ip"`
-
-	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode CountryCode `json:"country_code"`
-
-	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
-	DnsLabel string `json:"dns_label"`
-
-	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
-	GeonameId int `json:"geoname_id"`
-
-	// Groups Groups that the peer belongs to
-	Groups []GroupMinimum `json:"groups"`
-
-	// Hostname Hostname of the machine
-	Hostname string `json:"hostname"`
-
-	// Id Peer ID
-	Id string `json:"id"`
-
-	// Ip Peer's IP address
-	Ip string `json:"ip"`
-
-	// KernelVersion Peer's operating system kernel version
-	KernelVersion string `json:"kernel_version"`
-
-	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
-	LastLogin time.Time `json:"last_login"`
-
-	// LastSeen Last time peer connected to Netbird's management service
-	LastSeen time.Time `json:"last_seen"`
-
-	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
-	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
-
-	// LoginExpired Indicates whether peer's login expired or not
-	LoginExpired bool `json:"login_expired"`
-
-	// Name Peer's hostname
-	Name string `json:"name"`
-
-	// Os Peer's operating system and version
-	Os string `json:"os"`
-
-	// SerialNumber System serial number
-	SerialNumber string `json:"serial_number"`
-
-	// SshEnabled Indicates whether SSH server is enabled on this peer
-	SshEnabled bool `json:"ssh_enabled"`
-
-	// UiVersion Peer's desktop UI version
-	UiVersion string `json:"ui_version"`
-
-	// UserId User ID of the user that enrolled this peer
-	UserId string `json:"user_id"`
-
-	// Version Peer's daemon or cli version
-	Version string `json:"version"`
-}
-
-// PeerBase defines model for PeerBase.
-type PeerBase struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired bool `json:"approval_required"`
 
@@ -1007,7 +950,7 @@ type Route struct {
 	// Description Route description
 	Description string `json:"description"`
 
-	// Domains Domain list to be dynamically resolved. Conflicts with network
+	// Domains Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network
 	Domains *[]string `json:"domains,omitempty"`
 
 	// Enabled Route status
@@ -1052,7 +995,7 @@ type RouteRequest struct {
 	// Description Route description
 	Description string `json:"description"`
 
-	// Domains Domain list to be dynamically resolved. Conflicts with network
+	// Domains Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network
 	Domains *[]string `json:"domains,omitempty"`
 
 	// Enabled Route status
