@@ -550,7 +550,7 @@ func (r *router) RemoveAllLegacyRouteRules() error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// acceptForwardRules adds iif/ooif rules in the filter table/forward chain to make sure
+// acceptForwardRules adds iif/oif rules in the filter table/forward chain to make sure
 // that our traffic is not dropped by existing rules there.
 // The existing FORWARD rules/policies decide outbound traffic towards our interface.
 // In case the FORWARD policy is set to "drop", we add an established/related rule to allow return traffic for the inbound rule.
