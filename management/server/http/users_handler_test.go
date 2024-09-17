@@ -64,8 +64,11 @@ var usersTestAccount = &server.Account{
 func initUsersTestData() *UsersHandler {
 	return &UsersHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return usersTestAccount, usersTestAccount.Users[claims.UserId], nil
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return usersTestAccount.Id, claims.UserId, nil
+			},
+			GetAccountByUserOrAccountIdFunc: func(_ context.Context, _, _, _ string) (*server.Account, error) {
+				return usersTestAccount, nil
 			},
 			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*server.UserInfo, error) {
 				users := make([]*server.UserInfo, 0)

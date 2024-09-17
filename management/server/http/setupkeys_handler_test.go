@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -34,21 +33,8 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 ) *SetupKeysHandler {
 	return &SetupKeysHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return &server.Account{
-					Id:     testAccountID,
-					Domain: "hotmail.com",
-					Users: map[string]*server.User{
-						user.Id: user,
-					},
-					SetupKeys: map[string]*server.SetupKey{
-						defaultKey.Key: defaultKey,
-					},
-					Groups: map[string]*nbgroup.Group{
-						"group-1": {ID: "group-1", Peers: []string{"A", "B"}},
-						"id-all":  {ID: "id-all", Name: "All"},
-					},
-				}, user, nil
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return testAccountID, user.Id, nil
 			},
 			CreateSetupKeyFunc: func(_ context.Context, _ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
 				_ int, _ string, ephemeral bool,

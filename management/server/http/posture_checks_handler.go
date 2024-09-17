@@ -37,13 +37,13 @@ func NewPostureChecksHandler(accountManager server.AccountManager, geolocationMa
 // GetAllPostureChecks list for the account
 func (p *PostureChecksHandler) GetAllPostureChecks(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
-	account, user, err := p.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := p.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	accountPostureChecks, err := p.accountManager.ListPostureChecks(r.Context(), account.Id, user.Id)
+	accountPostureChecks, err := p.accountManager.ListPostureChecks(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -60,7 +60,7 @@ func (p *PostureChecksHandler) GetAllPostureChecks(w http.ResponseWriter, r *htt
 // UpdatePostureCheck handles update to a posture check identified by a given ID
 func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
-	account, user, err := p.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, err := p.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -85,7 +85,7 @@ func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http
 		return
 	}
 
-	p.savePostureChecks(w, r, account, user, postureChecksID)
+	p.savePostureChecks(w, r, account.Id, claims.UserId, postureChecksID)
 }
 
 // CreatePostureCheck handles posture check creation request
@@ -103,7 +103,7 @@ func (p *PostureChecksHandler) CreatePostureCheck(w http.ResponseWriter, r *http
 // GetPostureCheck handles a posture check Get request identified by ID
 func (p *PostureChecksHandler) GetPostureCheck(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
-	account, user, err := p.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := p.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -116,7 +116,7 @@ func (p *PostureChecksHandler) GetPostureCheck(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	postureChecks, err := p.accountManager.GetPostureChecks(r.Context(), account.Id, postureChecksID, user.Id)
+	postureChecks, err := p.accountManager.GetPostureChecks(r.Context(), accountID, postureChecksID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -128,7 +128,7 @@ func (p *PostureChecksHandler) GetPostureCheck(w http.ResponseWriter, r *http.Re
 // DeletePostureCheck handles posture check deletion request
 func (p *PostureChecksHandler) DeletePostureCheck(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
-	account, user, err := p.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := p.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -141,7 +141,7 @@ func (p *PostureChecksHandler) DeletePostureCheck(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err = p.accountManager.DeletePostureChecks(r.Context(), account.Id, postureChecksID, user.Id); err != nil {
+	if err = p.accountManager.DeletePostureChecks(r.Context(), accountID, postureChecksID, userID); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -153,8 +153,8 @@ func (p *PostureChecksHandler) DeletePostureCheck(w http.ResponseWriter, r *http
 func (p *PostureChecksHandler) savePostureChecks(
 	w http.ResponseWriter,
 	r *http.Request,
-	account *server.Account,
-	user *server.User,
+	accountID string,
+	userID string,
 	postureChecksID string,
 ) {
 	var (
@@ -181,7 +181,7 @@ func (p *PostureChecksHandler) savePostureChecks(
 		return
 	}
 
-	if err := p.accountManager.SavePostureChecks(r.Context(), account.Id, user.Id, postureChecks); err != nil {
+	if err := p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}

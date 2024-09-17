@@ -29,14 +29,8 @@ func initEventsTestData(account string, user *server.User, events ...*activity.E
 				}
 				return []*activity.Event{}, nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return &server.Account{
-					Id:     claims.AccountId,
-					Domain: "hotmail.com",
-					Users: map[string]*server.User{
-						user.Id: user,
-					},
-				}, user, nil
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, user.Id, nil
 			},
 			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*server.UserInfo, error) {
 				return make([]*server.UserInfo, 0), nil

@@ -12,9 +12,9 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/netbirdio/netbird/management/server"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -67,15 +67,18 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 				}
 				return accountPostureChecks, nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				user := server.NewAdminUser("test_user")
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, "test_user", nil
+			},
+			GetAccountByUserOrAccountIdFunc: func(ctx context.Context, userId, accountId, domain string) (*server.Account, error) {
+				user := server.NewAdminUser(userId)
 				return &server.Account{
-					Id: claims.AccountId,
+					Id: accountId,
 					Users: map[string]*server.User{
-						"test_user": user,
+						userId: user,
 					},
 					PostureChecks: postureChecks,
-				}, user, nil
+				}, nil
 			},
 		},
 		geolocationManager: &geolocation.Geolocation{},

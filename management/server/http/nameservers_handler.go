@@ -36,14 +36,14 @@ func NewNameserversHandler(accountManager server.AccountManager, authCfg AuthCfg
 // GetAllNameservers returns the list of nameserver groups for the account
 func (h *NameserversHandler) GetAllNameservers(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	nsGroups, err := h.accountManager.ListNameServerGroups(r.Context(), account.Id, user.Id)
+	nsGroups, err := h.accountManager.ListNameServerGroups(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -60,7 +60,7 @@ func (h *NameserversHandler) GetAllNameservers(w http.ResponseWriter, r *http.Re
 // CreateNameserverGroup handles nameserver group creation request
 func (h *NameserversHandler) CreateNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -79,7 +79,7 @@ func (h *NameserversHandler) CreateNameserverGroup(w http.ResponseWriter, r *htt
 		return
 	}
 
-	nsGroup, err := h.accountManager.CreateNameServerGroup(r.Context(), account.Id, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled, user.Id, req.SearchDomainsEnabled)
+	nsGroup, err := h.accountManager.CreateNameServerGroup(r.Context(), accountID, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled, userID, req.SearchDomainsEnabled)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -93,7 +93,7 @@ func (h *NameserversHandler) CreateNameserverGroup(w http.ResponseWriter, r *htt
 // UpdateNameserverGroup handles update to a nameserver group identified by a given ID
 func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -130,7 +130,7 @@ func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *htt
 		SearchDomainsEnabled: req.SearchDomainsEnabled,
 	}
 
-	err = h.accountManager.SaveNameServerGroup(r.Context(), account.Id, user.Id, updatedNSGroup)
+	err = h.accountManager.SaveNameServerGroup(r.Context(), accountID, userID, updatedNSGroup)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -144,7 +144,7 @@ func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *htt
 // DeleteNameserverGroup handles nameserver group deletion request
 func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -156,7 +156,7 @@ func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *htt
 		return
 	}
 
-	err = h.accountManager.DeleteNameServerGroup(r.Context(), account.Id, nsGroupID, user.Id)
+	err = h.accountManager.DeleteNameServerGroup(r.Context(), accountID, nsGroupID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -168,7 +168,7 @@ func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *htt
 // GetNameserverGroup handles a nameserver group Get request identified by ID
 func (h *NameserversHandler) GetNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -181,7 +181,7 @@ func (h *NameserversHandler) GetNameserverGroup(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	nsGroup, err := h.accountManager.GetNameServerGroup(r.Context(), account.Id, user.Id, nsGroupID)
+	nsGroup, err := h.accountManager.GetNameServerGroup(r.Context(), accountID, userID, nsGroupID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

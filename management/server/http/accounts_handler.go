@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -35,9 +36,15 @@ func NewAccountsHandler(accountManager server.AccountManager, authCfg AuthCfg) *
 // GetAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
 func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	user, ok := account.Users[claims.UserId]
+	if !ok {
+		util.WriteError(r.Context(), fmt.Errorf("user %s not found in account", claims.UserId), w)
 		return
 	}
 
@@ -53,7 +60,7 @@ func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request)
 // UpdateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
 func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	_, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	_, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -96,7 +103,7 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
 	}
 
-	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, user.Id, settings)
+	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

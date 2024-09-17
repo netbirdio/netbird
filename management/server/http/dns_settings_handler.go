@@ -32,14 +32,14 @@ func NewDNSSettingsHandler(accountManager server.AccountManager, authCfg AuthCfg
 // GetDNSSettings returns the DNS settings for the account
 func (h *DNSSettingsHandler) GetDNSSettings(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	dnsSettings, err := h.accountManager.GetDNSSettings(r.Context(), account.Id, user.Id)
+	dnsSettings, err := h.accountManager.GetDNSSettings(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -55,7 +55,7 @@ func (h *DNSSettingsHandler) GetDNSSettings(w http.ResponseWriter, r *http.Reque
 // UpdateDNSSettings handles update to DNS settings of an account
 func (h *DNSSettingsHandler) UpdateDNSSettings(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -72,7 +72,7 @@ func (h *DNSSettingsHandler) UpdateDNSSettings(w http.ResponseWriter, r *http.Re
 		DisabledManagementGroups: req.DisabledManagementGroups,
 	}
 
-	err = h.accountManager.SaveDNSSettings(r.Context(), account.Id, user.Id, updateDNSSettings)
+	err = h.accountManager.SaveDNSSettings(r.Context(), accountID, userID, updateDNSSettings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

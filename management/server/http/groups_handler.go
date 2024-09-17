@@ -35,21 +35,15 @@ func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *Gr
 // GetAllGroups list for the account
 func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
 	if err != nil {
 		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	groups, err := h.accountManager.GetAllGroups(r.Context(), account.Id, user.Id)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	groupsResponse := make([]*api.Group, 0, len(groups))
-	for _, group := range groups {
+	groupsResponse := make([]*api.Group, 0, len(account.Groups))
+	for _, group := range account.Groups {
 		groupsResponse = append(groupsResponse, toGroupResponse(account, group))
 	}
 
@@ -59,7 +53,7 @@ func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 // UpdateGroup handles update to a group identified by a given ID
 func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -118,7 +112,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		IntegrationReference: eg.IntegrationReference,
 	}
 
-	if err := h.accountManager.SaveGroup(r.Context(), account.Id, user.Id, &group); err != nil {
+	if err := h.accountManager.SaveGroup(r.Context(), account.Id, claims.UserId, &group); err != nil {
 		log.WithContext(r.Context()).Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
 		util.WriteError(r.Context(), err, w)
 		return
@@ -130,7 +124,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 // CreateGroup handles group creation request
 func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -160,7 +154,7 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		Issued: nbgroup.GroupIssuedAPI,
 	}
 
-	err = h.accountManager.SaveGroup(r.Context(), account.Id, user.Id, &group)
+	err = h.accountManager.SaveGroup(r.Context(), account.Id, claims.UserId, &group)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -172,7 +166,7 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 // DeleteGroup handles group deletion request
 func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -196,7 +190,7 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteGroup(r.Context(), aID, user.Id, groupID)
+	err = h.accountManager.DeleteGroup(r.Context(), aID, claims.UserId, groupID)
 	if err != nil {
 		_, ok := err.(*server.GroupLinkError)
 		if ok {
@@ -213,7 +207,7 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 // GetGroup returns a group
 func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -227,7 +221,7 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		group, err := h.accountManager.GetGroup(r.Context(), account.Id, groupID, user.Id)
+		group, err := h.accountManager.GetGroup(r.Context(), account.Id, groupID, claims.UserId)
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
 			return

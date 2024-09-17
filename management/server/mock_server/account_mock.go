@@ -80,7 +80,7 @@ type MockAccountManager struct {
 	DeleteNameServerGroupFunc           func(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroupsFunc            func(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                      func(ctx context.Context, accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
-	GetAccountFromTokenFunc             func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+	GetAccountFromTokenFunc             func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroupsFunc      func(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
 	DeleteAccountFunc                   func(ctx context.Context, accountID, userID string) error
 	GetDNSDomainFunc                    func() string
@@ -611,13 +611,13 @@ func (am *MockAccountManager) CreateUser(ctx context.Context, accountID, userID 
 }
 
 // GetAccountFromToken mocks GetAccountFromToken of the AccountManager interface
-func (am *MockAccountManager) GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User,
+func (am *MockAccountManager) GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string,
 	error,
 ) {
 	if am.GetAccountFromTokenFunc != nil {
 		return am.GetAccountFromTokenFunc(ctx, claims)
 	}
-	return nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromToken is not implemented")
+	return "", "", status.Errorf(codes.Unimplemented, "method GetAccountFromToken is not implemented")
 }
 
 func (am *MockAccountManager) CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error {

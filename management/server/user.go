@@ -371,15 +371,15 @@ func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*U
 // GetUser looks up a user by provided authorization claims.
 // It will also create an account if didn't exist for this user before.
 func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error) {
-	account, _, err := am.GetAccountFromToken(ctx, claims)
+	accountID, _, err := am.GetAccountFromToken(ctx, claims)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account with token claims %v", err)
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	account, err = am.Store.GetAccount(ctx, account.Id)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get an account from store %v", err)
 	}

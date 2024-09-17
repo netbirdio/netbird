@@ -41,7 +41,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -78,7 +78,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newUser, err := h.accountManager.SaveUser(r.Context(), account.Id, user.Id, &server.User{
+	newUser, err := h.accountManager.SaveUser(r.Context(), account.Id, claims.UserId, &server.User{
 		Id:                   userID,
 		Role:                 userRole,
 		AutoGroups:           req.AutoGroups,
@@ -102,7 +102,7 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -115,7 +115,7 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteUser(r.Context(), account.Id, user.Id, targetUserID)
+	err = h.accountManager.DeleteUser(r.Context(), accountID, userID, targetUserID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -132,7 +132,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -160,7 +160,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		name = *req.Name
 	}
 
-	newUser, err := h.accountManager.CreateUser(r.Context(), account.Id, user.Id, &server.UserInfo{
+	newUser, err := h.accountManager.CreateUser(r.Context(), accountID, userID, &server.UserInfo{
 		Email:         email,
 		Name:          name,
 		Role:          req.Role,
@@ -184,13 +184,13 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	data, err := h.accountManager.GetUsersFromAccount(r.Context(), account.Id, user.Id)
+	data, err := h.accountManager.GetUsersFromAccount(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -231,7 +231,7 @@ func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -244,7 +244,7 @@ func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.InviteUser(r.Context(), account.Id, user.Id, targetUserID)
+	err = h.accountManager.InviteUser(r.Context(), accountID, userID, targetUserID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

@@ -35,7 +35,7 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authCfg AuthCfg) 
 // CreateSetupKey is a POST requests that creates a new SetupKey
 func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -76,8 +76,8 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 	if req.Ephemeral != nil {
 		ephemeral = *req.Ephemeral
 	}
-	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
-		req.AutoGroups, req.UsageLimit, user.Id, ephemeral)
+	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), accountID, req.Name, server.SetupKeyType(req.Type), expiresIn,
+		req.AutoGroups, req.UsageLimit, userID, ephemeral)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -89,7 +89,7 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 // GetSetupKey is a GET request to get a SetupKey by ID
 func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -102,7 +102,7 @@ func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := h.accountManager.GetSetupKey(r.Context(), account.Id, user.Id, keyID)
+	key, err := h.accountManager.GetSetupKey(r.Context(), accountID, userID, keyID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -114,7 +114,7 @@ func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 // UpdateSetupKey is a PUT request to update server.SetupKey
 func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -150,7 +150,7 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	newKey.Name = req.Name
 	newKey.Id = keyID
 
-	newKey, err = h.accountManager.SaveSetupKey(r.Context(), account.Id, newKey, user.Id)
+	newKey, err = h.accountManager.SaveSetupKey(r.Context(), accountID, newKey, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -161,13 +161,13 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 // GetAllSetupKeys is a GET request that returns a list of SetupKey
 func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	setupKeys, err := h.accountManager.ListSetupKeys(r.Context(), account.Id, user.Id)
+	setupKeys, err := h.accountManager.ListSetupKeys(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

@@ -76,7 +76,7 @@ type AccountManager interface {
 	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (*Account, error)
-	GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
+	GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(ctx context.Context, pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
@@ -1738,10 +1738,10 @@ func (am *DefaultAccountManager) GetAccountFromPAT(ctx context.Context, token st
 	return account, user, pat, nil
 }
 
-// GetAccountFromToken returns an account associated with this token
-func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*Account, *User, error) {
+// GetAccountFromToken returns an account associated with this token.
+func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 	if claims.UserId == "" {
-		return nil, nil, fmt.Errorf("user ID is empty")
+		return "", "", fmt.Errorf("user ID is empty")
 	}
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
@@ -1753,7 +1753,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 
 	newAcc, err := am.getAccountWithAuthorizationClaims(ctx, claims)
 	if err != nil {
-		return nil, nil, err
+		return "", "", err
 	}
 	unlock := am.Store.AcquireWriteLockByUID(ctx, newAcc.Id)
 	alreadyUnlocked := false
@@ -1765,26 +1765,27 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 
 	account, err := am.Store.GetAccount(ctx, newAcc.Id)
 	if err != nil {
-		return nil, nil, err
+		return "", "", err
 	}
 
 	user := account.Users[claims.UserId]
 	if user == nil {
 		// this is not really possible because we got an account by user ID
-		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
+		return "", "", status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
 	if !user.IsServiceUser && claims.Invited {
 		err = am.redeemInvite(ctx, account, claims.UserId)
 		if err != nil {
-			return nil, nil, err
+			return "", "", err
 		}
 	}
 
 	if account.Settings.JWTGroupsEnabled {
 		if account.Settings.JWTGroupsClaimName == "" {
 			log.WithContext(ctx).Errorf("JWT groups are enabled but no claim name is set")
-			return account, user, nil
+
+			return account.Id, user.Id, nil
 		}
 
 		jwtGroupsNames := extractJWTGroups(ctx, account.Settings.JWTGroupsClaimName, claims)
@@ -1837,7 +1838,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 		}
 	}
 
-	return account, user, nil
+	return account.Id, user.Id, nil
 }
 
 // getAccountWithAuthorizationClaims retrievs an account using JWT Claims.
@@ -1863,6 +1864,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(ctx context.C
 	if claims.UserId == "" {
 		return nil, fmt.Errorf("user ID is empty")
 	}
+
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
@@ -2020,13 +2022,9 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 // CheckUserAccessByJWTGroups checks if the user has access, particularly in cases where the admin enabled JWT
 // group propagation and set the list of groups with access permissions.
 func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error {
-	accountID := claims.AccountId
-	if accountID == "" {
-		user, err := am.GetUserByID(ctx, claims.UserId)
-		if err != nil {
-			return fmt.Errorf("failed to retrieve account for user %s: %v", claims.UserId, err)
-		}
-		accountID = user.AccountID
+	accountID, _, err := am.GetAccountFromToken(ctx, claims)
+	if err != nil {
+		return err
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, accountID)

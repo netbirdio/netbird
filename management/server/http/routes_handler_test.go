@@ -139,8 +139,11 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return testingAccount, testingAccount.Users["test_user"], nil
+			GetAccountFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (string, string, error) {
+				return testingAccount.Id, "test_user", nil
+			},
+			GetAccountByUserOrAccountIdFunc: func(ctx context.Context, userId, accountId, domain string) (*server.Account, error) {
+				return testingAccount, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
