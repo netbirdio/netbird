@@ -158,8 +158,13 @@ func TestConn_Status(t *testing.T) {
 
 	for _, table := range tables {
 		t.Run(table.name, func(t *testing.T) {
-			conn.statusICE = table.statusIce
-			conn.statusRelay = table.statusRelay
+			si := NewAtomicConnStatus()
+			si.Set(table.statusIce)
+			conn.statusICE = si
+
+			sr := NewAtomicConnStatus()
+			sr.Set(table.statusRelay)
+			conn.statusRelay = sr
 
 			got := conn.Status()
 			assert.Equal(t, got, table.want, "they should be equal")
