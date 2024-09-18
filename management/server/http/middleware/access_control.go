@@ -15,8 +15,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
-// GetUser function defines a function to fetch user from Account by user id.
-type GetUser func(ctx context.Context, id string) (*server.User, error)
+// GetUser function defines a function to fetch user from Account by jwtclaims.AuthorizationClaims
+type GetUser func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.User, error)
 
 // AccessControl middleware to restrict to make POST/PUT/DELETE requests by admin only
 type AccessControl struct {
@@ -47,7 +47,7 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 
 		claims := a.claimsExtract.FromRequestContext(r)
 
-		user, err := a.getUser(r.Context(), claims.UserId)
+		user, err := a.getUser(r.Context(), claims)
 		if err != nil {
 			log.WithContext(r.Context()).Errorf("failed to get user from claims: %s", err)
 			util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "invalid JWT"), w)

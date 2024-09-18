@@ -81,7 +81,6 @@ type AccountManager interface {
 	GetAccountFromPAT(ctx context.Context, pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	MarkPATUsed(ctx context.Context, tokenID string) error
-	GetUserByID(ctx context.Context, userID string) (*User, error)
 	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*User, error)
 	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
@@ -2208,6 +2207,8 @@ func extractJWTGroups(ctx context.Context, claimName string, claims jwtclaims.Au
 				}
 			}
 		}
+	} else {
+		log.WithContext(ctx).Debugf("JWT claim %q is not a string array", claimName)
 	}
 
 	return userJWTGroups

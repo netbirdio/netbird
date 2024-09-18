@@ -66,7 +66,7 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 	acMiddleware := middleware.NewAccessControl(
 		authCfg.Audience,
 		authCfg.UserIDClaim,
-		accountManager.GetUserByID)
+		accountManager.GetUser)
 
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()

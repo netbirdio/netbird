@@ -357,11 +357,6 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	return newUser.ToUserInfo(idpUser, account.Settings)
 }
 
-// GetUserByID looks up a user by provided user id.
-func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*User, error) {
-	return am.Store.GetUserByUserID(ctx, LockingStrengthShare, id)
-}
-
 // GetUser looks up a user by provided authorization claims.
 // It will also create an account if didn't exist for this user before.
 func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error) {
