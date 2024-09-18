@@ -215,7 +215,7 @@ func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approv
 // GetAccessiblePeers returns a list of all peers that the specified peer can connect to within the network.
 func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -226,6 +226,20 @@ func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request
 	if len(peerID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
 		return
+	}
+
+	if !user.HasAdminPower() && !user.IsServiceUser {
+		peer, err := h.accountManager.GetPeer(r.Context(), account.Id, peerID, user.Id)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		// Only return the accessible peers if it is owned by the current user
+		if peer.UserID != user.Id {
+			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			return
+		}
 	}
 
 	dnsDomain := h.accountManager.GetDNSDomain()
