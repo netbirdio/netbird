@@ -56,23 +56,20 @@ func initGroupTestData(user *server.User, _ ...*nbgroup.Group) *GroupsHandler {
 					Issued: nbgroup.GroupIssuedAPI,
 				}, nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return claims.AccountId, user.Id, nil
-			},
-			GetAccountByUserOrAccountIdFunc: func(ctx context.Context, userId, accountId, domain string) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return &server.Account{
-					Id:     accountId,
+					Id:     claims.AccountId,
 					Domain: "hotmail.com",
 					Peers:  TestPeers,
 					Users: map[string]*server.User{
-						userId: user,
+						user.Id: user,
 					},
 					Groups: map[string]*nbgroup.Group{
 						"id-jwt-group": {ID: "id-jwt-group", Name: "From JWT", Issued: nbgroup.GroupIssuedJWT},
 						"id-existed":   {ID: "id-existed", Peers: []string{"A", "B"}, Issued: nbgroup.GroupIssuedAPI},
 						"id-all":       {ID: "id-all", Name: "All", Issued: nbgroup.GroupIssuedAPI},
 					},
-				}, nil
+				}, user, nil
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {
 				if groupID == "linked-grp" {

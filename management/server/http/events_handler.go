@@ -34,14 +34,14 @@ func NewEventsHandler(accountManager server.AccountManager, authCfg AuthCfg) *Ev
 // GetAllEvents list of the given account
 func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	accountEvents, err := h.accountManager.GetEvents(r.Context(), accountID, userID)
+	accountEvents, err := h.accountManager.GetEvents(r.Context(), account.Id, user.Id)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -51,7 +51,7 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 		events[i] = toEventResponse(e)
 	}
 
-	err = h.fillEventsWithUserInfo(r.Context(), events, accountID, userID)
+	err = h.fillEventsWithUserInfo(r.Context(), events, account.Id, user.Id)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

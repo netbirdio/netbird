@@ -35,13 +35,13 @@ func NewPoliciesHandler(accountManager server.AccountManager, authCfg AuthCfg) *
 // GetAllPolicies list for the account
 func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	accountPolicies, err := h.accountManager.ListPolicies(r.Context(), account.Id, claims.UserId)
+	accountPolicies, err := h.accountManager.ListPolicies(r.Context(), account.Id, user.Id)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -63,7 +63,7 @@ func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 // UpdatePolicy handles update to a policy identified by a given ID
 func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -88,19 +88,19 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.savePolicy(w, r, account, claims.UserId, policyID)
+	h.savePolicy(w, r, account, user, policyID)
 }
 
 // CreatePolicy handles policy creation request
 func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	h.savePolicy(w, r, account, claims.UserId, "")
+	h.savePolicy(w, r, account, user, "")
 }
 
 // savePolicy handles policy creation and update
@@ -108,7 +108,7 @@ func (h *Policies) savePolicy(
 	w http.ResponseWriter,
 	r *http.Request,
 	account *server.Account,
-	userID string,
+	user *server.User,
 	policyID string,
 ) {
 	var req api.PutApiPoliciesPolicyIdJSONRequestBody
@@ -210,7 +210,7 @@ func (h *Policies) savePolicy(
 		policy.SourcePostureChecks = sourcePostureChecksToStrings(account, *req.SourcePostureChecks)
 	}
 
-	if err := h.accountManager.SavePolicy(r.Context(), account.Id, userID, &policy); err != nil {
+	if err := h.accountManager.SavePolicy(r.Context(), account.Id, user.Id, &policy); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -227,11 +227,12 @@ func (h *Policies) savePolicy(
 // DeletePolicy handles policy deletion request
 func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	aID := account.Id
 
 	vars := mux.Vars(r)
 	policyID := vars["policyId"]
@@ -240,7 +241,7 @@ func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = h.accountManager.DeletePolicy(r.Context(), accountID, policyID, userID); err != nil {
+	if err = h.accountManager.DeletePolicy(r.Context(), aID, policyID, user.Id); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -251,33 +252,37 @@ func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 // GetPolicy handles a group Get request identified by ID
 func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, err := h.accountManager.GetAccountByUserOrAccountID(r.Context(), claims.UserId, claims.AccountId, "")
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	vars := mux.Vars(r)
-	policyID := vars["policyId"]
-	if len(policyID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
-		return
+	switch r.Method {
+	case http.MethodGet:
+		vars := mux.Vars(r)
+		policyID := vars["policyId"]
+		if len(policyID) == 0 {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
+			return
+		}
+
+		policy, err := h.accountManager.GetPolicy(r.Context(), account.Id, policyID, user.Id)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		resp := toPolicyResponse(account, policy)
+		if len(resp.Rules) == 0 {
+			util.WriteError(r.Context(), status.Errorf(status.Internal, "no rules in the policy"), w)
+			return
+		}
+
+		util.WriteJSONObject(r.Context(), w, resp)
+	default:
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "method not found"), w)
 	}
-
-	policy, err := h.accountManager.GetPolicy(r.Context(), account.Id, policyID, claims.UserId)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	resp := toPolicyResponse(account, policy)
-	if len(resp.Rules) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.Internal, "no rules in the policy"), w)
-		return
-	}
-
-	util.WriteJSONObject(r.Context(), w, resp)
-
 }
 
 func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Policy {

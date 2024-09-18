@@ -645,12 +645,8 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 				testCase.inputClaims.AccountId = initAccount.Id
 			}
 
-			accountID, _, err := manager.GetAccountFromToken(context.Background(), testCase.inputClaims)
+			account, _, err := manager.GetAccountFromToken(context.Background(), testCase.inputClaims)
 			require.NoError(t, err, "support function failed")
-
-			account, err := manager.GetAccountByUserOrAccountID(context.Background(), "", accountID, "")
-			require.NoError(t, err, "get account by account id")
-
 			verifyNewAccountHasDefaultFields(t, account, testCase.expectedCreatedBy, testCase.inputClaims.Domain, testCase.expectedUsers)
 			verifyCanAddPeerToAccount(t, manager, account, testCase.expectedCreatedBy)
 
@@ -689,12 +685,8 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	}
 
 	t.Run("JWT groups disabled", func(t *testing.T) {
-		accountID, _, err := manager.GetAccountFromToken(context.Background(), claims)
+		account, _, err := manager.GetAccountFromToken(context.Background(), claims)
 		require.NoError(t, err, "get account by token failed")
-
-		account, err := manager.GetAccountByUserOrAccountID(context.Background(), "", accountID, "")
-		require.NoError(t, err, "get account by account id")
-
 		require.Len(t, account.Groups, 1, "only ALL group should exists")
 	})
 
@@ -704,12 +696,8 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		require.NoError(t, err, "save account failed")
 		require.Len(t, manager.Store.GetAllAccounts(context.Background()), 1, "only one account should exist")
 
-		accountID, _, err := manager.GetAccountFromToken(context.Background(), claims)
+		account, _, err := manager.GetAccountFromToken(context.Background(), claims)
 		require.NoError(t, err, "get account by token failed")
-
-		account, err := manager.GetAccountByUserOrAccountID(context.Background(), "", accountID, "")
-		require.NoError(t, err, "get account by account id")
-
 		require.Len(t, account.Groups, 1, "if group claim is not set no group added from JWT")
 	})
 
@@ -720,12 +708,8 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		require.NoError(t, err, "save account failed")
 		require.Len(t, manager.Store.GetAllAccounts(context.Background()), 1, "only one account should exist")
 
-		accountID, _, err := manager.GetAccountFromToken(context.Background(), claims)
+		account, _, err := manager.GetAccountFromToken(context.Background(), claims)
 		require.NoError(t, err, "get account by token failed")
-
-		account, err := manager.GetAccountByUserOrAccountID(context.Background(), "", accountID, "")
-		require.NoError(t, err, "get account by account id")
-
 		require.Len(t, account.Groups, 3, "groups should be added to the account")
 
 		groupsByNames := map[string]*group.Group{}

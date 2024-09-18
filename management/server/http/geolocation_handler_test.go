@@ -43,9 +43,14 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 
 	return &GeolocationsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetUserByIDFunc: func(ctx context.Context, userID string) (*server.User, error) {
-				user := server.NewAdminUser(userID)
-				return user, nil
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+				user := server.NewAdminUser("test_user")
+				return &server.Account{
+					Id: claims.AccountId,
+					Users: map[string]*server.User{
+						"test_user": user,
+					},
+				}, user, nil
 			},
 		},
 		geolocationManager: geo,

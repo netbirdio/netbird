@@ -76,7 +76,7 @@ type AccountManager interface {
 	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (*Account, error)
-	GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
+	GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(ctx context.Context, pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
@@ -1728,9 +1728,9 @@ func (am *DefaultAccountManager) GetAccountFromPAT(ctx context.Context, token st
 }
 
 // GetAccountFromToken returns an account associated with this token.
-func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*Account, *User, error) {
 	if claims.UserId == "" {
-		return "", "", fmt.Errorf("user ID is empty")
+		return nil, nil, fmt.Errorf("user ID is empty")
 	}
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
@@ -1742,27 +1742,27 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 
 	account, err := am.getAccountWithAuthorizationClaims(ctx, claims)
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
 
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
 	if err != nil {
 		// this is not really possible because we got an account by user ID
-		return "", "", status.Errorf(status.NotFound, "user %s not found", claims.UserId)
+		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
 	if !user.IsServiceUser && claims.Invited {
 		err = am.redeemInvite(ctx, account, user.Id)
 		if err != nil {
-			return "", "", err
+			return nil, nil, err
 		}
 	}
 
 	if err = am.syncJWTGroups(ctx, claims, account.Id); err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
 
-	return account.Id, user.Id, nil
+	return account, user, nil
 }
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
@@ -2028,12 +2028,12 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 // CheckUserAccessByJWTGroups checks if the user has access, particularly in cases where the admin enabled JWT
 // group propagation and set the list of groups with access permissions.
 func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error {
-	accountID, _, err := am.GetAccountFromToken(ctx, claims)
+	account, _, err := am.GetAccountFromToken(ctx, claims)
 	if err != nil {
 		return err
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, account.Id)
 	if err != nil {
 		return err
 	}

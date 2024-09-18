@@ -34,20 +34,20 @@ func NewPATsHandler(accountManager server.AccountManager, authCfg AuthCfg) *PATH
 // GetAllTokens is HTTP GET handler that returns a list of all personal access tokens for the given user
 func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
-	targetUserID := vars["userId"]
+	userID := vars["userId"]
 	if len(userID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
-	pats, err := h.accountManager.GetAllPATs(r.Context(), accountID, userID, targetUserID)
+	pats, err := h.accountManager.GetAllPATs(r.Context(), account.Id, user.Id, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -64,7 +64,7 @@ func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 // GetToken is HTTP GET handler that returns a personal access token for the given user
 func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -83,7 +83,7 @@ func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pat, err := h.accountManager.GetPAT(r.Context(), accountID, userID, targetUserID, tokenID)
+	pat, err := h.accountManager.GetPAT(r.Context(), account.Id, user.Id, targetUserID, tokenID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -95,7 +95,7 @@ func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 // CreateToken is HTTP POST handler that creates a personal access token for the given user
 func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -115,7 +115,7 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pat, err := h.accountManager.CreatePAT(r.Context(), accountID, userID, targetUserID, req.Name, req.ExpiresIn)
+	pat, err := h.accountManager.CreatePAT(r.Context(), account.Id, user.Id, targetUserID, req.Name, req.ExpiresIn)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -127,7 +127,7 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 // DeleteToken is HTTP DELETE handler that deletes a personal access token for the given user
 func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -146,7 +146,7 @@ func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeletePAT(r.Context(), accountID, userID, targetUserID, tokenID)
+	err = h.accountManager.DeletePAT(r.Context(), account.Id, user.Id, targetUserID, tokenID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

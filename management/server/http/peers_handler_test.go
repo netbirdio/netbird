@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/netbirdio/netbird/management/server"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/magiconair/properties/assert"
 
+	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
@@ -59,20 +59,17 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 			GetDNSDomainFunc: func() string {
 				return "netbird.selfhosted"
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return claims.AccountId, "test_user", nil
-			},
-			GetAccountByUserOrAccountIdFunc: func(ctx context.Context, userId, accountId, domain string) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{
-					Id:     accountId,
+					Id:     claims.AccountId,
 					Domain: "hotmail.com",
 					Peers: map[string]*nbpeer.Peer{
 						peers[0].ID: peers[0],
 						peers[1].ID: peers[1],
 					},
 					Users: map[string]*server.User{
-						userId: user,
+						"test_user": user,
 					},
 					Settings: &server.Settings{
 						PeerLoginExpirationEnabled: true,
@@ -86,7 +83,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 						},
 						Serial: 51,
 					},
-				}, nil
+				}, user, nil
 			},
 			HasConnectedChannelFunc: func(peerID string) bool {
 				statuses := make(map[string]struct{})

@@ -45,13 +45,10 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 				}
 				return nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return claims.AccountId, "test_user", nil
-			},
-			GetAccountByUserOrAccountIdFunc: func(ctx context.Context, userId, accountId, domain string) (*server.Account, error) {
-				user := server.NewAdminUser(userId)
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+				user := server.NewAdminUser("test_user")
 				return &server.Account{
-					Id:     accountId,
+					Id:     claims.AccountId,
 					Domain: "hotmail.com",
 					Policies: []*server.Policy{
 						{ID: "id-existed"},
@@ -61,9 +58,9 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 						"G": {ID: "G"},
 					},
 					Users: map[string]*server.User{
-						userId: user,
+						"test_user": user,
 					},
-				}, nil
+				}, user, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
