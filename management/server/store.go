@@ -34,11 +34,12 @@ type Store interface {
 	GetAccountByUser(ctx context.Context, userID string) (*Account, error)
 	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
-	GetAccountIDByUserID(peerKey string) (string, error)
+	GetAccountIDByUserID(userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error)
 	GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) // todo use key hash later
 	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
+	GetAccountIDByPrivateDomain(ctx context.Context, domain string) (string, error)
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetUserByUserID(ctx context.Context, userID string) (*User, error)

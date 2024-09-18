@@ -803,3 +803,7 @@ func (s *FileStore) SaveUsers(accountID string, users map[string]*User) error {
 func (s *FileStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
 	return status.Errorf(status.Internal, "SaveGroups is not implemented")
 }
+
+func (s *FileStore) GetAccountIDByPrivateDomain(ctx context.Context, domain string) (string, error) {
+	return "", status.Errorf(status.Internal, "GetAccountIDByPrivateDomain is not implemented")
+}

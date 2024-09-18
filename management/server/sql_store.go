@@ -397,20 +397,33 @@ func (s *SqlStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 }
 
 func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error) {
+	accountID, err := s.GetAccountIDByPrivateDomain(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	if accountID == "" {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	// TODO:  rework to not call GetAccount
+	return s.GetAccount(ctx, accountID)
+}
+
+func (s *SqlStore) GetAccountIDByPrivateDomain(ctx context.Context, domain string) (string, error) {
 	var account Account
 
 	result := s.db.First(&account, "domain = ? and is_domain_primary_account = ? and domain_category = ?",
 		strings.ToLower(domain), true, PrivateCategory)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
+			return "", status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
 		}
 		log.WithContext(ctx).Errorf("error when getting account from the store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "issue getting account from store")
+		return "", status.Errorf(status.Internal, "issue getting account from store")
 	}
 
-	// TODO:  rework to not call GetAccount
-	return s.GetAccount(ctx, account.Id)
+	return account.Id, nil
 }
 
 func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) {
