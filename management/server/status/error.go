@@ -100,3 +100,13 @@ func NewPeerNotRegisteredError() error {
 func NewPeerLoginExpiredError() error {
 	return Errorf(PermissionDenied, "peer login has expired, please log in once more")
 }
+
+// NewSetupKeyNotFoundError creates a new Error with NotFound type for a missing setup key
+func NewSetupKeyNotFoundError() error {
+	return Errorf(NotFound, "setup key not found")
+}
+
+// NewGetUserFromStoreError creates a new Error with Internal type for an issue getting user from store
+func NewGetUserFromStoreError() error {
+	return Errorf(Internal, "issue getting user from store")
+}

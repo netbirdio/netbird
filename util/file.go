@@ -10,51 +10,30 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// WriteJson writes JSON config object to a file creating parent directories if required
-// The output JSON is pretty-formatted
-func WriteJson(file string, obj interface{}) error {
-
+// WriteJsonWithRestrictedPermission writes JSON config object to a file. Enforces permission on the parent directory
+func WriteJsonWithRestrictedPermission(file string, obj interface{}) error {
 	configDir, configFileName, err := prepareConfigFileDir(file)
 	if err != nil {
 		return err
 	}
 
-	// make it pretty
-	bs, err := json.MarshalIndent(obj, "", "    ")
+	err = EnforcePermission(file)
 	if err != nil {
 		return err
 	}
 
-	tempFile, err := os.CreateTemp(configDir, ".*"+configFileName)
+	return writeJson(file, obj, configDir, configFileName)
+}
+
+// WriteJson writes JSON config object to a file creating parent directories if required
+// The output JSON is pretty-formatted
+func WriteJson(file string, obj interface{}) error {
+	configDir, configFileName, err := prepareConfigFileDir(file)
 	if err != nil {
 		return err
 	}
 
-	tempFileName := tempFile.Name()
-	// closing file ops as windows doesn't allow to move it
-	err = tempFile.Close()
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		_, err = os.Stat(tempFileName)
-		if err == nil {
-			os.Remove(tempFileName)
-		}
-	}()
-
-	err = os.WriteFile(tempFileName, bs, 0600)
-	if err != nil {
-		return err
-	}
-
-	err = os.Rename(tempFileName, file)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return writeJson(file, obj, configDir, configFileName)
 }
 
 // DirectWriteJson writes JSON config object to a file creating parent directories if required without creating a temporary file
@@ -89,6 +68,46 @@ func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
 	}
 
 	_, err = targetFile.Write(bs)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func writeJson(file string, obj interface{}, configDir string, configFileName string) error {
+
+	// make it pretty
+	bs, err := json.MarshalIndent(obj, "", "    ")
+	if err != nil {
+		return err
+	}
+
+	tempFile, err := os.CreateTemp(configDir, ".*"+configFileName)
+	if err != nil {
+		return err
+	}
+
+	tempFileName := tempFile.Name()
+	// closing file ops as windows doesn't allow to move it
+	err = tempFile.Close()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_, err = os.Stat(tempFileName)
+		if err == nil {
+			os.Remove(tempFileName)
+		}
+	}()
+
+	err = os.WriteFile(tempFileName, bs, 0600)
+	if err != nil {
+		return err
+	}
+
+	err = os.Rename(tempFileName, file)
 	if err != nil {
 		return err
 	}
@@ -172,5 +191,9 @@ func prepareConfigFileDir(file string) (string, string, error) {
 	}
 
 	err := os.MkdirAll(configDir, 0750)
+	if err != nil {
+		return "", "", err
+	}
+
 	return configDir, configFileName, err
 }

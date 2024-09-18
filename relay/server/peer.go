@@ -49,7 +49,7 @@ func (p *Peer) Work() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	hc := healthcheck.NewSender()
+	hc := healthcheck.NewSender(p.log)
 	go hc.StartHealthCheck(ctx)
 	go p.handleHealthcheckEvents(ctx, hc)
 
@@ -115,6 +115,7 @@ func (p *Peer) Write(b []byte) (int, error) {
 // connection.
 func (p *Peer) CloseGracefully(ctx context.Context) {
 	p.connMu.Lock()
+	defer p.connMu.Unlock()
 	err := p.writeWithTimeout(ctx, messages.MarshalCloseMsg())
 	if err != nil {
 		p.log.Errorf("failed to send close message to peer: %s", p.String())
@@ -124,8 +125,15 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 	if err != nil {
 		p.log.Errorf("failed to close connection to peer: %s", err)
 	}
+}
 
+func (p *Peer) Close() {
+	p.connMu.Lock()
 	defer p.connMu.Unlock()
+
+	if err := p.conn.Close(); err != nil {
+		p.log.Errorf("failed to close connection to peer: %s", err)
+	}
 }
 
 // String returns the peer ID
@@ -167,6 +175,7 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 			if err != nil {
 				p.log.Errorf("failed to close connection to peer: %s", err)
 			}
+			p.log.Info("peer connection closed due healthcheck timeout")
 			return
 		case <-ctx.Done():
 			return

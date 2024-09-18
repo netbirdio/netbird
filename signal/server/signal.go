@@ -133,8 +133,6 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer) (
 			s.registry.Register(p)
 			s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
 
-			s.metrics.ActivePeers.Add(stream.Context(), 1)
-
 			return p, nil
 		} else {
 			s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorMissingId)))
@@ -151,7 +149,6 @@ func (s *Server) DeregisterPeer(p *peer.Peer) {
 	s.registry.Deregister(p)
 
 	s.metrics.PeerConnectionDuration.Record(p.Stream.Context(), int64(time.Since(p.RegisteredAt).Seconds()))
-	s.metrics.ActivePeers.Add(context.Background(), -1)
 }
 
 func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) {

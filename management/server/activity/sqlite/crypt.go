@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"fmt"
 )
 
 var iv = []byte{10, 22, 13, 79, 05, 8, 52, 91, 87, 98, 88, 98, 35, 25, 13, 05}
@@ -115,12 +114,23 @@ func pkcs5Padding(ciphertext []byte) []byte {
 	padText := bytes.Repeat([]byte{byte(padding)}, padding)
 	return append(ciphertext, padText...)
 }
-
 func pkcs5UnPadding(src []byte) ([]byte, error) {
 	srcLen := len(src)
-	paddingLen := int(src[srcLen-1])
-	if paddingLen >= srcLen || paddingLen > aes.BlockSize {
-		return nil, fmt.Errorf("padding size error")
+	if srcLen == 0 {
+		return nil, errors.New("input data is empty")
 	}
+
+	paddingLen := int(src[srcLen-1])
+	if paddingLen == 0 || paddingLen > aes.BlockSize || paddingLen > srcLen {
+		return nil, errors.New("invalid padding size")
+	}
+
+	// Verify that all padding bytes are the same
+	for i := 0; i < paddingLen; i++ {
+		if src[srcLen-1-i] != byte(paddingLen) {
+			return nil, errors.New("invalid padding")
+		}
+	}
+
 	return src[:srcLen-paddingLen], nil
 }

@@ -89,8 +89,8 @@ type Conn struct {
 	onConnected    func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
 	onDisconnected func(remotePeer string, wgIP string)
 
-	statusRelay         ConnStatus
-	statusICE           ConnStatus
+	statusRelay         *AtomicConnStatus
+	statusICE           *AtomicConnStatus
 	currentConnPriority ConnPriority
 	opened              bool // this flag is used to prevent close in case of not opened connection
 
@@ -131,8 +131,8 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		signaler:          signaler,
 		relayManager:      relayManager,
 		allowedIPsIP:      allowedIPsIP.String(),
-		statusRelay:       StatusDisconnected,
-		statusICE:         StatusDisconnected,
+		statusRelay:       NewAtomicConnStatus(),
+		statusICE:         NewAtomicConnStatus(),
 		iCEDisconnected:   make(chan bool, 1),
 		relayDisconnected: make(chan bool, 1),
 	}
@@ -323,11 +323,11 @@ func (conn *Conn) reconnectLoopWithRetry() {
 			}
 
 			if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
-				if conn.statusRelay == StatusDisconnected || conn.statusICE == StatusDisconnected {
+				if conn.statusRelay.Get() == StatusDisconnected || conn.statusICE.Get() == StatusDisconnected {
 					conn.log.Tracef("connectivity guard timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
 				}
 			} else {
-				if conn.statusICE == StatusDisconnected {
+				if conn.statusICE.Get() == StatusDisconnected {
 					conn.log.Tracef("connectivity guard timedout, ice state: %s", conn.statusICE)
 				}
 			}
@@ -419,7 +419,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 
 	conn.log.Debugf("ICE connection is ready")
 
-	conn.statusICE = StatusConnected
+	conn.statusICE.Set(StatusConnected)
 
 	defer conn.updateIceState(iceConnInfo)
 
@@ -484,16 +484,16 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	// switch back to relay connection
 	if conn.endpointRelay != nil && conn.currentConnPriority != connPriorityRelay {
 		conn.log.Debugf("ICE disconnected, set Relay to active connection")
-		conn.workerRelay.EnableWgWatcher(conn.ctx)
 		err := conn.configureWGEndpoint(conn.endpointRelay)
 		if err != nil {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
+		conn.workerRelay.EnableWgWatcher(conn.ctx)
 		conn.currentConnPriority = connPriorityRelay
 	}
 
-	changed := conn.statusICE != newState && newState != StatusConnecting
-	conn.statusICE = newState
+	changed := conn.statusICE.Get() != newState && newState != StatusConnecting
+	conn.statusICE.Set(newState)
 
 	select {
 	case conn.iCEDisconnected <- changed:
@@ -522,7 +522,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 	}
 
 	conn.log.Debugf("Relay connection is ready to use")
-	conn.statusRelay = StatusConnected
+	conn.statusRelay.Set(StatusConnected)
 
 	wgProxy := conn.wgProxyFactory.GetProxy(conn.ctx)
 	endpoint, err := wgProxy.AddTurnConn(rci.relayedConn)
@@ -538,7 +538,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 	defer conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 
 	if conn.currentConnPriority > connPriorityRelay {
-		if conn.statusICE == StatusConnected {
+		if conn.statusICE.Get() == StatusConnected {
 			log.Debugf("do not switch to relay because current priority is: %v", conn.currentConnPriority)
 			return
 		}
@@ -551,7 +551,6 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		}
 	}
 
-	conn.workerRelay.EnableWgWatcher(conn.ctx)
 	err = conn.configureWGEndpoint(endpointUdpAddr)
 	if err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
@@ -560,6 +559,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		conn.log.Errorf("Failed to update wg peer configuration: %v", err)
 		return
 	}
+	conn.workerRelay.EnableWgWatcher(conn.ctx)
 	wgConfigWorkaround()
 
 	if conn.wgProxyRelay != nil {
@@ -594,8 +594,8 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 		conn.wgProxyRelay = nil
 	}
 
-	changed := conn.statusRelay != StatusDisconnected
-	conn.statusRelay = StatusDisconnected
+	changed := conn.statusRelay.Get() != StatusDisconnected
+	conn.statusRelay.Set(StatusDisconnected)
 
 	select {
 	case conn.relayDisconnected <- changed:
@@ -661,8 +661,8 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo) {
 }
 
 func (conn *Conn) setStatusToDisconnected() {
-	conn.statusRelay = StatusDisconnected
-	conn.statusICE = StatusDisconnected
+	conn.statusRelay.Set(StatusDisconnected)
+	conn.statusICE.Set(StatusDisconnected)
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -706,7 +706,7 @@ func (conn *Conn) waitInitialRandomSleepTime() {
 }
 
 func (conn *Conn) isRelayed() bool {
-	if conn.statusRelay == StatusDisconnected && (conn.statusICE == StatusDisconnected || conn.statusICE == StatusConnecting) {
+	if conn.statusRelay.Get() == StatusDisconnected && (conn.statusICE.Get() == StatusDisconnected || conn.statusICE.Get() == StatusConnecting) {
 		return false
 	}
 
@@ -718,11 +718,11 @@ func (conn *Conn) isRelayed() bool {
 }
 
 func (conn *Conn) evalStatus() ConnStatus {
-	if conn.statusRelay == StatusConnected || conn.statusICE == StatusConnected {
+	if conn.statusRelay.Get() == StatusConnected || conn.statusICE.Get() == StatusConnected {
 		return StatusConnected
 	}
 
-	if conn.statusRelay == StatusConnecting || conn.statusICE == StatusConnecting {
+	if conn.statusRelay.Get() == StatusConnecting || conn.statusICE.Get() == StatusConnecting {
 		return StatusConnecting
 	}
 
@@ -733,12 +733,12 @@ func (conn *Conn) isConnected() bool {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.statusICE != StatusConnected && conn.statusICE != StatusConnecting {
+	if conn.statusICE.Get() != StatusConnected && conn.statusICE.Get() != StatusConnecting {
 		return false
 	}
 
 	if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
-		if conn.statusRelay != StatusConnected {
+		if conn.statusRelay.Get() != StatusConnected {
 			return false
 		}
 	}

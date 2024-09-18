@@ -3,10 +3,12 @@ package healthcheck
 import (
 	"context"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var (
-	heartbeatTimeout = healthCheckInterval + 3*time.Second
+	heartbeatTimeout = healthCheckInterval + 10*time.Second
 )
 
 // Receiver is a healthcheck receiver
@@ -14,23 +16,26 @@ var (
 // If the heartbeat is not received in a certain time, it will send a timeout signal and stop to work
 // The heartbeat timeout is a bit longer than the sender's healthcheck interval
 type Receiver struct {
-	OnTimeout chan struct{}
-
-	ctx       context.Context
-	ctxCancel context.CancelFunc
-	heartbeat chan struct{}
-	alive     bool
+	OnTimeout        chan struct{}
+	log              *log.Entry
+	ctx              context.Context
+	ctxCancel        context.CancelFunc
+	heartbeat        chan struct{}
+	alive            bool
+	attemptThreshold int
 }
 
 // NewReceiver creates a new healthcheck receiver and start the timer in the background
-func NewReceiver() *Receiver {
+func NewReceiver(log *log.Entry) *Receiver {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	r := &Receiver{
-		OnTimeout: make(chan struct{}, 1),
-		ctx:       ctx,
-		ctxCancel: ctxCancel,
-		heartbeat: make(chan struct{}, 1),
+		OnTimeout:        make(chan struct{}, 1),
+		log:              log,
+		ctx:              ctx,
+		ctxCancel:        ctxCancel,
+		heartbeat:        make(chan struct{}, 1),
+		attemptThreshold: getAttemptThresholdFromEnv(),
 	}
 
 	go r.waitForHealthcheck()
@@ -56,16 +61,23 @@ func (r *Receiver) waitForHealthcheck() {
 	defer r.ctxCancel()
 	defer close(r.OnTimeout)
 
+	failureCounter := 0
 	for {
 		select {
 		case <-r.heartbeat:
 			r.alive = true
+			failureCounter = 0
 		case <-ticker.C:
 			if r.alive {
 				r.alive = false
 				continue
 			}
 
+			failureCounter++
+			if failureCounter < r.attemptThreshold {
+				r.log.Warnf("healthcheck failed, attempt %d", failureCounter)
+				continue
+			}
 			r.notifyTimeout()
 			return
 		case <-r.ctx.Done():
