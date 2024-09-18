@@ -1745,7 +1745,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 		return "", "", err
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, claims.UserId)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
 	if err != nil {
 		// this is not really possible because we got an account by user ID
 		return "", "", status.Errorf(status.NotFound, "user %s not found", claims.UserId)
@@ -1768,7 +1768,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
 // and propagates changes to peers if group propagation is enabled.
 func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims, accountID string) error {
-	settings, err := am.Store.GetAccountSettings(ctx, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}
@@ -2033,7 +2033,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context,
 		return err
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}

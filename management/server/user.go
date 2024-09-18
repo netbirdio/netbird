@@ -359,9 +359,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 // GetUserByID looks up a user by provided user id.
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*User, error) {
-	unlock := am.Store.AcquireReadLockByUID(ctx, id)
-	defer unlock()
-	return am.Store.GetUserByUserID(ctx, id)
+	return am.Store.GetUserByUserID(ctx, LockingStrengthShare, id)
 }
 
 // GetUser looks up a user by provided authorization claims.
