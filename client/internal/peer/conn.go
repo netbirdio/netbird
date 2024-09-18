@@ -518,6 +518,9 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 	defer conn.mu.Unlock()
 
 	if conn.ctx.Err() != nil {
+		if err := rci.relayedConn.Close(); err != nil {
+			log.Warnf("failed to close unnecessary relayed connection: %v", err)
+		}
 		return
 	}
 
@@ -530,6 +533,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		conn.log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 		return
 	}
+	conn.log.Infof("created new wgProxy for relay connection: %s", endpoint)
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
 	conn.endpointRelay = endpointUdpAddr
@@ -775,9 +779,8 @@ func (conn *Conn) getEndpointForICEConnInfo(iceConnInfo ICEConnInfo) (net.Addr, 
 	ep, err := wgProxy.AddTurnConn(iceConnInfo.RemoteConn)
 	if err != nil {
 		conn.log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
-		err = wgProxy.CloseConn()
-		if err != nil {
-			conn.log.Warnf("failed to close turn proxy connection: %v", err)
+		if errClose := wgProxy.CloseConn(); errClose != nil {
+			conn.log.Warnf("failed to close turn proxy connection: %v", errClose)
 		}
 		return nil, nil, err
 	}
