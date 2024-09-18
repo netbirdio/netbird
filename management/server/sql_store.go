@@ -404,10 +404,6 @@ func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string)
 		return nil, err
 	}
 
-	if accountID == "" {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
-	}
-
 	// TODO:  rework to not call GetAccount
 	return s.GetAccount(ctx, accountID)
 }

@@ -1757,7 +1757,10 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 		}
 	}
 
-	if err = am.syncJWTGroups(ctx, claims, account.Id); err != nil {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
+	defer unlock()
+
+	if err = am.syncJWTGroups(ctx, account, user, claims); err != nil {
 		return nil, nil, err
 	}
 
@@ -1766,13 +1769,9 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
 // and propagates changes to peers if group propagation is enabled.
-func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims, accountID string) error {
-	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
-	if err != nil {
-		return err
-	}
-
-	if !settings.JWTGroupsEnabled {
+func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, account *Account, user *User, claims jwtclaims.AuthorizationClaims) error {
+	settings := account.Settings
+	if settings == nil || !settings.JWTGroupsEnabled {
 		return nil
 	}
 
@@ -1782,19 +1781,6 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, claims jwtcl
 	}
 
 	jwtGroupsNames := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
-	user, err := account.FindUser(claims.UserId)
-	if err != nil {
-		return nil
-	}
 
 	oldGroups := make([]string, len(user.AutoGroups))
 	copy(oldGroups, user.AutoGroups)
@@ -1924,11 +1910,14 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(ctx context.C
 		}
 		return account, nil
 	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-		unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
-		defer unlockAccount()
-		domainAccount, err := am.Store.GetAccountByPrivateDomain(ctx, claims.Domain)
-		if err != nil {
-			return nil, err
+		var domainAccount *Account
+		if domainAccountID != "" {
+			unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
+			defer unlockAccount()
+			domainAccount, err = am.Store.GetAccountByPrivateDomain(ctx, claims.Domain)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		return am.handleNewUserAccount(ctx, domainAccount, claims)
