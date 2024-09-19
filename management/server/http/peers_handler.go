@@ -228,15 +228,11 @@ func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// If the user is regular user and does not own the peer
+	// with the given peerID return an empty list
 	if !user.HasAdminPower() && !user.IsServiceUser {
-		peer, err := h.accountManager.GetPeer(r.Context(), account.Id, peerID, user.Id)
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
-		}
-
-		// Only return the accessible peers if it is owned by the current user
-		if peer.UserID != user.Id {
+		peer, ok := account.Peers[peerID]
+		if !ok || peer.UserID != user.Id {
 			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
 			return
 		}
