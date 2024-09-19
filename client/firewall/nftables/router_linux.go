@@ -205,25 +205,11 @@ func (r *router) AddRouteFiltering(
 		exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionIN, sources[0])...)
 	default:
 		// If there are multiple sources, create or get an ipset
-		setName := firewall.GenerateSetName(sources)
-		ref, err := r.ipsetCounter.Increment(setName, sources)
+		var err error
+		exprs, err = r.getIpSetExprs(sources, exprs)
 		if err != nil {
-			return nil, fmt.Errorf("create or get ipset for sources: %w", err)
+			return nil, fmt.Errorf("get ipset expressions: %w", err)
 		}
-
-		exprs = append(exprs,
-			&expr.Payload{
-				DestRegister: 1,
-				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       12,
-				Len:          4,
-			},
-			&expr.Lookup{
-				SourceRegister: 1,
-				SetName:        ref.Out.Name,
-				SetID:          ref.Out.ID,
-			},
-		)
 	}
 
 	// Handle destination
@@ -266,6 +252,29 @@ func (r *router) AddRouteFiltering(
 	r.rules[string(ruleKey)] = r.conn.AddRule(rule)
 
 	return ruleKey, r.conn.Flush()
+}
+
+func (r *router) getIpSetExprs(sources []netip.Prefix, exprs []expr.Any) ([]expr.Any, error) {
+	setName := firewall.GenerateSetName(sources)
+	ref, err := r.ipsetCounter.Increment(setName, sources)
+	if err != nil {
+		return nil, fmt.Errorf("create or get ipset for sources: %w", err)
+	}
+
+	exprs = append(exprs,
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       12,
+			Len:          4,
+		},
+		&expr.Lookup{
+			SourceRegister: 1,
+			SetName:        ref.Out.Name,
+			SetID:          ref.Out.ID,
+		},
+	)
+	return exprs, nil
 }
 
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
