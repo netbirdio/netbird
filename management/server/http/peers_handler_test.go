@@ -34,6 +34,7 @@ const (
 
 	adminUser          = "admin_user"
 	regularUser        = "regular_user"
+	serviceUser        = "service_user"
 	userIDKey   ctxKey = "user_id"
 )
 
@@ -95,6 +96,9 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 					},
 				}
 
+				srvUser := server.NewRegularUser(serviceUser)
+				srvUser.IsServiceUser = true
+
 				account := &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
@@ -102,6 +106,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 					Users: map[string]*server.User{
 						adminUser:   server.NewAdminUser(adminUser),
 						regularUser: server.NewRegularUser(regularUser),
+						serviceUser: srvUser,
 					},
 					Groups: map[string]*nbgroup.Group{
 						"group1": {
@@ -364,6 +369,13 @@ func TestGetAccessiblePeers(t *testing.T) {
 			name:           "admin user can access unowned peer",
 			peerID:         "peer3",
 			callerUserID:   adminUser,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{"peer1", "peer2"},
+		},
+		{
+			name:           "service user can access unowned peer",
+			peerID:         "peer3",
+			callerUserID:   serviceUser,
 			expectedStatus: http.StatusOK,
 			expectedPeers:  []string{"peer1", "peer2"},
 		},
