@@ -38,7 +38,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context, urls []string) (*C
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
 
 	for _, url := range urls {
-		// todo check if we has a successful connection so do not need to connect to other servers
+		// todo check if we have a successful connection so we do not need to connect to other servers
 		concurrentLimiter <- struct{}{}
 		go func(url string) {
 			defer func() {
