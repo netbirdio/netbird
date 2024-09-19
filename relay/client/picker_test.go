@@ -24,10 +24,8 @@ func TestServerPicker_UnavailableServers(t *testing.T) {
 		cancel()
 	}()
 
-	select {
-	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			t.Errorf("PickServer() took too long to complete")
-		}
+	<-ctx.Done()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Errorf("PickServer() took too long to complete")
 	}
 }
