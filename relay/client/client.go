@@ -58,7 +58,10 @@ func (m *Msg) Free() {
 	m.bufPool.Put(m.bufPtr)
 }
 
+// connContainer is a container for the connection to the peer. It is responsible for managing the messages from the
+// server and forwarding them to the upper layer content reader.
 type connContainer struct {
+	log         *log.Entry
 	conn        *Conn
 	messages    chan Msg
 	msgChanLock sync.Mutex
@@ -67,10 +70,10 @@ type connContainer struct {
 	cancel      context.CancelFunc
 }
 
-func newConnContainer(conn *Conn, messages chan Msg) *connContainer {
+func newConnContainer(log *log.Entry, conn *Conn, messages chan Msg) *connContainer {
 	ctx, cancel := context.WithCancel(context.Background())
-
 	return &connContainer{
+		log:      log,
 		conn:     conn,
 		messages: messages,
 		ctx:      ctx,
@@ -91,6 +94,10 @@ func (cc *connContainer) writeMsg(msg Msg) {
 	case cc.messages <- msg:
 	case <-cc.ctx.Done():
 		msg.Free()
+	default:
+		msg.Free()
+		cc.log.Infof("message queue is full")
+		// todo consider to close the connection
 	}
 }
 
@@ -141,8 +148,8 @@ type Client struct {
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
 func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
 	hashedID, hashedStringId := messages.HashID(peerID)
-	return &Client{
-		log:            log.WithFields(log.Fields{"client_id": hashedStringId, "relay": serverURL}),
+	c := &Client{
+		log:            log.WithFields(log.Fields{"relay": serverURL}),
 		parentCtx:      ctx,
 		connectionURL:  serverURL,
 		authTokenStore: authTokenStore,
@@ -155,6 +162,8 @@ func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.Token
 		},
 		conns: make(map[string]*connContainer),
 	}
+	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedStringId)
+	return c
 }
 
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
@@ -203,10 +212,10 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 	}
 
 	c.log.Infof("open connection to peer: %s", hashedStringID)
-	msgChannel := make(chan Msg, 2)
+	msgChannel := make(chan Msg, 100)
 	conn := NewConn(c, hashedID, hashedStringID, msgChannel, c.instanceURL)
 
-	c.conns[hashedStringID] = newConnContainer(conn, msgChannel)
+	c.conns[hashedStringID] = newConnContainer(c.log, conn, msgChannel)
 	return conn, nil
 }
 
@@ -455,7 +464,10 @@ func (c *Client) listenForStopEvents(hc *healthcheck.Receiver, conn net.Conn, in
 			}
 			c.log.Errorf("health check timeout")
 			internalStopFlag.set()
-			_ = conn.Close() // ignore the err because the readLoop will handle it
+			if err := conn.Close(); err != nil {
+				// ignore the err handling because the readLoop will handle it
+				c.log.Warnf("failed to close connection: %s", err)
+			}
 			return
 		case <-c.parentCtx.Done():
 			err := c.close(true)
@@ -486,6 +498,7 @@ func (c *Client) closeConn(connReference *Conn, id string) error {
 	if container.conn != connReference {
 		return fmt.Errorf("conn reference mismatch")
 	}
+	c.log.Infof("free up connection to peer: %s", id)
 	delete(c.conns, id)
 	container.close()
 
