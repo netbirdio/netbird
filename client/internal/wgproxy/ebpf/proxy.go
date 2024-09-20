@@ -107,7 +107,7 @@ func (p *WGEBPFProxy) AddTurnConn(ctx context.Context, turnConn net.Conn) (net.A
 	return wgEndpoint, nil
 }
 
-// Free resources
+// Free resources except the remoteConns will be keep open.
 func (p *WGEBPFProxy) Free() error {
 	log.Debugf("free up ebpf wg proxy")
 	if p.ctx != nil && p.ctx.Err() != nil {
