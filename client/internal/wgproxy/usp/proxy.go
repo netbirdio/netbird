@@ -69,30 +69,26 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 	defer p.cancel()
 
 	buf := make([]byte, 1500)
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		default:
-			n, err := p.localConn.Read(buf)
-			if err != nil {
-				if p.ctx.Err() != nil {
-					return
-				}
-				log.Debugf("failed to read from wg interface conn: %s", err)
-				continue
+	for p.ctx.Err() == nil {
+		n, err := p.localConn.Read(buf)
+		if err != nil {
+			if p.ctx.Err() != nil {
+				return
 			}
-
-			_, err = p.remoteConn.Write(buf[:n])
-			if err != nil {
-				if p.ctx.Err() != nil {
-					return
-				}
-
-				log.Debugf("failed to write to remote conn: %s", err)
-				continue
-			}
+			log.Debugf("failed to read from wg interface conn: %s", err)
+			continue
 		}
+
+		_, err = p.remoteConn.Write(buf[:n])
+		if err != nil {
+			if p.ctx.Err() != nil {
+				return
+			}
+
+			log.Debugf("failed to write to remote conn: %s", err)
+			continue
+		}
+
 	}
 }
 
@@ -102,28 +98,23 @@ func (p *WGUserSpaceProxy) proxyToLocal() {
 	defer p.cancel()
 	defer log.Infof("exit from proxyToLocal: %s", p.localConn.LocalAddr())
 	buf := make([]byte, 1500)
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		default:
-			n, err := p.remoteConn.Read(buf)
-			if err != nil {
-				if p.ctx.Err() != nil {
-					return
-				}
-				log.Errorf("failed to read from remote conn: %s", err)
-				continue
+	for p.ctx.Err() == nil {
+		n, err := p.remoteConn.Read(buf)
+		if err != nil {
+			if p.ctx.Err() != nil {
+				return
 			}
+			log.Errorf("failed to read from remote conn: %s", err)
+			continue
+		}
 
-			_, err = p.localConn.Write(buf[:n])
-			if err != nil {
-				if p.ctx.Err() != nil {
-					return
-				}
-				log.Debugf("failed to write to wg interface conn: %s", err)
-				continue
+		_, err = p.localConn.Write(buf[:n])
+		if err != nil {
+			if p.ctx.Err() != nil {
+				return
 			}
+			log.Debugf("failed to write to wg interface conn: %s", err)
+			continue
 		}
 	}
 }

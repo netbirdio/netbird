@@ -136,35 +136,32 @@ func (p *WGEBPFProxy) proxyToLocal(ctx context.Context, endpointPort uint16, rem
 		p.removeTurnConn(endpointPort)
 	}()
 
-	var err error
+	var (
+		err error
+		n   int
+	)
 	buf := make([]byte, 1500)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			var n int
-			n, err = remoteConn.Read(buf)
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				if err != io.EOF {
-					log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
-				}
+	for ctx.Err() == nil {
+		n, err = remoteConn.Read(buf)
+		if err != nil {
+			if ctx.Err() != nil {
 				return
 			}
-			err = p.sendPkg(buf[:n], endpointPort)
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-
-				if p.ctx.Err() != nil {
-					return
-				}
-				log.Errorf("failed to write out turn pkg to local conn: %v", err)
+			if err != io.EOF {
+				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
 			}
+			return
+		}
+		err = p.sendPkg(buf[:n], endpointPort)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+
+			if p.ctx.Err() != nil {
+				return
+			}
+			log.Errorf("failed to write out turn pkg to local conn: %v", err)
 		}
 	}
 }
@@ -173,38 +170,32 @@ func (p *WGEBPFProxy) proxyToLocal(ctx context.Context, endpointPort uint16, rem
 // From this go routine has only one instance.
 func (p *WGEBPFProxy) proxyToRemote() {
 	buf := make([]byte, 1500)
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		default:
-			n, addr, err := p.conn.ReadFromUDP(buf)
-			if err != nil {
-				if p.ctx.Err() != nil {
-					return
-				}
-				log.Errorf("failed to read UDP pkg from WG: %s", err)
+	for p.ctx.Err() == nil {
+		n, addr, err := p.conn.ReadFromUDP(buf)
+		if err != nil {
+			if p.ctx.Err() != nil {
 				return
 			}
+			log.Errorf("failed to read UDP pkg from WG: %s", err)
+			return
+		}
 
-			p.turnConnMutex.Lock()
-			conn, ok := p.turnConnStore[uint16(addr.Port)]
-			p.turnConnMutex.Unlock()
-			if !ok {
-				if p.ctx.Err() != nil {
-					return
-				}
-				log.Debugf("turn conn not found by port because conn already has been closed: %d", addr.Port)
-				continue
+		p.turnConnMutex.Lock()
+		conn, ok := p.turnConnStore[uint16(addr.Port)]
+		p.turnConnMutex.Unlock()
+		if !ok {
+			if p.ctx.Err() != nil {
+				return
 			}
+			log.Debugf("turn conn not found by port because conn already has been closed: %d", addr.Port)
+			continue
+		}
 
-			_, err = conn.Write(buf[:n])
-			if err != nil {
-				if p.ctx.Err() != nil {
-					return
-				}
-				log.Debugf("failed to forward local wg pkg (%d) to remote turn conn: %s", addr.Port, err)
+		if _, err := conn.Write(buf[:n]); err != nil {
+			if p.ctx.Err() != nil {
+				return
 			}
+			log.Debugf("failed to forward local wg pkg (%d) to remote turn conn: %s", addr.Port, err)
 		}
 	}
 }
