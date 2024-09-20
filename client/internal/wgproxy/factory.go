@@ -1,17 +1,23 @@
 package wgproxy
 
-import "context"
+import (
+	"github.com/netbirdio/netbird/client/internal/wgproxy/ebpf"
+	"github.com/netbirdio/netbird/client/internal/wgproxy/usp"
+)
 
 type Factory struct {
 	wgPort    int
-	ebpfProxy Proxy
+	ebpfProxy *ebpf.WGEBPFProxy
 }
 
-func (w *Factory) GetProxy(ctx context.Context) Proxy {
+func (w *Factory) GetProxy() Proxy {
 	if w.ebpfProxy != nil {
-		return w.ebpfProxy
+		p := &ebpf.ProxyWrapper{
+			WgeBPFProxy: w.ebpfProxy,
+		}
+		return p
 	}
-	return NewWGUserSpaceProxy(ctx, w.wgPort)
+	return usp.NewWGUserSpaceProxy(w.wgPort)
 }
 
 func (w *Factory) Free() error {

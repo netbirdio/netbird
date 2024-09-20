@@ -1,4 +1,4 @@
-package wgproxy
+package usp
 
 import (
 	"context"
@@ -21,18 +21,19 @@ type WGUserSpaceProxy struct {
 	localConn  net.Conn
 }
 
-// NewWGUserSpaceProxy instantiate a user space WireGuard proxy
-func NewWGUserSpaceProxy(ctx context.Context, wgPort int) *WGUserSpaceProxy {
+// NewWGUserSpaceProxy instantiate a user space WireGuard proxy. This is not a thread safe implementation
+func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
 	log.Debugf("Initializing new user space proxy with port %d", wgPort)
 	p := &WGUserSpaceProxy{
 		localWGListenPort: wgPort,
 	}
-	p.ctx, p.cancel = context.WithCancel(ctx)
 	return p
 }
 
 // AddTurnConn start the proxy with the given remote conn
-func (p *WGUserSpaceProxy) AddTurnConn(remoteConn net.Conn) (net.Addr, error) {
+func (p *WGUserSpaceProxy) AddTurnConn(ctx context.Context, remoteConn net.Conn) (net.Addr, error) {
+	p.ctx, p.cancel = context.WithCancel(ctx)
+
 	p.remoteConn = remoteConn
 
 	var err error
@@ -50,24 +51,16 @@ func (p *WGUserSpaceProxy) AddTurnConn(remoteConn net.Conn) (net.Addr, error) {
 
 // CloseConn close the localConn
 func (p *WGUserSpaceProxy) CloseConn() error {
-	p.cancel()
-	if p.localConn == nil {
+	if p.cancel == nil {
 		return nil
 	}
 
-	if p.remoteConn == nil {
-		return nil
-	}
+	p.cancel()
 
 	if err := p.remoteConn.Close(); err != nil {
 		log.Warnf("failed to close remote conn: %s", err)
 	}
 	return p.localConn.Close()
-}
-
-// Free doing nothing because this implementation of proxy does not have global state
-func (p *WGUserSpaceProxy) Free() error {
-	return nil
 }
 
 // proxyToRemote proxies everything from Wireguard to the RemoteKey peer
