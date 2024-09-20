@@ -4,6 +4,10 @@ package wgproxy
 
 import "github.com/netbirdio/netbird/client/internal/wgproxy/usp"
 
+type Factory struct {
+	wgPort int
+}
+
 func NewFactory(_ bool, wgPort int) *Factory {
 	return &Factory{wgPort: wgPort}
 }

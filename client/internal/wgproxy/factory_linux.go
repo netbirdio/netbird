@@ -9,6 +9,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/wgproxy/usp"
 )
 
+type Factory struct {
+	wgPort    int
+	ebpfProxy ebpf.Proxy
+}
+
 func NewFactory(userspace bool, wgPort int) *Factory {
 	f := &Factory{wgPort: wgPort}
 
