@@ -110,6 +110,7 @@ func (p *WGEBPFProxy) AddTurnConn(ctx context.Context, turnConn net.Conn) (net.A
 func (p *WGEBPFProxy) Free() error {
 	log.Debugf("free up ebpf wg proxy")
 	if p.ctx != nil && p.ctx.Err() != nil {
+		//nolint
 		return nil
 	}
 
