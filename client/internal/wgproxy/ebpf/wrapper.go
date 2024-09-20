@@ -19,6 +19,7 @@ func (e *ProxyWrapper) AddTurnConn(ctx context.Context, remoteConn net.Conn) (ne
 	addr, err := e.WgeBPFProxy.AddTurnConn(ctxConn, remoteConn)
 	if err != nil {
 		cancel()
+		return nil, err
 	}
 	e.remoteConn = remoteConn
 	e.cancel = cancel
