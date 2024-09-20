@@ -1033,3 +1033,18 @@ func (s *SqlStore) withTx(tx *gorm.DB) Store {
 		db: tx,
 	}
 }
+
+// GetAccountDomainAndCategory retrieves the Domain and DomainCategory fields for an account based on the given accountID.
+func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, accountID string) (string, string, error) {
+	var account Account
+	result := s.db.WithContext(ctx).Model(&Account{}).Select("domain", "domain_category").
+		Where(idQueryCondition, accountID).First(&account)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", "", status.Errorf(status.NotFound, "account not found")
+		}
+		return "", "", status.Errorf(status.Internal, "failed to retrieve account fields")
+	}
+
+	return account.Domain, account.DomainCategory, nil
+}

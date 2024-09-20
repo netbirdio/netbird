@@ -931,7 +931,7 @@ func (s *FileStore) SaveUserLastLogin(_ context.Context, accountID, userID strin
 	return nil
 }
 
-func (s *FileStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+func (s *FileStore) GetPostureCheckByChecksDefinition(_ string, _ *posture.ChecksDefinition) (*posture.Checks, error) {
 	return nil, status.Errorf(status.Internal, "GetPostureCheckByChecksDefinition is not implemented")
 }
 
@@ -950,14 +950,18 @@ func (s *FileStore) GetStoreEngine() StoreEngine {
 	return FileStoreEngine
 }
 
-func (s *FileStore) SaveUsers(accountID string, users map[string]*User) error {
+func (s *FileStore) SaveUsers(_ string, _ map[string]*User) error {
 	return status.Errorf(status.Internal, "SaveUsers is not implemented")
 }
 
-func (s *FileStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
+func (s *FileStore) SaveGroups(_ string, _ map[string]*nbgroup.Group) error {
 	return status.Errorf(status.Internal, "SaveGroups is not implemented")
 }
 
-func (s *FileStore) GetAccountIDByPrivateDomain(ctx context.Context, domain string) (string, error) {
+func (s *FileStore) GetAccountIDByPrivateDomain(_ context.Context, _ string) (string, error) {
 	return "", status.Errorf(status.Internal, "GetAccountIDByPrivateDomain is not implemented")
+}
+
+func (s *FileStore) GetAccountDomainAndCategory(_ context.Context, _ string) (string, string, error) {
+	return "", "", status.Errorf(status.Internal, "GetAccountDomainAndCategory is not implemented")
 }

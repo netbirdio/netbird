@@ -360,14 +360,9 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 // GetUser looks up a user by provided authorization claims.
 // It will also create an account if didn't exist for this user before.
 func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error) {
-	account, _, err := am.GetAccountFromToken(ctx, claims)
+	account, user, err := am.GetAccountFromToken(ctx, claims)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account with token claims %v", err)
-	}
-
-	user, ok := account.Users[claims.UserId]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
 	// this code should be outside of the am.GetAccountFromToken(claims) because this method is called also by the gRPC

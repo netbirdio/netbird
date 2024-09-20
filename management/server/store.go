@@ -39,6 +39,7 @@ const (
 type Store interface {
 	GetAllAccounts(ctx context.Context) []*Account
 	GetAccount(ctx context.Context, accountID string) (*Account, error)
+	GetAccountDomainAndCategory(ctx context.Context, accountID string) (string, string, error)
 	DeleteAccount(ctx context.Context, account *Account) error
 	GetAccountByUser(ctx context.Context, userID string) (*Account, error)
 	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error)
