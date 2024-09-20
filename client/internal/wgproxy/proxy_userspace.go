@@ -32,8 +32,8 @@ func NewWGUserSpaceProxy(ctx context.Context, wgPort int) *WGUserSpaceProxy {
 }
 
 // AddTurnConn start the proxy with the given remote conn
-func (p *WGUserSpaceProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
-	p.remoteConn = turnConn
+func (p *WGUserSpaceProxy) AddTurnConn(remoteConn net.Conn) (net.Addr, error) {
+	p.remoteConn = remoteConn
 
 	var err error
 	p.localConn, err = nbnet.NewDialer().DialContext(p.ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
@@ -54,6 +54,14 @@ func (p *WGUserSpaceProxy) CloseConn() error {
 	if p.localConn == nil {
 		return nil
 	}
+
+	if p.remoteConn == nil {
+		return nil
+	}
+
+	if err := p.remoteConn.Close(); err != nil {
+		log.Warnf("failed to close remote conn: %s", err)
+	}
 	return p.localConn.Close()
 }
 
@@ -65,6 +73,8 @@ func (p *WGUserSpaceProxy) Free() error {
 // proxyToRemote proxies everything from Wireguard to the RemoteKey peer
 // blocks
 func (p *WGUserSpaceProxy) proxyToRemote() {
+	defer log.Infof("exit from proxyToRemote: %s", p.localConn.LocalAddr())
+
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -93,7 +103,8 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 // proxyToLocal proxies everything from the RemoteKey peer to local Wireguard
 // blocks
 func (p *WGUserSpaceProxy) proxyToLocal() {
-
+	defer p.cancel()
+	defer log.Infof("exit from proxyToLocal: %s", p.localConn.LocalAddr())
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -103,7 +114,6 @@ func (p *WGUserSpaceProxy) proxyToLocal() {
 			n, err := p.remoteConn.Read(buf)
 			if err != nil {
 				if err == io.EOF {
-					p.cancel()
 					return
 				}
 				log.Errorf("failed to read from remote conn: %s", err)
