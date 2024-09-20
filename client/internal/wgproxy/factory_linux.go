@@ -25,3 +25,20 @@ func NewFactory(userspace bool, wgPort int) *Factory {
 	f.ebpfProxy = ebpfProxy
 	return f
 }
+
+func (w *Factory) GetProxy() Proxy {
+	if w.ebpfProxy != nil {
+		p := &ebpf.ProxyWrapper{
+			WgeBPFProxy: w.ebpfProxy,
+		}
+		return p
+	}
+	return usp.NewWGUserSpaceProxy(w.wgPort)
+}
+
+func (w *Factory) Free() error {
+	if w.ebpfProxy != nil {
+		return nil
+	}
+	return w.ebpfProxy.Free()
+}
