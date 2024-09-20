@@ -7,8 +7,6 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -16,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 )
 
 // PeersHandler is a handler that returns peers of the account
@@ -232,7 +231,12 @@ func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request
 	// with the given peerID return an empty list
 	if !user.HasAdminPower() && !user.IsServiceUser {
 		peer, ok := account.Peers[peerID]
-		if !ok || peer.UserID != user.Id {
+		if !ok {
+			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
+			return
+		}
+
+		if peer.UserID != user.Id {
 			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
 			return
 		}
