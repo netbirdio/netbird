@@ -3,7 +3,6 @@ package usp
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 
 	log "github.com/sirupsen/logrus"
@@ -67,6 +66,7 @@ func (p *WGUserSpaceProxy) CloseConn() error {
 // blocks
 func (p *WGUserSpaceProxy) proxyToRemote() {
 	defer log.Infof("exit from proxyToRemote: %s", p.localConn.LocalAddr())
+	defer p.cancel()
 
 	buf := make([]byte, 1500)
 	for {
@@ -76,17 +76,20 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 		default:
 			n, err := p.localConn.Read(buf)
 			if err != nil {
+				if p.ctx.Err() != nil {
+					return
+				}
 				log.Debugf("failed to read from wg interface conn: %s", err)
 				continue
 			}
 
 			_, err = p.remoteConn.Write(buf[:n])
 			if err != nil {
-				if err == io.EOF {
-					p.cancel()
-				} else {
-					log.Debugf("failed to write to remote conn: %s", err)
+				if p.ctx.Err() != nil {
+					return
 				}
+
+				log.Debugf("failed to write to remote conn: %s", err)
 				continue
 			}
 		}
@@ -106,7 +109,7 @@ func (p *WGUserSpaceProxy) proxyToLocal() {
 		default:
 			n, err := p.remoteConn.Read(buf)
 			if err != nil {
-				if err == io.EOF {
+				if p.ctx.Err() != nil {
 					return
 				}
 				log.Errorf("failed to read from remote conn: %s", err)
@@ -115,6 +118,9 @@ func (p *WGUserSpaceProxy) proxyToLocal() {
 
 			_, err = p.localConn.Write(buf[:n])
 			if err != nil {
+				if p.ctx.Err() != nil {
+					return
+				}
 				log.Debugf("failed to write to wg interface conn: %s", err)
 				continue
 			}

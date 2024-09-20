@@ -22,30 +22,6 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-// ProxyWrapper help to keep the remoteConn instance for net.Conn.Close function call
-type ProxyWrapper struct {
-	WgeBPFProxy *WGEBPFProxy
-
-	remoteConn net.Conn
-}
-
-func (e *ProxyWrapper) AddTurnConn(_ context.Context, remoteConn net.Conn) (net.Addr, error) {
-	e.remoteConn = remoteConn
-	return e.WgeBPFProxy.AddTurnConn(remoteConn)
-}
-
-// CloseConn close the remoteConn and automatically remove the conn instance from the map
-func (e *ProxyWrapper) CloseConn() error {
-	if e.remoteConn == nil {
-		return nil
-	}
-
-	if err := e.remoteConn.Close(); err != nil {
-		return fmt.Errorf("failed to close remote conn: %w", err)
-	}
-	return nil
-}
-
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
 	localWGListenPort int
@@ -57,6 +33,10 @@ type WGEBPFProxy struct {
 	lastUsedPort uint16
 	rawConn      net.PacketConn
 	conn         transport.UDPConn
+	closed       bool
+
+	ctx       context.Context
+	ctxCancel context.CancelFunc
 }
 
 // NewWGEBPFProxy create new WGEBPFProxy instance
@@ -93,6 +73,8 @@ func (p *WGEBPFProxy) Listen() error {
 		IP:   net.ParseIP("127.0.0.1"),
 	}
 
+	p.ctx, p.ctxCancel = context.WithCancel(context.Background())
+
 	conn, err := nbnet.ListenUDP("udp", &addr)
 	if err != nil {
 		cErr := p.Free()
@@ -109,13 +91,13 @@ func (p *WGEBPFProxy) Listen() error {
 }
 
 // AddTurnConn add new turn connection for the proxy
-func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
+func (p *WGEBPFProxy) AddTurnConn(ctx context.Context, turnConn net.Conn) (net.Addr, error) {
 	wgEndpointPort, err := p.storeTurnConn(turnConn)
 	if err != nil {
 		return nil, err
 	}
 
-	go p.proxyToLocal(wgEndpointPort, turnConn)
+	go p.proxyToLocal(ctx, wgEndpointPort, turnConn)
 	log.Infof("turn conn added to wg proxy store: %s, endpoint port: :%d", turnConn.RemoteAddr(), wgEndpointPort)
 
 	wgEndpoint := &net.UDPAddr{
@@ -128,26 +110,28 @@ func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
 // Free resources
 func (p *WGEBPFProxy) Free() error {
 	log.Debugf("free up ebpf wg proxy")
+	if p.ctx != nil && p.ctx.Err() != nil {
+		return nil
+	}
+
+	p.ctxCancel()
+
 	var result error
-	if p.conn != nil {
-		if err := p.conn.Close(); err != nil {
-			result = multierror.Append(result, err)
-		}
+	if err := p.conn.Close(); err != nil {
+		result = multierror.Append(result, err)
 	}
 
 	if err := p.ebpfManager.FreeWGProxy(); err != nil {
 		result = multierror.Append(result, err)
 	}
 
-	if p.rawConn != nil {
-		if err := p.rawConn.Close(); err != nil {
-			result = multierror.Append(result, err)
-		}
+	if err := p.rawConn.Close(); err != nil {
+		result = multierror.Append(result, err)
 	}
 	return result
 }
 
-func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
+func (p *WGEBPFProxy) proxyToLocal(ctx context.Context, endpointPort uint16, remoteConn net.Conn) {
 	defer func() {
 		p.removeTurnConn(endpointPort)
 	}()
@@ -155,17 +139,32 @@ func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 	var err error
 	buf := make([]byte, 1500)
 	for {
-		var n int
-		n, err = remoteConn.Read(buf)
-		if err != nil {
-			if err != io.EOF {
-				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
-			}
+		select {
+		case <-ctx.Done():
 			return
-		}
-		err = p.sendPkg(buf[:n], endpointPort)
-		if err != nil {
-			log.Errorf("failed to write out turn pkg to local conn: %v", err)
+		default:
+			var n int
+			n, err = remoteConn.Read(buf)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				if err != io.EOF {
+					log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
+				}
+				return
+			}
+			err = p.sendPkg(buf[:n], endpointPort)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+
+				if p.ctx.Err() != nil {
+					return
+				}
+				log.Errorf("failed to write out turn pkg to local conn: %v", err)
+			}
 		}
 	}
 }
@@ -175,23 +174,37 @@ func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 func (p *WGEBPFProxy) proxyToRemote() {
 	buf := make([]byte, 1500)
 	for {
-		n, addr, err := p.conn.ReadFromUDP(buf)
-		if err != nil {
-			log.Errorf("failed to read UDP pkg from WG: %s", err)
+		select {
+		case <-p.ctx.Done():
 			return
-		}
+		default:
+			n, addr, err := p.conn.ReadFromUDP(buf)
+			if err != nil {
+				if p.ctx.Err() != nil {
+					return
+				}
+				log.Errorf("failed to read UDP pkg from WG: %s", err)
+				return
+			}
 
-		p.turnConnMutex.Lock()
-		conn, ok := p.turnConnStore[uint16(addr.Port)]
-		p.turnConnMutex.Unlock()
-		if !ok {
-			log.Debugf("turn conn not found by port because conn already has been closed: %d", addr.Port)
-			continue
-		}
+			p.turnConnMutex.Lock()
+			conn, ok := p.turnConnStore[uint16(addr.Port)]
+			p.turnConnMutex.Unlock()
+			if !ok {
+				if p.ctx.Err() != nil {
+					return
+				}
+				log.Debugf("turn conn not found by port because conn already has been closed: %d", addr.Port)
+				continue
+			}
 
-		_, err = conn.Write(buf[:n])
-		if err != nil {
-			log.Debugf("failed to forward local wg pkg (%d) to remote turn conn: %s", addr.Port, err)
+			_, err = conn.Write(buf[:n])
+			if err != nil {
+				if p.ctx.Err() != nil {
+					return
+				}
+				log.Debugf("failed to forward local wg pkg (%d) to remote turn conn: %s", addr.Port, err)
+			}
 		}
 	}
 }
