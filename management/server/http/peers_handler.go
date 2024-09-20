@@ -7,8 +7,6 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -16,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 )
 
 // PeersHandler is a handler that returns peers of the account
@@ -215,7 +214,7 @@ func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approv
 // GetAccessiblePeers returns a list of all peers that the specified peer can connect to within the network.
 func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -226,6 +225,21 @@ func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request
 	if len(peerID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
 		return
+	}
+
+	// If the user is regular user and does not own the peer
+	// with the given peerID return an empty list
+	if !user.HasAdminPower() && !user.IsServiceUser {
+		peer, ok := account.Peers[peerID]
+		if !ok {
+			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
+			return
+		}
+
+		if peer.UserID != user.Id {
+			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			return
+		}
 	}
 
 	dnsDomain := h.accountManager.GetDNSDomain()
