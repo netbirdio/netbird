@@ -33,7 +33,6 @@ type WGEBPFProxy struct {
 	lastUsedPort uint16
 	rawConn      net.PacketConn
 	conn         transport.UDPConn
-	closed       bool
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
