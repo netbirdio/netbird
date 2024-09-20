@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/wgproxy/ebpf"
+	"github.com/netbirdio/netbird/client/internal/wgproxy/usp"
 )
 
 func NewFactory(userspace bool, wgPort int) *Factory {
