@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	_ "embed"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -341,7 +342,7 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 }
 
 // SavePolicy in the store
-func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *Policy) error {
+func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *Policy, isUpdate bool) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -350,7 +351,9 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		return err
 	}
 
-	exists := am.savePolicy(account, policy)
+	if err = am.savePolicy(account, policy, isUpdate); err != nil {
+		return err
+	}
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
@@ -358,7 +361,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	}
 
 	action := activity.PolicyAdded
-	if exists {
+	if isUpdate {
 		action = activity.PolicyUpdated
 	}
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
@@ -434,18 +437,34 @@ func (am *DefaultAccountManager) deletePolicy(account *Account, policyID string)
 	return policy, nil
 }
 
-func (am *DefaultAccountManager) savePolicy(account *Account, policy *Policy) (exists bool) {
-	for i, p := range account.Policies {
-		if p.ID == policy.ID {
-			account.Policies[i] = policy
-			exists = true
-			break
+// savePolicy saves or updates a policy in the given account.
+// If isUpdate is true, the function updates the existing policy; otherwise, it adds a new policy.
+func (am *DefaultAccountManager) savePolicy(account *Account, policyToSave *Policy, isUpdate bool) error {
+	for index, rule := range policyToSave.Rules {
+		rule.Sources = filterValidGroupIDs(account, rule.Sources)
+		rule.Destinations = filterValidGroupIDs(account, rule.Destinations)
+		policyToSave.Rules[index] = rule
+	}
+
+	if policyToSave.SourcePostureChecks != nil {
+		policyToSave.SourcePostureChecks = filterValidPostureChecks(account, policyToSave.SourcePostureChecks)
+	}
+
+	if isUpdate {
+		policyIdx := slices.IndexFunc(account.Policies, func(policy *Policy) bool { return policy.ID == policyToSave.ID })
+		if policyIdx < 0 {
+			return status.Errorf(status.NotFound, "couldn't find policy id %s", policyToSave.ID)
 		}
+
+		// Update the existing policy
+		account.Policies[policyIdx] = policyToSave
+		return nil
 	}
-	if !exists {
-		account.Policies = append(account.Policies, policy)
-	}
-	return
+
+	// Add the new policy to the account
+	account.Policies = append(account.Policies, policyToSave)
+
+	return nil
 }
 
 func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
@@ -559,4 +578,30 @@ func (a *Account) getPostureChecks(postureChecksID string) *posture.Checks {
 		}
 	}
 	return nil
+}
+
+// filterValidPostureChecks filters and returns the posture check IDs from the given list
+// that are valid within the provided account.
+func filterValidPostureChecks(account *Account, postureChecksIds []string) []string {
+	result := make([]string, 0, len(postureChecksIds))
+	for _, id := range postureChecksIds {
+		for _, postureCheck := range account.PostureChecks {
+			if id == postureCheck.ID {
+				result = append(result, id)
+				continue
+			}
+		}
+	}
+	return result
+}
+
+// filterValidGroupIDs filters a list of group IDs and returns only the ones present in the account's group map.
+func filterValidGroupIDs(account *Account, groupIDs []string) []string {
+	result := make([]string, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if _, exists := account.Groups[groupID]; exists {
+			result = append(result, groupID)
+		}
+	}
+	return result
 }

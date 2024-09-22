@@ -357,26 +357,35 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	return newUser.ToUserInfo(idpUser, account.Settings)
 }
 
+func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*User, error) {
+	return am.Store.GetUserByUserID(ctx, LockingStrengthShare, id)
+}
+
 // GetUser looks up a user by provided authorization claims.
 // It will also create an account if didn't exist for this user before.
 func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error) {
-	account, user, err := am.GetAccountFromToken(ctx, claims)
+	accountID, userID, err := am.GetAccountIDFromToken(ctx, claims)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account with token claims %v", err)
 	}
 
-	// this code should be outside of the am.GetAccountFromToken(claims) because this method is called also by the gRPC
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// this code should be outside of the am.GetAccountIDFromToken(claims) because this method is called also by the gRPC
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
 	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
 
-	err = am.Store.SaveUserLastLogin(ctx, account.Id, claims.UserId, claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(ctx, accountID, userID, claims.LastLogin)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed saving user last login: %v", err)
 	}
 
 	if newLogin {
 		meta := map[string]any{"timestamp": claims.LastLogin}
-		am.StoreEvent(ctx, claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
+		am.StoreEvent(ctx, claims.UserId, claims.UserId, accountID, activity.DashboardLogin, meta)
 	}
 
 	return user, nil

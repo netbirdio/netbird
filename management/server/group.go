@@ -27,26 +27,15 @@ func (e *GroupLinkError) Error() string {
 
 // GetGroup object of the peers
 func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupID, userID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	groups, err := am.GetAllGroups(ctx, accountID, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
-		return nil, status.Errorf(status.PermissionDenied, "groups are blocked for users")
-	}
-
-	group, ok := account.Groups[groupID]
-	if ok {
-		return group, nil
+	for _, group := range groups {
+		if group.ID == groupID {
+			return group, nil
+		}
 	}
 
 	return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
@@ -54,43 +43,32 @@ func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupI
 
 // GetAllGroups returns all groups in an account
 func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID string, userID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
+	if !user.HasAdminPower() && !user.IsServiceUser && settings.RegularUsersViewBlocked {
 		return nil, status.Errorf(status.PermissionDenied, "groups are blocked for users")
 	}
 
-	groups := make([]*nbgroup.Group, 0, len(account.Groups))
-	for _, item := range account.Groups {
-		groups = append(groups, item)
-	}
-
-	return groups, nil
+	return am.Store.GetAccountGroups(ctx, accountID)
 }
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
 func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	groups, err := am.Store.GetAccountGroups(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	matchingGroups := make([]*nbgroup.Group, 0)
-	for _, group := range account.Groups {
+	for _, group := range groups {
 		if group.Name == groupName {
 			matchingGroups = append(matchingGroups, group)
 		}
@@ -260,6 +238,15 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 	group, ok := account.Groups[groupID]
 	if !ok {
 		return nil
+	}
+
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		return err
+	}
+
+	if allGroup.ID == groupID {
+		return status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed")
 	}
 
 	if err = validateDeleteGroup(account, group, userId); err != nil {

@@ -75,12 +75,14 @@ type AccountManager interface {
 	SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error)
 	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
+	GetAccountByID(ctx context.Context, accountID string, userID string) (*Account, error)
 	GetAccountIDByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (string, error)
-	GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
+	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(ctx context.Context, pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	MarkPATUsed(ctx context.Context, tokenID string) error
+	GetUserByID(ctx context.Context, id string) (*User, error)
 	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*User, error)
 	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
@@ -107,7 +109,7 @@ type AccountManager interface {
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error)
-	SavePolicy(ctx context.Context, accountID, userID string, policy *Policy) error
+	SavePolicy(ctx context.Context, accountID, userID string, policy *Policy, isUpdate bool) error
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
 	ListPolicies(ctx context.Context, accountID, userID string) ([]*Policy, error)
 	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
@@ -145,6 +147,7 @@ type AccountManager interface {
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
+	GetAccountSettings(ctx context.Context, accountID string, userID string) (*Settings, error)
 }
 
 type DefaultAccountManager struct {
@@ -1739,10 +1742,27 @@ func (am *DefaultAccountManager) GetAccountFromPAT(ctx context.Context, token st
 	return account, user, pat, nil
 }
 
-// GetAccountFromToken returns an account associated with this token.
-func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*Account, *User, error) {
+// GetAccountByID returns an account associated with this account ID.
+func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID string, userID string) (*Account, error) {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
+		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+	}
+
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
+	return am.Store.GetAccount(ctx, accountID)
+}
+
+// GetAccountIDFromToken returns an account ID associated with this token.
+func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 	if claims.UserId == "" {
-		return nil, nil, fmt.Errorf("user ID is empty")
+		return "", "", fmt.Errorf("user ID is empty")
 	}
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
@@ -1754,28 +1774,27 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 
 	accountID, err := am.getAccountIDWithAuthorizationClaims(ctx, claims)
 	if err != nil {
-		return nil, nil, err
+		return "", "", err
 	}
 
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
 	if err != nil {
 		// this is not really possible because we got an account by user ID
-		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
+		return "", "", status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
 	if !user.IsServiceUser && claims.Invited {
 		err = am.redeemInvite(ctx, accountID, user.Id)
 		if err != nil {
-			return nil, nil, err
+			return "", "", err
 		}
 	}
 
 	if err = am.syncJWTGroups(ctx, accountID, user, claims); err != nil {
-		return nil, nil, err
+		return "", "", err
 	}
 
-	// TODO: return account id, user id and error
-	return &Account{Id: accountID}, user, nil
+	return accountID, user.Id, nil
 }
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
@@ -2049,12 +2068,12 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 // CheckUserAccessByJWTGroups checks if the user has access, particularly in cases where the admin enabled JWT
 // group propagation and set the list of groups with access permissions.
 func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error {
-	account, _, err := am.GetAccountFromToken(ctx, claims)
+	accountID, _, err := am.GetAccountIDFromToken(ctx, claims)
 	if err != nil {
 		return err
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, account.Id)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}
@@ -2131,6 +2150,19 @@ func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, store Stor
 	}
 
 	return newLabel, nil
+}
+
+func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*Settings, error) {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
+		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+	}
+
+	return am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 }
 
 // addAllGroup to account object if it doesn't exist

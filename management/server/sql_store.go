@@ -36,6 +36,7 @@ const (
 	idQueryCondition           = "id = ?"
 	keyQueryCondition          = "key = ?"
 	accountAndIDQueryCondition = "account_id = ? and id = ?"
+	accountIDCondition         = "account_id = ?"
 	peerNotFoundFMT            = "peer %s not found"
 )
 
@@ -500,7 +501,7 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 
 func (s *SqlStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
 	var groups []*nbgroup.Group
-	result := s.db.Find(&groups, idQueryCondition, accountID)
+	result := s.db.Find(&groups, accountIDCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
