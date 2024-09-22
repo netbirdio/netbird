@@ -796,7 +796,10 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			acc, err := am.GetAccountByUserOrAccountID(context.Background(), "", account.Id, "")
+			accID, err := am.GetAccountIDByUserOrAccountID(context.Background(), "", account.Id, "")
+			assert.NoError(t, err)
+
+			acc, err := am.Store.GetAccount(context.Background(), accID)
 			assert.NoError(t, err)
 
 			for _, id := range tc.expectedDeleted {

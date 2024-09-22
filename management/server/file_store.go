@@ -962,6 +962,14 @@ func (s *FileStore) GetAccountIDByPrivateDomain(_ context.Context, _ string) (st
 	return "", status.Errorf(status.Internal, "GetAccountIDByPrivateDomain is not implemented")
 }
 
-func (s *FileStore) GetAccountDomainAndCategory(_ context.Context, _ string) (string, string, error) {
-	return "", "", status.Errorf(status.Internal, "GetAccountDomainAndCategory is not implemented")
+func (s *FileStore) GetAccountDomainAndCategory(_ context.Context, accountID string) (string, string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return "", "", err
+	}
+
+	return account.Domain, account.DomainCategory, nil
 }

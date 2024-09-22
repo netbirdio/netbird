@@ -73,9 +73,9 @@ func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http
 		return
 	}
 
-	_, err = p.accountManager.GetPostureChecks(r.Context(), accountID, userID, postureChecksID)
+	_, err = p.accountManager.GetPostureChecks(r.Context(), accountID, postureChecksID, userID)
 	if err != nil {
-		util.WriteError(r.Context(), status.Errorf(status.NotFound, "couldn't find posture checks id %s", postureChecksID), w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 

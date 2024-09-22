@@ -49,7 +49,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
-	if len(userID) == 0 {
+	if len(targetUserID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
@@ -79,7 +79,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newUser, err := h.accountManager.SaveUser(r.Context(), accountID, userID, &server.User{
-		Id:                   userID,
+		Id:                   targetUserID,
 		Role:                 userRole,
 		AutoGroups:           req.AutoGroups,
 		Blocked:              req.IsBlocked,
