@@ -3,9 +3,9 @@ package usp
 import (
 	"context"
 	"fmt"
-	"net"
-
 	log "github.com/sirupsen/logrus"
+	"net"
+	"sync"
 
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -18,6 +18,8 @@ type WGUserSpaceProxy struct {
 
 	remoteConn net.Conn
 	localConn  net.Conn
+	closeMu    sync.Mutex
+	closed     bool
 }
 
 // NewWGUserSpaceProxy instantiate a user space WireGuard proxy. This is not a thread safe implementation
@@ -51,22 +53,36 @@ func (p *WGUserSpaceProxy) AddTurnConn(ctx context.Context, remoteConn net.Conn)
 // CloseConn close the localConn
 func (p *WGUserSpaceProxy) CloseConn() error {
 	if p.cancel == nil {
-		return nil
+		return fmt.Errorf("proxy not started")
 	}
+	p.close()
+	return nil
+}
+
+func (p *WGUserSpaceProxy) close() {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
+
+	// prevent double close
+	if p.closed {
+		return
+	}
+	p.closed = true
 
 	p.cancel()
 
 	if err := p.remoteConn.Close(); err != nil {
 		log.Warnf("failed to close remote conn: %s", err)
 	}
-	return p.localConn.Close()
+
+	if err := p.localConn.Close(); err != nil {
+		log.Warnf("failed to close conn with WireGuard: %s", err)
+	}
 }
 
-// proxyToRemote proxies everything from Wireguard to the RemoteKey peer
-// blocks
+// proxyToRemote proxies from Wireguard to the RemoteKey
 func (p *WGUserSpaceProxy) proxyToRemote() {
-	defer log.Infof("exit from proxyToRemote: %s", p.localConn.LocalAddr())
-	defer p.cancel()
+	defer p.close()
 
 	buf := make([]byte, 1500)
 	for p.ctx.Err() == nil {
@@ -76,7 +92,7 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 				return
 			}
 			log.Debugf("failed to read from wg interface conn: %s", err)
-			continue
+			return
 		}
 
 		_, err = p.remoteConn.Write(buf[:n])
@@ -86,17 +102,16 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 			}
 
 			log.Debugf("failed to write to remote conn: %s", err)
-			continue
+			return
 		}
-
 	}
 }
 
 // proxyToLocal proxies everything from the RemoteKey peer to local Wireguard
 // blocks
 func (p *WGUserSpaceProxy) proxyToLocal() {
-	defer p.cancel()
-	defer log.Infof("exit from proxyToLocal: %s", p.localConn.LocalAddr())
+	defer p.close()
+
 	buf := make([]byte, 1500)
 	for p.ctx.Err() == nil {
 		n, err := p.remoteConn.Read(buf)
@@ -104,8 +119,8 @@ func (p *WGUserSpaceProxy) proxyToLocal() {
 			if p.ctx.Err() != nil {
 				return
 			}
-			log.Errorf("failed to read from remote conn: %s", err)
-			continue
+			log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.RemoteAddr(), err)
+			return
 		}
 
 		_, err = p.localConn.Write(buf[:n])
