@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -56,34 +57,39 @@ func (p *WGUserSpaceProxy) CloseConn() error {
 	if p.cancel == nil {
 		return fmt.Errorf("proxy not started")
 	}
-	p.close()
-	return nil
+	return p.close()
 }
 
-func (p *WGUserSpaceProxy) close() {
+func (p *WGUserSpaceProxy) close() error {
 	p.closeMu.Lock()
 	defer p.closeMu.Unlock()
 
 	// prevent double close
 	if p.closed {
-		return
+		return nil
 	}
 	p.closed = true
 
 	p.cancel()
 
+	var result error
 	if err := p.remoteConn.Close(); err != nil {
-		log.Warnf("failed to close remote conn: %s", err)
+		result = multierror.Append(result, fmt.Errorf("remote conn: %s", err))
 	}
 
 	if err := p.localConn.Close(); err != nil {
-		log.Warnf("failed to close conn with WireGuard: %s", err)
+		result = multierror.Append(result, fmt.Errorf("local conn: %s", err))
 	}
+	return result
 }
 
 // proxyToRemote proxies from Wireguard to the RemoteKey
 func (p *WGUserSpaceProxy) proxyToRemote() {
-	defer p.close()
+	defer func() {
+		if err := p.close(); err != nil {
+			log.Warnf("error in proxy to remote loop: %s", err)
+		}
+	}()
 
 	buf := make([]byte, 1500)
 	for p.ctx.Err() == nil {
@@ -110,7 +116,11 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 
 // proxyToLocal proxies from the Remote peer to local WireGuard
 func (p *WGUserSpaceProxy) proxyToLocal() {
-	defer p.close()
+	defer func() {
+		if err := p.close(); err != nil {
+			log.Warnf("error in proxy to local loop: %s", err)
+		}
+	}()
 
 	buf := make([]byte, 1500)
 	for p.ctx.Err() == nil {
