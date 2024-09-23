@@ -44,6 +44,11 @@ type ZitadelCredentials struct {
 	appMetrics   telemetry.AppMetrics
 }
 
+type zitadelErrorResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
 // zitadelEmail specifies details of a user email.
 type zitadelEmail struct {
 	Email           string `json:"email"`
@@ -489,7 +494,10 @@ func (zm *ZitadelManager) post(ctx context.Context, resource string, body string
 			zm.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
 
-		return nil, fmt.Errorf("unable to post %s, statusCode %d", reqURL, resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		zErr := zm.readZitadelError(bodyBytes)
+
+		return bodyBytes, fmt.Errorf("unable to post %s, statusCode %d, zitadel: %w", reqURL, resp.StatusCode, zErr)
 	}
 
 	return io.ReadAll(resp.Body)
@@ -561,10 +569,23 @@ func (zm *ZitadelManager) get(ctx context.Context, resource string, q url.Values
 			zm.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
 
-		return nil, fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		zErr := zm.readZitadelError(bodyBytes)
+
+		return bodyBytes, fmt.Errorf("unable to get %s, statusCode %d, zitadel: %w", reqURL, resp.StatusCode, zErr)
 	}
 
 	return io.ReadAll(resp.Body)
+}
+
+func (zm *ZitadelManager) readZitadelError(errorBody []byte) error {
+	var zitadelErr zitadelErrorResponse
+	err := zm.helper.Unmarshal(errorBody, &zitadelErr)
+	if err != nil {
+		return fmt.Errorf("error unparsable body: %s", errorBody)
+	}
+
+	return fmt.Errorf("error code: %d message: %s", zitadelErr.Code, zitadelErr.Message)
 }
 
 // userData construct user data from zitadel profile.
