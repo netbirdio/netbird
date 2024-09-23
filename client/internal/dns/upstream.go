@@ -100,16 +100,14 @@ func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 		// probe continually for 10s when peer count >= 1
 		connectedPeersCount := u.statusRecorder.GetConnectedPeersCount()
 		log.Infof("connected peers: %d", connectedPeersCount)
-		if connectedPeersCount == 0 {
-			if u.areNameServersAllPrivate(u.upstreamServers) {
-				log.Infof("O peers connected, disabling private upstream servers %#v", u.upstreamServers)
-				if cancelBackOff != nil {
-					cancelBackOff()
-					cancelBackOff = nil
-				}
-				u.disable(fmt.Errorf("0 peers connected"))
-				return
+		if connectedPeersCount == 0 && u.areNameServersAllPrivate(u.upstreamServers) {
+			log.Infof("O peers connected, disabling private upstream servers %#v", u.upstreamServers)
+			if cancelBackOff != nil {
+				cancelBackOff()
+				cancelBackOff = nil
 			}
+			u.disable(fmt.Errorf("0 peers connected"))
+			return
 		}
 
 		if cancelBackOff != nil {
