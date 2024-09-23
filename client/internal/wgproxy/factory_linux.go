@@ -43,7 +43,7 @@ func (w *Factory) GetProxy() Proxy {
 }
 
 func (w *Factory) Free() error {
-	if w.ebpfProxy != nil {
+	if w.ebpfProxy == nil {
 		return nil
 	}
 	return w.ebpfProxy.Free()
