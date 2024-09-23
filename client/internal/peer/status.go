@@ -281,6 +281,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 }
 
 func (d *Status) UpdatePeerICEState(receivedState State) error {
+	var connStatusChanged bool
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -294,6 +295,9 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 	}
 
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	if receivedState.ConnStatus != peerState.ConnStatus {
+		connStatusChanged = true
+	}
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -305,6 +309,11 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 	peerState.RosenpassEnabled = receivedState.RosenpassEnabled
 
 	d.peers[receivedState.PubKey] = peerState
+
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
+	}
 
 	if skipNotification {
 		return nil
@@ -321,6 +330,7 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 }
 
 func (d *Status) UpdatePeerRelayedState(receivedState State) error {
+	var connStatusChanged bool
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -330,6 +340,9 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 	}
 
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	if receivedState.ConnStatus != peerState.ConnStatus {
+		connStatusChanged = true
+	}
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -338,6 +351,11 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 	peerState.RosenpassEnabled = receivedState.RosenpassEnabled
 
 	d.peers[receivedState.PubKey] = peerState
+
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
+	}
 
 	if skipNotification {
 		return nil
@@ -354,6 +372,7 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 }
 
 func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error {
+	var connStatusChanged bool
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -363,6 +382,9 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 	}
 
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	if receivedState.ConnStatus != peerState.ConnStatus {
+		connStatusChanged = true
+	}
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.Relayed = receivedState.Relayed
@@ -370,6 +392,11 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 	peerState.RelayServerAddress = ""
 
 	d.peers[receivedState.PubKey] = peerState
+
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
+	}
 
 	if skipNotification {
 		return nil
@@ -386,6 +413,7 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 }
 
 func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
+	var connStatusChanged bool
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -395,6 +423,9 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 	}
 
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	if receivedState.ConnStatus != peerState.ConnStatus {
+		connStatusChanged = true
+	}
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.Relayed = receivedState.Relayed
@@ -405,6 +436,11 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 	peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
 
 	d.peers[receivedState.PubKey] = peerState
+
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
+	}
 
 	if skipNotification {
 		return nil
