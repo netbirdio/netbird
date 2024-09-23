@@ -132,9 +132,7 @@ func (p *WGEBPFProxy) Free() error {
 }
 
 func (p *WGEBPFProxy) proxyToLocal(ctx context.Context, endpointPort uint16, remoteConn net.Conn) {
-	defer func() {
-		p.removeTurnConn(endpointPort)
-	}()
+	defer p.removeTurnConn(endpointPort)
 
 	var (
 		err error

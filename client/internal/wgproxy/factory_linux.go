@@ -11,7 +11,7 @@ import (
 
 type Factory struct {
 	wgPort    int
-	ebpfProxy ebpf.Proxy
+	ebpfProxy *ebpf.WGEBPFProxy
 }
 
 func NewFactory(userspace bool, wgPort int) *Factory {

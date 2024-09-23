@@ -10,7 +10,7 @@ import (
 
 // ProxyWrapper help to keep the remoteConn instance for net.Conn.Close function call
 type ProxyWrapper struct {
-	WgeBPFProxy Proxy
+	WgeBPFProxy *WGEBPFProxy
 
 	remoteConn net.Conn
 	cancel     context.CancelFunc // with thic cancel function, we stop remoteToLocal thread
@@ -31,11 +31,12 @@ func (e *ProxyWrapper) AddTurnConn(ctx context.Context, remoteConn net.Conn) (ne
 
 // CloseConn close the remoteConn and automatically remove the conn instance from the map
 func (e *ProxyWrapper) CloseConn() error {
-	if e.remoteConn == nil {
-		return nil
+	if e.cancel == nil {
+		return fmt.Errorf("proxy not started")
 	}
 
 	e.cancel()
+
 	if err := e.remoteConn.Close(); err != nil {
 		return fmt.Errorf("failed to close remote conn: %w", err)
 	}
