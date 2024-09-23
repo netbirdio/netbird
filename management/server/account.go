@@ -1628,10 +1628,7 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 		return nil
 	}
 
-	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-
 	account, err := am.Store.GetAccount(ctx, accountID)
-	unlock()
 	if err != nil {
 		return err
 	}
@@ -1752,9 +1749,6 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
 		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
 	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 
 	return am.Store.GetAccount(ctx, accountID)
 }
