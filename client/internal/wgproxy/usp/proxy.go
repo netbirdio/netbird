@@ -3,9 +3,10 @@ package usp
 import (
 	"context"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -107,8 +108,7 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 	}
 }
 
-// proxyToLocal proxies everything from the RemoteKey peer to local Wireguard
-// blocks
+// proxyToLocal proxies from the Remote peer to local WireGuard
 func (p *WGUserSpaceProxy) proxyToLocal() {
 	defer p.close()
 
