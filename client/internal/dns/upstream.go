@@ -72,7 +72,6 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *
 }
 
 func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
-	var probeRunning atomic.Bool
 	var cancelBackOff context.CancelFunc
 	exponentialBackOff := &backoff.ExponentialBackOff{
 		InitialInterval:     200 * time.Millisecond,
@@ -100,20 +99,20 @@ func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 	continualProbe := func() {
 		// probe continually for 10s when peer count >= 1
 		connectedPeersCount := u.statusRecorder.GetConnectedPeersCount()
+		log.Infof("connected peers: %d", connectedPeersCount)
 		if connectedPeersCount == 0 {
-			// cancel backoff operation
-			if cancelBackOff != nil {
-				cancelBackOff()
-				cancelBackOff = nil
-			}
 			if u.areNameServersAllPrivate(u.upstreamServers) {
-				log.Infof("O peers connected, disabling upstream servers %#v", u.upstreamServers)
+				log.Infof("O peers connected, disabling private upstream servers %#v", u.upstreamServers)
+				if cancelBackOff != nil {
+					cancelBackOff()
+					cancelBackOff = nil
+				}
 				u.disable(fmt.Errorf("0 peers connected"))
 				return
 			}
 		}
 
-		if probeRunning.Load() {
+		if cancelBackOff != nil {
 			log.Info("restart DNS probing")
 			cancelBackOff()
 			cancelBackOff = nil
@@ -122,15 +121,14 @@ func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 			u.mutex.Lock()
 			log.Infof("DNS probe finished, servers %s disabled: %t", u.upstreamServers, u.disabled)
 			u.mutex.Unlock()
-			probeRunning.Store(false)
 		}()
-		probeRunning.Store(true)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancelBackOff = cancel
 		err := backoff.Retry(func() error {
 			select {
 			case <-ctx.Done():
+				log.Infof("ctx canceled DNS probe w/ backoff")
 				return backoff.Permanent(ctx.Err())
 			default:
 				return operation()
@@ -139,7 +137,6 @@ func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 		cancelBackOff = nil
 		if err != nil {
 			log.Warnf("DNS probe (peer ConnStatus change) stopped: %s", err)
-			u.disable(err)
 			return
 		}
 	}
@@ -147,6 +144,7 @@ func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 	for {
 		select {
 		case <-u.ctx.Done():
+			log.Infof("stopped watching peer connections: %s", u.ctx.Err())
 			return
 		case <-u.statusRecorder.GetPeersConnStatusChangeNotifier():
 			log.Infof("Peer ConnStatus changed, triggering DNS probe")
@@ -307,13 +305,14 @@ func (u *upstreamResolverBase) probeAvailability() {
 		return
 	}
 
-	if u.disabled {
-		log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
-		u.failsCount.Store(0)
-		u.successCount.Add(1)
-		u.reactivate()
-		u.disabled = false
+	if !u.disabled {
+		return
 	}
+	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
+	u.failsCount.Store(0)
+	u.successCount.Add(1)
+	u.reactivate()
+	u.disabled = false
 }
 
 // waitUntilResponse retries, in an exponential interval, querying the upstream servers until it gets a positive response
