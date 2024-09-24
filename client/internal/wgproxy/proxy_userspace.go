@@ -7,8 +7,6 @@ import (
 	"net"
 
 	log "github.com/sirupsen/logrus"
-
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // WGUserSpaceProxy proxies
@@ -36,7 +34,8 @@ func (p *WGUserSpaceProxy) AddTurnConn(remoteConn net.Conn) (net.Addr, error) {
 	p.remoteConn = remoteConn
 
 	var err error
-	p.localConn, err = nbnet.NewDialer().DialContext(p.ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
+	dialer := &net.Dialer{}
+	p.localConn, err = dialer.DialContext(p.ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
 	if err != nil {
 		log.Errorf("failed dialing to local Wireguard port %s", err)
 		return nil, err
