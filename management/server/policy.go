@@ -320,7 +320,7 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 		return nil, err
 	}
 
-	if (!user.HasAdminPower() && !user.IsServiceUser) || user.AccountID != accountID {
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
 	}
 
@@ -391,7 +391,7 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 		return nil, err
 	}
 
-	if (!user.HasAdminPower() && !user.IsServiceUser) || user.AccountID != accountID {
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
 	}
 

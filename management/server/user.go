@@ -94,6 +94,11 @@ func (u *User) HasAdminPower() bool {
 	return u.Role == UserRoleAdmin || u.Role == UserRoleOwner
 }
 
+// IsAdminOrServiceUser checks if the user has admin power or is a service user.
+func (u *User) IsAdminOrServiceUser() bool {
+	return u.HasAdminPower() || u.IsServiceUser
+}
+
 // ToUserInfo converts a User object to a UserInfo object.
 func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
@@ -638,63 +643,48 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 
 // GetPAT returns a specific PAT from a user
 func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: %s", err)
+		return nil, err
 	}
 
-	targetUser, ok := account.Users[targetUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
+	if err != nil {
+		return nil, err
 	}
 
-	executingUser, ok := account.Users[initiatorUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	if (initiatorUserID != targetUserID && !initiatorUser.IsAdminOrServiceUser()) || initiatorUser.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
-		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this userser")
+	for _, pat := range targetUser.PATsG {
+		if pat.ID == tokenID {
+			return pat.Copy(), nil
+		}
 	}
 
-	pat := targetUser.PATs[tokenID]
-	if pat == nil {
-		return nil, status.Errorf(status.NotFound, "PAT not found")
-	}
-
-	return pat, nil
+	return nil, status.Errorf(status.NotFound, "PAT not found")
 }
 
 // GetAllPATs returns all PATs for a user
 func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: %s", err)
+		return nil, err
 	}
 
-	targetUser, ok := account.Users[targetUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
+	if err != nil {
+		return nil, err
 	}
 
-	executingUser, ok := account.Users[initiatorUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
-	}
-
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
+	if (initiatorUserID != targetUserID && !initiatorUser.IsAdminOrServiceUser()) || initiatorUser.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
 	}
 
-	var pats []*PersonalAccessToken
-	for _, pat := range targetUser.PATs {
-		pats = append(pats, pat)
+	pats := make([]*PersonalAccessToken, 0, len(targetUser.PATsG))
+	for _, pat := range targetUser.PATsG {
+		pats = append(pats, pat.Copy())
 	}
 
 	return pats, nil

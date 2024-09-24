@@ -37,7 +37,7 @@ func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, acco
 		return err
 	}
 
-	if !user.HasAdminPower() && !user.IsServiceUser && settings.RegularUsersViewBlocked {
+	if (!user.IsAdminOrServiceUser() && settings.RegularUsersViewBlocked) || user.AccountID != accountID {
 		return status.Errorf(status.PermissionDenied, "groups are blocked for users")
 	}
 
