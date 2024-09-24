@@ -400,7 +400,7 @@ func (s *SqlStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 }
 
 func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error) {
-	accountID, err := s.GetAccountIDByPrivateDomain(ctx, domain)
+	accountID, err := s.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if err != nil {
 		return nil, err
 	}
@@ -409,11 +409,12 @@ func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string)
 	return s.GetAccount(ctx, accountID)
 }
 
-func (s *SqlStore) GetAccountIDByPrivateDomain(ctx context.Context, domain string) (string, error) {
-	var account Account
-
-	result := s.db.First(&account, "domain = ? and is_domain_primary_account = ? and domain_category = ?",
-		strings.ToLower(domain), true, PrivateCategory)
+func (s *SqlStore) GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error) {
+	var accountID string
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).Select("id").
+		Where("domain = ? and is_domain_primary_account = ? and domain_category = ?",
+			strings.ToLower(domain), true, PrivateCategory,
+		).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
@@ -422,7 +423,7 @@ func (s *SqlStore) GetAccountIDByPrivateDomain(ctx context.Context, domain strin
 		return "", status.Errorf(status.Internal, "issue getting account from store")
 	}
 
-	return account.Id, nil
+	return accountID, nil
 }
 
 func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) {
@@ -671,9 +672,8 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string)
 }
 
 func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
-	var user User
 	var accountID string
-	result := s.db.Model(&user).Select("account_id").Where(idQueryCondition, userID).First(&accountID)
+	result := s.db.Model(&User{}).Select("account_id").Where(idQueryCondition, userID).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -1035,10 +1035,53 @@ func (s *SqlStore) withTx(tx *gorm.DB) Store {
 	}
 }
 
+// UpdateAccount updates an existing account's domain, DNS settings, and settings fields.
+func (s *SqlStore) UpdateAccount(ctx context.Context, lockStrength LockingStrength, account *Account) error {
+	updates := make(map[string]interface{})
+
+	if account.Domain != "" {
+		updates["domain"] = account.Domain
+	}
+
+	if account.DNSSettings.DisabledManagementGroups != nil {
+		updates["dns_settings"] = account.DNSSettings
+	}
+
+	if account.Settings != nil {
+		updates["settings"] = account.Settings
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Where("id = ?", account.Id).Updates(updates)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "failed to update account: %v", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "account not found")
+	}
+
+	return nil
+}
+
+// AccountExists checks whether an account exists by the given ID.
+func (s *SqlStore) AccountExists(ctx context.Context, id string) (bool, error) {
+	var count int64
+	result := s.db.WithContext(ctx).Model(&Account{}).Where(idQueryCondition, id).Count(&count)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return count > 0, nil
+}
+
 // GetAccountDomainAndCategory retrieves the Domain and DomainCategory fields for an account based on the given accountID.
-func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, accountID string) (string, string, error) {
+func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error) {
 	var account Account
-	result := s.db.WithContext(ctx).Model(&Account{}).Select("domain", "domain_category").
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).Select("domain", "domain_category").
 		Where(idQueryCondition, accountID).First(&account)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {

@@ -10,14 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -958,11 +957,11 @@ func (s *FileStore) SaveGroups(_ string, _ map[string]*nbgroup.Group) error {
 	return status.Errorf(status.Internal, "SaveGroups is not implemented")
 }
 
-func (s *FileStore) GetAccountIDByPrivateDomain(_ context.Context, _ string) (string, error) {
+func (s *FileStore) GetAccountIDByPrivateDomain(_ context.Context, _ LockingStrength, _ string) (string, error) {
 	return "", status.Errorf(status.Internal, "GetAccountIDByPrivateDomain is not implemented")
 }
 
-func (s *FileStore) GetAccountDomainAndCategory(_ context.Context, accountID string) (string, string, error) {
+func (s *FileStore) GetAccountDomainAndCategory(_ context.Context, _ LockingStrength, accountID string) (string, string, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -972,4 +971,14 @@ func (s *FileStore) GetAccountDomainAndCategory(_ context.Context, accountID str
 	}
 
 	return account.Domain, account.DomainCategory, nil
+}
+
+// AccountExists checks whether an account exists by the given ID.
+func (s *FileStore) AccountExists(_ context.Context, id string) (bool, error) {
+	_, exists := s.Accounts[id]
+	return exists, nil
+}
+
+func (s *FileStore) UpdateAccount(_ context.Context, _ LockingStrength, _ *Account) error {
+	return nil
 }

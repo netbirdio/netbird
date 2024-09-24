@@ -20,11 +20,6 @@ import (
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
-
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -41,6 +36,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -1255,30 +1254,37 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	return nil
 }
 
-// GetAccountIDByUserOrAccountID looks for an account by user or accountID, if no account is provided and
-// userID doesn't have an account associated with it, one account is created
-// domain is used to create a new account if no account is found
+// GetAccountIDByUserOrAccountID retrieves the account ID based on either the userID or accountID provided.
+// If an accountID is provided, it checks if the account exists and returns it.
+// If no accountID is provided, but a userID is given, it tries to retrieve the account by userID.
+// If the user doesn't have an account, it creates one using the provided domain.
+// Returns the account ID or an error if none is found or created.
 func (am *DefaultAccountManager) GetAccountIDByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (string, error) {
 	if accountID != "" {
-		_, _, err := am.Store.GetAccountDomainAndCategory(ctx, accountID)
+		exists, err := am.Store.AccountExists(ctx, accountID)
 		if err != nil {
 			return "", err
+		}
+		if !exists {
+			return "", status.Errorf(status.NotFound, "account %s does not exist", accountID)
 		}
 		return accountID, nil
-	} else if userID != "" {
+	}
+
+	if userID != "" {
 		account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
 		if err != nil {
-			return "", status.Errorf(status.NotFound, "account not found using user id: %s", userID)
+			return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
 		}
 
-		err = am.addAccountIDToIDPAppMeta(ctx, userID, account)
-		if err != nil {
+		if err = am.addAccountIDToIDPAppMeta(ctx, userID, account); err != nil {
 			return "", err
 		}
+
 		return account.Id, nil
 	}
 
-	return "", status.Errorf(status.NotFound, "no valid user or account Id provided")
+	return "", status.Errorf(status.NotFound, "no valid userID or accountID provided")
 }
 
 func isNil(i idp.Manager) bool {
@@ -1808,6 +1814,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		return nil
 	}
 
+	// TODO: Remove GetAccount after refactoring account peer's update
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -1907,7 +1914,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 			return "", fmt.Errorf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
 		}
 
-		domain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, claims.AccountId)
+		domain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, claims.AccountId)
 		if err != nil {
 			return "", err
 		}
@@ -1923,7 +1930,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	log.WithContext(ctx).Debugf("Acquired global lock in %s for user %s", time.Since(start), claims.UserId)
 
 	// We checked if the domain has a primary account already
-	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, claims.Domain)
+	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, claims.Domain)
 	if err != nil {
 		// if NotFound we are good to continue, otherwise return error
 		e, ok := status.FromError(err)
