@@ -1087,10 +1087,22 @@ func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, lockStrength
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", "", status.Errorf(status.NotFound, "account not found")
 		}
-		return "", "", status.Errorf(status.Internal, "failed to retrieve account fields")
+		return "", "", status.Errorf(status.Internal, "failed to get domain category from store: %v", result.Error)
 	}
 
 	return account.Domain, account.DomainCategory, nil
+}
+
+func (s *SqlStore) GetGroupByID(ctx context.Context, groupID, accountID string) (*nbgroup.Group, error) {
+	var group nbgroup.Group
+	result := s.db.WithContext(ctx).Model(&nbgroup.Group{}).Where(accountAndIDQueryCondition, accountID, groupID).First(&group)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "group not found")
+		}
+		return nil, status.Errorf(status.Internal, "failed to get group from store: %s", result.Error)
+	}
+	return &group, nil
 }
 
 // GetGroupByName retrieves a group by name and account ID.
@@ -1102,7 +1114,7 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "group not found")
 		}
-		return nil, status.Errorf(status.Internal, "failed to retrieve group fields")
+		return nil, status.Errorf(status.Internal, "failed to get group from store: %s", result.Error)
 	}
 	return &group, nil
 }

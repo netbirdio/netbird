@@ -25,36 +25,38 @@ func (e *GroupLinkError) Error() string {
 	return fmt.Sprintf("group has been linked to %s: %s", e.Resource, e.Name)
 }
 
-// GetGroup object of the peers
-func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupID, userID string) (*nbgroup.Group, error) {
-	groups, err := am.GetAllGroups(ctx, accountID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, group := range groups {
-		if group.ID == groupID {
-			return group, nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
-}
-
-// GetAllGroups returns all groups in an account
-func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID string, userID string) ([]*nbgroup.Group, error) {
+// CheckGroupPermissions validates if a user has the necessary permissions to view groups
+func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
 	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if !user.HasAdminPower() && !user.IsServiceUser && settings.RegularUsersViewBlocked {
-		return nil, status.Errorf(status.PermissionDenied, "groups are blocked for users")
+		return status.Errorf(status.PermissionDenied, "groups are blocked for users")
+	}
+
+	return nil
+}
+
+// GetGroup returns a specific group by groupID in an account
+func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupID, userID string) (*nbgroup.Group, error) {
+	if err := am.CheckGroupPermissions(ctx, accountID, userID); err != nil {
+		return nil, err
+	}
+
+	return am.Store.GetGroupByID(ctx, groupID, accountID)
+}
+
+// GetAllGroups returns all groups in an account
+func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error) {
+	if err := am.CheckGroupPermissions(ctx, accountID, userID); err != nil {
+		return nil, err
 	}
 
 	return am.Store.GetAccountGroups(ctx, accountID)

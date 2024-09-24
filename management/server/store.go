@@ -64,6 +64,7 @@ type Store interface {
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
 	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
+	GetGroupByID(ctx context.Context, groupID, accountID string) (*nbgroup.Group, error)
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error)
 	SaveGroups(accountID string, groups map[string]*nbgroup.Group) error
 
