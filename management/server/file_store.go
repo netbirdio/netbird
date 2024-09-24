@@ -982,3 +982,7 @@ func (s *FileStore) AccountExists(_ context.Context, id string) (bool, error) {
 func (s *FileStore) UpdateAccount(_ context.Context, _ LockingStrength, _ *Account) error {
 	return nil
 }
+
+func (s *FileStore) GetGroupByName(_ context.Context, _ LockingStrength, _, _ string) (*nbgroup.Group, error) {
+	return nil, status.Errorf(status.Internal, "GetGroupByName is not implemented")
+}

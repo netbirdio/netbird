@@ -1092,3 +1092,17 @@ func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, lockStrength
 
 	return account.Domain, account.DomainCategory, nil
 }
+
+// GetGroupByName retrieves a group by name and account ID.
+func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error) {
+	var group nbgroup.Group
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&nbgroup.Group{}).
+		Where("name = ? and account_id = ?", groupName, accountID).Order("json_array_length(peers) DESC").First(&group)
+	if err := result.Error; err != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "group not found")
+		}
+		return nil, status.Errorf(status.Internal, "failed to retrieve group fields")
+	}
+	return &group, nil
+}

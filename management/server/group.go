@@ -62,32 +62,7 @@ func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID str
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
 func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error) {
-	groups, err := am.Store.GetAccountGroups(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	matchingGroups := make([]*nbgroup.Group, 0)
-	for _, group := range groups {
-		if group.Name == groupName {
-			matchingGroups = append(matchingGroups, group)
-		}
-	}
-
-	if len(matchingGroups) == 0 {
-		return nil, status.Errorf(status.NotFound, "group with name %s not found", groupName)
-	}
-
-	maxPeers := -1
-	var groupWithMostPeers *nbgroup.Group
-	for i, group := range matchingGroups {
-		if len(group.Peers) > maxPeers {
-			maxPeers = len(group.Peers)
-			groupWithMostPeers = matchingGroups[i]
-		}
-	}
-
-	return groupWithMostPeers, nil
+	return am.Store.GetGroupByName(ctx, LockingStrengthShare, groupName, accountID)
 }
 
 // SaveGroup object of the peers
