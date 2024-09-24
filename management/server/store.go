@@ -68,7 +68,12 @@ type Store interface {
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error)
 	SaveGroups(accountID string, groups map[string]*nbgroup.Group) error
 
+	GetAccountPolicies(ctx context.Context, accountID string) ([]*Policy, error)
+	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error)
+
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
+	GetAccountPostureChecks(ctx context.Context, accountID string) ([]*posture.Checks, error)
+	GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, postureCheckID string, accountID string) (*posture.Checks, error)
 
 	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string) ([]string, error)
 	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error

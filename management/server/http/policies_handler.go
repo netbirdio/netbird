@@ -3,7 +3,6 @@ package http
 import (
 	"encoding/json"
 	"net/http"
-	"slices"
 	"strconv"
 
 	"github.com/gorilla/mux"
@@ -84,15 +83,9 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, userID)
+	_, err = h.accountManager.GetPolicy(r.Context(), accountID, policyID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	policyIdx := slices.IndexFunc(account.Policies, func(policy *server.Policy) bool { return policy.ID == policyID })
-	if policyIdx < 0 {
-		util.WriteError(r.Context(), status.Errorf(status.NotFound, "couldn't find policy id %s", policyID), w)
 		return
 	}
 

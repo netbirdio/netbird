@@ -986,6 +986,24 @@ func (s *FileStore) UpdateAccount(_ context.Context, _ LockingStrength, _ *Accou
 func (s *FileStore) GetGroupByID(_ context.Context, _, _ string) (*nbgroup.Group, error) {
 	return nil, status.Errorf(status.Internal, "GetGroupByID is not implemented")
 }
+
 func (s *FileStore) GetGroupByName(_ context.Context, _ LockingStrength, _, _ string) (*nbgroup.Group, error) {
 	return nil, status.Errorf(status.Internal, "GetGroupByName is not implemented")
+}
+
+func (s *FileStore) GetAccountPolicies(_ context.Context, _ string) ([]*Policy, error) {
+	return nil, status.Errorf(status.Internal, "GetPolicyByID is not implemented")
+}
+
+func (s *FileStore) GetPolicyByID(_ context.Context, _ LockingStrength, _ string, _ string) (*Policy, error) {
+	return nil, status.Errorf(status.Internal, "GetPolicyByID is not implemented")
+
+}
+
+func (s *FileStore) GetAccountPostureChecks(_ context.Context, _ string) ([]*posture.Checks, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountPostureChecks is not implemented")
+}
+
+func (s *FileStore) GetPostureChecksByID(_ context.Context, _ LockingStrength, _ string, _ string) (*posture.Checks, error) {
+	return nil, status.Errorf(status.Internal, "GetPostureChecksByID is not implemented")
 }

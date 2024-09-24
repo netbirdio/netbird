@@ -315,30 +315,16 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !(user.HasAdminPower() || user.IsServiceUser) {
+	if (!user.HasAdminPower() && !user.IsServiceUser) || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
 	}
 
-	for _, policy := range account.Policies {
-		if policy.ID == policyID {
-			return policy, nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "policy with ID %s not found", policyID)
+	return am.Store.GetPolicyByID(ctx, LockingStrengthShare, policyID, accountID)
 }
 
 // SavePolicy in the store
@@ -400,24 +386,16 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 // ListPolicies from the store
 func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, userID string) ([]*Policy, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
+	if (!user.HasAdminPower() && !user.IsServiceUser) || user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
 	}
 
-	if !(user.HasAdminPower() || user.IsServiceUser) {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view policies")
-	}
-
-	return account.Policies, nil
+	return am.Store.GetAccountPolicies(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) deletePolicy(account *Account, policyID string) (*Policy, error) {
