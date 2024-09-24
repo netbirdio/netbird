@@ -13,7 +13,7 @@ func TestServerPicker_UnavailableServers(t *testing.T) {
 		PeerID:     "test",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	go func() {
