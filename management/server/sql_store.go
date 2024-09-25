@@ -1024,3 +1024,7 @@ func (s *SqlStore) withTx(tx *gorm.DB) Store {
 		db: tx,
 	}
 }
+
+func (s *SqlStore) GetDB() *gorm.DB {
+	return s.db
+}
