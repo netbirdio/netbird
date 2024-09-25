@@ -17,6 +17,7 @@ import (
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -120,7 +121,7 @@ func (p *WGEBPFProxy) Free() error {
 
 	p.ctxCancel()
 
-	var result error
+	var result *multierror.Error
 	if err := p.conn.Close(); err != nil {
 		result = multierror.Append(result, err)
 	}
@@ -132,7 +133,7 @@ func (p *WGEBPFProxy) Free() error {
 	if err := p.rawConn.Close(); err != nil {
 		result = multierror.Append(result, err)
 	}
-	return result
+	return nberrors.FormatErrorOrNil(result)
 }
 
 func (p *WGEBPFProxy) proxyToLocal(ctx context.Context, endpointPort uint16, remoteConn net.Conn) {
