@@ -985,10 +985,6 @@ func (s *FileStore) GetAccountDNSSettings(_ context.Context, _ LockingStrength, 
 	return nil, status.Errorf(status.Internal, "GetAccountDNSSettings is not implemented")
 }
 
-func (s *FileStore) UpdateAccount(_ context.Context, _ LockingStrength, _ *Account) error {
-	return nil
-}
-
 func (s *FileStore) GetGroupByID(_ context.Context, _ LockingStrength, _, _ string) (*nbgroup.Group, error) {
 	return nil, status.Errorf(status.Internal, "GetGroupByID is not implemented")
 }

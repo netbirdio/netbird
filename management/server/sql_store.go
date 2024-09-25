@@ -1049,39 +1049,6 @@ func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength Locki
 	return &accountDNSSettings.DNSSettings, nil
 }
 
-// UpdateAccount updates an existing account's domain, DNS settings, and settings fields.
-func (s *SqlStore) UpdateAccount(ctx context.Context, lockStrength LockingStrength, account *Account) error {
-	updates := make(map[string]interface{})
-
-	if account.Domain != "" {
-		updates["domain"] = account.Domain
-	}
-
-	if account.DNSSettings.DisabledManagementGroups != nil {
-		updates["dns_settings"] = account.DNSSettings
-	}
-
-	if account.Settings != nil {
-		updates["settings"] = account.Settings
-	}
-
-	if len(updates) == 0 {
-		return nil
-	}
-
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
-		Where("id = ?", account.Id).Updates(updates)
-	if result.Error != nil {
-		return status.Errorf(status.Internal, "failed to update account: %v", result.Error)
-	}
-
-	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "account not found")
-	}
-
-	return nil
-}
-
 // AccountExists checks whether an account exists by the given ID.
 func (s *SqlStore) AccountExists(ctx context.Context, id string) (bool, error) {
 	var count int64
@@ -1109,7 +1076,7 @@ func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, lockStrength
 	return account.Domain, account.DomainCategory, nil
 }
 
-// GetGroupByID
+// GetGroupByID retrieves a group by ID and account ID.
 func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*nbgroup.Group, error) {
 	return getRecordByID[nbgroup.Group](s.db.WithContext(ctx).Preload(clause.Associations), lockStrength, groupID, accountID)
 }

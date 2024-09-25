@@ -53,7 +53,6 @@ type Store interface {
 	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
 	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
 	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error)
-	UpdateAccount(ctx context.Context, lockStrength LockingStrength, account *Account) error
 	SaveAccount(ctx context.Context, account *Account) error
 	DeleteAccount(ctx context.Context, account *Account) error
 

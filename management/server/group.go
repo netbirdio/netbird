@@ -50,7 +50,7 @@ func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupI
 		return nil, err
 	}
 
-	return am.Store.GetGroupByID(ctx, groupID, accountID)
+	return am.Store.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
 }
 
 // GetAllGroups returns all groups in an account
