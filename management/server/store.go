@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/dns"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
@@ -51,6 +52,7 @@ type Store interface {
 	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
 	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
 	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
+	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error)
 	UpdateAccount(ctx context.Context, lockStrength LockingStrength, account *Account) error
 	SaveAccount(ctx context.Context, account *Account) error
 	DeleteAccount(ctx context.Context, account *Account) error
@@ -64,7 +66,7 @@ type Store interface {
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
 	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
-	GetGroupByID(ctx context.Context, groupID, accountID string) (*nbgroup.Group, error)
+	GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*nbgroup.Group, error)
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error)
 	SaveGroups(accountID string, groups map[string]*nbgroup.Group) error
 
@@ -86,6 +88,14 @@ type Store interface {
 
 	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error)
 	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
+	GetAccountSetupKeys(ctx context.Context, accountID string) ([]*SetupKey, error)
+	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, setupKeyID string, accountID string) (*SetupKey, error)
+
+	GetAccountRoutes(ctx context.Context, accountID string) ([]*route.Route, error)
+	GetRouteByID(ctx context.Context, lockStrength LockingStrength, routeID string, accountID string) (*route.Route, error)
+
+	GetAccountNameServerGroups(ctx context.Context, accountID string) ([]*dns.NameServerGroup, error)
+	GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, nameServerGroupID string, accountID string) (*dns.NameServerGroup, error)
 
 	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
 	IncrementNetworkSerial(ctx context.Context, accountId string) error
