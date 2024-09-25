@@ -8,6 +8,8 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/errors"
 )
 
 // WGUserSpaceProxy proxies
@@ -71,7 +73,7 @@ func (p *WGUserSpaceProxy) close() error {
 
 	p.cancel()
 
-	var result error
+	var result *multierror.Error
 	if err := p.remoteConn.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("remote conn: %s", err))
 	}
@@ -79,7 +81,7 @@ func (p *WGUserSpaceProxy) close() error {
 	if err := p.localConn.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("local conn: %s", err))
 	}
-	return result
+	return errors.FormatErrorOrNil(result)
 }
 
 // proxyToRemote proxies from Wireguard to the RemoteKey
