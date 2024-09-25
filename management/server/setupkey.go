@@ -330,26 +330,24 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 
 // ListSetupKeys returns a list of all setup keys of the account
 func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, userID string) ([]*SetupKey, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
+	}
+
+	setupKeys, err := am.Store.GetAccountSetupKeys(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !user.HasAdminPower() && !user.IsServiceUser {
-		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view policies")
-	}
-
-	keys := make([]*SetupKey, 0, len(account.SetupKeys))
-	for _, key := range account.SetupKeys {
+	keys := make([]*SetupKey, 0, len(setupKeys))
+	for _, key := range setupKeys {
 		var k *SetupKey
-		if !(user.HasAdminPower() || user.IsServiceUser) {
+		if !user.IsAdminOrServiceUser() {
 			k = key.HiddenCopy(999)
 		} else {
 			k = key.Copy()
@@ -362,44 +360,30 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
 func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
+	}
+
+	setupKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, keyID, accountID)
 	if err != nil {
 		return nil, err
-	}
-
-	if !user.HasAdminPower() && !user.IsServiceUser {
-		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view policies")
-	}
-
-	var foundKey *SetupKey
-	for _, key := range account.SetupKeys {
-		if key.Id == keyID {
-			foundKey = key.Copy()
-			break
-		}
-	}
-	if foundKey == nil {
-		return nil, status.Errorf(status.NotFound, "setup key not found")
 	}
 
 	// the UpdatedAt field was introduced later, so there might be that some keys have a Zero value (e.g, null in the store file)
-	if foundKey.UpdatedAt.IsZero() {
-		foundKey.UpdatedAt = foundKey.CreatedAt
+	if setupKey.UpdatedAt.IsZero() {
+		setupKey.UpdatedAt = setupKey.CreatedAt
 	}
 
-	if !(user.HasAdminPower() || user.IsServiceUser) {
-		foundKey = foundKey.HiddenCopy(999)
+	if !user.IsAdminOrServiceUser() {
+		setupKey = setupKey.HiddenCopy(999)
 	}
 
-	return foundKey, nil
+	return setupKey, nil
 }
 
 func validateSetupKeyAutoGroups(account *Account, autoGroups []string) error {

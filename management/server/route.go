@@ -17,29 +17,16 @@ import (
 
 // GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !(user.HasAdminPower() || user.IsServiceUser) {
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 
-	wantedRoute, found := account.Routes[routeID]
-	if found {
-		return wantedRoute, nil
-	}
-
-	return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
+	return am.Store.GetRouteByID(ctx, LockingStrengthShare, string(routeID), accountID)
 }
 
 // checkRoutePrefixOrDomainsExistForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
@@ -325,29 +312,16 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 // ListRoutes returns a list of routes from account
 func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !(user.HasAdminPower() || user.IsServiceUser) {
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 
-	routes := make([]*route.Route, 0, len(account.Routes))
-	for _, item := range account.Routes {
-		routes = append(routes, item)
-	}
-
-	return routes, nil
+	return am.Store.GetAccountRoutes(ctx, accountID)
 }
 
 func toProtocolRoute(route *route.Route) *proto.Route {

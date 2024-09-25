@@ -80,24 +80,16 @@ func (d DNSSettings) Copy() DNSSettings {
 
 // GetDNSSettings validates a user role and returns the DNS settings for the provided account ID
 func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID string, userID string) (*DNSSettings, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !(user.HasAdminPower() || user.IsServiceUser) {
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view DNS settings")
 	}
-	dnsSettings := account.DNSSettings.Copy()
-	return &dnsSettings, nil
+
+	return am.Store.GetAccountDNSSettings(ctx, LockingStrengthShare, accountID)
 }
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings

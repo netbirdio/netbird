@@ -270,6 +270,11 @@ type AccountNetwork struct {
 	Network *Network `gorm:"embedded;embeddedPrefix:network_"`
 }
 
+// AccountDNSSettings used in gorm to only load dns settings and not whole account
+type AccountDNSSettings struct {
+	DNSSettings DNSSettings `gorm:"embedded;embeddedPrefix:dns_settings_"`
+}
+
 type UserPermissions struct {
 	DashboardView string `json:"dashboard_view"`
 }
