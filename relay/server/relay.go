@@ -135,8 +135,8 @@ func (r *Relay) Accept(conn net.Conn) {
 	}()
 
 	if err := h.handshakeResponse(); err != nil {
-		r.store.DeletePeer(peer)
-		_ = conn.Close()
+		log.Errorf("failed to send handshake response, close peer: %s", err)
+		peer.Close()
 	}
 }
 
