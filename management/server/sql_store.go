@@ -1007,8 +1007,9 @@ func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) erro
 	return nil
 }
 
-func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
-	result := s.db.WithContext(ctx).Model(&Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
+func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "issue incrementing network serial count")
 	}
@@ -1104,6 +1105,18 @@ func (s *SqlStore) GetAccountPolicies(ctx context.Context, accountID string) ([]
 // GetPolicyByID retrieves a policy by its ID and account ID.
 func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error) {
 	return getRecordByID[Policy](s.db.WithContext(ctx).Preload(clause.Associations), lockStrength, policyID, accountID)
+}
+
+// SavePolicy saves a policy to the database.
+func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error {
+	return s.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&policy).Error
+}
+
+// DeletePolicy deletes a policy from the database.
+func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, policyID string) error {
+	return s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&Policy{}, idQueryCondition, policyID).Error
 }
 
 // GetAccountPostureChecks retrieves posture checks for an account.

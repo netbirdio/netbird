@@ -118,7 +118,7 @@ func (s *FileStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) err
 	return s.SaveAccount(ctx, account)
 }
 
-func (s *FileStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
+func (s *FileStore) IncrementNetworkSerial(ctx context.Context, _ LockingStrength, accountId string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -1009,6 +1009,14 @@ func (s *FileStore) GetAccountPolicies(_ context.Context, _ string) ([]*Policy, 
 func (s *FileStore) GetPolicyByID(_ context.Context, _ LockingStrength, _ string, _ string) (*Policy, error) {
 	return nil, status.Errorf(status.Internal, "GetPolicyByID is not implemented")
 
+}
+
+func (s *FileStore) SavePolicy(_ context.Context, _ LockingStrength, _ *Policy) error {
+	return status.Errorf(status.Internal, "SavePolicy is not implemented")
+}
+
+func (s *FileStore) DeletePolicy(_ context.Context, _ LockingStrength, _ string) error {
+	return status.Errorf(status.Internal, "DeletePolicy is not implemented")
 }
 
 func (s *FileStore) GetAccountPostureChecks(_ context.Context, _ string) ([]*posture.Checks, error) {

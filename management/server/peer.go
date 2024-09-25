@@ -502,7 +502,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			return fmt.Errorf("failed to add peer to account: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, accountID)
+		err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}

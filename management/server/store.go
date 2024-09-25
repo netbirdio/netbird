@@ -71,6 +71,8 @@ type Store interface {
 
 	GetAccountPolicies(ctx context.Context, accountID string) ([]*Policy, error)
 	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error)
+	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
+	DeletePolicy(ctx context.Context, lockStrength LockingStrength, postureCheckID string) error
 
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountPostureChecks(ctx context.Context, accountID string) ([]*posture.Checks, error)
@@ -97,7 +99,7 @@ type Store interface {
 	GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, nameServerGroupID string, accountID string) (*dns.NameServerGroup, error)
 
 	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
-	IncrementNetworkSerial(ctx context.Context, accountId string) error
+	IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error
 	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*Network, error)
 
 	GetInstallationID() string
