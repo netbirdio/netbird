@@ -199,7 +199,8 @@ func TestUser_GetPAT(t *testing.T) {
 	defer store.Close(context.Background())
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
-		Id: mockUserID,
+		Id:        mockUserID,
+		AccountID: mockAccountID,
 		PATs: map[string]*PersonalAccessToken{
 			mockTokenID1: {
 				ID:          mockTokenID1,
@@ -231,7 +232,8 @@ func TestUser_GetAllPATs(t *testing.T) {
 	defer store.Close(context.Background())
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
-		Id: mockUserID,
+		Id:        mockUserID,
+		AccountID: mockAccountID,
 		PATs: map[string]*PersonalAccessToken{
 			mockTokenID1: {
 				ID:          mockTokenID1,

@@ -635,7 +635,16 @@ func (s *FileStore) GetUserByUserID(_ context.Context, _ LockingStrength, userID
 		return nil, err
 	}
 
-	return account.Users[userID].Copy(), nil
+	user := account.Users[userID].Copy()
+	pat := make([]PersonalAccessToken, 0, len(user.PATs))
+	for _, token := range user.PATs {
+		if token != nil {
+			pat = append(pat, *token)
+		}
+	}
+	user.PATsG = pat
+
+	return user, nil
 }
 
 func (s *FileStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
