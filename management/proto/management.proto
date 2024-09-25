@@ -449,15 +449,15 @@ message RouteFirewallRule {
   RuleAction action = 2;
 
   // Network prefix for the routed network.
-  string destination = 4;
+  string destination = 3;
 
   // Protocol of the routed network.
-  RuleProtocol protocol = 5;
+  RuleProtocol protocol = 4;
 
   // Details about the port.
-  PortInfo portInfo = 6;
+  PortInfo portInfo = 5;
 
   // IsDynamic indicates if the route is a DNS route.
-  bool isDynamic = 7;
+  bool isDynamic = 6;
 }
 
