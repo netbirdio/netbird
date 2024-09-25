@@ -9,6 +9,7 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	iface "github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/device"
 )
 
 // MockIFaceMapper is a mock of IFaceMapper interface.
@@ -77,7 +78,7 @@ func (mr *MockIFaceMapperMockRecorder) Name() *gomock.Call {
 }
 
 // SetFilter mocks base method.
-func (m *MockIFaceMapper) SetFilter(arg0 iface.PacketFilter) error {
+func (m *MockIFaceMapper) SetFilter(arg0 device.PacketFilter) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetFilter", arg0)
 	ret0, _ := ret[0].(error)

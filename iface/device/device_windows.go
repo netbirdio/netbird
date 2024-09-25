@@ -1,4 +1,4 @@
-package iface
+package device
 
 import (
 	"fmt"
@@ -12,11 +12,12 @@ import (
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
 )
 
 const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
 
-type tunDevice struct {
+type TunDevice struct {
 	name    string
 	address WGAddress
 	port    int
@@ -26,13 +27,13 @@ type tunDevice struct {
 
 	device          *device.Device
 	nativeTunDevice *tun.NativeTun
-	wrapper         *DeviceWrapper
+	filteredDevice  *FilteredDevice
 	udpMux          *bind.UniversalUDPMuxDefault
-	configurer      wgConfigurer
+	configurer      configurer.WGConfigurer
 }
 
-func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) wgTunDevice {
-	return &tunDevice{
+func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) WGTunDevice {
+	return &TunDevice{
 		name:    name,
 		address: address,
 		port:    port,
@@ -50,7 +51,7 @@ func getGUID() (windows.GUID, error) {
 	return windows.GUIDFromString(guidString)
 }
 
-func (t *tunDevice) Create() (wgConfigurer, error) {
+func (t *TunDevice) Create() (configurer.WGConfigurer, error) {
 	guid, err := getGUID()
 	if err != nil {
 		log.Errorf("failed to get GUID: %s", err)
@@ -62,11 +63,11 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
 	t.nativeTunDevice = tunDevice.(*tun.NativeTun)
-	t.wrapper = newDeviceWrapper(tunDevice)
+	t.filteredDevice = newDeviceFilter(tunDevice)
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	t.device = device.NewDevice(
-		t.wrapper,
+		t.filteredDevice,
 		t.iceBind,
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
@@ -92,17 +93,17 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = newWGUSPConfigurer(t.device, t.name)
-	err = t.configurer.configureInterface(t.key, t.port)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
-		t.configurer.close()
+		t.configurer.Close()
 		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 	return t.configurer, nil
 }
 
-func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -117,14 +118,14 @@ func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *tunDevice) UpdateAddr(address WGAddress) error {
+func (t *TunDevice) UpdateAddr(address WGAddress) error {
 	t.address = address
 	return t.assignAddr()
 }
 
-func (t *tunDevice) Close() error {
+func (t *TunDevice) Close() error {
 	if t.configurer != nil {
-		t.configurer.close()
+		t.configurer.Close()
 	}
 
 	if t.device != nil {
@@ -138,19 +139,19 @@ func (t *tunDevice) Close() error {
 	}
 	return nil
 }
-func (t *tunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunDevice) DeviceName() string {
+func (t *TunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunDevice) Wrapper() *DeviceWrapper {
-	return t.wrapper
+func (t *TunDevice) FilteredDevice() *FilteredDevice {
+	return t.filteredDevice
 }
 
-func (t *tunDevice) getInterfaceGUIDString() (string, error) {
+func (t *TunDevice) GetInterfaceGUIDString() (string, error) {
 	if t.nativeTunDevice == nil {
 		return "", fmt.Errorf("interface has not been initialized yet")
 	}
@@ -164,7 +165,7 @@ func (t *tunDevice) getInterfaceGUIDString() (string, error) {
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
-func (t *tunDevice) assignAddr() error {
+func (t *TunDevice) assignAddr() error {
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
 	log.Debugf("adding address %s to interface: %s", t.address.IP, t.name)
 	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(t.address.String())})

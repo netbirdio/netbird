@@ -1,21 +1,19 @@
 //go:build !android
 // +build !android
 
-package iface
+package device
 
 import (
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
 )
 
-// CustomWindowsGUIDString is a custom GUID string for the interface
-var CustomWindowsGUIDString string
-
-type wgTunDevice interface {
-	Create() (wgConfigurer, error)
+type WGTunDevice interface {
+	Create() (configurer.WGConfigurer, error)
 	Up() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddr(address WGAddress) error
 	WgAddress() WGAddress
 	DeviceName() string
 	Close() error
-	Wrapper() *DeviceWrapper // todo eliminate this function
+	FilteredDevice() *FilteredDevice
 }

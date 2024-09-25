@@ -1,6 +1,6 @@
 //go:build !ios
 
-package iface
+package device
 
 import (
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
 )
 
 type tunDevice struct {
@@ -22,13 +23,13 @@ type tunDevice struct {
 	mtu     int
 	iceBind *bind.ICEBind
 
-	device     *device.Device
-	wrapper    *DeviceWrapper
-	udpMux     *bind.UniversalUDPMuxDefault
-	configurer wgConfigurer
+	device         *device.Device
+	filteredDevice *FilteredDevice
+	udpMux         *bind.UniversalUDPMuxDefault
+	configurer     configurer.WGConfigurer
 }
 
-func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) wgTunDevice {
+func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) WGTunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
@@ -39,16 +40,16 @@ func newTunDevice(name string, address WGAddress, port int, key string, mtu int,
 	}
 }
 
-func (t *tunDevice) Create() (wgConfigurer, error) {
+func (t *tunDevice) Create() (configurer.WGConfigurer, error) {
 	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
-	t.wrapper = newDeviceWrapper(tunDevice)
+	t.filteredDevice = newDeviceFilter(tunDevice)
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	t.device = device.NewDevice(
-		t.wrapper,
+		t.filteredDevice,
 		t.iceBind,
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
@@ -59,11 +60,11 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = newWGUSPConfigurer(t.device, t.name)
-	err = t.configurer.configureInterface(t.key, t.port)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
-		t.configurer.close()
+		t.configurer.Close()
 		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 	return t.configurer, nil
@@ -91,7 +92,7 @@ func (t *tunDevice) UpdateAddr(address WGAddress) error {
 
 func (t *tunDevice) Close() error {
 	if t.configurer != nil {
-		t.configurer.close()
+		t.configurer.Close()
 	}
 
 	if t.device != nil {
@@ -113,8 +114,8 @@ func (t *tunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunDevice) Wrapper() *DeviceWrapper {
-	return t.wrapper
+func (t *tunDevice) FilteredDevice() *FilteredDevice {
+	return t.filteredDevice
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided

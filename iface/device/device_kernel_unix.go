@@ -1,6 +1,6 @@
 //go:build (linux && !android) || freebsd
 
-package iface
+package device
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
 	"github.com/netbirdio/netbird/sharedsock"
 )
 
@@ -31,7 +32,7 @@ type tunKernelDevice struct {
 	filterFn bind.FilterFn
 }
 
-func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+func NewKernelDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) WGTunDevice {
 	checkUser()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,7 +48,7 @@ func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu in
 	}
 }
 
-func (t *tunKernelDevice) Create() (wgConfigurer, error) {
+func (t *tunKernelDevice) Create() (configurer.WGConfigurer, error) {
 	link := newWGLink(t.name)
 
 	if err := link.recreate(); err != nil {
@@ -67,9 +68,9 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 		return nil, fmt.Errorf("set mtu: %w", err)
 	}
 
-	configurer := newWGConfigurer(t.name)
+	configurer := configurer.NewKernelConfigurer(t.name)
 
-	if err := configurer.configureInterface(t.key, t.wgPort); err != nil {
+	if err := configurer.ConfigureInterface(t.key, t.wgPort); err != nil {
 		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 
@@ -152,7 +153,7 @@ func (t *tunKernelDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunKernelDevice) Wrapper() *DeviceWrapper {
+func (t *tunKernelDevice) FilteredDevice() *FilteredDevice {
 	return nil
 }
 

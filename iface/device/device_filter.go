@@ -1,4 +1,4 @@
-package iface
+package device
 
 import (
 	"net"
@@ -28,22 +28,23 @@ type PacketFilter interface {
 	SetNetwork(*net.IPNet)
 }
 
-// DeviceWrapper to override Read or Write of packets
-type DeviceWrapper struct {
+// FilteredDevice to override Read or Write of packets
+type FilteredDevice struct {
 	tun.Device
+
 	filter PacketFilter
 	mutex  sync.RWMutex
 }
 
-// newDeviceWrapper constructor function
-func newDeviceWrapper(device tun.Device) *DeviceWrapper {
-	return &DeviceWrapper{
+// newDeviceFilter constructor function
+func newDeviceFilter(device tun.Device) *FilteredDevice {
+	return &FilteredDevice{
 		Device: device,
 	}
 }
 
 // Read wraps read method with filtering feature
-func (d *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
+func (d *FilteredDevice) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
 	if n, err = d.Device.Read(bufs, sizes, offset); err != nil {
 		return 0, err
 	}
@@ -68,7 +69,7 @@ func (d *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err
 }
 
 // Write wraps write method with filtering feature
-func (d *DeviceWrapper) Write(bufs [][]byte, offset int) (int, error) {
+func (d *FilteredDevice) Write(bufs [][]byte, offset int) (int, error) {
 	d.mutex.RLock()
 	filter := d.filter
 	d.mutex.RUnlock()
@@ -92,7 +93,7 @@ func (d *DeviceWrapper) Write(bufs [][]byte, offset int) (int, error) {
 }
 
 // SetFilter sets packet filter to device
-func (d *DeviceWrapper) SetFilter(filter PacketFilter) {
+func (d *FilteredDevice) SetFilter(filter PacketFilter) {
 	d.mutex.Lock()
 	d.filter = filter
 	d.mutex.Unlock()

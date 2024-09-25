@@ -7,6 +7,8 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
+	"github.com/netbirdio/netbird/iface/device"
 )
 
 type MockWGIface struct {
@@ -14,7 +16,7 @@ type MockWGIface struct {
 	CreateOnAndroidFunc        func(routeRange []string, ip string, domains []string) error
 	IsUserspaceBindFunc        func() bool
 	NameFunc                   func() string
-	AddressFunc                func() WGAddress
+	AddressFunc                func() device.WGAddress
 	ToInterfaceFunc            func() *net.Interface
 	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddrFunc             func(newAddr string) error
@@ -23,10 +25,10 @@ type MockWGIface struct {
 	AddAllowedIPFunc           func(peerKey string, allowedIP string) error
 	RemoveAllowedIPFunc        func(peerKey string, allowedIP string) error
 	CloseFunc                  func() error
-	SetFilterFunc              func(filter PacketFilter) error
-	GetFilterFunc              func() PacketFilter
-	GetDeviceFunc              func() *DeviceWrapper
-	GetStatsFunc               func(peerKey string) (WGStats, error)
+	SetFilterFunc              func(filter device.PacketFilter) error
+	GetFilterFunc              func() device.PacketFilter
+	GetDeviceFunc              func() *device.FilteredDevice
+	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 }
 
@@ -50,7 +52,7 @@ func (m *MockWGIface) Name() string {
 	return m.NameFunc()
 }
 
-func (m *MockWGIface) Address() WGAddress {
+func (m *MockWGIface) Address() device.WGAddress {
 	return m.AddressFunc()
 }
 
@@ -86,18 +88,18 @@ func (m *MockWGIface) Close() error {
 	return m.CloseFunc()
 }
 
-func (m *MockWGIface) SetFilter(filter PacketFilter) error {
+func (m *MockWGIface) SetFilter(filter device.PacketFilter) error {
 	return m.SetFilterFunc(filter)
 }
 
-func (m *MockWGIface) GetFilter() PacketFilter {
+func (m *MockWGIface) GetFilter() device.PacketFilter {
 	return m.GetFilterFunc()
 }
 
-func (m *MockWGIface) GetDevice() *DeviceWrapper {
+func (m *MockWGIface) GetDevice() *device.FilteredDevice {
 	return m.GetDeviceFunc()
 }
 
-func (m *MockWGIface) GetStats(peerKey string) (WGStats, error) {
+func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 	return m.GetStatsFunc(peerKey)
 }

@@ -1,4 +1,4 @@
-package iface
+package device
 
 // WireGuardModuleIsLoaded check if kernel support wireguard
 func WireGuardModuleIsLoaded() bool {
@@ -10,8 +10,8 @@ func WireGuardModuleIsLoaded() bool {
 	return false
 }
 
-// tunModuleIsLoaded check if tun module exist, if is not attempt to load it
-func tunModuleIsLoaded() bool {
+// ModuleTunIsLoaded check if tun module exist, if is not attempt to load it
+func ModuleTunIsLoaded() bool {
 	// Assume tun supported by freebsd kernel by default
 	// TODO: implement check for module loaded in kernel or build-it
 	return true

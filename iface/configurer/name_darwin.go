@@ -1,6 +1,6 @@
 //go:build darwin
 
-package iface
+package configurer
 
 // WgInterfaceDefault is a default interface name of Wiretrustee
 const WgInterfaceDefault = "utun100"

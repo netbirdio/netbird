@@ -1,4 +1,4 @@
-package iface
+package device
 
 // TunAdapter is an interface for create tun device from external service
 type TunAdapter interface {

@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/iface/device"
 )
 
 // keep darwin compatibility
@@ -414,7 +416,7 @@ func Test_ConnectPeers(t *testing.T) {
 	}
 
 	guid := fmt.Sprintf("{%s}", uuid.New().String())
-	CustomWindowsGUIDString = strings.ToLower(guid)
+	device.CustomWindowsGUIDString = strings.ToLower(guid)
 
 	iface1, err := NewWGIFace(peer1ifaceName, peer1wgIP, peer1wgPort, peer1Key.String(), DefaultMTU, newNet, nil, nil)
 	if err != nil {
@@ -436,7 +438,7 @@ func Test_ConnectPeers(t *testing.T) {
 	}
 
 	guid = fmt.Sprintf("{%s}", uuid.New().String())
-	CustomWindowsGUIDString = strings.ToLower(guid)
+	device.CustomWindowsGUIDString = strings.ToLower(guid)
 
 	newNet, err = stdnet.NewNet()
 	if err != nil {

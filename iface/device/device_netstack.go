@@ -1,7 +1,7 @@
 //go:build !android
 // +build !android
 
-package iface
+package device
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
 	"github.com/netbirdio/netbird/iface/netstack"
 )
 
@@ -23,14 +24,14 @@ type tunNetstackDevice struct {
 	listenAddress string
 	iceBind       *bind.ICEBind
 
-	device     *device.Device
-	wrapper    *DeviceWrapper
-	nsTun      *netstack.NetStackTun
-	udpMux     *bind.UniversalUDPMuxDefault
-	configurer wgConfigurer
+	device         *device.Device
+	filteredDevice *FilteredDevice
+	nsTun          *netstack.NetStackTun
+	udpMux         *bind.UniversalUDPMuxDefault
+	configurer     configurer.WGConfigurer
 }
 
-func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string, filterFn bind.FilterFn) wgTunDevice {
+func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string, filterFn bind.FilterFn) WGTunDevice {
 	return &tunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -42,23 +43,23 @@ func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string
 	}
 }
 
-func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
+func (t *tunNetstackDevice) Create() (configurer.WGConfigurer, error) {
 	log.Info("create netstack tun interface")
 	t.nsTun = netstack.NewNetStackTun(t.listenAddress, t.address.IP.String(), t.mtu)
 	tunIface, err := t.nsTun.Create()
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
-	t.wrapper = newDeviceWrapper(tunIface)
+	t.filteredDevice = newDeviceFilter(tunIface)
 
 	t.device = device.NewDevice(
-		t.wrapper,
+		t.filteredDevice,
 		t.iceBind,
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
-	t.configurer = newWGUSPConfigurer(t.device, t.name)
-	err = t.configurer.configureInterface(t.key, t.port)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()
 		return nil, fmt.Errorf("error configuring interface: %s", err)
@@ -93,7 +94,7 @@ func (t *tunNetstackDevice) UpdateAddr(WGAddress) error {
 
 func (t *tunNetstackDevice) Close() error {
 	if t.configurer != nil {
-		t.configurer.close()
+		t.configurer.Close()
 	}
 
 	if t.device != nil {
@@ -114,6 +115,6 @@ func (t *tunNetstackDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunNetstackDevice) Wrapper() *DeviceWrapper {
-	return t.wrapper
+func (t *tunNetstackDevice) FilteredDevice() *FilteredDevice {
+	return t.filteredDevice
 }

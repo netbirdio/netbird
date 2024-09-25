@@ -1,6 +1,6 @@
 //go:build linux && !android
 
-package iface
+package device
 
 import (
 	"fmt"

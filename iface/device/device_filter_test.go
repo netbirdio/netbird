@@ -1,4 +1,4 @@
-package iface
+package device
 
 import (
 	"net"
@@ -7,6 +7,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+
 	mocks "github.com/netbirdio/netbird/iface/mocks"
 )
 
@@ -51,7 +52,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 				return 1, nil
 			})
 
-		wrapped := newDeviceWrapper(tun)
+		wrapped := newDeviceFilter(tun)
 
 		bufs := [][]byte{{}}
 		sizes := []int{0}
@@ -99,7 +100,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 		tun := mocks.NewMockDevice(ctrl)
 		tun.EXPECT().Write(mockBufs, 0).Return(1, nil)
 
-		wrapped := newDeviceWrapper(tun)
+		wrapped := newDeviceFilter(tun)
 
 		bufs := [][]byte{buffer.Bytes()}
 
@@ -147,7 +148,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 		filter := mocks.NewMockPacketFilter(ctrl)
 		filter.EXPECT().DropIncoming(gomock.Any()).Return(true)
 
-		wrapped := newDeviceWrapper(tun)
+		wrapped := newDeviceFilter(tun)
 		wrapped.filter = filter
 
 		bufs := [][]byte{buffer.Bytes()}
@@ -202,7 +203,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 		filter := mocks.NewMockPacketFilter(ctrl)
 		filter.EXPECT().DropOutgoing(gomock.Any()).Return(true)
 
-		wrapped := newDeviceWrapper(tun)
+		wrapped := newDeviceFilter(tun)
 		wrapped.filter = filter
 
 		bufs := [][]byte{{}}

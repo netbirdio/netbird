@@ -20,11 +20,13 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/configurer"
+	"github.com/netbirdio/netbird/iface/device"
 	pfmock "github.com/netbirdio/netbird/iface/mocks"
 )
 
 type mocWGIface struct {
-	filter iface.PacketFilter
+	filter device.PacketFilter
 }
 
 func (w *mocWGIface) Name() string {
@@ -43,11 +45,11 @@ func (w *mocWGIface) ToInterface() *net.Interface {
 	panic("implement me")
 }
 
-func (w *mocWGIface) GetFilter() iface.PacketFilter {
+func (w *mocWGIface) GetFilter() device.PacketFilter {
 	return w.filter
 }
 
-func (w *mocWGIface) GetDevice() *iface.DeviceWrapper {
+func (w *mocWGIface) GetDevice() *device.FilteredDevice {
 	panic("implement me")
 }
 
@@ -59,13 +61,13 @@ func (w *mocWGIface) IsUserspaceBind() bool {
 	return false
 }
 
-func (w *mocWGIface) SetFilter(filter iface.PacketFilter) error {
+func (w *mocWGIface) SetFilter(filter device.PacketFilter) error {
 	w.filter = filter
 	return nil
 }
 
-func (w *mocWGIface) GetStats(_ string) (iface.WGStats, error) {
-	return iface.WGStats{}, nil
+func (w *mocWGIface) GetStats(_ string) (configurer.WGStats, error) {
+	return configurer.WGStats{}, nil
 }
 
 var zoneRecords = []nbdns.SimpleRecord{

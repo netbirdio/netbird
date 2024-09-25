@@ -4,13 +4,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/device"
 )
 
 // MobileDependency collect all dependencies for mobile platform
 type MobileDependency struct {
 	// Android only
-	TunAdapter            iface.TunAdapter
+	TunAdapter            device.TunAdapter
 	IFaceDiscover         stdnet.ExternalIFaceDiscover
 	NetworkChangeListener listener.NetworkChangeListener
 	HostDNSAddresses      []string

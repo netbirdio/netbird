@@ -1,18 +1,18 @@
-package iface
+package device
 
 import (
 	"fmt"
 	"net"
 )
 
-// WGAddress Wireguard parsed address
+// WGAddress WireGuard parsed address
 type WGAddress struct {
 	IP      net.IP
 	Network *net.IPNet
 }
 
-// parseWGAddress parse a string ("1.2.3.4/24") address to WG Address
-func parseWGAddress(address string) (WGAddress, error) {
+// ParseWGAddress parse a string ("1.2.3.4/24") address to WG Address
+func ParseWGAddress(address string) (WGAddress, error) {
 	ip, network, err := net.ParseCIDR(address)
 	if err != nil {
 		return WGAddress{}, err

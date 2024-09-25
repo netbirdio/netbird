@@ -10,27 +10,26 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
+	"github.com/netbirdio/netbird/iface/device"
 )
 
 const (
-	DefaultMTU    = 1280
-	DefaultWgPort = 51820
+	DefaultMTU         = 1280
+	DefaultWgPort      = 51820
+	WgInterfaceDefault = configurer.WgInterfaceDefault
 )
+
+type WGAddress = device.WGAddress
 
 // WGIface represents a interface instance
 type WGIface struct {
-	tun           wgTunDevice
+	tun           device.WGTunDevice
 	userspaceBind bool
 	mu            sync.Mutex
 
-	configurer wgConfigurer
-	filter     PacketFilter
-}
-
-type WGStats struct {
-	LastHandshake time.Time
-	TxBytes       int64
-	RxBytes       int64
+	configurer configurer.WGConfigurer
+	filter     device.PacketFilter
 }
 
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
@@ -44,7 +43,7 @@ func (w *WGIface) Name() string {
 }
 
 // Address returns the interface address
-func (w *WGIface) Address() WGAddress {
+func (w *WGIface) Address() device.WGAddress {
 	return w.tun.WgAddress()
 }
 
@@ -75,7 +74,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	addr, err := parseWGAddress(newAddr)
+	addr, err := device.ParseWGAddress(newAddr)
 	if err != nil {
 		return err
 	}
@@ -90,7 +89,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	defer w.mu.Unlock()
 
 	log.Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
-	return w.configurer.updatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface
@@ -99,7 +98,7 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	defer w.mu.Unlock()
 
 	log.Debugf("Removing peer %s from interface %s ", peerKey, w.tun.DeviceName())
-	return w.configurer.removePeer(peerKey)
+	return w.configurer.RemovePeer(peerKey)
 }
 
 // AddAllowedIP adds a prefix to the allowed IPs list of peer
@@ -108,7 +107,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
 	defer w.mu.Unlock()
 
 	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
-	return w.configurer.addAllowedIP(peerKey, allowedIP)
+	return w.configurer.AddAllowedIP(peerKey, allowedIP)
 }
 
 // RemoveAllowedIP removes a prefix from the allowed IPs list of peer
@@ -117,7 +116,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	defer w.mu.Unlock()
 
 	log.Debugf("Removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
-	return w.configurer.removeAllowedIP(peerKey, allowedIP)
+	return w.configurer.RemoveAllowedIP(peerKey, allowedIP)
 }
 
 // Close closes the tunnel interface
@@ -144,23 +143,23 @@ func (w *WGIface) Close() error {
 }
 
 // SetFilter sets packet filters for the userspace implementation
-func (w *WGIface) SetFilter(filter PacketFilter) error {
+func (w *WGIface) SetFilter(filter device.PacketFilter) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.tun.Wrapper() == nil {
+	if w.tun.FilteredDevice() == nil {
 		return fmt.Errorf("userspace packet filtering not handled on this device")
 	}
 
 	w.filter = filter
 	w.filter.SetNetwork(w.tun.WgAddress().Network)
 
-	w.tun.Wrapper().SetFilter(filter)
+	w.tun.FilteredDevice().SetFilter(filter)
 	return nil
 }
 
 // GetFilter returns packet filter used by interface if it uses userspace device implementation
-func (w *WGIface) GetFilter() PacketFilter {
+func (w *WGIface) GetFilter() device.PacketFilter {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -168,16 +167,16 @@ func (w *WGIface) GetFilter() PacketFilter {
 }
 
 // GetDevice to interact with raw device (with filtering)
-func (w *WGIface) GetDevice() *DeviceWrapper {
+func (w *WGIface) GetDevice() *device.FilteredDevice {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	return w.tun.Wrapper()
+	return w.tun.FilteredDevice()
 }
 
 // GetStats returns the last handshake time, rx and tx bytes for the given peer
-func (w *WGIface) GetStats(peerKey string) (WGStats, error) {
-	return w.configurer.getStats(peerKey)
+func (w *WGIface) GetStats(peerKey string) (configurer.WGStats, error) {
+	return w.configurer.GetStats(peerKey)
 }
 
 func (w *WGIface) waitUntilRemoved() error {

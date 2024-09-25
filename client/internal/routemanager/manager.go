@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/configurer"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -102,7 +103,7 @@ func NewManager(
 		},
 		func(prefix netip.Prefix, peerKey string) error {
 			if err := wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
-				if !errors.Is(err, iface.ErrPeerNotFound) && !errors.Is(err, iface.ErrAllowedIPNotFound) {
+				if !errors.Is(err, configurer.ErrPeerNotFound) && !errors.Is(err, configurer.ErrAllowedIPNotFound) {
 					return err
 				}
 				log.Tracef("Remove allowed IPs %s for %s: %v", prefix, peerKey, err)

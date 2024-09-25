@@ -1,7 +1,7 @@
 //go:build ios
 // +build ios
 
-package iface
+package device
 
 import (
 	"os"
@@ -13,6 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
 )
 
 type tunDevice struct {
@@ -23,13 +24,13 @@ type tunDevice struct {
 	iceBind *bind.ICEBind
 	tunFd   int
 
-	device     *device.Device
-	wrapper    *DeviceWrapper
-	udpMux     *bind.UniversalUDPMuxDefault
-	configurer wgConfigurer
+	device         *device.Device
+	filteredDevice *FilteredDevice
+	udpMux         *bind.UniversalUDPMuxDefault
+	configurer     configurer.WGConfigurer
 }
 
-func newTunDevice(name string, address WGAddress, port int, key string, transportNet transport.Net, tunFd int, filterFn bind.FilterFn) *tunDevice {
+func NewTunDevice(name string, address WGAddress, port int, key string, transportNet transport.Net, tunFd int, filterFn bind.FilterFn) WGTunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
@@ -40,7 +41,7 @@ func newTunDevice(name string, address WGAddress, port int, key string, transpor
 	}
 }
 
-func (t *tunDevice) Create() (wgConfigurer, error) {
+func (t *tunDevice) Create() (configurer.WGConfigurer, error) {
 	log.Infof("create tun interface")
 
 	dupTunFd, err := unix.Dup(t.tunFd)
@@ -62,18 +63,18 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
-	t.wrapper = newDeviceWrapper(tunDevice)
+	t.filteredDevice = newDeviceFilter(tunDevice)
 	log.Debug("Attaching to interface")
-	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(wgLogLevel(), "[wiretrustee] "))
+	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	t.configurer = newWGUSPConfigurer(t.device, t.name)
-	err = t.configurer.configureInterface(t.key, t.port)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
-		t.configurer.close()
+		t.configurer.Close()
 		return nil, err
 	}
 	return t.configurer, nil
@@ -104,7 +105,7 @@ func (t *tunDevice) DeviceName() string {
 
 func (t *tunDevice) Close() error {
 	if t.configurer != nil {
-		t.configurer.close()
+		t.configurer.Close()
 	}
 
 	if t.device != nil {
@@ -128,6 +129,6 @@ func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 	return nil
 }
 
-func (t *tunDevice) Wrapper() *DeviceWrapper {
-	return t.wrapper
+func (t *tunDevice) FilteredDevice() *FilteredDevice {
+	return t.filteredDevice
 }

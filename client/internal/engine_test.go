@@ -33,6 +33,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/device"
 	mgmt "github.com/netbirdio/netbird/management/client"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
@@ -874,7 +875,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			guid := fmt.Sprintf("{%s}", uuid.New().String())
-			iface.CustomWindowsGUIDString = strings.ToLower(guid)
+			device.CustomWindowsGUIDString = strings.ToLower(guid)
 			err = engine.Start()
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)

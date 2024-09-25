@@ -1,6 +1,6 @@
 //go:build (linux && !android) || freebsd
 
-package iface
+package device
 
 import (
 	"fmt"
@@ -13,9 +13,10 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
 )
 
-type tunUSPDevice struct {
+type USPDevice struct {
 	name    string
 	address WGAddress
 	port    int
@@ -23,39 +24,38 @@ type tunUSPDevice struct {
 	mtu     int
 	iceBind *bind.ICEBind
 
-	device     *device.Device
-	wrapper    *DeviceWrapper
-	udpMux     *bind.UniversalUDPMuxDefault
-	configurer wgConfigurer
+	device         *device.Device
+	filteredDevice *FilteredDevice
+	udpMux         *bind.UniversalUDPMuxDefault
+	configurer     configurer.WGConfigurer
 }
 
-func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) wgTunDevice {
+func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) WGTunDevice {
 	log.Infof("using userspace bind mode")
 
 	checkUser()
 
-	return &tunUSPDevice{
+	return &USPDevice{
 		name:    name,
 		address: address,
 		port:    port,
 		key:     key,
 		mtu:     mtu,
-		iceBind: bind.NewICEBind(transportNet, filterFn),
-	}
+		iceBind: bind.NewICEBind(transportNet, filterFn)}
 }
 
-func (t *tunUSPDevice) Create() (wgConfigurer, error) {
+func (t *USPDevice) Create() (configurer.WGConfigurer, error) {
 	log.Info("create tun interface")
 	tunIface, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
 		log.Debugf("failed to create tun interface (%s, %d): %s", t.name, t.mtu, err)
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
-	t.wrapper = newDeviceWrapper(tunIface)
+	t.filteredDevice = newDeviceFilter(tunIface)
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	t.device = device.NewDevice(
-		t.wrapper,
+		t.filteredDevice,
 		t.iceBind,
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
@@ -66,17 +66,17 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = newWGUSPConfigurer(t.device, t.name)
-	err = t.configurer.configureInterface(t.key, t.port)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
-		t.configurer.close()
+		t.configurer.Close()
 		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 	return t.configurer, nil
 }
 
-func (t *tunUSPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *USPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	if t.device == nil {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
@@ -96,14 +96,14 @@ func (t *tunUSPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *tunUSPDevice) UpdateAddr(address WGAddress) error {
+func (t *USPDevice) UpdateAddr(address WGAddress) error {
 	t.address = address
 	return t.assignAddr()
 }
 
-func (t *tunUSPDevice) Close() error {
+func (t *USPDevice) Close() error {
 	if t.configurer != nil {
-		t.configurer.close()
+		t.configurer.Close()
 	}
 
 	if t.device != nil {
@@ -116,20 +116,20 @@ func (t *tunUSPDevice) Close() error {
 	return nil
 }
 
-func (t *tunUSPDevice) WgAddress() WGAddress {
+func (t *USPDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunUSPDevice) DeviceName() string {
+func (t *USPDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunUSPDevice) Wrapper() *DeviceWrapper {
-	return t.wrapper
+func (t *USPDevice) FilteredDevice() *FilteredDevice {
+	return t.filteredDevice
 }
 
 // assignAddr Adds IP address to the tunnel interface
-func (t *tunUSPDevice) assignAddr() error {
+func (t *USPDevice) assignAddr() error {
 	link := newWGLink(t.name)
 
 	return link.assignAddr(t.address)

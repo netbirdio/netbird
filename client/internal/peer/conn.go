@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/configurer"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -680,7 +681,7 @@ func (conn *Conn) setStatusToDisconnected() {
 		// todo rethink status updates
 		conn.log.Debugf("error while updating peer's state, err: %v", err)
 	}
-	if err := conn.statusRecorder.UpdateWireGuardPeerState(conn.config.Key, iface.WGStats{}); err != nil {
+	if err := conn.statusRecorder.UpdateWireGuardPeerState(conn.config.Key, configurer.WGStats{}); err != nil {
 		conn.log.Debugf("failed to reset wireguard stats for peer: %s", err)
 	}
 }

@@ -1,10 +1,11 @@
-package iface
+package device
 
 import (
 	"fmt"
 
-	"github.com/netbirdio/netbird/iface/freebsd"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/iface/freebsd"
 )
 
 type wgLink struct {

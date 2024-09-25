@@ -1,7 +1,7 @@
 //go:build android
 // +build android
 
-package iface
+package device
 
 import (
 	"strings"
@@ -13,10 +13,11 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/configurer"
 )
 
-// ignore the wgTunDevice interface on Android because the creation of the tun device is different on this platform
-type wgTunDevice struct {
+// WGTunDevice ignore the WGTunDevice interface on Android because the creation of the tun device is different on this platform
+type WGTunDevice struct {
 	address    WGAddress
 	port       int
 	key        string
@@ -24,15 +25,15 @@ type wgTunDevice struct {
 	iceBind    *bind.ICEBind
 	tunAdapter TunAdapter
 
-	name       string
-	device     *device.Device
-	wrapper    *DeviceWrapper
-	udpMux     *bind.UniversalUDPMuxDefault
-	configurer wgConfigurer
+	name           string
+	device         *device.Device
+	filteredDevice *FilteredDevice
+	udpMux         *bind.UniversalUDPMuxDefault
+	configurer     configurer.WGConfigurer
 }
 
-func newTunDevice(address WGAddress, port int, key string, mtu int, transportNet transport.Net, tunAdapter TunAdapter, filterFn bind.FilterFn) wgTunDevice {
-	return wgTunDevice{
+func NewTunDevice(address WGAddress, port int, key string, mtu int, transportNet transport.Net, tunAdapter TunAdapter, filterFn bind.FilterFn) WGTunDevice {
+	return WGTunDevice{
 		address:    address,
 		port:       port,
 		key:        key,
@@ -42,7 +43,7 @@ func newTunDevice(address WGAddress, port int, key string, mtu int, transportNet
 	}
 }
 
-func (t *wgTunDevice) Create(routes []string, dns string, searchDomains []string) (wgConfigurer, error) {
+func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string) (configurer.WGConfigurer, error) {
 	log.Info("create tun interface")
 
 	routesString := routesToString(routes)
@@ -61,24 +62,24 @@ func (t *wgTunDevice) Create(routes []string, dns string, searchDomains []string
 		return nil, err
 	}
 	t.name = name
-	t.wrapper = newDeviceWrapper(tunDevice)
+	t.filteredDevice = newDeviceFilter(tunDevice)
 
 	log.Debugf("attaching to interface %v", name)
-	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(wgLogLevel(), "[wiretrustee] "))
+	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	t.configurer = newWGUSPConfigurer(t.device, t.name)
-	err = t.configurer.configureInterface(t.key, t.port)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
-		t.configurer.close()
+		t.configurer.Close()
 		return nil, err
 	}
 	return t.configurer, nil
 }
-func (t *wgTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *WGTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -93,14 +94,14 @@ func (t *wgTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *wgTunDevice) UpdateAddr(addr WGAddress) error {
+func (t *WGTunDevice) UpdateAddr(addr WGAddress) error {
 	// todo implement
 	return nil
 }
 
-func (t *wgTunDevice) Close() error {
+func (t *WGTunDevice) Close() error {
 	if t.configurer != nil {
-		t.configurer.close()
+		t.configurer.Close()
 	}
 
 	if t.device != nil {
@@ -115,20 +116,20 @@ func (t *wgTunDevice) Close() error {
 	return nil
 }
 
-func (t *wgTunDevice) Device() *device.Device {
+func (t *WGTunDevice) Device() *device.Device {
 	return t.device
 }
 
-func (t *wgTunDevice) DeviceName() string {
+func (t *WGTunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *wgTunDevice) WgAddress() WGAddress {
+func (t *WGTunDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *wgTunDevice) Wrapper() *DeviceWrapper {
-	return t.wrapper
+func (t *WGTunDevice) FilteredDevice() *FilteredDevice {
+	return t.filteredDevice
 }
 
 func routesToString(routes []string) string {

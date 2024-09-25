@@ -1,7 +1,7 @@
 //go:build linux && !android
 
 // Package iface provides wireguard network interface creation and management
-package iface
+package device
 
 import (
 	"bufio"
@@ -66,8 +66,8 @@ func getModuleRoot() string {
 	return filepath.Join(moduleLibDir, string(uname.Release[:i]))
 }
 
-// tunModuleIsLoaded check if tun module exist, if is not attempt to load it
-func tunModuleIsLoaded() bool {
+// ModuleTunIsLoaded check if tun module exist, if is not attempt to load it
+func ModuleTunIsLoaded() bool {
 	_, err := os.Stat("/dev/net/tun")
 	if err == nil {
 		return true
