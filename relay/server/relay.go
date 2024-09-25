@@ -12,11 +12,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/relay/auth"
-	"github.com/netbirdio/netbird/relay/messages"
 	//nolint:staticcheck
-	"github.com/netbirdio/netbird/relay/messages/address"
-	//nolint:staticcheck
-	authmsg "github.com/netbirdio/netbird/relay/messages/auth"
 	"github.com/netbirdio/netbird/relay/metrics"
 )
 
@@ -28,6 +24,7 @@ type Relay struct {
 
 	store       *Store
 	instanceURL string
+	preparedMsg *preparedMsg
 
 	closed  bool
 	closeMu sync.RWMutex
@@ -69,6 +66,12 @@ func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, valida
 		return nil, fmt.Errorf("get instance URL: %v", err)
 	}
 
+	r.preparedMsg, err = newPreparedMsg(r.instanceURL)
+	if err != nil {
+		metricsCancel()
+		return nil, fmt.Errorf("prepare message: %v", err)
+	}
+
 	return r, nil
 }
 
@@ -106,11 +109,15 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peerID, err := r.handshake(conn)
+	h := handshake{
+		conn:        conn,
+		validator:   r.validator,
+		preparedMsg: r.preparedMsg,
+	}
+	peerID, err := h.handshakeReceive()
 	if err != nil {
 		log.Errorf("failed to handshake: %s", err)
-		cErr := conn.Close()
-		if cErr != nil {
+		if cErr := conn.Close(); cErr != nil {
 			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
 		}
 		return
@@ -126,6 +133,11 @@ func (r *Relay) Accept(conn net.Conn) {
 		peer.log.Debugf("relay connection closed")
 		r.metrics.PeerDisconnected(peer.String())
 	}()
+
+	if err := h.handshakeResponse(); err != nil {
+		r.store.DeletePeer(peer)
+		_ = conn.Close()
+	}
 }
 
 // Shutdown closes the relay server
@@ -150,100 +162,4 @@ func (r *Relay) Shutdown(ctx context.Context) {
 // InstanceURL returns the instance URL of the relay server
 func (r *Relay) InstanceURL() string {
 	return r.instanceURL
-}
-
-func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
-	buf := make([]byte, messages.MaxHandshakeSize)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, fmt.Errorf("read from %s: %w", conn.RemoteAddr(), err)
-	}
-
-	_, err = messages.ValidateVersion(buf[:n])
-	if err != nil {
-		return nil, fmt.Errorf("validate version from %s: %w", conn.RemoteAddr(), err)
-	}
-
-	msgType, err := messages.DetermineClientMessageType(buf[messages.SizeOfVersionByte:n])
-	if err != nil {
-		return nil, fmt.Errorf("determine message type from %s: %w", conn.RemoteAddr(), err)
-	}
-
-	var (
-		responseMsg []byte
-		peerID      []byte
-	)
-	switch msgType {
-	//nolint:staticcheck
-	case messages.MsgTypeHello:
-		peerID, responseMsg, err = r.handleHelloMsg(buf[messages.SizeOfProtoHeader:n], conn.RemoteAddr())
-	case messages.MsgTypeAuth:
-		peerID, responseMsg, err = r.handleAuthMsg(buf[messages.SizeOfProtoHeader:n], conn.RemoteAddr())
-	default:
-		return nil, fmt.Errorf("invalid message type %d from %s", msgType, conn.RemoteAddr())
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = conn.Write(responseMsg)
-	if err != nil {
-		return nil, fmt.Errorf("write to %s (%s): %w", peerID, conn.RemoteAddr(), err)
-	}
-
-	return peerID, nil
-}
-
-func (r *Relay) handleHelloMsg(buf []byte, remoteAddr net.Addr) ([]byte, []byte, error) {
-	//nolint:staticcheck
-	rawPeerID, authData, err := messages.UnmarshalHelloMsg(buf)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unmarshal hello message: %w", err)
-	}
-
-	peerID := messages.HashIDToString(rawPeerID)
-	log.Warnf("peer %s (%s) is using deprecated initial message type", peerID, remoteAddr)
-
-	authMsg, err := authmsg.UnmarshalMsg(authData)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unmarshal auth message: %w", err)
-	}
-
-	//nolint:staticcheck
-	if err := r.validator.ValidateHelloMsgType(authMsg.AdditionalData); err != nil {
-		return nil, nil, fmt.Errorf("validate %s (%s): %w", peerID, remoteAddr, err)
-	}
-
-	addr := &address.Address{URL: r.instanceURL}
-	addrData, err := addr.Marshal()
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal addressc to %s (%s): %w", peerID, remoteAddr, err)
-	}
-
-	//nolint:staticcheck
-	responseMsg, err := messages.MarshalHelloResponse(addrData)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal hello response to %s (%s): %w", peerID, remoteAddr, err)
-	}
-	return rawPeerID, responseMsg, nil
-}
-
-func (r *Relay) handleAuthMsg(buf []byte, addr net.Addr) ([]byte, []byte, error) {
-	rawPeerID, authPayload, err := messages.UnmarshalAuthMsg(buf)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unmarshal hello message: %w", err)
-	}
-
-	peerID := messages.HashIDToString(rawPeerID)
-
-	if err := r.validator.Validate(authPayload); err != nil {
-		return nil, nil, fmt.Errorf("validate %s (%s): %w", peerID, addr, err)
-	}
-
-	responseMsg, err := messages.MarshalAuthResponse(r.instanceURL)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal hello response to %s (%s): %w", peerID, addr, err)
-	}
-
-	return rawPeerID, responseMsg, nil
 }
