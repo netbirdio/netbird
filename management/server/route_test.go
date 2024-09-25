@@ -1718,11 +1718,9 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 					fmt.Sprintf(AllowedIPsFormat, peerHIp),
 					fmt.Sprintf(AllowedIPsFormat, peerBIp),
 				},
-				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
 				Protocol:    "all",
-				NetworkType: int(route.IPv4Network),
 				Port:        80,
 			},
 			{
@@ -1731,11 +1729,9 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 					fmt.Sprintf(AllowedIPsFormat, peerHIp),
 					fmt.Sprintf(AllowedIPsFormat, peerBIp),
 				},
-				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
 				Protocol:    "all",
-				NetworkType: int(route.IPv4Network),
 				Port:        320,
 			},
 		}
@@ -1753,29 +1749,23 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		expectedRoutesFirewallRules = []*RouteFirewallRule{
 			{
 				SourceRanges: []string{"100.65.250.202/32", "100.65.13.186/32"},
-				Direction:    firewallRuleDirectionIN,
 				Action:       "accept",
 				Destination:  existingNetwork.String(),
 				Protocol:     "tcp",
-				NetworkType:  int(route.IPv4Network),
 				PortRange:    RulePortRange{Start: 80, End: 350},
 			},
 			{
 				SourceRanges: []string{"0.0.0.0/0"},
-				Direction:    firewallRuleDirectionIN,
 				Action:       "accept",
 				Destination:  "192.0.2.0/32",
 				Protocol:     "all",
-				NetworkType:  int(route.DomainNetwork),
 				IsDynamic:    true,
 			},
 			{
 				SourceRanges: []string{"::/0"},
-				Direction:    firewallRuleDirectionIN,
 				Action:       "accept",
 				Destination:  "192.0.2.0/32",
 				Protocol:     "all",
-				NetworkType:  int(route.DomainNetwork),
 				IsDynamic:    true,
 			},
 		}

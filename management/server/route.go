@@ -35,9 +35,6 @@ type RouteFirewallRule struct {
 	// Protocol of the traffic
 	Protocol string
 
-	// NetworkType string
-	NetworkType int
-
 	// Port of the traffic
 	Port uint16
 
@@ -458,7 +455,6 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 		Action:       string(PolicyTrafficActionAccept),
 		Destination:  route.Network.String(),
 		Protocol:     string(PolicyRuleProtocolALL),
-		NetworkType:  int(route.NetworkType),
 		IsDynamic:    route.IsDynamic(),
 	}
 
@@ -518,7 +514,6 @@ func generateRouteFirewallRules(ctx context.Context, route *route.Route, rule *P
 		Action:       string(rule.Action),
 		Destination:  route.Network.String(),
 		Protocol:     string(rule.Protocol),
-		NetworkType:  int(route.NetworkType),
 		IsDynamic:    route.IsDynamic(),
 	}
 
