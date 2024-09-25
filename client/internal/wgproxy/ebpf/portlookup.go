@@ -1,4 +1,4 @@
-package wgproxy
+package ebpf
 
 import (
 	"fmt"
