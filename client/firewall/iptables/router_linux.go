@@ -11,7 +11,6 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/hashicorp/go-multierror"
-	"github.com/nadoo/ipset"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -97,10 +96,9 @@ func (r *router) AddRouteFiltering(
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
-	direction firewall.RuleDirection,
 	action firewall.Action,
 ) (firewall.Rule, error) {
-	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, direction, action)
+	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}
@@ -119,7 +117,6 @@ func (r *router) AddRouteFiltering(
 		Proto:       proto,
 		SPort:       sPort,
 		DPort:       dPort,
-		Direction:   direction,
 		Action:      action,
 		SetName:     setName,
 	}
@@ -444,25 +441,13 @@ func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {
 	var rule []string
 
 	if params.SetName != "" {
-		if params.Direction == firewall.RuleDirectionIN {
-			rule = append(rule, "-m", "set", matchSet, params.SetName, "src")
-		} else {
-			rule = append(rule, "-m", "set", matchSet, params.SetName, "dst")
-		}
+		rule = append(rule, "-m", "set", matchSet, params.SetName, "src")
 	} else if len(params.Sources) > 0 {
 		source := params.Sources[0]
-		if params.Direction == firewall.RuleDirectionIN {
-			rule = append(rule, "-s", source.String())
-		} else {
-			rule = append(rule, "-d", source.String())
-		}
+		rule = append(rule, "-s", source.String())
 	}
 
-	if params.Direction == firewall.RuleDirectionIN {
-		rule = append(rule, "-d", params.Destination.String())
-	} else {
-		rule = append(rule, "-s", params.Destination.String())
-	}
+	rule = append(rule, "-d", params.Destination.String())
 
 	if params.Proto != firewall.ProtocolALL {
 		rule = append(rule, "-p", strings.ToLower(string(params.Proto)))

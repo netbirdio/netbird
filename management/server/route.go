@@ -26,9 +26,6 @@ type RouteFirewallRule struct {
 	// SourceRanges IP ranges of the routing peers.
 	SourceRanges []string
 
-	// Direction of the traffic
-	Direction int
-
 	// Action of the traffic when the rule is applicable
 	Action string
 
@@ -458,7 +455,6 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 	}
 	rule := RouteFirewallRule{
 		SourceRanges: sources,
-		Direction:    firewallRuleDirectionIN,
 		Action:       string(PolicyTrafficActionAccept),
 		Destination:  route.Network.String(),
 		Protocol:     string(PolicyRuleProtocolALL),
@@ -519,7 +515,6 @@ func generateRouteFirewallRules(ctx context.Context, route *route.Route, rule *P
 
 	baseRule := RouteFirewallRule{
 		SourceRanges: sourceRanges,
-		Direction:    direction,
 		Action:       string(rule.Action),
 		Destination:  route.Network.String(),
 		Protocol:     string(rule.Protocol),
@@ -605,9 +600,7 @@ func toProtocolRoutesFirewallRules(rules []*RouteFirewallRule) []*proto.RouteFir
 		rule := rules[i]
 		result[i] = &proto.RouteFirewallRule{
 			SourceRanges: rule.SourceRanges,
-			Direction:    getProtoDirection(rule.Direction),
 			Action:       getProtoAction(rule.Action),
-			NetworkType:  getProtoNetworkType(rule.NetworkType),
 			Destination:  rule.Destination,
 			Protocol:     getProtoProtocol(rule.Protocol),
 			PortInfo:     getProtoPortInfo(rule),
@@ -647,20 +640,6 @@ func getProtoProtocol(protocol string) proto.RuleProtocol {
 		return proto.RuleProtocol_ICMP
 	default:
 		return proto.RuleProtocol_UNKNOWN
-	}
-}
-
-// getProtoNetworkType converts the network type to proto.RouteFirewallRule_NetworkType.
-func getProtoNetworkType(networkType int) proto.RouteFirewallRule_NetworkType {
-	switch route.NetworkType(networkType) {
-	case route.IPv4Network:
-		return proto.RouteFirewallRule_IPV4
-	case route.IPv6Network:
-		return proto.RouteFirewallRule_IPV6
-	case route.DomainNetwork:
-		return proto.RouteFirewallRule_Domain
-	default:
-		return proto.RouteFirewallRule_UNKNOWN
 	}
 }
 

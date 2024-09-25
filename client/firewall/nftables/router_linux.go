@@ -186,10 +186,9 @@ func (r *router) AddRouteFiltering(
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
-	direction firewall.RuleDirection,
 	action firewall.Action,
 ) (firewall.Rule, error) {
-	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, direction, action)
+	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}
@@ -202,7 +201,7 @@ func (r *router) AddRouteFiltering(
 		// If it's 0.0.0.0/0, we don't need to add any source matching
 	case len(sources) == 1:
 		// If there's only one source, we can use it directly
-		exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionIN, sources[0])...)
+		exprs = append(exprs, generateCIDRMatcherExpressions(true, sources[0])...)
 	default:
 		// If there are multiple sources, create or get an ipset
 		var err error
@@ -213,7 +212,7 @@ func (r *router) AddRouteFiltering(
 	}
 
 	// Handle destination
-	exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionOUT, destination)...)
+	exprs = append(exprs, generateCIDRMatcherExpressions(false, destination)...)
 
 	// Handle protocol
 	if proto != firewall.ProtocolALL {

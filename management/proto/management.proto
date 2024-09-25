@@ -443,34 +443,21 @@ message PortInfo {
 // RouteFirewallRule signifies a firewall rule applicable for a routed network.
 message RouteFirewallRule {
   // sourceRanges IP ranges of the routing peers.
-  repeated  string sourceRanges = 1;
-
-  // Direction of the firewall.
-  RuleDirection direction = 2;
+  repeated string sourceRanges = 1;
 
   // Action to be taken by the firewall when the rule is applicable.
-  RuleAction action = 3;
-
-  // NetworkType of the routed network.
-  NetworkType networkType = 4;
+  RuleAction action = 2;
 
   // Network prefix for the routed network.
-  string destination = 5;
+  string destination = 4;
 
   // Protocol of the routed network.
-  RuleProtocol protocol = 6;
+  RuleProtocol protocol = 5;
 
   // Details about the port.
-  PortInfo portInfo = 7;
+  PortInfo portInfo = 6;
 
-  // IsDynamic indicate if the route is DNS route.
-  bool isDynamic = 8;
-
-  enum NetworkType {
-    UNKNOWN = 0;
-    IPV4 = 1;
-    IPV6 = 2;
-    Domain = 3;
-  }
+  // IsDynamic indicates if the route is a DNS route.
+  bool isDynamic = 7;
 }
 
