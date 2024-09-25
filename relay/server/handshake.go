@@ -8,7 +8,9 @@ import (
 
 	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/messages"
+	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/messages/address"
+	//nolint:staticcheck
 	authmsg "github.com/netbirdio/netbird/relay/messages/auth"
 )
 
