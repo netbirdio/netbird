@@ -116,7 +116,7 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
 	}
 
-	return am.Store.GetAccountPostureChecks(ctx, accountID)
+	return am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
 }
 
 func (am *DefaultAccountManager) savePostureChecks(account *Account, postureChecks *posture.Checks) (exists, uniqName bool) {

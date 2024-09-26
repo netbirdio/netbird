@@ -321,7 +321,7 @@ func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, user
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 
-	return am.Store.GetAccountRoutes(ctx, accountID)
+	return am.Store.GetAccountRoutes(ctx, LockingStrengthShare, accountID)
 }
 
 func toProtocolRoute(route *route.Route) *proto.Route {

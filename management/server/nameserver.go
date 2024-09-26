@@ -154,7 +154,7 @@ func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accou
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view name server groups")
 	}
 
-	return am.Store.GetAccountNameServerGroups(ctx, accountID)
+	return am.Store.GetAccountNameServerGroups(ctx, LockingStrengthShare, accountID)
 }
 
 func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServerGroup, account *Account) error {

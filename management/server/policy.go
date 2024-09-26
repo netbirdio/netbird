@@ -395,7 +395,7 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
 	}
 
-	return am.Store.GetAccountPolicies(ctx, accountID)
+	return am.Store.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
 }
 
 func (am *DefaultAccountManager) deletePolicy(account *Account, policyID string) (*Policy, error) {
