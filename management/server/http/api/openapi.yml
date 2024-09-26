@@ -950,7 +950,7 @@ components:
           type: array
           items:
             type: string
-            example: ["192.168.1.0/24", "10.0.0.0/8", "2001:db8:1234:1a00::/56"]
+          example: ["192.168.1.0/24", "10.0.0.0/8", "2001:db8:1234:1a00::/56"]
         action:
           description: Action to take upon policy match
           type: string

@@ -1037,6 +1037,10 @@ func (s *SqlStore) withTx(tx *gorm.DB) Store {
 	}
 }
 
+func (s *SqlStore) GetDB() *gorm.DB {
+	return s.db
+}
+
 func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error) {
 	var accountDNSSettings AccountDNSSettings
 
