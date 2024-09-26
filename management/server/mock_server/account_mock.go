@@ -23,6 +23,7 @@ import (
 
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc func(ctx context.Context, userId, domain string) (*server.Account, error)
+	GetAccountFunc               func(ctx context.Context, accountID string) (*server.Account, error)
 	CreateSetupKeyFunc           func(ctx context.Context, accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*server.SetupKey, error)
 	GetSetupKeyFunc                     func(ctx context.Context, accountID, userID, keyID string) (*server.SetupKey, error)
@@ -823,4 +824,11 @@ func (am *MockAccountManager) GetAccountSettings(ctx context.Context, accountID 
 		return am.GetAccountSettingsFunc(ctx, accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountSettings is not implemented")
+}
+
+func (am *MockAccountManager) GetAccount(ctx context.Context, accountID string) (*server.Account, error) {
+	if am.GetAccountFunc != nil {
+		return am.GetAccountFunc(ctx, accountID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccount is not implemented")
 }
