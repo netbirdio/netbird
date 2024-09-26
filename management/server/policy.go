@@ -343,7 +343,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		return err
 	}
 
-	postureChecks, err := am.Store.GetAccountPostureChecks(ctx, accountID)
+	postureChecks, err := am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}

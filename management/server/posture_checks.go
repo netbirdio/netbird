@@ -142,7 +142,7 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 
 // isPostureCheckLinkedToPolicy checks whether the posture check is linked to any account policy.
 func (am *DefaultAccountManager) isPostureCheckLinkedToPolicy(ctx context.Context, postureChecksID, accountID string) error {
-	policies, err := am.Store.GetAccountPolicies(ctx, accountID)
+	policies, err := am.Store.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}
