@@ -1,12 +1,12 @@
 package wgproxy
 
 import (
+	"context"
 	"net"
 )
 
-// Proxy is a transfer layer between the Turn connection and the WireGuard
+// Proxy is a transfer layer between the relayed connection and the WireGuard
 type Proxy interface {
-	AddTurnConn(turnConn net.Conn) (net.Addr, error)
+	AddTurnConn(ctx context.Context, turnConn net.Conn) (net.Addr, error)
 	CloseConn() error
-	Free() error
 }
