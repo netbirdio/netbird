@@ -1057,14 +1057,18 @@ func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength Locki
 
 // AccountExists checks whether an account exists by the given ID.
 func (s *SqlStore) AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error) {
-	var count int64
+	var accountID string
 
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
-		Where(idQueryCondition, id).Count(&count)
+		Select("id").First(&accountID, idQueryCondition, id)
 	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
 		return false, result.Error
 	}
-	return count > 0, nil
+
+	return accountID != "", nil
 }
 
 // GetAccountDomainAndCategory retrieves the Domain and DomainCategory fields for an account based on the given accountID.

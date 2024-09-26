@@ -29,7 +29,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 
 	t.Run("Generic posture check flow", func(t *testing.T) {
 		// regular users can not create checks
-		err := am.SavePostureChecks(context.Background(), account.Id, regularUserID, &posture.Checks{})
+		err := am.SavePostureChecks(context.Background(), account.Id, regularUserID, &posture.Checks{}, false)
 		assert.Error(t, err)
 
 		// regular users cannot list check
@@ -45,7 +45,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 					MinVersion: "0.26.0",
 				},
 			},
-		})
+		}, false)
 		assert.NoError(t, err)
 
 		// admin users can list check
@@ -66,7 +66,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 					},
 				},
 			},
-		})
+		}, false)
 		assert.Error(t, err)
 
 		// admins can update posture checks
@@ -78,7 +78,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 					MinVersion: "0.27.0",
 				},
 			},
-		})
+		}, false)
 		assert.NoError(t, err)
 
 		// users should not be able to delete posture checks
