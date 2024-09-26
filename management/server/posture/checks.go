@@ -41,7 +41,7 @@ type Checks struct {
 	ID string `gorm:"primaryKey"`
 
 	// Name of the posture checks
-	Name string
+	Name string `gorm:"unique"`
 
 	// Description of the posture checks visible in the UI
 	Description string

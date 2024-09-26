@@ -859,6 +859,7 @@ func getGormConfig() *gorm.Config {
 		Logger:          logger.Default.LogMode(logger.Silent),
 		CreateBatchSize: 400,
 		PrepareStmt:     true,
+		TranslateError:  true,
 	}
 }
 
@@ -1127,6 +1128,27 @@ func (s *SqlStore) GetAccountPostureChecks(ctx context.Context, accountID string
 // GetPostureChecksByID retrieves posture checks by their ID and account ID.
 func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, postureCheckID string, accountID string) (*posture.Checks, error) {
 	return getRecordByID[posture.Checks](s.db.WithContext(ctx), lockStrength, postureCheckID, accountID)
+}
+
+// SavePostureChecks saves a posture checks to the database.
+func (s *SqlStore) SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error {
+	result := s.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&postureCheck)
+
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
+			return status.Errorf(status.InvalidArgument, "name should be unique")
+		}
+		return result.Error
+	}
+
+	return nil
+}
+
+// DeletePostureChecks deletes a posture checks from the database.
+func (s *SqlStore) DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, postureChecksID string) error {
+	return s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&posture.Checks{}, idQueryCondition, postureChecksID).Error
 }
 
 // GetAccountRoutes retrieves network routes for an account.

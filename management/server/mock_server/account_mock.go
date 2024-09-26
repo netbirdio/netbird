@@ -96,7 +96,7 @@ type MockAccountManager struct {
 	HasConnectedChannelFunc             func(peerID string) bool
 	GetExternalCacheManagerFunc         func() server.ExternalCacheManager
 	GetPostureChecksFunc                func(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecksFunc               func(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error
+	SavePostureChecksFunc               func(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, isUpdate bool) error
 	DeletePostureChecksFunc             func(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc               func(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManagerFunc                   func() idp.Manager
@@ -730,9 +730,9 @@ func (am *MockAccountManager) GetPostureChecks(ctx context.Context, accountID, p
 }
 
 // SavePostureChecks mocks SavePostureChecks of the AccountManager interface
-func (am *MockAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error {
+func (am *MockAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, isUpdate bool) error {
 	if am.SavePostureChecksFunc != nil {
-		return am.SavePostureChecksFunc(ctx, accountID, userID, postureChecks)
+		return am.SavePostureChecksFunc(ctx, accountID, userID, postureChecks, isUpdate)
 	}
 	return status.Errorf(codes.Unimplemented, "method SavePostureChecks is not implemented")
 }

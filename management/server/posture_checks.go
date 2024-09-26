@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -27,85 +28,105 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, postureChecksID, accountID)
 }
 
-func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+// SavePostureChecks saves a posture check.
+func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, isUpdate bool) error {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return err
-	}
-
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
+	if !user.HasAdminPower() || user.AccountID != accountID {
+		return status.Errorf(status.PermissionDenied, "only admin users are allowed to update posture checks")
 	}
 
 	if err := postureChecks.Validate(); err != nil {
 		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
 	}
-
-	exists, uniqName := am.savePostureChecks(account, postureChecks)
-
-	// we do not allow create new posture checks with non uniq name
-	if !exists && !uniqName {
-		return status.Errorf(status.PreconditionFailed, "Posture check name should be unique")
-	}
+	postureChecks.AccountID = accountID
 
 	action := activity.PostureCheckCreated
-	if exists {
-		action = activity.PostureCheckUpdated
-		account.Network.IncSerial()
-	}
 
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		if isUpdate {
+			action = activity.PostureCheckUpdated
+
+			if _, err := transaction.GetPostureChecksByID(ctx, LockingStrengthShare, postureChecks.ID, accountID); err != nil {
+				return fmt.Errorf("failed to get posture checks: %w", err)
+			}
+
+			if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+				return fmt.Errorf("failed to increment network serial: %w", err)
+			}
+		}
+
+		if err = transaction.SavePostureChecks(ctx, LockingStrengthUpdate, postureChecks); err != nil {
+			return fmt.Errorf("failed to save posture checks: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
-	if exists {
+
+	if isUpdate {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
 		am.updateAccountPeers(ctx, account)
 	}
 
 	return nil
 }
 
+// DeletePostureChecks deletes a posture check by ID.
 func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return err
 	}
 
-	user, err := account.FindUser(userID)
+	if !user.HasAdminPower() || user.AccountID != accountID {
+		return status.Errorf(status.PermissionDenied, "only admin users are allowed to delete posture checks")
+	}
+
+	if err = am.isPostureCheckLinkedToPolicy(ctx, postureChecksID, accountID); err != nil {
+		return err
+	}
+
+	postureChecks, err := am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, postureChecksID, accountID)
 	if err != nil {
 		return err
 	}
 
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
-	}
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
 
-	postureChecks, err := am.deletePostureChecks(account, postureChecksID)
+		if err = transaction.DeletePostureChecks(ctx, LockingStrengthUpdate, postureChecksID); err != nil {
+			return fmt.Errorf("failed to delete posture checks: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return err
-	}
-
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, activity.PostureCheckDeleted, postureChecks.EventMeta())
 
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("error getting account: %w", err)
+	}
+	am.updateAccountPeers(ctx, account)
+
 	return nil
 }
 
+// ListPostureChecks returns a list of posture checks.
 func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
@@ -119,48 +140,20 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 	return am.Store.GetAccountPostureChecks(ctx, accountID)
 }
 
-func (am *DefaultAccountManager) savePostureChecks(account *Account, postureChecks *posture.Checks) (exists, uniqName bool) {
-	uniqName = true
-	for i, p := range account.PostureChecks {
-		if !exists && p.ID == postureChecks.ID {
-			account.PostureChecks[i] = postureChecks
-			exists = true
-		}
-		if p.Name == postureChecks.Name {
-			uniqName = false
-		}
-	}
-	if !exists {
-		account.PostureChecks = append(account.PostureChecks, postureChecks)
-	}
-	return
-}
-
-func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureChecksID string) (*posture.Checks, error) {
-	postureChecksIdx := -1
-	for i, postureChecks := range account.PostureChecks {
-		if postureChecks.ID == postureChecksID {
-			postureChecksIdx = i
-			break
-		}
-	}
-	if postureChecksIdx < 0 {
-		return nil, status.Errorf(status.NotFound, "posture checks with ID %s doesn't exist", postureChecksID)
+// isPostureCheckLinkedToPolicy checks whether the posture check is linked to any account policy.
+func (am *DefaultAccountManager) isPostureCheckLinkedToPolicy(ctx context.Context, postureChecksID, accountID string) error {
+	policies, err := am.Store.GetAccountPolicies(ctx, accountID)
+	if err != nil {
+		return err
 	}
 
-	// check policy links
-	for _, policy := range account.Policies {
-		for _, id := range policy.SourcePostureChecks {
-			if id == postureChecksID {
-				return nil, status.Errorf(status.PreconditionFailed, "posture checks have been linked to policy: %s", policy.Name)
-			}
+	for _, policy := range policies {
+		if slices.Contains(policy.SourcePostureChecks, postureChecksID) {
+			return status.Errorf(status.PreconditionFailed, "posture checks have been linked to policy: %s", policy.Name)
 		}
 	}
 
-	postureChecks := account.PostureChecks[postureChecksIdx]
-	account.PostureChecks = append(account.PostureChecks[:postureChecksIdx], account.PostureChecks[postureChecksIdx+1:]...)
-
-	return postureChecks, nil
+	return nil
 }
 
 // getPeerPostureChecks returns the posture checks applied for a given peer.

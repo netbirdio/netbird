@@ -1027,6 +1027,14 @@ func (s *FileStore) GetPostureChecksByID(_ context.Context, _ LockingStrength, _
 	return nil, status.Errorf(status.Internal, "GetPostureChecksByID is not implemented")
 }
 
+func (s *FileStore) SavePostureChecks(_ context.Context, _ LockingStrength, _ *posture.Checks) error {
+	return status.Errorf(status.Internal, "SavePostureChecks is not implemented")
+}
+
+func (s *FileStore) DeletePostureChecks(_ context.Context, _ LockingStrength, _ string) error {
+	return status.Errorf(status.Internal, "DeletePostureChecks is not implemented")
+}
+
 func (s *FileStore) GetAccountRoutes(_ context.Context, _ string) ([]*route.Route, error) {
 	return nil, status.Errorf(status.Internal, "GetAccountRoutes is not implemented")
 }

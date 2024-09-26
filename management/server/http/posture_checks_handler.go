@@ -163,13 +163,15 @@ func (p *PostureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.
 		}
 	}
 
+	isUpdate := postureChecksID != ""
+
 	postureChecks, err := posture.NewChecksFromAPIPostureCheckUpdate(req, postureChecksID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	if err := p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks); err != nil {
+	if err := p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks, isUpdate); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
