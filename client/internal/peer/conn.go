@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"net"
 	"os"
@@ -31,6 +32,10 @@ const (
 	connPriorityRelay   ConnPriority = 1
 	connPriorityICETurn ConnPriority = 1
 	connPriorityICEP2P  ConnPriority = 2
+
+	reconnectMaxElapsedTime    = 30 * time.Minute
+	candidatesMonitorPeriod    = 5 * time.Minute
+	candidatedGatheringTimeout = 5 * time.Second
 )
 
 type WgConfig struct {
@@ -82,6 +87,7 @@ type Conn struct {
 	wgProxyICE     wgproxy.Proxy
 	wgProxyRelay   wgproxy.Proxy
 	signaler       *Signaler
+	iFaceDiscover  stdnet.ExternalIFaceDiscover
 	relayManager   *relayClient.Manager
 	allowedIPsIP   string
 	handshaker     *Handshaker
@@ -107,6 +113,10 @@ type Conn struct {
 	// for reconnection operations
 	iCEDisconnected   chan bool
 	relayDisconnected chan bool
+	reconnectCh       chan struct{}
+
+	currentCandidates []ice.Candidate
+	candidatesMu      sync.Mutex
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -122,19 +132,22 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	connLog := log.WithField("peer", config.Key)
 
 	var conn = &Conn{
-		log:               connLog,
-		ctx:               ctx,
-		ctxCancel:         ctxCancel,
-		config:            config,
-		statusRecorder:    statusRecorder,
-		wgProxyFactory:    wgProxyFactory,
-		signaler:          signaler,
-		relayManager:      relayManager,
-		allowedIPsIP:      allowedIPsIP.String(),
-		statusRelay:       NewAtomicConnStatus(),
-		statusICE:         NewAtomicConnStatus(),
+		log:            connLog,
+		ctx:            ctx,
+		ctxCancel:      ctxCancel,
+		config:         config,
+		statusRecorder: statusRecorder,
+		wgProxyFactory: wgProxyFactory,
+		signaler:       signaler,
+		iFaceDiscover:  iFaceDiscover,
+		relayManager:   relayManager,
+		allowedIPsIP:   allowedIPsIP.String(),
+		statusRelay:    NewAtomicConnStatus(),
+		statusICE:      NewAtomicConnStatus(),
+
 		iCEDisconnected:   make(chan bool, 1),
 		relayDisconnected: make(chan bool, 1),
+		reconnectCh:       make(chan struct{}, 1),
 	}
 
 	rFns := WorkerRelayCallbacks{
@@ -305,21 +318,23 @@ func (conn *Conn) GetKey() string {
 
 func (conn *Conn) reconnectLoopWithRetry() {
 	// Give chance to the peer to establish the initial connection.
-	// With it, we can decrease to send necessary offer
 	select {
 	case <-conn.ctx.Done():
+		return
 	case <-time.After(3 * time.Second):
 	}
 
+	go conn.monitorReconnectEvents()
+
 	ticker := conn.prepareExponentTicker()
 	defer ticker.Stop()
-	time.Sleep(1 * time.Second)
+
 	for {
 		select {
 		case t := <-ticker.C:
 			if t.IsZero() {
 				// in case if the ticker has been canceled by context then avoid the temporary loop
-				return
+				continue
 			}
 
 			if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
@@ -341,20 +356,12 @@ func (conn *Conn) reconnectLoopWithRetry() {
 			if err != nil {
 				conn.log.Errorf("failed to do handshake: %v", err)
 			}
-		case changed := <-conn.relayDisconnected:
-			if !changed {
-				continue
-			}
-			conn.log.Debugf("Relay state changed, reset reconnect timer")
+
+		case <-conn.reconnectCh:
+			conn.log.Debugf("Reconnect event received, resetting reconnect timer")
 			ticker.Stop()
 			ticker = conn.prepareExponentTicker()
-		case changed := <-conn.iCEDisconnected:
-			if !changed {
-				continue
-			}
-			conn.log.Debugf("ICE state changed, reset reconnect timer")
-			ticker.Stop()
-			ticker = conn.prepareExponentTicker()
+
 		case <-conn.ctx.Done():
 			conn.log.Debugf("context is done, stop reconnect loop")
 			return
@@ -365,10 +372,10 @@ func (conn *Conn) reconnectLoopWithRetry() {
 func (conn *Conn) prepareExponentTicker() *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 0.01,
+		RandomizationFactor: 0.1,
 		Multiplier:          2,
 		MaxInterval:         conn.config.Timeout,
-		MaxElapsedTime:      0,
+		MaxElapsedTime:      reconnectMaxElapsedTime,
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, conn.ctx)
@@ -377,6 +384,174 @@ func (conn *Conn) prepareExponentTicker() *backoff.Ticker {
 	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
 	return ticker
+}
+
+func (conn *Conn) monitorReconnectEvents() {
+	signalerReady := make(chan struct{}, 1)
+	go conn.monitorSignalerReady(signalerReady)
+
+	localCandidatesChanged := make(chan struct{}, 1)
+	go conn.monitorLocalCandidatesChanged(localCandidatesChanged)
+
+	for {
+		select {
+		case changed := <-conn.relayDisconnected:
+			if !changed {
+				continue
+			}
+
+			conn.log.Debugf("Relay state changed, triggering reconnect")
+			conn.triggerReconnect()
+
+		case changed := <-conn.iCEDisconnected:
+			if !changed {
+				continue
+			}
+
+			conn.log.Debugf("ICE state changed, triggering reconnect")
+			conn.triggerReconnect()
+
+		case <-signalerReady:
+			conn.log.Debugf("Signaler became ready, triggering reconnect")
+			conn.triggerReconnect()
+
+		case <-localCandidatesChanged:
+			conn.log.Debugf("Local candidates changed, triggering reconnect")
+			conn.triggerReconnect()
+
+		case <-conn.ctx.Done():
+			return
+		}
+	}
+}
+
+// monitorSignalerReady monitors the signaler ready state and triggers reconnect when it transitions from not ready to ready
+func (conn *Conn) monitorSignalerReady(signalerReady chan<- struct{}) {
+	ticker := time.NewTicker(signalerMonitorPeriod)
+	defer ticker.Stop()
+
+	lastReady := true
+	for {
+		select {
+		case <-ticker.C:
+			currentReady := conn.signaler.Ready()
+			if !lastReady && currentReady {
+				select {
+				case signalerReady <- struct{}{}:
+				default:
+				}
+			}
+			lastReady = currentReady
+		case <-conn.ctx.Done():
+			return
+		}
+	}
+}
+
+// monitorLocalCandidatesChanged monitors the local candidates and triggers reconnect when they change
+func (conn *Conn) monitorLocalCandidatesChanged(localCandidatesChanged chan<- struct{}) {
+	// TODO: make this global and not per-conn
+
+	ufrag, pwd, err := generateICECredentials()
+	if err != nil {
+		conn.log.Warnf("Failed to generate ICE credentials: %v", err)
+		return
+	}
+
+	ticker := time.NewTicker(candidatesMonitorPeriod)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := conn.handleCandidateTick(localCandidatesChanged, ufrag, pwd); err != nil {
+				conn.log.Warnf("Failed to handle candidate tick: %v", err)
+			}
+		case <-conn.ctx.Done():
+			return
+		}
+	}
+}
+
+func (conn *Conn) handleCandidateTick(localCandidatesChanged chan<- struct{}, ufrag string, pwd string) error {
+	conn.log.Debugf("Gathering ICE candidates")
+
+	transportNet, err := newStdNet(conn.iFaceDiscover, conn.config.ICEConfig.InterfaceBlackList)
+	if err != nil {
+		conn.log.Errorf("failed to create pion's stdnet: %s", err)
+	}
+
+	agent, err := newAgent(conn.config, transportNet, candidateTypes(), ufrag, pwd)
+	if err != nil {
+		return fmt.Errorf("create ICE agent: %w", err)
+	}
+	defer func() {
+		if err := agent.Close(); err != nil {
+			conn.log.Warnf("Failed to close ICE agent: %v", err)
+		}
+	}()
+
+	gatherDone := make(chan struct{})
+	agent.OnCandidate(func(c ice.Candidate) {
+		log.Debugf("Got candidate: %v", c)
+		if c == nil {
+			close(gatherDone)
+		}
+	})
+
+	if err := agent.GatherCandidates(); err != nil {
+		return fmt.Errorf("gather ICE candidates: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(conn.ctx, candidatedGatheringTimeout)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait for gathering: %w", ctx.Err())
+	case <-gatherDone:
+	}
+
+	candidates, err := agent.GetLocalCandidates()
+	if err != nil {
+		return fmt.Errorf("get local candidates: %w", err)
+	}
+	log.Debugf("Got candidates: %v", candidates)
+
+	if changed := conn.updateCandidates(candidates); changed {
+		select {
+		case localCandidatesChanged <- struct{}{}:
+		default:
+		}
+	}
+
+	return nil
+}
+
+func (conn *Conn) updateCandidates(newCandidates []ice.Candidate) bool {
+	conn.candidatesMu.Lock()
+	defer conn.candidatesMu.Unlock()
+
+	if len(conn.currentCandidates) != len(newCandidates) {
+		conn.currentCandidates = newCandidates
+		return true
+	}
+
+	for i, candidate := range conn.currentCandidates {
+		if candidate.String() != newCandidates[i].String() {
+			conn.currentCandidates = newCandidates
+			return true
+		}
+	}
+
+	return false
+}
+
+func (conn *Conn) triggerReconnect() {
+	select {
+	case conn.reconnectCh <- struct{}{}:
+	default:
+	}
 }
 
 // reconnectLoopForOnDisconnectedEvent is used when the peer is not a controller and it should reconnect to the peer
