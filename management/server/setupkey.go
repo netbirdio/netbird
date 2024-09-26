@@ -339,7 +339,7 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
 	}
 
-	setupKeys, err := am.Store.GetAccountSetupKeys(ctx, accountID)
+	setupKeys, err := am.Store.GetAccountSetupKeys(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}

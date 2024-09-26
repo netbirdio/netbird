@@ -1266,7 +1266,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 // Returns the account ID or an error if none is found or created.
 func (am *DefaultAccountManager) GetAccountIDByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (string, error) {
 	if accountID != "" {
-		exists, err := am.Store.AccountExists(ctx, accountID)
+		exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			return "", err
 		}

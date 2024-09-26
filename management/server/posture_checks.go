@@ -137,7 +137,7 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
 	}
 
-	return am.Store.GetAccountPostureChecks(ctx, accountID)
+	return am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
 }
 
 // isPostureCheckLinkedToPolicy checks whether the posture check is linked to any account policy.
