@@ -204,6 +204,10 @@ func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID 
 		policy.Rules = append(policy.Rules, &pr)
 	}
 
+	if req.SourcePostureChecks != nil {
+		policy.SourcePostureChecks = *req.SourcePostureChecks
+	}
+
 	if err := h.accountManager.SavePolicy(r.Context(), accountID, userID, &policy, isUpdate); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
