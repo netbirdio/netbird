@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/dns"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
@@ -39,53 +40,81 @@ const (
 type Store interface {
 	GetAllAccounts(ctx context.Context) []*Account
 	GetAccount(ctx context.Context, accountID string) (*Account, error)
-	DeleteAccount(ctx context.Context, account *Account) error
+	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
+	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
 	GetAccountByUser(ctx context.Context, userID string) (*Account, error)
 	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
-	GetAccountIDByUserID(peerKey string) (string, error)
+	GetAccountIDByUserID(userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error)
 	GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) // todo use key hash later
 	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
-	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
+	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
+	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
+	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error)
+	SaveAccount(ctx context.Context, account *Account) error
+	DeleteAccount(ctx context.Context, account *Account) error
+
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
-	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
-	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
-	SaveAccount(ctx context.Context, account *Account) error
 	SaveUsers(accountID string, users map[string]*User) error
-	SaveGroups(accountID string, groups map[string]*nbgroup.Group) error
+	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
+	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
+
+	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
+	GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*nbgroup.Group, error)
+	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error)
+	SaveGroups(accountID string, groups map[string]*nbgroup.Group) error
+
+	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error)
+	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error)
+
+	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
+	GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error)
+	GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, postureCheckID string, accountID string) (*posture.Checks, error)
+
+	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string) ([]string, error)
+	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
+	AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error
+	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
+	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
+	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
+	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
+	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
+
+	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error)
+	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
+	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error)
+	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, setupKeyID string, accountID string) (*SetupKey, error)
+
+	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
+	GetRouteByID(ctx context.Context, lockStrength LockingStrength, routeID string, accountID string) (*route.Route, error)
+
+	GetAccountNameServerGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*dns.NameServerGroup, error)
+	GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, nameServerGroupID string, accountID string) (*dns.NameServerGroup, error)
+
+	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
+	IncrementNetworkSerial(ctx context.Context, accountId string) error
+	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*Network, error)
+
 	GetInstallationID() string
 	SaveInstallationID(ctx context.Context, ID string) error
+
 	// AcquireWriteLockByUID should attempt to acquire a lock for write purposes and return a function that releases the lock
 	AcquireWriteLockByUID(ctx context.Context, uniqueID string) func()
 	// AcquireReadLockByUID should attempt to acquire lock for read purposes and return a function that releases the lock
 	AcquireReadLockByUID(ctx context.Context, uniqueID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock(ctx context.Context) func()
-	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
-	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
-	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
-	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
+
 	// Close should close the store persisting all unsaved data.
 	Close(ctx context.Context) error
 	// GetStoreEngine should return StoreEngine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
-	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
-	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error)
-	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
-	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
-	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
-	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string) ([]string, error)
-	AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error
-	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
-	IncrementNetworkSerial(ctx context.Context, accountId string) error
-	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*Network, error)
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
 }
 

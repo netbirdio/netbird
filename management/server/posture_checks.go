@@ -15,30 +15,16 @@ const (
 )
 
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() {
+	if !user.HasAdminPower() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
 	}
 
-	for _, postureChecks := range account.PostureChecks {
-		if postureChecks.ID == postureChecksID {
-			return postureChecks, nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "posture checks with ID %s not found", postureChecksID)
+	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, postureChecksID, accountID)
 }
 
 func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error {
@@ -121,24 +107,16 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 }
 
 func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() {
+	if !user.HasAdminPower() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
 	}
 
-	return account.PostureChecks, nil
+	return am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
 }
 
 func (am *DefaultAccountManager) savePostureChecks(account *Account, postureChecks *posture.Checks) (exists, uniqName bool) {

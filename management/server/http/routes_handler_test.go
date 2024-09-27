@@ -112,6 +112,12 @@ func initRoutesTestData() *RoutesHandler {
 				if len(peerGroups) > 0 && peerGroups[0] == notFoundGroupID {
 					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
 				}
+				if peerID != "" {
+					if peerID == nonLinuxExistingPeerID {
+						return nil, status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
+					}
+				}
+
 				return &route.Route{
 					ID:          existingRouteID,
 					NetID:       netID,
@@ -131,6 +137,11 @@ func initRoutesTestData() *RoutesHandler {
 				if r.Peer == notFoundPeerID {
 					return status.Errorf(status.InvalidArgument, "peer with ID %s not found", r.Peer)
 				}
+
+				if r.Peer == nonLinuxExistingPeerID {
+					return status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
+				}
+
 				return nil
 			},
 			DeleteRouteFunc: func(_ context.Context, _ string, routeID route.ID, _ string) error {
@@ -139,8 +150,9 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return testingAccount, testingAccount.Users["test_user"], nil
+			GetAccountIDFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (string, string, error) {
+				//return testingAccount, testingAccount.Users["test_user"], nil
+				return testingAccount.Id, testingAccount.Users["test_user"].Id, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
