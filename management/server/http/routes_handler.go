@@ -122,16 +122,8 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		accessControlGroupIds = *req.AccessControlGroups
 	}
 
-	// Do not allow non-Linux peers
-	if peer := account.GetPeer(peerId); peer != nil {
-		if peer.Meta.GoOS != "linux" {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes"), w)
-			return
-		}
-	}
-
-	newRoute, err := h.accountManager.CreateRoute(r.Context(), account.Id, newPrefix, networkType, domains, peerId, peerGroupIds,
-    req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds,req.Enabled, user.Id, req.KeepRoute)
+	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, peerId, peerGroupIds,
+		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute)
 
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
