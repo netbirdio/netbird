@@ -34,6 +34,7 @@ type ZitadelClientConfig struct {
 	GrantType          string
 	TokenEndpoint      string
 	ManagementEndpoint string
+	PAT                string
 }
 
 // ZitadelCredentials zitadel authentication information.
@@ -254,6 +255,20 @@ func (zc *ZitadelCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JW
 	return jwtToken, nil
 }
 
+// generatePATToken creates a functional JWTToken instance which will pass the
+// PAT to the API directly and skip requesting a token.
+func (zc *ZitadelCredentials) generatePATToken() (JWTToken, error) {
+	tok := JWTToken{
+		AccessToken: zc.clientConfig.PAT,
+		Scope:       "openid",
+		ExpiresIn:   9999,
+		TokenType:   "PAT",
+	}
+	tok.expiresInTime = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
+	zc.jwtToken = tok
+	return tok, nil
+}
+
 // Authenticate retrieves access token to use the Zitadel Management API.
 func (zc *ZitadelCredentials) Authenticate(ctx context.Context) (JWTToken, error) {
 	zc.mux.Lock()
@@ -267,6 +282,10 @@ func (zc *ZitadelCredentials) Authenticate(ctx context.Context) (JWTToken, error
 	// and if expiry time is sufficient time available to make a request.
 	if zc.jwtStillValid() {
 		return zc.jwtToken, nil
+	}
+
+	if zc.clientConfig.PAT != "" {
+		return zc.generatePATToken()
 	}
 
 	resp, err := zc.requestJWTToken(ctx)
