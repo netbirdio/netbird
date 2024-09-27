@@ -10,14 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-
+	"github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/route"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -634,10 +635,19 @@ func (s *FileStore) GetUserByUserID(_ context.Context, _ LockingStrength, userID
 		return nil, err
 	}
 
-	return account.Users[userID].Copy(), nil
+	user := account.Users[userID].Copy()
+	pat := make([]PersonalAccessToken, 0, len(user.PATs))
+	for _, token := range user.PATs {
+		if token != nil {
+			pat = append(pat, *token)
+		}
+	}
+	user.PATsG = pat
+
+	return user, nil
 }
 
-func (s *FileStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
+func (s *FileStore) GetAccountGroups(_ context.Context, accountID string) ([]*nbgroup.Group, error) {
 	account, err := s.getAccount(accountID)
 	if err != nil {
 		return nil, err
@@ -931,7 +941,7 @@ func (s *FileStore) SaveUserLastLogin(_ context.Context, accountID, userID strin
 	return nil
 }
 
-func (s *FileStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+func (s *FileStore) GetPostureCheckByChecksDefinition(_ string, _ *posture.ChecksDefinition) (*posture.Checks, error) {
 	return nil, status.Errorf(status.Internal, "GetPostureCheckByChecksDefinition is not implemented")
 }
 
@@ -950,10 +960,85 @@ func (s *FileStore) GetStoreEngine() StoreEngine {
 	return FileStoreEngine
 }
 
-func (s *FileStore) SaveUsers(accountID string, users map[string]*User) error {
+func (s *FileStore) SaveUsers(_ string, _ map[string]*User) error {
 	return status.Errorf(status.Internal, "SaveUsers is not implemented")
 }
 
-func (s *FileStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
+func (s *FileStore) SaveGroups(_ string, _ map[string]*nbgroup.Group) error {
 	return status.Errorf(status.Internal, "SaveGroups is not implemented")
+}
+
+func (s *FileStore) GetAccountIDByPrivateDomain(_ context.Context, _ LockingStrength, _ string) (string, error) {
+	return "", status.Errorf(status.Internal, "GetAccountIDByPrivateDomain is not implemented")
+}
+
+func (s *FileStore) GetAccountDomainAndCategory(_ context.Context, _ LockingStrength, accountID string) (string, string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return "", "", err
+	}
+
+	return account.Domain, account.DomainCategory, nil
+}
+
+// AccountExists checks whether an account exists by the given ID.
+func (s *FileStore) AccountExists(_ context.Context, _ LockingStrength, id string) (bool, error) {
+	_, exists := s.Accounts[id]
+	return exists, nil
+}
+
+func (s *FileStore) GetAccountDNSSettings(_ context.Context, _ LockingStrength, _ string) (*DNSSettings, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountDNSSettings is not implemented")
+}
+
+func (s *FileStore) GetGroupByID(_ context.Context, _ LockingStrength, _, _ string) (*nbgroup.Group, error) {
+	return nil, status.Errorf(status.Internal, "GetGroupByID is not implemented")
+}
+
+func (s *FileStore) GetGroupByName(_ context.Context, _ LockingStrength, _, _ string) (*nbgroup.Group, error) {
+	return nil, status.Errorf(status.Internal, "GetGroupByName is not implemented")
+}
+
+func (s *FileStore) GetAccountPolicies(_ context.Context, _ LockingStrength, _ string) ([]*Policy, error) {
+	return nil, status.Errorf(status.Internal, "GetPolicyByID is not implemented")
+}
+
+func (s *FileStore) GetPolicyByID(_ context.Context, _ LockingStrength, _ string, _ string) (*Policy, error) {
+	return nil, status.Errorf(status.Internal, "GetPolicyByID is not implemented")
+
+}
+
+func (s *FileStore) GetAccountPostureChecks(_ context.Context, _ LockingStrength, _ string) ([]*posture.Checks, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountPostureChecks is not implemented")
+}
+
+func (s *FileStore) GetPostureChecksByID(_ context.Context, _ LockingStrength, _ string, _ string) (*posture.Checks, error) {
+	return nil, status.Errorf(status.Internal, "GetPostureChecksByID is not implemented")
+}
+
+func (s *FileStore) GetAccountRoutes(_ context.Context, _ LockingStrength, _ string) ([]*route.Route, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountRoutes is not implemented")
+}
+
+func (s *FileStore) GetRouteByID(_ context.Context, _ LockingStrength, _ string, _ string) (*route.Route, error) {
+	return nil, status.Errorf(status.Internal, "GetRouteByID is not implemented")
+}
+
+func (s *FileStore) GetAccountSetupKeys(_ context.Context, _ LockingStrength, _ string) ([]*SetupKey, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountSetupKeys is not implemented")
+}
+
+func (s *FileStore) GetSetupKeyByID(_ context.Context, _ LockingStrength, _ string, _ string) (*SetupKey, error) {
+	return nil, status.Errorf(status.Internal, "GetSetupKeyByID is not implemented")
+}
+
+func (s *FileStore) GetAccountNameServerGroups(_ context.Context, _ LockingStrength, _ string) ([]*dns.NameServerGroup, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountNameServerGroups is not implemented")
+}
+
+func (s *FileStore) GetNameServerGroupByID(_ context.Context, _ LockingStrength, _ string, _ string) (*dns.NameServerGroup, error) {
+	return nil, status.Errorf(status.Internal, "GetNameServerGroupByID is not implemented")
 }
