@@ -95,8 +95,10 @@ const (
 	FileStoreEngine     StoreEngine = "jsonfile"
 	SqliteStoreEngine   StoreEngine = "sqlite"
 	PostgresStoreEngine StoreEngine = "postgres"
+	MySqlStoreEngine    StoreEngine = "mysql"
 
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
+	mySqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
 
 func getStoreEngineFromEnv() StoreEngine {
@@ -107,11 +109,12 @@ func getStoreEngineFromEnv() StoreEngine {
 	}
 
 	value := StoreEngine(strings.ToLower(kind))
-	if value == SqliteStoreEngine || value == PostgresStoreEngine {
+	switch value {
+	case SqliteStoreEngine, PostgresStoreEngine, MySqlStoreEngine:
 		return value
+	default:
+		return SqliteStoreEngine
 	}
-
-	return SqliteStoreEngine
 }
 
 // getStoreEngine determines the store engine to use.
@@ -158,6 +161,9 @@ func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics tel
 	case PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
 		return newPostgresStore(ctx, metrics)
+	case MySqlStoreEngine:
+		log.WithContext(ctx).Info("using MySQL store engine")
+		return newMySqlStore(ctx, metrics)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
