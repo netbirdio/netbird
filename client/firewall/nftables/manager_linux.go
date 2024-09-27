@@ -84,15 +84,7 @@ func (m *Manager) AddPeerFiltering(
 	return m.aclManager.AddPeerFiltering(ip, proto, sPort, dPort, direction, action, ipsetName, comment)
 }
 
-func (m *Manager) AddRouteFiltering(
-	source netip.Prefix,
-	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-) (firewall.Rule, error) {
+func (m *Manager) AddRouteFiltering(sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action) (firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -100,7 +92,7 @@ func (m *Manager) AddRouteFiltering(
 		return nil, fmt.Errorf("unsupported IP version: %s", destination.Addr().String())
 	}
 
-	return m.router.AddRouteFiltering(source, destination, proto, sPort, dPort, direction, action)
+	return m.router.AddRouteFiltering(sources, destination, proto, sPort, dPort, direction, action)
 }
 
 // DeletePeerRule from the firewall by rule definition
@@ -238,7 +230,7 @@ func (m *Manager) Reset() error {
 		}
 	}
 
-	if err := m.router.ResetForwardRules(); err != nil {
+	if err := m.router.Reset(); err != nil {
 		return fmt.Errorf("reset forward rules: %v", err)
 	}
 

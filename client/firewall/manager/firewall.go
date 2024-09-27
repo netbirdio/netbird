@@ -1,9 +1,13 @@
 package manager
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/netip"
+	"sort"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -72,15 +76,7 @@ type Manager interface {
 	// IsServerRouteSupported returns true if the firewall supports server side routing operations
 	IsServerRouteSupported() bool
 
-	AddRouteFiltering(
-		source netip.Prefix,
-		destination netip.Prefix,
-		proto Protocol,
-		sPort *Port,
-		dPort *Port,
-		direction RuleDirection,
-		action Action,
-	) (Rule, error)
+	AddRouteFiltering(source []netip.Prefix, destination netip.Prefix, proto Protocol, sPort *Port, dPort *Port, direction RuleDirection, action Action) (Rule, error)
 
 	// DeleteRouteRule deletes a routing rule
 	DeleteRouteRule(rule Rule) error
@@ -131,4 +127,59 @@ func SetLegacyManagement(router LegacyManager, isLegacy bool) error {
 	}
 
 	return nil
+}
+
+// GenerateSetName generates a unique name for an ipset based on the given sources.
+func GenerateSetName(sources []netip.Prefix) string {
+	// sort for consistent naming
+	sortPrefixes(sources)
+
+	var sourcesStr strings.Builder
+	for _, src := range sources {
+		sourcesStr.WriteString(src.String())
+	}
+
+	hash := sha256.Sum256([]byte(sourcesStr.String()))
+	shortHash := hex.EncodeToString(hash[:])[:8]
+
+	return fmt.Sprintf("nb-%s", shortHash)
+}
+
+// MergeIPRanges merges overlapping IP ranges and returns a slice of non-overlapping netip.Prefix
+func MergeIPRanges(prefixes []netip.Prefix) []netip.Prefix {
+	if len(prefixes) == 0 {
+		return prefixes
+	}
+
+	merged := []netip.Prefix{prefixes[0]}
+	for _, prefix := range prefixes[1:] {
+		last := merged[len(merged)-1]
+		if last.Contains(prefix.Addr()) {
+			// If the current prefix is contained within the last merged prefix, skip it
+			continue
+		}
+		if prefix.Contains(last.Addr()) {
+			// If the current prefix contains the last merged prefix, replace it
+			merged[len(merged)-1] = prefix
+		} else {
+			// Otherwise, add the current prefix to the merged list
+			merged = append(merged, prefix)
+		}
+	}
+
+	return merged
+}
+
+// sortPrefixes sorts the given slice of netip.Prefix in place.
+// It sorts first by IP address, then by prefix length (most specific to least specific).
+func sortPrefixes(prefixes []netip.Prefix) {
+	sort.Slice(prefixes, func(i, j int) bool {
+		addrCmp := prefixes[i].Addr().Compare(prefixes[j].Addr())
+		if addrCmp != 0 {
+			return addrCmp < 0
+		}
+
+		// If IP addresses are the same, compare prefix lengths (longer prefixes first)
+		return prefixes[i].Bits() > prefixes[j].Bits()
+	})
 }

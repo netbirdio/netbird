@@ -30,7 +30,7 @@ func (r *Route) String() string {
 }
 
 func (r *Route) AddRoute(context.Context) error {
-	_, err := r.routeRefCounter.Increment(r.route.Network, nil)
+	_, err := r.routeRefCounter.Increment(r.route.Network, struct{}{})
 	return err
 }
 

@@ -64,7 +64,7 @@ type iFaceMapper interface {
 func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainName string) (*AclManager, error) {
 	// sConn is used for creating sets and adding/removing elements from them
 	// it's differ then rConn (which does create new conn for each flush operation)
-	// and is permanent. Using same connection for booth type of operations
+	// and is permanent. Using same connection for both type of operations
 	// overloads netlink with high amount of rules ( > 10000)
 	sConn, err := nftables.New(nftables.AsLasting())
 	if err != nil {

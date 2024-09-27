@@ -3,6 +3,7 @@ package nftables
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -18,6 +19,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
 const (
@@ -43,7 +45,9 @@ type router struct {
 	filterTable *nftables.Table
 	chains      map[string]*nftables.Chain
 	// rules is useful to avoid duplicates and to get missing attributes that we don't have when adding new rules
-	rules            map[string]*nftables.Rule
+	rules        map[string]*nftables.Rule
+	ipsetCounter *refcounter.Counter[string, []netip.Prefix, *nftables.Set]
+
 	wgIface          iFaceMapper
 	legacyManagement bool
 }
@@ -60,6 +64,11 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFa
 		rules:     make(map[string]*nftables.Rule),
 		wgIface:   wgIface,
 	}
+
+	r.ipsetCounter = refcounter.New(
+		r.createIpSet,
+		r.deleteIpSet,
+	)
 
 	var err error
 	r.filterTable, err = r.loadFilterTable()
@@ -83,8 +92,11 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFa
 	return r, err
 }
 
-// ResetForwardRules cleans existing nftables default forward rules from the system
-func (r *router) ResetForwardRules() error {
+// Reset cleans existing nftables default forward rules from the system
+func (r *router) Reset() error {
+	// clear without deleting the ipsets, the nf table will be deleted by the caller
+	r.ipsetCounter.Clear()
+
 	return r.cleanUpDefaultForwardRules()
 }
 
@@ -169,7 +181,7 @@ func (r *router) createContainers() error {
 
 // AddRouteFiltering appends a nftables rule to the routing chain
 func (r *router) AddRouteFiltering(
-	source netip.Prefix,
+	sources []netip.Prefix,
 	destination netip.Prefix,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
@@ -177,26 +189,35 @@ func (r *router) AddRouteFiltering(
 	direction firewall.RuleDirection,
 	action firewall.Action,
 ) (firewall.Rule, error) {
-
-	ruleKey := id.GenerateRouteRuleKey(source, destination, proto, sPort, dPort, direction, action)
+	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, direction, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}
 
 	chain := r.chains[chainNameRoutingFw]
-
 	var exprs []expr.Any
 
-	if direction == firewall.RuleDirectionIN {
-		exprs = append(exprs, generateCIDRMatcherExpressions(true, source)...)
-		exprs = append(exprs, generateCIDRMatcherExpressions(false, destination)...)
-	} else {
-		exprs = append(exprs, generateCIDRMatcherExpressions(true, destination)...)
-		exprs = append(exprs, generateCIDRMatcherExpressions(false, source)...)
+	switch {
+	case len(sources) == 1 && sources[0].Bits() == 0:
+		// If it's 0.0.0.0/0, we don't need to add any source matching
+	case len(sources) == 1:
+		// If there's only one source, we can use it directly
+		exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionIN, sources[0])...)
+	default:
+		// If there are multiple sources, create or get an ipset
+		var err error
+		exprs, err = r.getIpSetExprs(sources, exprs)
+		if err != nil {
+			return nil, fmt.Errorf("get ipset expressions: %w", err)
+		}
 	}
 
+	// Handle destination
+	exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionOUT, destination)...)
+
+	// Handle protocol
 	if proto != firewall.ProtocolALL {
-		proto, err := protoToInt(proto)
+		protoNum, err := protoToInt(proto)
 		if err != nil {
 			return nil, fmt.Errorf("convert protocol to number: %w", err)
 		}
@@ -204,12 +225,13 @@ func (r *router) AddRouteFiltering(
 		exprs = append(exprs, &expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     []byte{proto},
+			Data:     []byte{protoNum},
 		})
 
 		exprs = append(exprs, applyPort(sPort, true)...)
 		exprs = append(exprs, applyPort(dPort, false)...)
 	}
+
 	exprs = append(exprs, &expr.Counter{})
 
 	var verdict expr.VerdictKind
@@ -232,34 +254,153 @@ func (r *router) AddRouteFiltering(
 	return ruleKey, r.conn.Flush()
 }
 
+func (r *router) getIpSetExprs(sources []netip.Prefix, exprs []expr.Any) ([]expr.Any, error) {
+	setName := firewall.GenerateSetName(sources)
+	ref, err := r.ipsetCounter.Increment(setName, sources)
+	if err != nil {
+		return nil, fmt.Errorf("create or get ipset for sources: %w", err)
+	}
+
+	exprs = append(exprs,
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       12,
+			Len:          4,
+		},
+		&expr.Lookup{
+			SourceRegister: 1,
+			SetName:        ref.Out.Name,
+			SetID:          ref.Out.ID,
+		},
+	)
+	return exprs, nil
+}
+
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
-	if err := r.removeRouteRule(rule.GetRuleID()); err != nil {
-		return fmt.Errorf("remove route rule: %w", err)
+	ruleKey := rule.GetRuleID()
+	nftRule, exists := r.rules[ruleKey]
+	if !exists {
+		log.Debugf("route rule %s not found", ruleKey)
+		return nil
+	}
+
+	setName := r.findSetNameInRule(nftRule)
+
+	if err := r.deleteNftRule(nftRule, ruleKey); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+
+	if setName != "" {
+		if _, err := r.ipsetCounter.Decrement(setName); err != nil {
+			return fmt.Errorf("decrement ipset reference: %w", err)
+		}
 	}
 
 	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf("flush rules: %v", err)
+		return fmt.Errorf(flushError, err)
 	}
 
 	return nil
 }
 
-func (r *router) removeRouteRule(id string) error {
-	if rule, exists := r.rules[id]; exists {
-		log.Debugf("nftables: inside")
-		if err := r.conn.DelRule(rule); err != nil {
-			return fmt.Errorf("remove route rule %s: %w", id, err)
+func (r *router) createIpSet(setName string, sources []netip.Prefix) (*nftables.Set, error) {
+	// overlapping prefixes will result in an error, so we need to merge them
+	sources = firewall.MergeIPRanges(sources)
+
+	set := &nftables.Set{
+		Name:  setName,
+		Table: r.workTable,
+		// required for prefixes
+		Interval: true,
+		KeyType:  nftables.TypeIPAddr,
+	}
+
+	var elements []nftables.SetElement
+	for _, prefix := range sources {
+		// TODO: Implement IPv6 support
+		if prefix.Addr().Is6() {
+			log.Printf("Skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
+			continue
 		}
 
-		delete(r.rules, id)
-		log.Debugf("nftables: removed route rule %s", id)
-	} else {
-		log.Debugf("nftables: route rule %s not found", id)
+		// nftables needs half-open intervals [firstIP, lastIP) for prefixes
+		// e.g. 10.0.0.0/24 becomes [10.0.0.0, 10.0.1.0), 10.1.1.1/32 becomes [10.1.1.1, 10.1.1.2) etc
+		firstIP := prefix.Addr()
+		lastIP := calculateLastIP(prefix).Next()
+
+		elements = append(elements,
+			// the nft tool also adds a line like this, see https://github.com/google/nftables/issues/247
+			// nftables.SetElement{Key: []byte{0, 0, 0, 0}, IntervalEnd: true},
+			nftables.SetElement{Key: firstIP.AsSlice()},
+			nftables.SetElement{Key: lastIP.AsSlice(), IntervalEnd: true},
+		)
 	}
+
+	if err := r.conn.AddSet(set, elements); err != nil {
+		return nil, fmt.Errorf("error adding elements to set %s: %w", setName, err)
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush error: %w", err)
+	}
+
+	log.Printf("Created new ipset: %s with %d elements", setName, len(elements)/2)
+
+	return set, nil
+}
+
+// calculateLastIP determines the last IP in a given prefix.
+func calculateLastIP(prefix netip.Prefix) netip.Addr {
+	hostMask := ^uint32(0) >> prefix.Masked().Bits()
+	lastIP := uint32FromNetipAddr(prefix.Addr()) | hostMask
+
+	return netip.AddrFrom4(uint32ToBytes(lastIP))
+}
+
+// Utility function to convert netip.Addr to uint32.
+func uint32FromNetipAddr(addr netip.Addr) uint32 {
+	b := addr.As4()
+	return binary.BigEndian.Uint32(b[:])
+}
+
+// Utility function to convert uint32 to a netip-compatible byte slice.
+func uint32ToBytes(ip uint32) [4]byte {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], ip)
+	return b
+}
+
+func (r *router) deleteIpSet(setName string, set *nftables.Set) error {
+	r.conn.DelSet(set)
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf(flushError, err)
+	}
+
+	log.Debugf("Deleted unused ipset %s", setName)
+	return nil
+}
+
+func (r *router) findSetNameInRule(rule *nftables.Rule) string {
+	for _, e := range rule.Exprs {
+		if lookup, ok := e.(*expr.Lookup); ok {
+			return lookup.SetName
+		}
+	}
+	return ""
+}
+
+func (r *router) deleteNftRule(rule *nftables.Rule, ruleKey string) error {
+	if err := r.conn.DelRule(rule); err != nil {
+		return fmt.Errorf("delete rule %s: %w", ruleKey, err)
+	}
+	delete(r.rules, ruleKey)
+
+	log.Debugf("removed route rule %s", ruleKey)
 
 	return nil
 }
@@ -418,7 +559,7 @@ func (r *router) RemoveAllLegacyRouteRules() error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// acceptForwardRules adds iif/ooif rules in the filter table/forward chain to make sure
+// acceptForwardRules adds iif/oif rules in the filter table/forward chain to make sure
 // that our traffic is not dropped by existing rules there.
 // The existing FORWARD rules/policies decide outbound traffic towards our interface.
 // In case the FORWARD policy is set to "drop", we add an established/related rule to allow return traffic for the inbound rule.

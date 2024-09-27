@@ -41,7 +41,7 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP) (nbnet.AddHookFunc, nbn
 	}
 
 	refCounter := refcounter.New(
-		func(prefix netip.Prefix, _ any) (Nexthop, error) {
+		func(prefix netip.Prefix, _ struct{}) (Nexthop, error) {
 			initialNexthop := initialNextHopV4
 			if prefix.Addr().Is6() {
 				initialNexthop = initialNextHopV6
@@ -317,7 +317,7 @@ func (r *SysOps) setupHooks(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.Re
 			return fmt.Errorf("convert ip to prefix: %w", err)
 		}
 
-		if _, err := r.refCounter.IncrementWithID(string(connID), prefix, nil); err != nil {
+		if _, err := r.refCounter.IncrementWithID(string(connID), prefix, struct{}{}); err != nil {
 			return fmt.Errorf("adding route reference: %v", err)
 		}
 

@@ -171,7 +171,7 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) err
 	for _, rule := range rules {
 		id, err := d.applyRouteACL(rule)
 		if err != nil {
-			return fmt.Errorf("failed to apply route ACL: %w", err)
+			return fmt.Errorf("apply route ACL: %w", err)
 		}
 		newRouteRules[id] = struct{}{}
 	}
@@ -190,15 +190,24 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) err
 }
 
 func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.RuleID, error) {
-	source, err := netip.ParsePrefix(rule.SourceRange)
-	if err != nil {
-		return "", fmt.Errorf("parse source: %w", err)
+	if len(rule.SourceRanges) == 0 {
+		return "", fmt.Errorf("source ranges is empty")
+	}
+
+	var sources []netip.Prefix
+	for _, sourceRange := range rule.SourceRanges {
+		source, err := netip.ParsePrefix(sourceRange)
+		if err != nil {
+			return "", fmt.Errorf("parse source range: %w", err)
+		}
+		sources = append(sources, source)
 	}
 
 	var destination netip.Prefix
 	if rule.IsDynamic {
-		destination = getDefault(source)
+		destination = getDefault(sources[0])
 	} else {
+		var err error
 		destination, err = netip.ParsePrefix(rule.Destination)
 		if err != nil {
 			return "", fmt.Errorf("parse destination: %w", err)
@@ -219,7 +228,7 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 	direction := firewall.RuleDirection(rule.Direction)
 
 	addedRule, err := d.firewall.AddRouteFiltering(
-		source,
+		sources,
 		destination,
 		protocol,
 		nil,

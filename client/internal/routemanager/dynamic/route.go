@@ -303,7 +303,7 @@ func (r *Route) addRoutes(domain domain.Domain, prefixes []netip.Prefix) ([]neti
 	var merr *multierror.Error
 
 	for _, prefix := range prefixes {
-		if _, err := r.routeRefCounter.Increment(prefix, nil); err != nil {
+		if _, err := r.routeRefCounter.Increment(prefix, struct{}{}); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add dynamic route for IP %s: %w", prefix, err))
 			continue
 		}
