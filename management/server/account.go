@@ -62,6 +62,7 @@ func cacheEntryExpiration() time.Duration {
 
 type AccountManager interface {
 	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*Account, error)
+	GetAccount(ctx context.Context, accountID string) (*Account, error)
 	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
 		autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error)
 	SaveSetupKey(ctx context.Context, accountID string, key *SetupKey, userID string) (*SetupKey, error)
@@ -1700,6 +1701,11 @@ func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string
 	pat.LastUsed = time.Now().UTC()
 
 	return am.Store.SaveAccount(ctx, account)
+}
+
+// GetAccount returns an account associated with this account ID.
+func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID string) (*Account, error) {
+	return am.Store.GetAccount(ctx, accountID)
 }
 
 // GetAccountFromPAT returns Account and User associated with a personal access token
