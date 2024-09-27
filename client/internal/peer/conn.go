@@ -36,6 +36,7 @@ const (
 	reconnectMaxElapsedTime    = 30 * time.Minute
 	candidatesMonitorPeriod    = 5 * time.Minute
 	candidatedGatheringTimeout = 5 * time.Second
+	signalerMonitorPeriod      = 5 * time.Second
 )
 
 type WgConfig struct {
