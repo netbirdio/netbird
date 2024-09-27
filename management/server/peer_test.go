@@ -251,7 +251,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 			Action:        PolicyTrafficActionAccept,
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -299,7 +299,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	}
 
 	policy.Enabled = false
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return

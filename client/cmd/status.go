@@ -805,6 +805,9 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
 	if remoteIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Remote); err == nil {
 		peer.IceCandidateEndpoint.Remote = fmt.Sprintf("%s:%s", a.AnonymizeIPString(remoteIP), port)
 	}
+
+	peer.RelayAddress = a.AnonymizeURI(peer.RelayAddress)
+
 	for i, route := range peer.Routes {
 		peer.Routes[i] = a.AnonymizeIPString(route)
 	}

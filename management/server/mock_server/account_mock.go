@@ -23,10 +23,11 @@ import (
 
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc func(ctx context.Context, userId, domain string) (*server.Account, error)
+	GetAccountFunc               func(ctx context.Context, accountID string) (*server.Account, error)
 	CreateSetupKeyFunc           func(ctx context.Context, accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*server.SetupKey, error)
 	GetSetupKeyFunc                     func(ctx context.Context, accountID, userID, keyID string) (*server.SetupKey, error)
-	GetAccountByUserOrAccountIdFunc     func(ctx context.Context, userId, accountId, domain string) (*server.Account, error)
+	GetAccountIDByUserOrAccountIdFunc   func(ctx context.Context, userId, accountId, domain string) (string, error)
 	GetUserFunc                         func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.User, error)
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*server.User, error)
 	GetPeersFunc                        func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
@@ -48,7 +49,7 @@ type MockAccountManager struct {
 	GroupDeletePeerFunc                 func(ctx context.Context, accountID, groupID, peerID string) error
 	DeleteRuleFunc                      func(ctx context.Context, accountID, ruleID, userID string) error
 	GetPolicyFunc                       func(ctx context.Context, accountID, policyID, userID string) (*server.Policy, error)
-	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *server.Policy) error
+	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *server.Policy, isUpdate bool) error
 	DeletePolicyFunc                    func(ctx context.Context, accountID, policyID, userID string) error
 	ListPoliciesFunc                    func(ctx context.Context, accountID, userID string) ([]*server.Policy, error)
 	GetUsersFromAccountFunc             func(ctx context.Context, accountID, userID string) ([]*server.UserInfo, error)
@@ -79,7 +80,7 @@ type MockAccountManager struct {
 	DeleteNameServerGroupFunc           func(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroupsFunc            func(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                      func(ctx context.Context, accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
-	GetAccountFromTokenFunc             func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+	GetAccountIDFromTokenFunc           func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroupsFunc      func(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
 	DeleteAccountFunc                   func(ctx context.Context, accountID, userID string) error
 	GetDNSDomainFunc                    func() string
@@ -105,6 +106,9 @@ type MockAccountManager struct {
 	SyncPeerMetaFunc                    func(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheckFunc        func(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKeyFunc          func(ctx context.Context, peerKey string) (string, error)
+	GetAccountByIDFunc                  func(ctx context.Context, accountID string, userID string) (*server.Account, error)
+	GetUserByIDFunc                     func(ctx context.Context, id string) (*server.User, error)
+	GetAccountSettingsFunc              func(ctx context.Context, accountID string, userID string) (*server.Settings, error)
 }
 
 func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
@@ -190,16 +194,14 @@ func (am *MockAccountManager) CreateSetupKey(
 	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
 }
 
-// GetAccountByUserOrAccountID mock implementation of GetAccountByUserOrAccountID from server.AccountManager interface
-func (am *MockAccountManager) GetAccountByUserOrAccountID(
-	ctx context.Context, userId, accountId, domain string,
-) (*server.Account, error) {
-	if am.GetAccountByUserOrAccountIdFunc != nil {
-		return am.GetAccountByUserOrAccountIdFunc(ctx, userId, accountId, domain)
+// GetAccountIDByUserOrAccountID mock implementation of GetAccountIDByUserOrAccountID from server.AccountManager interface
+func (am *MockAccountManager) GetAccountIDByUserOrAccountID(ctx context.Context, userId, accountId, domain string) (string, error) {
+	if am.GetAccountIDByUserOrAccountIdFunc != nil {
+		return am.GetAccountIDByUserOrAccountIdFunc(ctx, userId, accountId, domain)
 	}
-	return nil, status.Errorf(
+	return "", status.Errorf(
 		codes.Unimplemented,
-		"method GetAccountByUserOrAccountID is not implemented",
+		"method GetAccountIDByUserOrAccountID is not implemented",
 	)
 }
 
@@ -377,9 +379,9 @@ func (am *MockAccountManager) GetPolicy(ctx context.Context, accountID, policyID
 }
 
 // SavePolicy mock implementation of SavePolicy from server.AccountManager interface
-func (am *MockAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *server.Policy) error {
+func (am *MockAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *server.Policy, isUpdate bool) error {
 	if am.SavePolicyFunc != nil {
-		return am.SavePolicyFunc(ctx, accountID, userID, policy)
+		return am.SavePolicyFunc(ctx, accountID, userID, policy, isUpdate)
 	}
 	return status.Errorf(codes.Unimplemented, "method SavePolicy is not implemented")
 }
@@ -601,14 +603,12 @@ func (am *MockAccountManager) CreateUser(ctx context.Context, accountID, userID 
 	return nil, status.Errorf(codes.Unimplemented, "method CreateUser is not implemented")
 }
 
-// GetAccountFromToken mocks GetAccountFromToken of the AccountManager interface
-func (am *MockAccountManager) GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User,
-	error,
-) {
-	if am.GetAccountFromTokenFunc != nil {
-		return am.GetAccountFromTokenFunc(ctx, claims)
+// GetAccountIDFromToken mocks GetAccountIDFromToken of the AccountManager interface
+func (am *MockAccountManager) GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+	if am.GetAccountIDFromTokenFunc != nil {
+		return am.GetAccountIDFromTokenFunc(ctx, claims)
 	}
-	return nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromToken is not implemented")
+	return "", "", status.Errorf(codes.Unimplemented, "method GetAccountIDFromToken is not implemented")
 }
 
 func (am *MockAccountManager) CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error {
@@ -801,4 +801,34 @@ func (am *MockAccountManager) GetAccountIDForPeerKey(ctx context.Context, peerKe
 		return am.GetAccountIDForPeerKeyFunc(ctx, peerKey)
 	}
 	return "", status.Errorf(codes.Unimplemented, "method GetAccountIDForPeerKey is not implemented")
+}
+
+// GetAccountByID mocks GetAccountByID of the AccountManager interface
+func (am *MockAccountManager) GetAccountByID(ctx context.Context, accountID string, userID string) (*server.Account, error) {
+	if am.GetAccountByIDFunc != nil {
+		return am.GetAccountByIDFunc(ctx, accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByID is not implemented")
+}
+
+// GetUserByID mocks GetUserByID of the AccountManager interface
+func (am *MockAccountManager) GetUserByID(ctx context.Context, id string) (*server.User, error) {
+	if am.GetUserByIDFunc != nil {
+		return am.GetUserByIDFunc(ctx, id)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserByID is not implemented")
+}
+
+func (am *MockAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*server.Settings, error) {
+	if am.GetAccountSettingsFunc != nil {
+		return am.GetAccountSettingsFunc(ctx, accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountSettings is not implemented")
+}
+
+func (am *MockAccountManager) GetAccount(ctx context.Context, accountID string) (*server.Account, error) {
+	if am.GetAccountFunc != nil {
+		return am.GetAccountFunc(ctx, accountID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccount is not implemented")
 }

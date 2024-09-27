@@ -292,7 +292,7 @@ func (e *Engine) Start() error {
 	e.wgInterface = wgIface
 
 	userspace := e.wgInterface.IsUserspaceBind()
-	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, userspace, e.config.WgPort)
+	e.wgProxyFactory = wgproxy.NewFactory(userspace, e.config.WgPort)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")

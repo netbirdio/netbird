@@ -35,12 +35,15 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context, urls []string) (*C
 
 	connResultChan := make(chan connResult, totalServers)
 	successChan := make(chan connResult, 1)
-
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
+
 	for _, url := range urls {
+		// todo check if we have a successful connection so we do not need to connect to other servers
 		concurrentLimiter <- struct{}{}
 		go func(url string) {
-			defer func() { <-concurrentLimiter }()
+			defer func() {
+				<-concurrentLimiter
+			}()
 			sp.startConnection(parentCtx, connResultChan, url)
 		}(url)
 	}
@@ -72,7 +75,8 @@ func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan con
 
 func (sp *ServerPicker) processConnResults(resultChan chan connResult, successChan chan connResult) {
 	var hasSuccess bool
-	for cr := range resultChan {
+	for numOfResults := 0; numOfResults < cap(resultChan); numOfResults++ {
+		cr := <-resultChan
 		if cr.Err != nil {
 			log.Debugf("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
 			continue

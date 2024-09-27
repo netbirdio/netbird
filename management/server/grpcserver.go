@@ -262,7 +262,7 @@ func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string
 	}
 	claims := s.jwtClaimsExtractor.FromToken(token)
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
-	_, _, err = s.accountManager.GetAccountFromToken(ctx, claims)
+	_, _, err = s.accountManager.GetAccountIDFromToken(ctx, claims)
 	if err != nil {
 		return "", status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
 	}
