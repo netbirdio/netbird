@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -128,10 +129,10 @@ func readZitadelError(body io.ReadCloser) error {
 	}
 
 	if len(errsOut) == 0 {
-		return fmt.Errorf("data missing")
+		return errors.New("unknown error")
 	}
 
-	return fmt.Errorf(strings.Join(errsOut, " "))
+	return errors.New(strings.Join(errsOut, " "))
 }
 
 // NewZitadelManager creates a new instance of the ZitadelManager.

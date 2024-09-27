@@ -252,7 +252,7 @@ func TestZitadelAuthenticate(t *testing.T) {
 		inputCode:               400,
 		inputResBody:            "{}",
 		helper:                  JsonParser{},
-		expectedFuncExitErrDiff: fmt.Errorf("unable to get zitadel token, statusCode 400, zitadel: data missing"),
+		expectedFuncExitErrDiff: fmt.Errorf("unable to get zitadel token, statusCode 400, zitadel: unknown error"),
 		expectedCode:            200,
 		expectedToken:           "",
 	}
