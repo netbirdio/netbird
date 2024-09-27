@@ -1011,12 +1011,28 @@ func (s *FileStore) GetPolicyByID(_ context.Context, _ LockingStrength, _ string
 
 }
 
+func (s *FileStore) SavePolicy(_ context.Context, _ LockingStrength, _ *Policy) error {
+	return status.Errorf(status.Internal, "SavePolicy is not implemented")
+}
+
+func (s *FileStore) DeletePolicy(_ context.Context, _ LockingStrength, _ string) error {
+	return status.Errorf(status.Internal, "DeletePolicy is not implemented")
+}
+
 func (s *FileStore) GetAccountPostureChecks(_ context.Context, _ LockingStrength, _ string) ([]*posture.Checks, error) {
 	return nil, status.Errorf(status.Internal, "GetAccountPostureChecks is not implemented")
 }
 
 func (s *FileStore) GetPostureChecksByID(_ context.Context, _ LockingStrength, _ string, _ string) (*posture.Checks, error) {
 	return nil, status.Errorf(status.Internal, "GetPostureChecksByID is not implemented")
+}
+
+func (s *FileStore) SavePostureChecks(_ context.Context, _ LockingStrength, _ *posture.Checks) error {
+	return status.Errorf(status.Internal, "SavePostureChecks is not implemented")
+}
+
+func (s *FileStore) DeletePostureChecks(_ context.Context, _ LockingStrength, _ string) error {
+	return status.Errorf(status.Internal, "DeletePostureChecks is not implemented")
 }
 
 func (s *FileStore) GetAccountRoutes(_ context.Context, _ LockingStrength, _ string) ([]*route.Route, error) {
