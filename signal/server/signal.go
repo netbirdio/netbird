@@ -53,7 +53,7 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
 
-	dispatcher, err := dispatcher.NewDispatcher(ctx)
+	dispatcher, err := dispatcher.NewDispatcher(ctx, meter)
 	if err != nil {
 		return nil, fmt.Errorf("creating dispatcher: %v", err)
 	}
