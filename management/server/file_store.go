@@ -17,10 +17,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/util"
 )
 
 // storeFileName Store file name. Stored in the datadir
@@ -1015,7 +1014,7 @@ func (s *FileStore) SavePolicy(_ context.Context, _ LockingStrength, _ *Policy) 
 	return status.Errorf(status.Internal, "SavePolicy is not implemented")
 }
 
-func (s *FileStore) DeletePolicy(_ context.Context, _ LockingStrength, _ string) error {
+func (s *FileStore) DeletePolicy(_ context.Context, _ LockingStrength, _, _ string) error {
 	return status.Errorf(status.Internal, "DeletePolicy is not implemented")
 }
 
@@ -1031,7 +1030,7 @@ func (s *FileStore) SavePostureChecks(_ context.Context, _ LockingStrength, _ *p
 	return status.Errorf(status.Internal, "SavePostureChecks is not implemented")
 }
 
-func (s *FileStore) DeletePostureChecks(_ context.Context, _ LockingStrength, _ string) error {
+func (s *FileStore) DeletePostureChecks(_ context.Context, _ LockingStrength, _, _ string) error {
 	return status.Errorf(status.Internal, "DeletePostureChecks is not implemented")
 }
 
@@ -1041,6 +1040,13 @@ func (s *FileStore) GetAccountRoutes(_ context.Context, _ LockingStrength, _ str
 
 func (s *FileStore) GetRouteByID(_ context.Context, _ LockingStrength, _ string, _ string) (*route.Route, error) {
 	return nil, status.Errorf(status.Internal, "GetRouteByID is not implemented")
+}
+
+func (s *FileStore) SaveRoute(_ context.Context, _ LockingStrength, _ *route.Route) error {
+	return status.Errorf(status.Internal, "SaveRoute is not implemented")
+}
+func (s *FileStore) DeleteRoute(_ context.Context, _ LockingStrength, _, _ string) error {
+	return status.Errorf(status.Internal, "DeleteRoute is not implemented")
 }
 
 func (s *FileStore) GetAccountSetupKeys(_ context.Context, _ LockingStrength, _ string) ([]*SetupKey, error) {
@@ -1055,7 +1061,7 @@ func (s *FileStore) SaveSetupKey(_ context.Context, _ LockingStrength, _ *SetupK
 	return status.Errorf(status.Internal, "GetSetupKeyByID is not implemented")
 }
 
-func (s *FileStore) DeleteSetupKey(_ context.Context, _ LockingStrength, _ string) error {
+func (s *FileStore) DeleteSetupKey(_ context.Context, _ LockingStrength, _, _ string) error {
 	return status.Errorf(status.Internal, "DeleteSetupKey is not implemented")
 }
 
@@ -1065,4 +1071,44 @@ func (s *FileStore) GetAccountNameServerGroups(_ context.Context, _ LockingStren
 
 func (s *FileStore) GetNameServerGroupByID(_ context.Context, _ LockingStrength, _ string, _ string) (*dns.NameServerGroup, error) {
 	return nil, status.Errorf(status.Internal, "GetNameServerGroupByID is not implemented")
+}
+
+func (s *FileStore) SaveNameServerGroup(_ context.Context, _ LockingStrength, _ *dns.NameServerGroup) error {
+	return status.Errorf(status.Internal, "SaveNameServerGroup is not implemented")
+}
+
+func (s *FileStore) DeleteNameServerGroup(_ context.Context, _ LockingStrength, _, _ string) error {
+	return status.Errorf(status.Internal, "DeleteNameServerGroup is not implemented")
+}
+
+func (s *FileStore) GetAccountPeers(_ context.Context, _ LockingStrength, _ string) ([]*nbpeer.Peer, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountPeers is not implemented")
+}
+
+func (s *FileStore) GetAccountPeersWithExpiration(_ context.Context, _ LockingStrength, _ string) ([]*nbpeer.Peer, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountPeersWithExpiration is not implemented")
+}
+
+func (s *FileStore) GetPeerByID(_ context.Context, _ LockingStrength, _ string, _ string) (*nbpeer.Peer, error) {
+	return nil, status.Errorf(status.Internal, "GetPeerByID is not implemented")
+}
+
+func (s *FileStore) GetPATByID(_ context.Context, _ LockingStrength, _ string, _ string) (*PersonalAccessToken, error) {
+	return nil, status.Errorf(status.Internal, "GetPATByID is not implemented")
+}
+
+func (s *FileStore) SavePAT(_ context.Context, _ LockingStrength, _ *PersonalAccessToken) error {
+	return status.Errorf(status.Internal, "SavePAT is not implemented")
+}
+
+func (s *FileStore) DeletePAT(_ context.Context, _ LockingStrength, _, _ string) error {
+	return status.Errorf(status.Internal, "DeletePAT is not implemented")
+}
+
+func (s *FileStore) SaveDNSSettings(_ context.Context, _ LockingStrength, _ string, _ *DNSSettings) error {
+	return status.Errorf(status.Internal, "SaveDNSSettings is not implemented")
+}
+
+func (s *FileStore) SaveAccountSettings(_ context.Context, _ LockingStrength, _ string, _ *Settings) error {
+	return status.Errorf(status.Internal, "SaveAccountSettings is not implemented")
 }
