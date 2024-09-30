@@ -328,6 +328,7 @@ func (conn *Conn) reconnectLoopWithRetry() {
 
 	ticker := conn.prepareExponentTicker()
 	defer ticker.Stop()
+	time.Sleep(1 * time.Second)
 
 	for {
 		select {
