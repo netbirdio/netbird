@@ -1051,6 +1051,14 @@ func (s *FileStore) GetSetupKeyByID(_ context.Context, _ LockingStrength, _ stri
 	return nil, status.Errorf(status.Internal, "GetSetupKeyByID is not implemented")
 }
 
+func (s *FileStore) SaveSetupKey(_ context.Context, _ LockingStrength, _ *SetupKey) error {
+	return status.Errorf(status.Internal, "GetSetupKeyByID is not implemented")
+}
+
+func (s *FileStore) DeleteSetupKey(_ context.Context, _ LockingStrength, _ string) error {
+	return status.Errorf(status.Internal, "DeleteSetupKey is not implemented")
+}
+
 func (s *FileStore) GetAccountNameServerGroups(_ context.Context, _ LockingStrength, _ string) ([]*dns.NameServerGroup, error) {
 	return nil, status.Errorf(status.Internal, "GetAccountNameServerGroups is not implemented")
 }
