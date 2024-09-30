@@ -334,7 +334,7 @@ func (conn *Conn) reconnectLoopWithRetry() {
 		case t := <-ticker.C:
 			if t.IsZero() {
 				// in case if the ticker has been canceled by context then avoid the temporary loop
-				continue
+				return
 			}
 
 			if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
