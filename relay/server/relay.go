@@ -127,7 +127,9 @@ func (r *Relay) Accept(conn net.Conn) {
 
 	peer := NewPeer(r.metrics, peerID, conn, r.store)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
+	storeTime := time.Now()
 	r.store.AddPeer(peer)
+	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
 	r.metrics.PeerConnected(peer.String())
 	go func() {
 		peer.Work()
