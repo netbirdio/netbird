@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
@@ -103,6 +104,7 @@ func getInstanceURL(exposedAddress string, tlsSupported bool) (string, error) {
 
 // Accept start to handle a new peer connection
 func (r *Relay) Accept(conn net.Conn) {
+	acceptTime := time.Now()
 	r.closeMu.RLock()
 	defer r.closeMu.RUnlock()
 	if r.closed {
@@ -125,7 +127,9 @@ func (r *Relay) Accept(conn net.Conn) {
 
 	peer := NewPeer(r.metrics, peerID, conn, r.store)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
+	storeTime := time.Now()
 	r.store.AddPeer(peer)
+	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
 	r.metrics.PeerConnected(peer.String())
 	go func() {
 		peer.Work()
@@ -138,6 +142,7 @@ func (r *Relay) Accept(conn net.Conn) {
 		log.Errorf("failed to send handshake response, close peer: %s", err)
 		peer.Close()
 	}
+	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
 }
 
 // Shutdown closes the relay server
