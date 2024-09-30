@@ -98,7 +98,7 @@ func (m *Metrics) PeerConnected(id string) {
 
 // RecordAuthenticationTime measures the time taken for peer authentication
 func (m *Metrics) RecordAuthenticationTime(duration time.Duration) {
-	m.AuthenticationTime.Record(m.ctx, float64(duration.Milliseconds()))
+	m.AuthenticationTime.Record(m.ctx, float64(duration.Nanoseconds())/1e6)
 }
 
 // PeerDisconnected decrements the number of connected peers and decrements number of idle or active connections
