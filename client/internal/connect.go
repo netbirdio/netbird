@@ -268,7 +268,7 @@ func (c *ConnectClient) run(
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		if c.engine != nil && c.engine.ctx.Err() != nil {
+		if c.engine != nil && c.engine.wgInterface != nil {
 			log.Info("Stopping Netbird Engine")
 			if err := c.engine.Stop(); err != nil {
 				log.Errorf("Failed to stop engine: %v", err)

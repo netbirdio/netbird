@@ -1126,6 +1126,7 @@ func (e *Engine) close() {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
+		e.wgInterface = nil
 	}
 
 	if !isNil(e.sshServer) {
