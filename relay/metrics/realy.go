@@ -54,12 +54,12 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
-	authTime, err := meter.Float64Histogram("relay_peer_authentication_time_milliseconds")
+	authTime, err := meter.Float64Histogram("relay_peer_authentication_time_milliseconds", metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
 	if err != nil {
 		return nil, err
 	}
 
-	peerStoreTime, err := meter.Float64Histogram("relay_peer_store_time_milliseconds")
+	peerStoreTime, err := meter.Float64Histogram("relay_peer_store_time_milliseconds", metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
 	if err != nil {
 		return nil, err
 	}
@@ -156,5 +156,21 @@ func (m *Metrics) readPeerActivity() {
 		case <-m.ctx.Done():
 			return
 		}
+	}
+}
+
+func getStandardBucketBoundaries() []float64 {
+	return []float64{
+		0.1,
+		0.5,
+		1,
+		5,
+		10,
+		50,
+		100,
+		500,
+		1000,
+		5000,
+		10000,
 	}
 }
