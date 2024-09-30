@@ -38,17 +38,23 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 				}
 				return policy, nil
 			},
-			SavePolicyFunc: func(_ context.Context, _, _ string, policy *server.Policy) error {
+			SavePolicyFunc: func(_ context.Context, _, _ string, policy *server.Policy, _ bool) error {
 				if !strings.HasPrefix(policy.ID, "id-") {
 					policy.ID = "id-was-set"
 					policy.Rules[0].ID = "id-was-set"
 				}
 				return nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				user := server.NewAdminUser("test_user")
+			GetAllGroupsFunc: func(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error) {
+				return []*nbgroup.Group{{ID: "F"}, {ID: "G"}}, nil
+			},
+			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, claims.UserId, nil
+			},
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*server.Account, error) {
+				user := server.NewAdminUser(userID)
 				return &server.Account{
-					Id:     claims.AccountId,
+					Id:     accountID,
 					Domain: "hotmail.com",
 					Policies: []*server.Policy{
 						{ID: "id-existed"},
@@ -60,7 +66,7 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 					Users: map[string]*server.User{
 						"test_user": user,
 					},
-				}, user, nil
+				}, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(

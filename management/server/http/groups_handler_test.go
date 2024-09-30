@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/magiconair/properties/assert"
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
@@ -30,7 +31,7 @@ var TestPeers = map[string]*nbpeer.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
 
-func initGroupTestData(user *server.User, _ ...*nbgroup.Group) *GroupsHandler {
+func initGroupTestData(initGroups ...*nbgroup.Group) *GroupsHandler {
 	return &GroupsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *nbgroup.Group) error {
@@ -40,36 +41,35 @@ func initGroupTestData(user *server.User, _ ...*nbgroup.Group) *GroupsHandler {
 				return nil
 			},
 			GetGroupFunc: func(_ context.Context, _, groupID, _ string) (*nbgroup.Group, error) {
-				if groupID != "idofthegroup" {
+				groups := map[string]*nbgroup.Group{
+					"id-jwt-group": {ID: "id-jwt-group", Name: "From JWT", Issued: nbgroup.GroupIssuedJWT},
+					"id-existed":   {ID: "id-existed", Peers: []string{"A", "B"}, Issued: nbgroup.GroupIssuedAPI},
+					"id-all":       {ID: "id-all", Name: "All", Issued: nbgroup.GroupIssuedAPI},
+				}
+
+				for _, group := range initGroups {
+					groups[group.ID] = group
+				}
+
+				group, ok := groups[groupID]
+				if !ok {
 					return nil, status.Errorf(status.NotFound, "not found")
 				}
-				if groupID == "id-jwt-group" {
-					return &nbgroup.Group{
-						ID:     "id-jwt-group",
-						Name:   "Default Group",
-						Issued: nbgroup.GroupIssuedJWT,
-					}, nil
-				}
-				return &nbgroup.Group{
-					ID:     "idofthegroup",
-					Name:   "Group",
-					Issued: nbgroup.GroupIssuedAPI,
-				}, nil
+
+				return group, nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return &server.Account{
-					Id:     claims.AccountId,
-					Domain: "hotmail.com",
-					Peers:  TestPeers,
-					Users: map[string]*server.User{
-						user.Id: user,
-					},
-					Groups: map[string]*nbgroup.Group{
-						"id-jwt-group": {ID: "id-jwt-group", Name: "From JWT", Issued: nbgroup.GroupIssuedJWT},
-						"id-existed":   {ID: "id-existed", Peers: []string{"A", "B"}, Issued: nbgroup.GroupIssuedAPI},
-						"id-all":       {ID: "id-all", Name: "All", Issued: nbgroup.GroupIssuedAPI},
-					},
-				}, user, nil
+			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, claims.UserId, nil
+			},
+			GetGroupByNameFunc: func(ctx context.Context, groupName, _ string) (*nbgroup.Group, error) {
+				if groupName == "All" {
+					return &nbgroup.Group{ID: "id-all", Name: "All", Issued: nbgroup.GroupIssuedAPI}, nil
+				}
+
+				return nil, fmt.Errorf("unknown group name")
+			},
+			GetPeersFunc: func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+				return maps.Values(TestPeers), nil
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {
 				if groupID == "linked-grp" {
@@ -125,8 +125,7 @@ func TestGetGroup(t *testing.T) {
 		Name: "Group",
 	}
 
-	adminUser := server.NewAdminUser("test_user")
-	p := initGroupTestData(adminUser, group)
+	p := initGroupTestData(group)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -247,8 +246,7 @@ func TestWriteGroup(t *testing.T) {
 		},
 	}
 
-	adminUser := server.NewAdminUser("test_user")
-	p := initGroupTestData(adminUser)
+	p := initGroupTestData()
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -325,8 +323,7 @@ func TestDeleteGroup(t *testing.T) {
 		},
 	}
 
-	adminUser := server.NewAdminUser("test_user")
-	p := initGroupTestData(adminUser)
+	p := initGroupTestData()
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {

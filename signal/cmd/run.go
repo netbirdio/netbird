@@ -102,7 +102,7 @@ var (
 				}
 			}()
 
-			srv, err := server.NewServer(metricsServer.Meter)
+			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter)
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}

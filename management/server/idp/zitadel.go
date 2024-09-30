@@ -2,10 +2,12 @@ package idp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +99,42 @@ type zitadelUserResponse struct {
 	PasswordlessRegistration zitadelPasswordlessRegistration `json:"passwordlessRegistration"`
 }
 
+// readZitadelError parses errors returned by the zitadel APIs from a response.
+func readZitadelError(body io.ReadCloser) error {
+	bodyBytes, err := io.ReadAll(body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	helper := JsonParser{}
+	var target map[string]interface{}
+	err = helper.Unmarshal(bodyBytes, &target)
+	if err != nil {
+		return fmt.Errorf("error unparsable body: %s", string(bodyBytes))
+	}
+
+	// ensure keys are ordered for consistent logging behaviour.
+	errorKeys := make([]string, 0, len(target))
+	for k := range target {
+		errorKeys = append(errorKeys, k)
+	}
+	slices.Sort(errorKeys)
+
+	var errsOut []string
+	for _, k := range errorKeys {
+		if _, isEmbedded := target[k].(map[string]interface{}); isEmbedded {
+			continue
+		}
+		errsOut = append(errsOut, fmt.Sprintf("%s: %v", k, target[k]))
+	}
+
+	if len(errsOut) == 0 {
+		return errors.New("unknown error")
+	}
+
+	return errors.New(strings.Join(errsOut, " "))
+}
+
 // NewZitadelManager creates a new instance of the ZitadelManager.
 func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -176,7 +214,8 @@ func (zc *ZitadelCredentials) requestJWTToken(ctx context.Context) (*http.Respon
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unable to get zitadel token, statusCode %d", resp.StatusCode)
+		zErr := readZitadelError(resp.Body)
+		return nil, fmt.Errorf("unable to get zitadel token, statusCode %d, zitadel: %w", resp.StatusCode, zErr)
 	}
 
 	return resp, nil
@@ -489,7 +528,9 @@ func (zm *ZitadelManager) post(ctx context.Context, resource string, body string
 			zm.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
 
-		return nil, fmt.Errorf("unable to post %s, statusCode %d", reqURL, resp.StatusCode)
+		zErr := readZitadelError(resp.Body)
+
+		return nil, fmt.Errorf("unable to post %s, statusCode %d, zitadel: %w", reqURL, resp.StatusCode, zErr)
 	}
 
 	return io.ReadAll(resp.Body)
@@ -561,7 +602,9 @@ func (zm *ZitadelManager) get(ctx context.Context, resource string, q url.Values
 			zm.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
 
-		return nil, fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
+		zErr := readZitadelError(resp.Body)
+
+		return nil, fmt.Errorf("unable to get %s, statusCode %d, zitadel: %w", reqURL, resp.StatusCode, zErr)
 	}
 
 	return io.ReadAll(resp.Body)

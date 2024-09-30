@@ -22,7 +22,7 @@ func (e *ProxyWrapper) AddTurnConn(ctx context.Context, remoteConn net.Conn) (ne
 
 	if err != nil {
 		cancel()
-		return nil, err
+		return nil, fmt.Errorf("add turn conn: %w", err)
 	}
 	e.remoteConn = remoteConn
 	e.cancel = cancel

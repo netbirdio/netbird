@@ -1057,7 +1057,7 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	srv, err := signalServer.NewServer(otel.Meter(""))
+	srv, err := signalServer.NewServer(context.Background(), otel.Meter(""))
 	require.NoError(t, err)
 	proto.RegisterSignalExchangeServer(s, srv)
 

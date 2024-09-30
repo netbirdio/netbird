@@ -20,7 +20,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initEventsTestData(account string, user *server.User, events ...*activity.Event) *EventsHandler {
+func initEventsTestData(account string, events ...*activity.Event) *EventsHandler {
 	return &EventsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetEventsFunc: func(_ context.Context, accountID, userID string) ([]*activity.Event, error) {
@@ -29,14 +29,8 @@ func initEventsTestData(account string, user *server.User, events ...*activity.E
 				}
 				return []*activity.Event{}, nil
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return &server.Account{
-					Id:     claims.AccountId,
-					Domain: "hotmail.com",
-					Users: map[string]*server.User{
-						user.Id: user,
-					},
-				}, user, nil
+			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, claims.UserId, nil
 			},
 			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*server.UserInfo, error) {
 				return make([]*server.UserInfo, 0), nil
@@ -199,7 +193,7 @@ func TestEvents_GetEvents(t *testing.T) {
 	accountID := "test_account"
 	adminUser := server.NewAdminUser("test_user")
 	events := generateEvents(accountID, adminUser.Id)
-	handler := initEventsTestData(accountID, adminUser, events...)
+	handler := initEventsTestData(accountID, events...)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {

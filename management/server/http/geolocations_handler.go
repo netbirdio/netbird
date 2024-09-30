@@ -98,7 +98,12 @@ func (l *GeolocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.
 
 func (l *GeolocationsHandler) authenticateUser(r *http.Request) error {
 	claims := l.claimsExtractor.FromRequestContext(r)
-	_, user, err := l.accountManager.GetAccountFromToken(r.Context(), claims)
+	_, userID, err := l.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	if err != nil {
+		return err
+	}
+
+	user, err := l.accountManager.GetUserByID(r.Context(), userID)
 	if err != nil {
 		return err
 	}

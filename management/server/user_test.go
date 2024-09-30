@@ -199,7 +199,8 @@ func TestUser_GetPAT(t *testing.T) {
 	defer store.Close(context.Background())
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
-		Id: mockUserID,
+		Id:        mockUserID,
+		AccountID: mockAccountID,
 		PATs: map[string]*PersonalAccessToken{
 			mockTokenID1: {
 				ID:          mockTokenID1,
@@ -231,7 +232,8 @@ func TestUser_GetAllPATs(t *testing.T) {
 	defer store.Close(context.Background())
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
-		Id: mockUserID,
+		Id:        mockUserID,
+		AccountID: mockAccountID,
 		PATs: map[string]*PersonalAccessToken{
 			mockTokenID1: {
 				ID:          mockTokenID1,
@@ -796,7 +798,10 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			acc, err := am.GetAccountByUserOrAccountID(context.Background(), "", account.Id, "")
+			accID, err := am.GetAccountIDByUserOrAccountID(context.Background(), "", account.Id, "")
+			assert.NoError(t, err)
+
+			acc, err := am.Store.GetAccount(context.Background(), accID)
 			assert.NoError(t, err)
 
 			for _, id := range tc.expectedDeleted {

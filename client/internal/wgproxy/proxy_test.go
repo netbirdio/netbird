@@ -23,18 +23,18 @@ func TestMain(m *testing.M) {
 }
 
 type mocConn struct {
-	closeChane chan struct{}
-	closed     bool
+	closeChan chan struct{}
+	closed    bool
 }
 
 func newMockConn() *mocConn {
 	return &mocConn{
-		closeChane: make(chan struct{}),
+		closeChan: make(chan struct{}),
 	}
 }
 
 func (m *mocConn) Read(b []byte) (n int, err error) {
-	<-m.closeChane
+	<-m.closeChan
 	return 0, io.EOF
 }
 
@@ -49,7 +49,7 @@ func (m *mocConn) Close() error {
 	}
 
 	m.closed = true
-	close(m.closeChane)
+	close(m.closChane)
 	return nil
 }
 

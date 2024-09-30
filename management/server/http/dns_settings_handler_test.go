@@ -52,8 +52,8 @@ func initDNSSettingsTestData() *DNSSettingsHandler {
 				}
 				return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 			},
-			GetAccountFromTokenFunc: func(ctx context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return testingDNSSettingsAccount, testingDNSSettingsAccount.Users[testDNSSettingsUserID], nil
+			GetAccountIDFromTokenFunc: func(ctx context.Context, _ jwtclaims.AuthorizationClaims) (string, string, error) {
+				return testingDNSSettingsAccount.Id, testingDNSSettingsAccount.Users[testDNSSettingsUserID].Id, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
