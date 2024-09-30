@@ -128,7 +128,7 @@ type AccountManager interface {
 	GetDNSSettings(ctx context.Context, accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Account, error)
+	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Settings, error)
 	LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
 	SyncPeer(ctx context.Context, sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
@@ -1048,7 +1048,16 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
 // Returns an updated Account
-func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Account, error) {
+func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Settings, error) {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.HasAdminPower() || user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	}
+
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -1058,53 +1067,57 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	oldSettings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
+	if err = am.validateExtraSettings(ctx, newSettings, oldSettings, userID, accountID); err != nil {
 		return nil, err
 	}
 
-	if !user.HasAdminPower() {
-		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	if err = am.Store.SaveAccountSettings(ctx, LockingStrengthUpdate, accountID, newSettings); err != nil {
+		return nil, fmt.Errorf("failed updating account settings: %w", err)
 	}
 
-	err = am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	oldSettings := account.Settings
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
 		if !newSettings.PeerLoginExpirationEnabled {
 			event = activity.AccountPeerLoginExpirationDisabled
 			am.peerLoginExpiry.Cancel(ctx, []string{accountID})
 		} else {
-			am.checkAndSchedulePeerLoginExpiration(ctx, account)
+			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 	}
 
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
-		am.checkAndSchedulePeerLoginExpiration(ctx, account)
+		am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 	}
 
-	updatedAccount := account.UpdateSettings(newSettings)
-
-	err = am.Store.SaveAccount(ctx, account)
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting account: %w", err)
+	}
+	am.updateAccountPeers(ctx, account)
+
+	return newSettings, nil
+}
+
+// validateExtraSettings validates the extra settings of the account.
+func (am *DefaultAccountManager) validateExtraSettings(ctx context.Context, newSettings, oldSettings *Settings, userID, accountID string) error {
+	peers, err := am.Store.GetAccountPeers(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return err
 	}
 
-	return updatedAccount, nil
+	peerMap := make(map[string]*nbpeer.Peer, len(peers))
+	for _, peer := range peers {
+		peerMap[peer.ID] = peer
+	}
+
+	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, peerMap, userID, accountID)
 }
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
@@ -1135,10 +1148,10 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 	}
 }
 
-func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context.Context, account *Account) {
-	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
-	if nextRun, ok := account.GetNextPeerExpiration(); ok {
-		go am.peerLoginExpiry.Schedule(ctx, nextRun, account.Id, am.peerLoginExpirationJob(ctx, account.Id))
+func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context.Context, accountID string) {
+	am.peerLoginExpiry.Cancel(ctx, []string{accountID})
+	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
+		go am.peerLoginExpiry.Schedule(ctx, nextRun, accountID, am.peerLoginExpirationJob(ctx, accountID))
 	}
 }
 
@@ -1674,33 +1687,18 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 
 // MarkPATUsed marks a personal access token as used
 func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string) error {
-
 	user, err := am.Store.GetUserByTokenID(ctx, tokenID)
 	if err != nil {
 		return err
 	}
 
-	account, err := am.Store.GetAccountByUser(ctx, user.Id)
+	pat, err := am.Store.GetPATByID(ctx, LockingStrengthShare, tokenID, user.Id)
 	if err != nil {
 		return err
 	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
-	defer unlock()
-
-	account, err = am.Store.GetAccountByUser(ctx, user.Id)
-	if err != nil {
-		return err
-	}
-
-	pat, ok := account.Users[user.Id].PATs[tokenID]
-	if !ok {
-		return fmt.Errorf("token not found")
-	}
-
 	pat.LastUsed = time.Now().UTC()
 
-	return am.Store.SaveAccount(ctx, account)
+	return am.Store.SavePAT(ctx, LockingStrengthUpdate, pat)
 }
 
 // GetAccount returns an account associated with this account ID.

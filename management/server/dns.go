@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -94,56 +95,78 @@ func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID s
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings
 func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *DNSSettings) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return err
-	}
-
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to update DNS settings")
-	}
-
 	if dnsSettingsToSave == nil {
 		return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 	}
 
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return err
+	}
+
+	if !user.HasAdminPower() || user.AccountID != accountID {
+		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to update DNS settings")
+	}
+
+	oldSettings, err := am.Store.GetAccountDNSSettings(ctx, LockingStrengthUpdate, accountID)
+	if err != nil {
+		return err
+	}
+
+	groups, err := am.Store.GetAccountGroups(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
 	if len(dnsSettingsToSave.DisabledManagementGroups) != 0 {
-		err = validateGroups(dnsSettingsToSave.DisabledManagementGroups, account.Groups)
+		err = validateGroups(dnsSettingsToSave.DisabledManagementGroups, groups)
 		if err != nil {
 			return err
 		}
 	}
 
-	oldSettings := account.DNSSettings.Copy()
-	account.DNSSettings = dnsSettingsToSave.Copy()
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
 
-	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
+		if err = transaction.SaveDNSSettings(ctx, LockingStrengthUpdate, accountID, dnsSettingsToSave); err != nil {
+			return fmt.Errorf("failed to update dns settings: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
 		return err
+	}
+
+	groupMap := make(map[string]*nbgroup.Group, len(groups))
+	for _, g := range groups {
+		groupMap[g.ID] = g
 	}
 
 	addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
 	for _, id := range addedGroups {
-		group := account.GetGroup(id)
-		meta := map[string]any{"group": group.Name, "group_id": group.ID}
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
+		group, ok := groupMap[id]
+		if ok {
+			meta := map[string]any{"group": group.Name, "group_id": group.ID}
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
+		}
 	}
 
 	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
 	for _, id := range removedGroups {
-		group := account.GetGroup(id)
-		meta := map[string]any{"group": group.Name, "group_id": group.ID}
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
+		group, ok := groupMap[id]
+		if ok {
+			meta := map[string]any{"group": group.Name, "group_id": group.ID}
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
+		}
 	}
 
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("error getting account: %w", err)
+	}
 	am.updateAccountPeers(ctx, account)
 
 	return nil
