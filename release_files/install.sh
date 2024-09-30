@@ -70,7 +70,7 @@ download_release_binary() {
     if [ -n "$GITHUB_TOKEN" ]; then
       cd /tmp && curl -H  "Authorization: token ${GITHUB_TOKEN}" -LO "$DOWNLOAD_URL"
     else
-      cd /tmp && curl -LO --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
+      cd /tmp && curl -LO "$DOWNLOAD_URL" || curl -LO --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
