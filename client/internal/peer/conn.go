@@ -493,12 +493,15 @@ func (conn *Conn) handleCandidateTick(localCandidatesChanged chan<- struct{}, uf
 	}()
 
 	gatherDone := make(chan struct{})
-	agent.OnCandidate(func(c ice.Candidate) {
+	err = agent.OnCandidate(func(c ice.Candidate) {
 		log.Debugf("Got candidate: %v", c)
 		if c == nil {
 			close(gatherDone)
 		}
 	})
+	if err != nil {
+		return fmt.Errorf("set ICE candidate handler: %w", err)
+	}
 
 	if err := agent.GatherCandidates(); err != nil {
 		return fmt.Errorf("gather ICE candidates: %w", err)
