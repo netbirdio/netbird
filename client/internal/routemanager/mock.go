@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/util/net"
 )

@@ -1,10 +1,10 @@
 package internal
 
 import (
+	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/iface/device"
 )
 
 // MobileDependency collect all dependencies for mobile platform

@@ -10,8 +10,8 @@ import (
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/iface/bind"
-	"github.com/netbirdio/netbird/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/sharedsock"
 )
 

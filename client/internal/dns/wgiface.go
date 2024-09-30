@@ -5,9 +5,9 @@ package dns
 import (
 	"net"
 
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/iface/configurer"
-	"github.com/netbirdio/netbird/iface/device"
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 // WGIface defines subset methods of interface required for manager

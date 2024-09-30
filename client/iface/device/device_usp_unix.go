@@ -12,8 +12,8 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 
-	"github.com/netbirdio/netbird/iface/bind"
-	"github.com/netbirdio/netbird/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/configurer"
 )
 
 type USPDevice struct {

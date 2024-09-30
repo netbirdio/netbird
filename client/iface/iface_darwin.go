@@ -9,9 +9,9 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pion/transport/v3"
 
-	"github.com/netbirdio/netbird/iface/bind"
-	"github.com/netbirdio/netbird/iface/device"
-	"github.com/netbirdio/netbird/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance

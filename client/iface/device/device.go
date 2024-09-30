@@ -4,8 +4,8 @@
 package device
 
 import (
-	"github.com/netbirdio/netbird/iface/bind"
-	"github.com/netbirdio/netbird/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/configurer"
 )
 
 type WGTunDevice interface {

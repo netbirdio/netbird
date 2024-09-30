@@ -1,5 +1,3 @@
-//go:build !windows
-
 package iface
 
 import (
@@ -8,9 +6,9 @@ import (
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/iface/bind"
-	"github.com/netbirdio/netbird/iface/configurer"
-	"github.com/netbirdio/netbird/iface/device"
+	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 type IWGIface interface {
@@ -31,4 +29,5 @@ type IWGIface interface {
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
 	GetStats(peerKey string) (configurer.WGStats, error)
+	GetInterfaceGUIDString() (string, error)
 }

@@ -5,7 +5,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/iface/freebsd"
+	"github.com/netbirdio/netbird/client/iface/freebsd"
 )
 
 type wgLink struct {

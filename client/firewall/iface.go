@@ -1,7 +1,7 @@
 package firewall
 
 import (
-	"github.com/netbirdio/netbird/iface/device"
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 // IFaceMapper defines subset methods of interface required for manager

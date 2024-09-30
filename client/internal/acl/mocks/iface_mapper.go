@@ -8,8 +8,8 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	iface "github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/iface/device"
+	iface "github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 // MockIFaceMapper is a mock of IFaceMapper interface.

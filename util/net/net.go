@@ -4,7 +4,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/netbirdio/netbird/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 
 	"github.com/google/uuid"
 )
