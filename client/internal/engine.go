@@ -1393,7 +1393,7 @@ func (e *Engine) startNetworkMonitor() {
 			}
 
 			// Set a new timer to debounce rapid network changes
-			debounceTimer = time.AfterFunc(1*time.Second, func() {
+			debounceTimer = time.AfterFunc(2*time.Second, func() {
 				// This function is called after the debounce period
 				mu.Lock()
 				defer mu.Unlock()
