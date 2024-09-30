@@ -81,8 +81,7 @@ func (p *WGEBPFProxy) Listen() error {
 
 	conn, err := nbnet.ListenUDP("udp", &addr)
 	if err != nil {
-		cErr := p.Free()
-		if cErr != nil {
+		if cErr := p.Free(); cErr != nil {
 			log.Errorf("Failed to close the wgproxy: %s", cErr)
 		}
 		return err
@@ -122,8 +121,10 @@ func (p *WGEBPFProxy) Free() error {
 	p.ctxCancel()
 
 	var result *multierror.Error
-	if err := p.conn.Close(); err != nil {
-		result = multierror.Append(result, err)
+	if p.conn != nil {
+		if err := p.conn.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 
 	if err := p.ebpfManager.FreeWGProxy(); err != nil {
