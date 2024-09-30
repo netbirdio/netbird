@@ -397,7 +397,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	}
 
 	if !user.HasAdminPower() || user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "only admin users are allowed to delete policies")
+		return status.Errorf(status.PermissionDenied, "deleting policies is restricted to admin users only")
 	}
 
 	policy, err := am.Store.GetPolicyByID(ctx, LockingStrengthShare, policyID, accountID)
@@ -411,7 +411,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
-		err = transaction.DeletePolicy(ctx, LockingStrengthUpdate, policyID)
+		err = transaction.DeletePolicy(ctx, LockingStrengthUpdate, policyID, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to delete policy: %w", err)
 		}

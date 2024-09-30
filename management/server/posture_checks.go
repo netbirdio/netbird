@@ -39,10 +39,9 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		return status.Errorf(status.PermissionDenied, "only admin users are allowed to update posture checks")
 	}
 
-	if err := postureChecks.Validate(); err != nil {
-		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
+	if err = am.validatePostureChecks(ctx, accountID, postureChecks); err != nil {
+		return status.Errorf(status.InvalidArgument, err.Error())
 	}
-	postureChecks.AccountID = accountID
 
 	action := activity.PostureCheckCreated
 
@@ -81,6 +80,25 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	return nil
 }
 
+func (am *DefaultAccountManager) validatePostureChecks(ctx context.Context, accountID string, postureChecks *posture.Checks) error {
+	if err := postureChecks.Validate(); err != nil {
+		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
+	}
+
+	checks, err := am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return err
+	}
+
+	for _, check := range checks {
+		if check.Name == postureChecks.Name && check.ID != postureChecks.ID {
+			return status.Errorf(status.InvalidArgument, "posture checks with name %s already exists", postureChecks.Name)
+		}
+	}
+
+	return nil
+}
+
 // DeletePostureChecks deletes a posture check by ID.
 func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error {
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
@@ -106,7 +124,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
-		if err = transaction.DeletePostureChecks(ctx, LockingStrengthUpdate, postureChecksID); err != nil {
+		if err = transaction.DeletePostureChecks(ctx, LockingStrengthUpdate, postureChecksID, accountID); err != nil {
 			return fmt.Errorf("failed to delete posture checks: %w", err)
 		}
 		return nil

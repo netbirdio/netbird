@@ -170,6 +170,7 @@ func (p *PostureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	postureChecks.AccountID = accountID
 
 	if err := p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks, isUpdate); err != nil {
 		util.WriteError(r.Context(), err, w)
