@@ -21,6 +21,8 @@ SUDO=""
 
 if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
+elif command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
+    SUDO="doas"
 fi
 
 if [ -z ${NETBIRD_RELEASE+x} ]; then
@@ -68,7 +70,7 @@ download_release_binary() {
     if [ -n "$GITHUB_TOKEN" ]; then
       cd /tmp && curl -H  "Authorization: token ${GITHUB_TOKEN}" -LO "$DOWNLOAD_URL"
     else
-      cd /tmp && curl -LO "$DOWNLOAD_URL"
+      cd /tmp && curl -LO --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
@@ -316,7 +318,7 @@ install_netbird() {
 }
 
 version_greater_equal() {
-    printf '%s\n%s\n' "$2" "$1" | sort -V -C
+    printf '%s\n%s\n' "$2" "$1" | sort -V -c
 }
 
 is_bin_package_manager() {
