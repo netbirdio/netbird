@@ -21,7 +21,7 @@ SUDO=""
 
 if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
-elif command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
+elif command -v doas > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="doas"
 fi
 
