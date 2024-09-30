@@ -318,6 +318,7 @@ func (conn *Conn) GetKey() string {
 
 func (conn *Conn) reconnectLoopWithRetry() {
 	// Give chance to the peer to establish the initial connection.
+	// With it, we can decrease to send necessary offer
 	select {
 	case <-conn.ctx.Done():
 		return
