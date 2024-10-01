@@ -155,7 +155,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 		return
 	}
 
-	if !resolver.disabled {
+	if !resolver.disabled.Load() {
 		t.Errorf("resolver should be Disabled")
 		return
 	}
@@ -172,7 +172,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 		return
 	}
 
-	if resolver.disabled {
+	if resolver.disabled.Load() {
 		t.Errorf("should be enabled")
 	}
 }
