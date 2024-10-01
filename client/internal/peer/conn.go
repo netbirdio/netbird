@@ -586,8 +586,10 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 		return
 	}
 
+	log.Debugf("relay connection is disconnected")
+
 	if conn.currentConnPriority == connPriorityRelay {
-		log.Debugf("relayed connection is closed, clean up WireGuard config")
+		log.Debugf("clean up WireGuard config")
 		err := conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
 		if err != nil {
 			conn.log.Errorf("failed to remove wg endpoint: %v", err)
