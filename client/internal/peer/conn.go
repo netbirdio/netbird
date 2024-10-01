@@ -586,13 +586,15 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 		return
 	}
 
-	if conn.wgProxyRelay != nil {
+	if conn.currentConnPriority == connPriorityRelay {
 		log.Debugf("relayed connection is closed, clean up WireGuard config")
 		err := conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
 		if err != nil {
 			conn.log.Errorf("failed to remove wg endpoint: %v", err)
 		}
+	}
 
+	if conn.wgProxyRelay != nil {
 		conn.endpointRelay = nil
 		_ = conn.wgProxyRelay.CloseConn()
 		conn.wgProxyRelay = nil
