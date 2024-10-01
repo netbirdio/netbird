@@ -74,7 +74,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
-			w.log.Infof("do not need to reopen relay connection")
+			w.log.Debugf("reusing relay connection")
 			return
 		}
 		w.log.Errorf("failed to open connection via Relay: %s", err)
