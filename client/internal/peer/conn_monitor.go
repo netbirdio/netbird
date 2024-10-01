@@ -164,7 +164,7 @@ func (conn *Conn) updateCandidates(newCandidates []ice.Candidate) bool {
 	}
 
 	for i, candidate := range conn.currentCandidates {
-		if candidate.String() != newCandidates[i].String() {
+		if candidate.Address() != newCandidates[i].Address() {
 			conn.currentCandidates = newCandidates
 			return true
 		}
