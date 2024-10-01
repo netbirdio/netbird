@@ -1425,6 +1425,11 @@ func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 }
 
 func (e *Engine) stopDNSServer() {
+	if e.dnsServer == nil {
+		return
+	}
+	e.dnsServer.Stop()
+	e.dnsServer = nil
 	err := fmt.Errorf("DNS server stopped")
 	nsGroupStates := e.statusRecorder.GetDNSStates()
 	for i := range nsGroupStates {
@@ -1432,10 +1437,6 @@ func (e *Engine) stopDNSServer() {
 		nsGroupStates[i].Error = err
 	}
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
-	if e.dnsServer != nil {
-		e.dnsServer.Stop()
-		e.dnsServer = nil
-	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.
