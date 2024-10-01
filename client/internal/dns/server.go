@@ -428,7 +428,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
 			}
 			if !nsGroup.Enabled {
-				handler.disabled = true
+				handler.disabled.Store(true)
 				continue
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
