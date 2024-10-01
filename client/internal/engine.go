@@ -250,6 +250,13 @@ func (e *Engine) Stop() error {
 	}
 	log.Info("Network monitor: stopped")
 
+	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
+	e.stopDNSServer()
+
+	if e.routeManager != nil {
+		e.routeManager.Stop()
+	}
+
 	err := e.removeAllPeers()
 	if err != nil {
 		return fmt.Errorf("failed to remove all peers: %s", err)
@@ -1112,13 +1119,6 @@ func (e *Engine) close() {
 		if err := e.wgProxyFactory.Free(); err != nil {
 			log.Errorf("failed closing ebpf proxy: %s", err)
 		}
-	}
-
-	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	e.stopDNSServer()
-
-	if e.routeManager != nil {
-		e.routeManager.Stop()
 	}
 
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
