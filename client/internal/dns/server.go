@@ -503,7 +503,9 @@ func (s *DefaultServer) toggleNameServerGroupsOnStatus(nameServerGroups []*nbdns
 				hasPublicNameServer = true
 			}
 		}
-		nsGroup.Enabled = hasPublicNameServer || (peerCount >= 1)
+		isEnable := hasPublicNameServer || (peerCount >= 1)
+		log.Infof("Name servers: %#v are enabled %t", nsGroup.Name, isEnable)
+		nsGroup.Enabled = isEnable
 	}
 }
 
