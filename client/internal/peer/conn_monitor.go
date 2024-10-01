@@ -104,7 +104,7 @@ func (conn *Conn) handleCandidateTick(localCandidatesChanged chan<- struct{}, uf
 		conn.log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	agent, err := newAgent(conn.config, transportNet, candidateTypes(), ufrag, pwd)
+	agent, err := newAgent(conn.config, transportNet, candidateTypesP2P(), ufrag, pwd)
 	if err != nil {
 		return fmt.Errorf("create ICE agent: %w", err)
 	}
