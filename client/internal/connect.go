@@ -295,6 +295,13 @@ func (c *ConnectClient) run(
 		<-engineCtx.Done()
 		c.statusRecorder.ClientTeardown()
 
+		c.engineMutex.Lock()
+		err = c.Engine().Stop()
+		c.engineMutex.Unlock()
+		if err != nil {
+			return err
+		}
+
 		backOff.Reset()
 
 		log.Info("stopped NetBird client")
