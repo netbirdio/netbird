@@ -116,7 +116,7 @@ func (conn *Conn) handleCandidateTick(localCandidatesChanged chan<- struct{}, uf
 
 	gatherDone := make(chan struct{})
 	err = agent.OnCandidate(func(c ice.Candidate) {
-		log.Debugf("Got candidate: %v", c)
+		log.Tracef("Got candidate: %v", c)
 		if c == nil {
 			close(gatherDone)
 		}
