@@ -142,7 +142,7 @@ func (conn *Conn) handleCandidateTick(localCandidatesChanged chan<- struct{}, uf
 	if err != nil {
 		return fmt.Errorf("get local candidates: %w", err)
 	}
-	log.Debugf("Got candidates: %v", candidates)
+	log.Tracef("Got candidates: %v", candidates)
 
 	if changed := conn.updateCandidates(candidates); changed {
 		select {
