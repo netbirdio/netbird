@@ -296,7 +296,10 @@ func (c *ConnectClient) run(
 		c.statusRecorder.ClientTeardown()
 
 		c.engineMutex.Lock()
-		err = c.Engine().Stop()
+		engine := c.Engine()
+		if engine != nil {
+			err = engine.Stop()
+		}
 		c.engineMutex.Unlock()
 		if err != nil {
 			return err
