@@ -11,8 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/internal/relay"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/management/domain"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 )
@@ -203,7 +203,7 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 
 	state, ok := d.peers[peerPubKey]
 	if !ok {
-		return State{}, iface.ErrPeerNotFound
+		return State{}, configurer.ErrPeerNotFound
 	}
 	return state, nil
 }
@@ -412,7 +412,7 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 }
 
 // UpdateWireGuardPeerState updates the WireGuard bits of the peer state
-func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats iface.WGStats) error {
+func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats configurer.WGStats) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
