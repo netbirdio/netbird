@@ -1,5 +1,4 @@
 //go:build android
-// +build android
 
 package device
 
@@ -32,8 +31,8 @@ type WGTunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(address WGAddress, port int, key string, mtu int, transportNet transport.Net, tunAdapter TunAdapter, filterFn bind.FilterFn) WGTunDevice {
-	return WGTunDevice{
+func NewTunDevice(address WGAddress, port int, key string, mtu int, transportNet transport.Net, tunAdapter TunAdapter, filterFn bind.FilterFn) *WGTunDevice {
+	return &WGTunDevice{
 		address:    address,
 		port:       port,
 		key:        key,
