@@ -47,15 +47,8 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
-	testDir := t.TempDir()
-
 	config := &mgmt.Config{}
 	_, err := util.ReadJson("../server/testdata/management.json", config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.Datadir = testDir
-	err = util.CopyFileContents("../server/testdata/store.json", filepath.Join(testDir, "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +58,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := mgmt.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := NewSqliteTestStore(t, context.Background(), "../server/testdata/store.sqlite")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,4 +513,22 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientSecret, flowInfo.ProviderConfig.ClientSecret, "provider configured client secret should match")
+}
+
+func NewSqliteTestStore(t *testing.T, ctx context.Context, testFile string) (mgmt.Store, func(), error) {
+	dataDir := t.TempDir()
+	err := util.CopyFileContents(testFile, filepath.Join(dataDir, "store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := mgmt.NewSqliteStore(ctx, dataDir, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return store, func() {
+		store.Close(ctx)
+		os.Remove(filepath.Join(dataDir, "store.db"))
+	}, nil
 }
