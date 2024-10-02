@@ -559,8 +559,8 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 			err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockServiceUserID)
 			tt.assertErrFunc(t, err, tt.assertErrMessage)
 
-			account, err = store.GetAccount(context.Background(), mockAccountID)
-			assert.NoError(t, err)
+			account, err2 := store.GetAccount(context.Background(), mockAccountID)
+			assert.NoError(t, err2)
 
 			if err != nil {
 				assert.Equal(t, 2, len(account.Users))
