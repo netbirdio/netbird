@@ -671,17 +671,16 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	userId := "user-id"
 	domain := "test.domain"
 
-	initAccount := newAccountWithId(context.Background(), "", userId, domain)
+	_ = newAccountWithId(context.Background(), "", userId, domain)
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID := initAccount.Id
-	accountID, err = manager.GetAccountIDByUserID(context.Background(), userId, domain)
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userId, domain)
 	require.NoError(t, err, "create init user failed")
 	// as initAccount was created without account id we have to take the id after account initialization
 	// that happens inside the GetAccountIDByUserID where the id is getting generated
 	// it is important to set the id as it help to avoid creating additional account with empty Id and re-pointing indices to it
-	initAccount, err = manager.Store.GetAccount(context.Background(), accountID)
+	initAccount, err := manager.Store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err, "get init account failed")
 
 	claims := jwtclaims.AuthorizationClaims{
@@ -2194,8 +2193,12 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 }
 
 func TestAccount_SetJWTGroups(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
 	// create a new account
 	account := &Account{
+		Id: "accountID",
 		Peers: map[string]*nbpeer.Peer{
 			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
 			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
@@ -2206,62 +2209,120 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		Groups: map[string]*group.Group{
 			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
 		},
-		Settings: &Settings{GroupsPropagationEnabled: true},
+		Settings: &Settings{GroupsPropagationEnabled: true, JWTGroupsEnabled: true, JWTGroupsClaimName: "groups"},
 		Users: map[string]*User{
-			"user1": {Id: "user1"},
-			"user2": {Id: "user2"},
+			"user1": {Id: "user1", AccountID: "accountID"},
+			"user2": {Id: "user2", AccountID: "accountID"},
 		},
 	}
 
+	assert.NoError(t, manager.Store.SaveAccount(context.Background(), account), "unable to save account")
+
 	t.Run("empty jwt groups", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{})
-		assert.False(t, updated, "account should not be updated")
-		assert.Empty(t, account.Users["user1"].AutoGroups, "auto groups must be empty")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{}},
+		}
+		err := manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Empty(t, user.AutoGroups, "auto groups must be empty")
 	})
 
 	t.Run("jwt match existing api group", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{"group1"})
-		assert.False(t, updated, "account should not be updated")
-		assert.Equal(t, 0, len(account.Users["user1"].AutoGroups))
-		assert.Equal(t, account.Groups["group1"].Issued, group.GroupIssuedAPI, "group should be api issued")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group1"}},
+		}
+		err := manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 0)
+
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		assert.NoError(t, err, "unable to get group")
+		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("jwt match existing api group in user auto groups", func(t *testing.T) {
 		account.Users["user1"].AutoGroups = []string{"group1"}
+		assert.NoError(t, manager.Store.SaveUser(context.Background(), LockingStrengthUpdate, account.Users["user1"]))
 
-		updated := account.SetJWTGroups("user1", []string{"group1"})
-		assert.False(t, updated, "account should not be updated")
-		assert.Equal(t, 1, len(account.Users["user1"].AutoGroups))
-		assert.Equal(t, account.Groups["group1"].Issued, group.GroupIssuedAPI, "group should be api issued")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group1"}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 1)
+
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		assert.NoError(t, err, "unable to get group")
+		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{"group1", "group2"})
-		assert.True(t, updated, "account should be updated")
-		assert.Len(t, account.Groups, 2, "new group should be added")
-		assert.Len(t, account.Users["user1"].AutoGroups, 2, "new group should be added")
-		assert.Contains(t, account.Groups, account.Users["user1"].AutoGroups[0], "groups must contain group2 from user groups")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group1", "group2"}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 2, "groups count should not be change")
 	})
 
 	t.Run("existed group not update", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{"group2"})
-		assert.False(t, updated, "account should not be updated")
-		assert.Len(t, account.Groups, 2, "groups count should not be changed")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group2"}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 2, "groups count should not be change")
 	})
 
 	t.Run("add new group", func(t *testing.T) {
-		updated := account.SetJWTGroups("user2", []string{"group1", "group3"})
-		assert.True(t, updated, "account should be updated")
-		assert.Len(t, account.Groups, 3, "new group should be added")
-		assert.Len(t, account.Users["user2"].AutoGroups, 1, "new group should be added")
-		assert.Contains(t, account.Groups, account.Users["user2"].AutoGroups[0], "groups must contain group3 from user groups")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user2",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group1", "group3"}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		groups, err := manager.Store.GetAccountGroups(context.Background(), "accountID")
+		assert.NoError(t, err)
+		assert.Len(t, groups, 3, "new group3 should be added")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user2")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 1, "new group should be added")
 	})
 
 	t.Run("remove all JWT groups", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{})
-		assert.True(t, updated, "account should be updated")
-		assert.Len(t, account.Users["user1"].AutoGroups, 1, "only non-JWT groups should remain")
-		assert.Contains(t, account.Users["user1"].AutoGroups, "group1", " group1 should still be present")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 1, "only non-JWT groups should remain")
+		assert.Contains(t, user.AutoGroups, "group1", " group1 should still be present")
 	})
 }
 
