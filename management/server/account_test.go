@@ -1704,7 +1704,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 
-	account, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1821,7 +1821,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		},
 	}
 	// enabling PeerLoginExpirationEnabled should trigger the expiration job
-	account, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1852,13 +1852,13 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
-	updated, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	updatedSettings, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
-	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
-	assert.Equal(t, updated.Settings.PeerLoginExpiration, time.Hour)
+	assert.False(t, updatedSettings.PeerLoginExpirationEnabled)
+	assert.Equal(t, updatedSettings.PeerLoginExpiration, time.Hour)
 
 	accountID, err = manager.GetAccountIDByUserOrAccountID(context.Background(), "", accountID, "")
 	require.NoError(t, err, "unable to get account by ID")

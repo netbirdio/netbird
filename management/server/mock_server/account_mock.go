@@ -89,7 +89,7 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc                  func(ctx context.Context, accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc                 func(ctx context.Context, accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                         func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error)
+	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Settings, error)
 	LoginPeerFunc                       func(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	SyncPeerFunc                        func(ctx context.Context, sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	InviteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
@@ -97,7 +97,7 @@ type MockAccountManager struct {
 	HasConnectedChannelFunc             func(peerID string) bool
 	GetExternalCacheManagerFunc         func() server.ExternalCacheManager
 	GetPostureChecksFunc                func(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecksFunc               func(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error
+	SavePostureChecksFunc               func(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, isUpdate bool) error
 	DeletePostureChecksFunc             func(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc               func(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManagerFunc                   func() idp.Manager
@@ -667,7 +667,7 @@ func (am *MockAccountManager) GetPeer(ctx context.Context, accountID, peerID, us
 }
 
 // UpdateAccountSettings mocks UpdateAccountSettings of the AccountManager interface
-func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
+func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Settings, error) {
 	if am.UpdateAccountSettingsFunc != nil {
 		return am.UpdateAccountSettingsFunc(ctx, accountID, userID, newSettings)
 	}
@@ -731,9 +731,9 @@ func (am *MockAccountManager) GetPostureChecks(ctx context.Context, accountID, p
 }
 
 // SavePostureChecks mocks SavePostureChecks of the AccountManager interface
-func (am *MockAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error {
+func (am *MockAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, isUpdate bool) error {
 	if am.SavePostureChecksFunc != nil {
-		return am.SavePostureChecksFunc(ctx, accountID, userID, postureChecks)
+		return am.SavePostureChecksFunc(ctx, accountID, userID, postureChecks, isUpdate)
 	}
 	return status.Errorf(codes.Unimplemented, "method SavePostureChecks is not implemented")
 }

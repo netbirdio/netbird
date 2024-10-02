@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -210,39 +211,49 @@ func Hash(s string) uint32 {
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType SetupKeyType,
 	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can update setup keys")
+	}
 
 	keyDuration := DefaultSetupKeyDuration
 	if expiresIn != 0 {
 		keyDuration = expiresIn
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	groups, err := am.Store.GetAccountGroups(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateSetupKeyAutoGroups(account, autoGroups); err != nil {
+	if err = validateSetupKeyAutoGroups(groups, autoGroups); err != nil {
 		return nil, err
 	}
 
 	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
-	account.SetupKeys[setupKey.Key] = setupKey
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return nil, status.Errorf(status.Internal, "failed adding account key")
+	setupKey.AccountID = accountID
+
+	if err = am.Store.SaveSetupKey(ctx, LockingStrengthUpdate, setupKey); err != nil {
+		return nil, err
 	}
 
 	am.StoreEvent(ctx, userID, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
+	groupMap := make(map[string]*nbgroup.Group, len(groups))
+	for _, g := range groups {
+		groupMap[g.ID] = g
+	}
 
 	for _, g := range setupKey.AutoGroups {
-		group := account.GetGroup(g)
+		group := groupMap[g]
 		if group != nil {
 			am.StoreEvent(ctx, userID, setupKey.Id, accountID, activity.GroupAddedToSetupKey,
 				map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": setupKey.Name})
 		} else {
-			log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
+			log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, accountID)
 		}
 	}
 
@@ -254,30 +265,30 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 // (e.g. the key itself, creation date, ID, etc).
 // These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
 func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID string, keyToSave *SetupKey, userID string) (*SetupKey, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if keyToSave == nil {
 		return nil, status.Errorf(status.InvalidArgument, "provided setup key to update is nil")
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	var oldKey *SetupKey
-	for _, key := range account.SetupKeys {
-		if key.Id == keyToSave.Id {
-			oldKey = key.Copy()
-			break
-		}
-	}
-	if oldKey == nil {
-		return nil, status.Errorf(status.NotFound, "setup key not found")
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can update setup keys")
 	}
 
-	if err := validateSetupKeyAutoGroups(account, keyToSave.AutoGroups); err != nil {
+	groups, err := am.Store.GetAccountGroups(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = validateSetupKeyAutoGroups(groups, keyToSave.AutoGroups); err != nil {
+		return nil, err
+	}
+
+	oldKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, keyToSave.Id, accountID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -288,9 +299,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 	newKey.Revoked = keyToSave.Revoked
 	newKey.UpdatedAt = time.Now().UTC()
 
-	account.SetupKeys[newKey.Key] = newKey
-
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
+	if err = am.Store.SaveSetupKey(ctx, LockingStrengthUpdate, newKey); err != nil {
 		return nil, err
 	}
 
@@ -301,29 +310,33 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 	defer func() {
 		addedGroups := difference(newKey.AutoGroups, oldKey.AutoGroups)
 		removedGroups := difference(oldKey.AutoGroups, newKey.AutoGroups)
+
+		groupMap := make(map[string]*nbgroup.Group, len(groups))
+		for _, g := range groups {
+			groupMap[g.ID] = g
+		}
+
 		for _, g := range removedGroups {
-			group := account.GetGroup(g)
+			group := groupMap[g]
 			if group != nil {
 				am.StoreEvent(ctx, userID, oldKey.Id, accountID, activity.GroupRemovedFromSetupKey,
 					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
 			} else {
-				log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
+				log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, accountID)
 			}
 
 		}
 
 		for _, g := range addedGroups {
-			group := account.GetGroup(g)
+			group := groupMap[g]
 			if group != nil {
 				am.StoreEvent(ctx, userID, oldKey.Id, accountID, activity.GroupAddedToSetupKey,
 					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
 			} else {
-				log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
+				log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, accountID)
 			}
 		}
 	}()
-
-	am.updateAccountPeers(ctx, account)
 
 	return newKey, nil
 }
@@ -386,15 +399,22 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 	return setupKey, nil
 }
 
-func validateSetupKeyAutoGroups(account *Account, autoGroups []string) error {
-	for _, group := range autoGroups {
-		g, ok := account.Groups[group]
-		if !ok {
-			return status.Errorf(status.NotFound, "group %s doesn't exist", group)
+func validateSetupKeyAutoGroups(groups []*nbgroup.Group, autoGroups []string) error {
+	groupMap := make(map[string]*nbgroup.Group, len(groups))
+	for _, g := range groups {
+		groupMap[g.ID] = g
+	}
+
+	for _, groupID := range autoGroups {
+		g, exists := groupMap[groupID]
+		if !exists {
+			return status.Errorf(status.NotFound, "group %s doesn't exist", groupID)
 		}
+
 		if g.Name == "All" {
-			return status.Errorf(status.InvalidArgument, "can't add All group to the setup key")
+			return status.Errorf(status.InvalidArgument, "can't add 'All' group to the setup key")
 		}
 	}
+
 	return nil
 }

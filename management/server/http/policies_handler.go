@@ -130,6 +130,7 @@ func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID 
 
 	policy := server.Policy{
 		ID:          policyID,
+		AccountID:   accountID,
 		Name:        req.Name,
 		Enabled:     req.Enabled,
 		Description: req.Description,
