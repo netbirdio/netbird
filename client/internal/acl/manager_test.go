@@ -19,16 +19,16 @@ func TestDefaultManager(t *testing.T) {
 		FirewallRules: []*mgmProto.FirewallRule{
 			{
 				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_TCP,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_TCP,
 				Port:      "80",
 			},
 			{
 				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_DROP,
-				Protocol:  mgmProto.FirewallRule_UDP,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_DROP,
+				Protocol:  mgmProto.RuleProtocol_UDP,
 				Port:      "53",
 			},
 		},
@@ -65,16 +65,16 @@ func TestDefaultManager(t *testing.T) {
 	t.Run("apply firewall rules", func(t *testing.T) {
 		acl.ApplyFiltering(networkMap)
 
-		if len(acl.rulesPairs) != 2 {
-			t.Errorf("firewall rules not applied: %v", acl.rulesPairs)
+		if len(acl.peerRulesPairs) != 2 {
+			t.Errorf("firewall rules not applied: %v", acl.peerRulesPairs)
 			return
 		}
 	})
 
 	t.Run("add extra rules", func(t *testing.T) {
 		existedPairs := map[string]struct{}{}
-		for id := range acl.rulesPairs {
-			existedPairs[id] = struct{}{}
+		for id := range acl.peerRulesPairs {
+			existedPairs[id.GetRuleID()] = struct{}{}
 		}
 
 		// remove first rule
@@ -83,24 +83,24 @@ func TestDefaultManager(t *testing.T) {
 			networkMap.FirewallRules,
 			&mgmProto.FirewallRule{
 				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_DROP,
-				Protocol:  mgmProto.FirewallRule_ICMP,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_DROP,
+				Protocol:  mgmProto.RuleProtocol_ICMP,
 			},
 		)
 
 		acl.ApplyFiltering(networkMap)
 
 		// we should have one old and one new rule in the existed rules
-		if len(acl.rulesPairs) != 2 {
+		if len(acl.peerRulesPairs) != 2 {
 			t.Errorf("firewall rules not applied")
 			return
 		}
 
 		// check that old rule was removed
 		previousCount := 0
-		for id := range acl.rulesPairs {
-			if _, ok := existedPairs[id]; ok {
+		for id := range acl.peerRulesPairs {
+			if _, ok := existedPairs[id.GetRuleID()]; ok {
 				previousCount++
 			}
 		}
@@ -113,15 +113,15 @@ func TestDefaultManager(t *testing.T) {
 		networkMap.FirewallRules = networkMap.FirewallRules[:0]
 
 		networkMap.FirewallRulesIsEmpty = true
-		if acl.ApplyFiltering(networkMap); len(acl.rulesPairs) != 0 {
-			t.Errorf("rules should be empty if FirewallRulesIsEmpty is set, got: %v", len(acl.rulesPairs))
+		if acl.ApplyFiltering(networkMap); len(acl.peerRulesPairs) != 0 {
+			t.Errorf("rules should be empty if FirewallRulesIsEmpty is set, got: %v", len(acl.peerRulesPairs))
 			return
 		}
 
 		networkMap.FirewallRulesIsEmpty = false
 		acl.ApplyFiltering(networkMap)
-		if len(acl.rulesPairs) != 2 {
-			t.Errorf("rules should contain 2 rules if FirewallRulesIsEmpty is not set, got: %v", len(acl.rulesPairs))
+		if len(acl.peerRulesPairs) != 2 {
+			t.Errorf("rules should contain 2 rules if FirewallRulesIsEmpty is not set, got: %v", len(acl.peerRulesPairs))
 			return
 		}
 	})
@@ -138,51 +138,51 @@ func TestDefaultManagerSquashRules(t *testing.T) {
 		FirewallRules: []*mgmProto.FirewallRule{
 			{
 				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.4",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.4",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 		},
 	}
@@ -199,13 +199,13 @@ func TestDefaultManagerSquashRules(t *testing.T) {
 	case r.PeerIP != "0.0.0.0":
 		t.Errorf("IP should be 0.0.0.0, got: %v", r.PeerIP)
 		return
-	case r.Direction != mgmProto.FirewallRule_IN:
+	case r.Direction != mgmProto.RuleDirection_IN:
 		t.Errorf("direction should be IN, got: %v", r.Direction)
 		return
-	case r.Protocol != mgmProto.FirewallRule_ALL:
+	case r.Protocol != mgmProto.RuleProtocol_ALL:
 		t.Errorf("protocol should be ALL, got: %v", r.Protocol)
 		return
-	case r.Action != mgmProto.FirewallRule_ACCEPT:
+	case r.Action != mgmProto.RuleAction_ACCEPT:
 		t.Errorf("action should be ACCEPT, got: %v", r.Action)
 		return
 	}
@@ -215,13 +215,13 @@ func TestDefaultManagerSquashRules(t *testing.T) {
 	case r.PeerIP != "0.0.0.0":
 		t.Errorf("IP should be 0.0.0.0, got: %v", r.PeerIP)
 		return
-	case r.Direction != mgmProto.FirewallRule_OUT:
+	case r.Direction != mgmProto.RuleDirection_OUT:
 		t.Errorf("direction should be OUT, got: %v", r.Direction)
 		return
-	case r.Protocol != mgmProto.FirewallRule_ALL:
+	case r.Protocol != mgmProto.RuleProtocol_ALL:
 		t.Errorf("protocol should be ALL, got: %v", r.Protocol)
 		return
-	case r.Action != mgmProto.FirewallRule_ACCEPT:
+	case r.Action != mgmProto.RuleAction_ACCEPT:
 		t.Errorf("action should be ACCEPT, got: %v", r.Action)
 		return
 	}
@@ -238,51 +238,51 @@ func TestDefaultManagerSquashRulesNoAffect(t *testing.T) {
 		FirewallRules: []*mgmProto.FirewallRule{
 			{
 				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.4",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_TCP,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_TCP,
 			},
 			{
 				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			{
 				PeerIP:    "10.93.0.4",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_UDP,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_UDP,
 			},
 		},
 	}
@@ -308,21 +308,21 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 		FirewallRules: []*mgmProto.FirewallRule{
 			{
 				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_TCP,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_TCP,
 			},
 			{
 				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_TCP,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_TCP,
 			},
 			{
 				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_UDP,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_UDP,
 			},
 		},
 	}
@@ -357,8 +357,8 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 
 	acl.ApplyFiltering(networkMap)
 
-	if len(acl.rulesPairs) != 4 {
-		t.Errorf("expect 4 rules (last must be SSH), got: %d", len(acl.rulesPairs))
+	if len(acl.peerRulesPairs) != 4 {
+		t.Errorf("expect 4 rules (last must be SSH), got: %d", len(acl.peerRulesPairs))
 		return
 	}
 }

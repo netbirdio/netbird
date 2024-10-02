@@ -50,7 +50,7 @@ func TestManagerCreate(t *testing.T) {
 	}
 }
 
-func TestManagerAddFiltering(t *testing.T) {
+func TestManagerAddPeerFiltering(t *testing.T) {
 	isSetFilterCalled := false
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error {
@@ -72,7 +72,7 @@ func TestManagerAddFiltering(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	rule, err := m.AddFiltering(ip, proto, nil, port, direction, action, "", comment)
+	rule, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -107,7 +107,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	rule, err := m.AddFiltering(ip, proto, nil, port, direction, action, "", comment)
+	rule, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -120,14 +120,14 @@ func TestManagerDeleteRule(t *testing.T) {
 	action = fw.ActionDrop
 	comment = "Test rule 2"
 
-	rule2, err := m.AddFiltering(ip, proto, nil, port, direction, action, "", comment)
+	rule2, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
 	}
 
 	for _, r := range rule {
-		err = m.DeleteRule(r)
+		err = m.DeletePeerRule(r)
 		if err != nil {
 			t.Errorf("failed to delete rule: %v", err)
 			return
@@ -141,7 +141,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	for _, r := range rule2 {
-		err = m.DeleteRule(r)
+		err = m.DeletePeerRule(r)
 		if err != nil {
 			t.Errorf("failed to delete rule: %v", err)
 			return
@@ -253,7 +253,7 @@ func TestManagerReset(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	_, err = m.AddFiltering(ip, proto, nil, port, direction, action, "", comment)
+	_, err = m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -291,7 +291,7 @@ func TestNotMatchByIP(t *testing.T) {
 	action := fw.ActionAccept
 	comment := "Test rule"
 
-	_, err = m.AddFiltering(ip, proto, nil, nil, direction, action, "", comment)
+	_, err = m.AddPeerFiltering(ip, proto, nil, nil, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -407,9 +407,9 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []int{1000 + i}}
 				if i%2 == 0 {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
+					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
 				} else {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
+					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
 				}
 
 				require.NoError(t, err, "failed to add rule")

@@ -15,7 +15,7 @@ type Nexthop struct {
 	Intf *net.Interface
 }
 
-type ExclusionCounter = refcounter.Counter[any, Nexthop]
+type ExclusionCounter = refcounter.Counter[netip.Prefix, struct{}, Nexthop]
 
 type SysOps struct {
 	refCounter  *ExclusionCounter

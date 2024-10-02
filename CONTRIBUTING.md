@@ -96,7 +96,7 @@ They can be executed from the repository root before every push or PR:
 
 **Goreleaser**
 ```shell
-goreleaser --snapshot --rm-dist
+goreleaser build --snapshot --clean
 ```
 **golangci-lint**
 ```shell
