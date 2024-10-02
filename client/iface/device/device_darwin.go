@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 )
 
-type tunDevice struct {
+type TunDevice struct {
 	name    string
 	address WGAddress
 	port    int
@@ -26,11 +26,11 @@ type tunDevice struct {
 	device         *device.Device
 	filteredDevice *FilteredDevice
 	udpMux         *bind.UniversalUDPMuxDefault
-	configurer     configurer.WGConfigurer
+	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) WGTunDevice {
-	return &tunDevice{
+func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) *TunDevice {
+	return &TunDevice{
 		name:    name,
 		address: address,
 		port:    port,
@@ -40,7 +40,7 @@ func NewTunDevice(name string, address WGAddress, port int, key string, mtu int,
 	}
 }
 
-func (t *tunDevice) Create() (configurer.WGConfigurer, error) {
+func (t *TunDevice) Create() (WGConfigurer, error) {
 	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
@@ -70,7 +70,7 @@ func (t *tunDevice) Create() (configurer.WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -85,12 +85,12 @@ func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *tunDevice) UpdateAddr(address WGAddress) error {
+func (t *TunDevice) UpdateAddr(address WGAddress) error {
 	t.address = address
 	return t.assignAddr()
 }
 
-func (t *tunDevice) Close() error {
+func (t *TunDevice) Close() error {
 	if t.configurer != nil {
 		t.configurer.Close()
 	}
@@ -106,20 +106,20 @@ func (t *tunDevice) Close() error {
 	return nil
 }
 
-func (t *tunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunDevice) DeviceName() string {
+func (t *TunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunDevice) FilteredDevice() *FilteredDevice {
+func (t *TunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
-func (t *tunDevice) assignAddr() error {
+func (t *TunDevice) assignAddr() error {
 	cmd := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), t.address.IP.String())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Errorf("adding address command '%v' failed with output: %s", cmd.String(), out)

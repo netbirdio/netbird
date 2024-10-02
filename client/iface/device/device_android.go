@@ -29,7 +29,7 @@ type WGTunDevice struct {
 	device         *device.Device
 	filteredDevice *FilteredDevice
 	udpMux         *bind.UniversalUDPMuxDefault
-	configurer     configurer.WGConfigurer
+	configurer     WGConfigurer
 }
 
 func NewTunDevice(address WGAddress, port int, key string, mtu int, transportNet transport.Net, tunAdapter TunAdapter, filterFn bind.FilterFn) WGTunDevice {
@@ -43,7 +43,7 @@ func NewTunDevice(address WGAddress, port int, key string, mtu int, transportNet
 	}
 }
 
-func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string) (configurer.WGConfigurer, error) {
+func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string) (WGConfigurer, error) {
 	log.Info("create tun interface")
 
 	routesString := routesToString(routes)

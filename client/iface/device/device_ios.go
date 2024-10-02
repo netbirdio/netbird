@@ -16,7 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 )
 
-type tunDevice struct {
+type TunDevice struct {
 	name    string
 	address WGAddress
 	port    int
@@ -27,11 +27,11 @@ type tunDevice struct {
 	device         *device.Device
 	filteredDevice *FilteredDevice
 	udpMux         *bind.UniversalUDPMuxDefault
-	configurer     configurer.WGConfigurer
+	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, transportNet transport.Net, tunFd int, filterFn bind.FilterFn) WGTunDevice {
-	return &tunDevice{
+func NewTunDevice(name string, address WGAddress, port int, key string, transportNet transport.Net, tunFd int, filterFn bind.FilterFn) *TunDevice {
+	return &TunDevice{
 		name:    name,
 		address: address,
 		port:    port,
@@ -41,7 +41,7 @@ func NewTunDevice(name string, address WGAddress, port int, key string, transpor
 	}
 }
 
-func (t *tunDevice) Create() (configurer.WGConfigurer, error) {
+func (t *TunDevice) Create() (WGConfigurer, error) {
 	log.Infof("create tun interface")
 
 	dupTunFd, err := unix.Dup(t.tunFd)
@@ -80,7 +80,7 @@ func (t *tunDevice) Create() (configurer.WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -95,15 +95,15 @@ func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *tunDevice) Device() *device.Device {
+func (t *TunDevice) Device() *device.Device {
 	return t.device
 }
 
-func (t *tunDevice) DeviceName() string {
+func (t *TunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunDevice) Close() error {
+func (t *TunDevice) Close() error {
 	if t.configurer != nil {
 		t.configurer.Close()
 	}
@@ -120,15 +120,15 @@ func (t *tunDevice) Close() error {
 	return nil
 }
 
-func (t *tunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunDevice) UpdateAddr(addr WGAddress) error {
+func (t *TunDevice) UpdateAddr(addr WGAddress) error {
 	// todo implement
 	return nil
 }
 
-func (t *tunDevice) FilteredDevice() *FilteredDevice {
+func (t *TunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
