@@ -1094,7 +1094,7 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanUp, err := server.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := server.NewTestStoreFromSqlite(context.Background(), config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}

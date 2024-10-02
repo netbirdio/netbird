@@ -3,25 +3,15 @@ package server
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/netbirdio/netbird/util"
 )
 
 type benchCase struct {
 	name    string
 	storeFn func(b *testing.B) Store
 	size    int
-}
-
-var newFs = func(b *testing.B) Store {
-	b.Helper()
-	store, _ := NewFileStore(context.Background(), b.TempDir(), nil)
-	return store
 }
 
 var newSqlite = func(b *testing.B) Store {
@@ -32,13 +22,9 @@ var newSqlite = func(b *testing.B) Store {
 
 func BenchmarkTest_StoreWrite(b *testing.B) {
 	cases := []benchCase{
-		{name: "FileStore_Write", storeFn: newFs, size: 100},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 100},
-		{name: "FileStore_Write", storeFn: newFs, size: 500},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 500},
-		{name: "FileStore_Write", storeFn: newFs, size: 1000},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 1000},
-		{name: "FileStore_Write", storeFn: newFs, size: 2000},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 2000},
 	}
 
@@ -65,11 +51,8 @@ func BenchmarkTest_StoreWrite(b *testing.B) {
 
 func BenchmarkTest_StoreRead(b *testing.B) {
 	cases := []benchCase{
-		{name: "FileStore_Read", storeFn: newFs, size: 100},
 		{name: "SqliteStore_Read", storeFn: newSqlite, size: 100},
-		{name: "FileStore_Read", storeFn: newFs, size: 500},
 		{name: "SqliteStore_Read", storeFn: newSqlite, size: 500},
-		{name: "FileStore_Read", storeFn: newFs, size: 1000},
 		{name: "SqliteStore_Read", storeFn: newSqlite, size: 1000},
 	}
 
@@ -94,20 +77,9 @@ func BenchmarkTest_StoreRead(b *testing.B) {
 	}
 }
 
-func NewSqliteTestStore(t *testing.T, ctx context.Context, testFile string) (Store, func(), error) {
-	dataDir := t.TempDir()
-	err := util.CopyFileContents(testFile, filepath.Join(dataDir, "store.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+func newStore(t *testing.T) Store {
+	t.Helper()
+	store := newSqliteStore(t)
 
-	store, err := NewSqliteStore(ctx, dataDir, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return store, func() {
-		store.Close(ctx)
-		os.Remove(filepath.Join(dataDir, "store.db"))
-	}, nil
+	return store
 }

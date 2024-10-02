@@ -412,7 +412,8 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 		return nil, nil, "", nil, err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, cleanup, err := NewSqliteTestStore(t, context.Background(), testFile)
+
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), testFile)
 	if err != nil {
 		t.Fatal(err)
 	}

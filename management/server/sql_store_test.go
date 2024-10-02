@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -25,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/util"
 )
 
 func TestSqlite_NewStore(t *testing.T) {
@@ -347,7 +345,7 @@ func TestSqlite_GetAccount(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := NewSqliteTestStore(t, context.Background(), "testdata/store.sqlite")
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/store.sqlite")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +369,7 @@ func TestSqlite_SavePeer(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := NewSqliteTestStore(t, context.Background(), "testdata/store.sqlite")
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/store.sqlite")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +421,11 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/store.sqlite")
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
@@ -476,8 +478,11 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
-
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/store.sqlite")
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
 	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
 
@@ -527,8 +532,11 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
-
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/store.sqlite")
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
 	existingDomain := "test.com"
 
 	account, err := store.GetAccountByPrivateDomain(context.Background(), existingDomain)
@@ -547,8 +555,11 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
-
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/store.sqlite")
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
 	hashed := "SoMeHaShEdToKeN"
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
@@ -568,8 +579,11 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
-
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/store.sqlite")
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
 	user, err := store.GetUserByTokenID(context.Background(), id)
@@ -682,24 +696,6 @@ func newSqliteStore(t *testing.T) *SqlStore {
 	return store
 }
 
-func newSqliteStoreFromFile(t *testing.T, filename string) *SqlStore {
-	t.Helper()
-
-	storeDir := t.TempDir()
-
-	err := util.CopyFileContents(filename, filepath.Join(storeDir, "store.json"))
-	require.NoError(t, err)
-
-	fStore, err := NewFileStore(context.Background(), storeDir, nil)
-	require.NoError(t, err)
-
-	store, err := NewSqliteStoreFromFileStore(context.Background(), fStore, storeDir, nil)
-	require.NoError(t, err)
-	require.NotNil(t, store)
-
-	return store
-}
-
 func newAccount(store Store, id int) error {
 	str := fmt.Sprintf("%s-%d", uuid.New().String(), id)
 	account := newAccountWithId(context.Background(), str, str+"-testuser", "example.com")
@@ -741,32 +737,25 @@ func newPostgresqlStore(t *testing.T) *SqlStore {
 	return store
 }
 
-func newPostgresqlStoreFromFile(t *testing.T, filename string) *SqlStore {
+func newPostgresqlStoreFromSqlite(t *testing.T, filename string) *SqlStore {
 	t.Helper()
 
-	storeDir := t.TempDir()
-	err := util.CopyFileContents(filename, filepath.Join(storeDir, "store.json"))
-	require.NoError(t, err)
-
-	fStore, err := NewFileStore(context.Background(), storeDir, nil)
-	require.NoError(t, err)
-
-	cleanUp, err := testutil.CreatePGDB()
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), filename)
+	t.Cleanup(cleanup)
 	if err != nil {
-		t.Fatal(err)
+		return nil
 	}
-	t.Cleanup(cleanUp)
 
 	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
 	if !ok {
 		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
 	}
 
-	store, err := NewPostgresqlStoreFromFileStore(context.Background(), fStore, postgresDsn, nil)
+	pstore, err := NewPostgresqlStoreFromSqlStore(context.Background(), store, postgresDsn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
-	return store
+	return pstore
 }
 
 func TestPostgresql_NewStore(t *testing.T) {
@@ -932,7 +921,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
+	store := newPostgresqlStoreFromSqlite(t, "testdata/store.sqlite")
 
 	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
@@ -971,7 +960,7 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
+	store := newPostgresqlStoreFromSqlite(t, "testdata/store.sqlite")
 
 	existingDomain := "test.com"
 
@@ -988,7 +977,7 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
+	store := newPostgresqlStoreFromSqlite(t, "testdata/store.sqlite")
 
 	hashed := "SoMeHaShEdToKeN"
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
@@ -1003,7 +992,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
+	store := newPostgresqlStoreFromSqlite(t, "testdata/store.sqlite")
 
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
@@ -1017,12 +1006,15 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
-	defer store.Close(context.Background())
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	_, err := store.GetAccount(context.Background(), existingAccountID)
+	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	takenIPs, err := store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
@@ -1062,12 +1054,15 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
-	defer store.Close(context.Background())
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	if err != nil {
+		return
+	}
+	t.Cleanup(cleanup)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	_, err := store.GetAccount(context.Background(), existingAccountID)
+	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
@@ -1104,12 +1099,15 @@ func TestSqlite_GetAccountNetwork(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
-	defer store.Close(context.Background())
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	_, err := store.GetAccount(context.Background(), existingAccountID)
+	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	network, err := store.GetAccountNetwork(context.Background(), LockingStrengthShare, existingAccountID)
@@ -1126,12 +1124,15 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
-	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
-	defer store.Close(context.Background())
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	_, err := store.GetAccount(context.Background(), existingAccountID)
+	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
@@ -1145,12 +1146,16 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
-	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
-	defer store.Close(context.Background())
+
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	_, err := store.GetAccount(context.Background(), existingAccountID)
+	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
