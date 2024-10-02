@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/dns"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/dns"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 

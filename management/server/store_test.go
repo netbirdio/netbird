@@ -3,9 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 type benchCase struct {
@@ -88,4 +92,22 @@ func BenchmarkTest_StoreRead(b *testing.B) {
 			})
 		})
 	}
+}
+
+func NewSqliteTestStore(t *testing.T, ctx context.Context, testFile string) (Store, func(), error) {
+	dataDir := t.TempDir()
+	err := util.CopyFileContents(testFile, filepath.Join(dataDir, "store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewSqliteStore(ctx, dataDir, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return store, func() {
+		store.Close(ctx)
+		os.Remove(filepath.Join(dataDir, "store.db"))
+	}, nil
 }

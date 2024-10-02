@@ -347,7 +347,11 @@ func TestSqlite_GetAccount(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store, cleanup, err := NewSqliteTestStore(t, context.Background(), "testdata/store.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
 
 	id := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -367,7 +371,11 @@ func TestSqlite_SavePeer(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store, cleanup, err := NewSqliteTestStore(t, context.Background(), "testdata/store.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
 
 	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
