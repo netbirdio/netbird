@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -389,6 +390,10 @@ func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, u
 
 // SaveGroups saves the given list of groups to the database.
 func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*nbgroup.Group) error {
+	if len(groups) == 0 {
+		return nil
+	}
+
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&groups)
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "failed to save groups to store: %v", result.Error)
@@ -1004,6 +1009,84 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId 
 	}
 
 	return nil
+}
+
+// AddUserPeersToGroups adds the user's peers to specified groups in database.
+func (s *SqlStore) AddUserPeersToGroups(ctx context.Context, accountID string, userID string, groupIDs []string) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+
+	var userPeerIDs []string
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(LockingStrengthShare)}).Select("id").
+		Where("account_id = ? AND user_id = ?", accountID, userID).Model(&nbpeer.Peer{}).Find(&userPeerIDs)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "issue finding user peers")
+	}
+
+	groupsToUpdate := make([]*nbgroup.Group, 0, len(groupIDs))
+	for _, gid := range groupIDs {
+		group, err := s.GetGroupByID(ctx, LockingStrengthShare, gid, accountID)
+		if err != nil {
+			return err
+		}
+
+		groupPeers := make(map[string]struct{})
+		for _, pid := range group.Peers {
+			groupPeers[pid] = struct{}{}
+		}
+
+		for _, pid := range userPeerIDs {
+			groupPeers[pid] = struct{}{}
+		}
+
+		group.Peers = group.Peers[:0]
+		for pid := range groupPeers {
+			group.Peers = append(group.Peers, pid)
+		}
+
+		groupsToUpdate = append(groupsToUpdate, group)
+	}
+
+	return s.SaveGroups(ctx, LockingStrengthUpdate, groupsToUpdate)
+}
+
+// RemoveUserPeersFromGroups removes the user's peers from specified groups in database.
+func (s *SqlStore) RemoveUserPeersFromGroups(ctx context.Context, accountID string, userID string, groupIDs []string) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+
+	var userPeerIDs []string
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(LockingStrengthShare)}).Select("id").
+		Where("account_id = ? AND user_id = ?", accountID, userID).Model(&nbpeer.Peer{}).Find(&userPeerIDs)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "issue finding user peers")
+	}
+
+	groupsToUpdate := make([]*nbgroup.Group, 0, len(groupIDs))
+	for _, gid := range groupIDs {
+		group, err := s.GetGroupByID(ctx, LockingStrengthShare, gid, accountID)
+		if err != nil {
+			return err
+		}
+
+		if group.Name == "All" {
+			continue
+		}
+
+		update := make([]string, 0, len(group.Peers))
+		for _, pid := range group.Peers {
+			if !slices.Contains(userPeerIDs, pid) {
+				update = append(update, pid)
+			}
+		}
+
+		group.Peers = update
+		groupsToUpdate = append(groupsToUpdate, group)
+	}
+
+	return s.SaveGroups(ctx, LockingStrengthUpdate, groupsToUpdate)
 }
 
 func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {

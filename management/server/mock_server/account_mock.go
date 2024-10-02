@@ -27,7 +27,7 @@ type MockAccountManager struct {
 	CreateSetupKeyFunc           func(ctx context.Context, accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*server.SetupKey, error)
 	GetSetupKeyFunc                     func(ctx context.Context, accountID, userID, keyID string) (*server.SetupKey, error)
-	GetAccountIDByUserOrAccountIdFunc   func(ctx context.Context, userId, accountId, domain string) (string, error)
+	GetAccountIDByUserIdFunc            func(ctx context.Context, userId, domain string) (string, error)
 	GetUserFunc                         func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.User, error)
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*server.User, error)
 	GetPeersFunc                        func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
@@ -194,10 +194,10 @@ func (am *MockAccountManager) CreateSetupKey(
 	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
 }
 
-// GetAccountIDByUserOrAccountID mock implementation of GetAccountIDByUserOrAccountID from server.AccountManager interface
-func (am *MockAccountManager) GetAccountIDByUserOrAccountID(ctx context.Context, userId, accountId, domain string) (string, error) {
-	if am.GetAccountIDByUserOrAccountIdFunc != nil {
-		return am.GetAccountIDByUserOrAccountIdFunc(ctx, userId, accountId, domain)
+// GetAccountIDByUserID mock implementation of GetAccountIDByUserID from server.AccountManager interface
+func (am *MockAccountManager) GetAccountIDByUserID(ctx context.Context, userId, domain string) (string, error) {
+	if am.GetAccountIDByUserIdFunc != nil {
+		return am.GetAccountIDByUserIdFunc(ctx, userId, domain)
 	}
 	return "", status.Errorf(
 		codes.Unimplemented,

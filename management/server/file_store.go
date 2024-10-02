@@ -1050,3 +1050,11 @@ func (s *FileStore) SaveUser(_ context.Context, _ LockingStrength, _ *User) erro
 func (s *FileStore) SaveGroup(_ context.Context, _ LockingStrength, _ *nbgroup.Group) error {
 	return status.Errorf(status.Internal, "SaveGroup is not implemented")
 }
+
+func (s *FileStore) AddUserPeersToGroups(_ context.Context, _ string, _ string, _ []string) error {
+	return status.Errorf(status.Internal, "AddUserPeersToGroups is not implemented")
+}
+
+func (s *FileStore) RemoveUserPeersFromGroups(_ context.Context, _ string, _ string, _ []string) error {
+	return status.Errorf(status.Internal, "RemoveUserPeersFromGroups is not implemented")
+}

@@ -1835,81 +1835,80 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	jwtGroupsNames := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
 	hasChanges, updatedAutoGroups, newGroupsToCreate, err := am.getJWTGroupsChanges(ctx, claims.UserId, accountID, jwtGroupsNames)
 	if err != nil {
-		//log.WithContext(ctx).Debugf("skipping JWT groups sync for user %s: %v", claims.UserId, err)
 		return err
 	}
 
-	// Update the account if group membership changes
-	if hasChanges {
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-			oldGroups := make([]string, len(user.AutoGroups))
-			copy(oldGroups, user.AutoGroups)
-
-			addNewGroups := difference(user.AutoGroups, oldGroups)
-			removeOldGroups := difference(oldGroups, user.AutoGroups)
-
-			// Propagate changes to peers if group propagation is enabled
-			if settings.GroupsPropagationEnabled {
-				// TODO propagate users groups changes to peers
-				//account.UserGroupsAddToPeers(claims.UserId, addNewGroups...)
-				//account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
-
-				if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-					return fmt.Errorf("error incrementing network serial: %w", err)
-				}
-
-				account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-				if err != nil {
-					return fmt.Errorf("error getting account: %w", err)
-				}
-				log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-				am.updateAccountPeers(ctx, account)
-			}
-
-			user.AutoGroups = updatedAutoGroups
-			if err = transaction.SaveUser(ctx, LockingStrengthUpdate, user); err != nil {
-				return fmt.Errorf("error saving user: %w", err)
-			}
-
-			if len(newGroupsToCreate) > 0 {
-				if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, newGroupsToCreate); err != nil {
-					return fmt.Errorf("error saving groups: %w", err)
-				}
-			}
-
-			for _, g := range addNewGroups {
-				group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
-				if err != nil {
-					log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
-				} else {
-					meta := map[string]any{
-						"group": group.Name, "group_id": group.ID,
-						"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
-					}
-					am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupAddedToUser, meta)
-				}
-			}
-
-			for _, g := range removeOldGroups {
-				group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
-				if err != nil {
-					log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
-				} else {
-					meta := map[string]any{
-						"group": group.Name, "group_id": group.ID,
-						"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
-					}
-					am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupRemovedFromUser, meta)
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
+	// skip update if no changes
+	if !hasChanges {
+		log.WithContext(ctx).Debugf("no changes in JWT group membership")
+		return nil
 	}
 
-	return nil
+	return am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		oldGroups := make([]string, len(user.AutoGroups))
+		copy(oldGroups, user.AutoGroups)
+
+		addNewGroups := difference(user.AutoGroups, oldGroups)
+		removeOldGroups := difference(oldGroups, user.AutoGroups)
+
+		user.AutoGroups = updatedAutoGroups
+		if err = transaction.SaveUser(ctx, LockingStrengthUpdate, user); err != nil {
+			return fmt.Errorf("error saving user: %w", err)
+		}
+
+		if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, newGroupsToCreate); err != nil {
+			return fmt.Errorf("error saving groups: %w", err)
+		}
+
+		// Propagate changes to peers if group propagation is enabled
+		if settings.GroupsPropagationEnabled {
+			if err = transaction.AddUserPeersToGroups(ctx, accountID, claims.UserId, addNewGroups); err != nil {
+				return fmt.Errorf("error adding user peers to groups: %w", err)
+			}
+
+			if err = transaction.RemoveUserPeersFromGroups(ctx, accountID, claims.UserId, removeOldGroups); err != nil {
+				return fmt.Errorf("error removing user peers from groups: %w", err)
+			}
+
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return fmt.Errorf("error incrementing network serial: %w", err)
+			}
+
+			account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+			if err != nil {
+				return fmt.Errorf("error getting account: %w", err)
+			}
+			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
+			am.updateAccountPeers(ctx, account)
+		}
+
+		for _, g := range addNewGroups {
+			group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+			if err != nil {
+				log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
+			} else {
+				meta := map[string]any{
+					"group": group.Name, "group_id": group.ID,
+					"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
+				}
+				am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupAddedToUser, meta)
+			}
+		}
+
+		for _, g := range removeOldGroups {
+			group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+			if err != nil {
+				log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
+			} else {
+				meta := map[string]any{
+					"group": group.Name, "group_id": group.ID,
+					"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
+				}
+				am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupRemovedFromUser, meta)
+			}
+		}
+		return nil
+	})
 }
 
 // getAccountIDWithAuthorizationClaims retrieves an account ID using JWT Claims.
