@@ -740,8 +740,7 @@ func newPostgresqlStore(t *testing.T) *SqlStore {
 func newPostgresqlStoreFromSqlite(t *testing.T, filename string) *SqlStore {
 	t.Helper()
 
-	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), filename)
-	t.Cleanup(cleanup)
+	store, _, err := NewSqliteTestStore(context.Background(), t.TempDir(), filename)
 	if err != nil {
 		return nil
 	}
