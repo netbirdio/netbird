@@ -33,9 +33,10 @@ const (
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
+const flushError = "flush: %w"
+
 var (
-	anyIP           = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	postroutingMark = []byte{0xe4, 0x7, 0x0, 0x00}
+	anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
 
 type AclManager struct {
@@ -48,7 +49,6 @@ type AclManager struct {
 	chainInputRules  *nftables.Chain
 	chainOutputRules *nftables.Chain
 	chainFwFilter    *nftables.Chain
-	chainPrerouting  *nftables.Chain
 
 	ipsetStore *ipsetStore
 	rules      map[string]*Rule
@@ -64,7 +64,7 @@ type iFaceMapper interface {
 func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainName string) (*AclManager, error) {
 	// sConn is used for creating sets and adding/removing elements from them
 	// it's differ then rConn (which does create new conn for each flush operation)
-	// and is permanent. Using same connection for booth type of operations
+	// and is permanent. Using same connection for both type of operations
 	// overloads netlink with high amount of rules ( > 10000)
 	sConn, err := nftables.New(nftables.AsLasting())
 	if err != nil {
@@ -90,11 +90,11 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainNa
 	return m, nil
 }
 
-// AddFiltering rule to the firewall
+// AddPeerFiltering rule to the firewall
 //
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
-func (m *AclManager) AddFiltering(
+func (m *AclManager) AddPeerFiltering(
 	ip net.IP,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
@@ -120,20 +120,11 @@ func (m *AclManager) AddFiltering(
 	}
 
 	newRules = append(newRules, ioRule)
-	if !shouldAddToPrerouting(proto, dPort, direction) {
-		return newRules, nil
-	}
-
-	preroutingRule, err := m.addPreroutingFiltering(ipset, proto, dPort, ip)
-	if err != nil {
-		return newRules, err
-	}
-	newRules = append(newRules, preroutingRule)
 	return newRules, nil
 }
 
-// DeleteRule from the firewall by rule definition
-func (m *AclManager) DeleteRule(rule firewall.Rule) error {
+// DeletePeerRule from the firewall by rule definition
+func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 	r, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("invalid rule type")
@@ -199,8 +190,7 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	return nil
 }
 
-// createDefaultAllowRules In case if the USP firewall manager can use the native firewall manager we must to create allow rules for
-// input and output chains
+// createDefaultAllowRules creates default allow rules for the input and output chains
 func (m *AclManager) createDefaultAllowRules() error {
 	expIn := []expr.Any{
 		&expr.Payload{
@@ -214,13 +204,13 @@ func (m *AclManager) createDefaultAllowRules() error {
 			SourceRegister: 1,
 			DestRegister:   1,
 			Len:            4,
-			Mask:           []byte{0x00, 0x00, 0x00, 0x00},
-			Xor:            zeroXor,
+			Mask:           []byte{0, 0, 0, 0},
+			Xor:            []byte{0, 0, 0, 0},
 		},
 		// net address
 		&expr.Cmp{
 			Register: 1,
-			Data:     []byte{0x00, 0x00, 0x00, 0x00},
+			Data:     []byte{0, 0, 0, 0},
 		},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,
@@ -246,13 +236,13 @@ func (m *AclManager) createDefaultAllowRules() error {
 			SourceRegister: 1,
 			DestRegister:   1,
 			Len:            4,
-			Mask:           []byte{0x00, 0x00, 0x00, 0x00},
-			Xor:            zeroXor,
+			Mask:           []byte{0, 0, 0, 0},
+			Xor:            []byte{0, 0, 0, 0},
 		},
 		// net address
 		&expr.Cmp{
 			Register: 1,
-			Data:     []byte{0x00, 0x00, 0x00, 0x00},
+			Data:     []byte{0, 0, 0, 0},
 		},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,
@@ -266,10 +256,8 @@ func (m *AclManager) createDefaultAllowRules() error {
 		Exprs:    expOut,
 	})
 
-	err := m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create default allow rules: %s", err)
-		return err
+	if err := m.rConn.Flush(); err != nil {
+		return fmt.Errorf(flushError, err)
 	}
 	return nil
 }
@@ -290,15 +278,11 @@ func (m *AclManager) Flush() error {
 		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
 	}
 
-	if err := m.refreshRuleHandles(m.chainPrerouting); err != nil {
-		log.Errorf("failed to refresh rule handles IPv4 prerouting chain: %v", err)
-	}
-
 	return nil
 }
 
 func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, ipset *nftables.Set, comment string) (*Rule, error) {
-	ruleId := generateRuleId(ip, sPort, dPort, direction, action, ipset)
+	ruleId := generatePeerRuleId(ip, sPort, dPort, direction, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
 		return &Rule{
 			r.nftRule,
@@ -308,18 +292,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		}, nil
 	}
 
-	ifaceKey := expr.MetaKeyIIFNAME
-	if direction == firewall.RuleDirectionOUT {
-		ifaceKey = expr.MetaKeyOIFNAME
-	}
-	expressions := []expr.Any{
-		&expr.Meta{Key: ifaceKey, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-	}
+	var expressions []expr.Any
 
 	if proto != firewall.ProtocolALL {
 		expressions = append(expressions, &expr.Payload{
@@ -329,21 +302,15 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 			Len:          uint32(1),
 		})
 
-		var protoData []byte
-		switch proto {
-		case firewall.ProtocolTCP:
-			protoData = []byte{unix.IPPROTO_TCP}
-		case firewall.ProtocolUDP:
-			protoData = []byte{unix.IPPROTO_UDP}
-		case firewall.ProtocolICMP:
-			protoData = []byte{unix.IPPROTO_ICMP}
-		default:
-			return nil, fmt.Errorf("unsupported protocol: %s", proto)
+		protoData, err := protoToInt(proto)
+		if err != nil {
+			return nil, fmt.Errorf("convert protocol to number: %v", err)
 		}
+
 		expressions = append(expressions, &expr.Cmp{
 			Register: 1,
 			Op:       expr.CmpOpEq,
-			Data:     protoData,
+			Data:     []byte{protoData},
 		})
 	}
 
@@ -432,10 +399,9 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	} else {
 		chain = m.chainOutputRules
 	}
-	nftRule := m.rConn.InsertRule(&nftables.Rule{
+	nftRule := m.rConn.AddRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    chain,
-		Position: 0,
 		Exprs:    expressions,
 		UserData: userData,
 	})
@@ -453,139 +419,13 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	return rule, nil
 }
 
-func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.Protocol, port *firewall.Port, ip net.IP) (*Rule, error) {
-	var protoData []byte
-	switch proto {
-	case firewall.ProtocolTCP:
-		protoData = []byte{unix.IPPROTO_TCP}
-	case firewall.ProtocolUDP:
-		protoData = []byte{unix.IPPROTO_UDP}
-	case firewall.ProtocolICMP:
-		protoData = []byte{unix.IPPROTO_ICMP}
-	default:
-		return nil, fmt.Errorf("unsupported protocol: %s", proto)
-	}
-
-	ruleId := generateRuleIdForMangle(ipset, ip, proto, port)
-	if r, ok := m.rules[ruleId]; ok {
-		return &Rule{
-			r.nftRule,
-			r.nftSet,
-			r.ruleID,
-			ip,
-		}, nil
-	}
-
-	var ipExpression expr.Any
-	// add individual IP for match if no ipset defined
-	rawIP := ip.To4()
-	if ipset == nil {
-		ipExpression = &expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     rawIP,
-		}
-	} else {
-		ipExpression = &expr.Lookup{
-			SourceRegister: 1,
-			SetName:        ipset.Name,
-			SetID:          ipset.ID,
-		}
-	}
-
-	expressions := []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		ipExpression,
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     m.wgIface.Address().IP.To4(),
-		},
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       uint32(9),
-			Len:          uint32(1),
-		},
-		&expr.Cmp{
-			Register: 1,
-			Op:       expr.CmpOpEq,
-			Data:     protoData,
-		},
-	}
-
-	if port != nil {
-		expressions = append(expressions,
-			&expr.Payload{
-				DestRegister: 1,
-				Base:         expr.PayloadBaseTransportHeader,
-				Offset:       2,
-				Len:          2,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     encodePort(*port),
-			},
-		)
-	}
-
-	expressions = append(expressions,
-		&expr.Immediate{
-			Register: 1,
-			Data:     postroutingMark,
-		},
-		&expr.Meta{
-			Key:            expr.MetaKeyMARK,
-			SourceRegister: true,
-			Register:       1,
-		},
-	)
-
-	nftRule := m.rConn.InsertRule(&nftables.Rule{
-		Table:    m.workTable,
-		Chain:    m.chainPrerouting,
-		Position: 0,
-		Exprs:    expressions,
-		UserData: []byte(ruleId),
-	})
-
-	if err := m.rConn.Flush(); err != nil {
-		return nil, fmt.Errorf("flush insert rule: %v", err)
-	}
-
-	rule := &Rule{
-		nftRule: nftRule,
-		nftSet:  ipset,
-		ruleID:  ruleId,
-		ip:      ip,
-	}
-
-	m.rules[ruleId] = rule
-	if ipset != nil {
-		m.ipsetStore.AddReferenceToIpset(ipset.Name)
-	}
-	return rule, nil
-}
-
 func (m *AclManager) createDefaultChains() (err error) {
 	// chainNameInputRules
 	chain := m.createChain(chainNameInputRules)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
-		return err
+		return fmt.Errorf(flushError, err)
 	}
 	m.chainInputRules = chain
 
@@ -601,9 +441,6 @@ func (m *AclManager) createDefaultChains() (err error) {
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
 	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput)
-	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
-	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
-	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
 	m.addJumpRule(chain, m.chainInputRules.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
 	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
 	err = m.rConn.Flush()
@@ -615,7 +452,6 @@ func (m *AclManager) createDefaultChains() (err error) {
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
 	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput)
-	m.addRouteAllowRule(chain, expr.MetaKeyOIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
 	m.addJumpRule(chain, m.chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
 	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
@@ -627,24 +463,15 @@ func (m *AclManager) createDefaultChains() (err error) {
 
 	// netbird-acl-forward-filter
 	m.chainFwFilter = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
-	m.addJumpRulesToRtForward() // to
-	m.addMarkAccept()
-	m.addJumpRuleToInputChain() // to netbird-acl-input-rules
+	m.addJumpRulesToRtForward() // to netbird-rt-fwd
 	m.addDropExpressions(m.chainFwFilter, expr.MetaKeyIIFNAME)
+
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
-		return err
+		return fmt.Errorf(flushError, err)
 	}
 
-	// netbird-acl-output-filter
-	// type filter hook output priority filter; policy accept;
-	m.chainPrerouting = m.createPreroutingMangle()
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
-		return err
-	}
 	return nil
 }
 
@@ -667,59 +494,6 @@ func (m *AclManager) addJumpRulesToRtForward() {
 		Chain: m.chainFwFilter,
 		Exprs: expressions,
 	})
-
-	expressions = []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Verdict{
-			Kind:  expr.VerdictJump,
-			Chain: m.routeingFwChainName,
-		},
-	}
-
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: m.chainFwFilter,
-		Exprs: expressions,
-	})
-}
-
-func (m *AclManager) addMarkAccept() {
-	// oifname "wt0" meta mark 0x000007e4 accept
-	// iifname "wt0" meta mark 0x000007e4 accept
-	ifaces := []expr.MetaKey{expr.MetaKeyIIFNAME, expr.MetaKeyOIFNAME}
-	for _, iface := range ifaces {
-		expressions := []expr.Any{
-			&expr.Meta{Key: iface, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     ifname(m.wgIface.Name()),
-			},
-			&expr.Meta{
-				Key:      expr.MetaKeyMARK,
-				Register: 1,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     postroutingMark,
-			},
-			&expr.Verdict{
-				Kind: expr.VerdictAccept,
-			},
-		}
-
-		_ = m.rConn.AddRule(&nftables.Rule{
-			Table: m.workTable,
-			Chain: m.chainFwFilter,
-			Exprs: expressions,
-		})
-	}
 }
 
 func (m *AclManager) createChain(name string) *nftables.Chain {
@@ -729,6 +503,9 @@ func (m *AclManager) createChain(name string) *nftables.Chain {
 	}
 
 	chain = m.rConn.AddChain(chain)
+
+	insertReturnTrafficRule(m.rConn, m.workTable, chain)
+
 	return chain
 }
 
@@ -744,74 +521,6 @@ func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.Cha
 	}
 
 	return m.rConn.AddChain(chain)
-}
-
-func (m *AclManager) createPreroutingMangle() *nftables.Chain {
-	polAccept := nftables.ChainPolicyAccept
-	chain := &nftables.Chain{
-		Name:     "netbird-acl-prerouting-filter",
-		Table:    m.workTable,
-		Hooknum:  nftables.ChainHookPrerouting,
-		Priority: nftables.ChainPriorityMangle,
-		Type:     nftables.ChainTypeFilter,
-		Policy:   &polAccept,
-	}
-
-	chain = m.rConn.AddChain(chain)
-
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-	expressions := []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpNeq,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     m.wgIface.Address().IP.To4(),
-		},
-		&expr.Immediate{
-			Register: 1,
-			Data:     postroutingMark,
-		},
-		&expr.Meta{
-			Key:            expr.MetaKeyMARK,
-			SourceRegister: true,
-			Register:       1,
-		},
-	}
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: chain,
-		Exprs: expressions,
-	})
-	return chain
 }
 
 func (m *AclManager) addDropExpressions(chain *nftables.Chain, ifaceKey expr.MetaKey) []expr.Any {
@@ -832,125 +541,15 @@ func (m *AclManager) addDropExpressions(chain *nftables.Chain, ifaceKey expr.Met
 	return nil
 }
 
-func (m *AclManager) addJumpRuleToInputChain() {
-	expressions := []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Verdict{
-			Kind:  expr.VerdictJump,
-			Chain: m.chainInputRules.Name,
-		},
-	}
-
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: m.chainFwFilter,
-		Exprs: expressions,
-	})
-}
-
-func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.MetaKey) {
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-	var srcOp, dstOp expr.CmpOp
-	if netIfName == expr.MetaKeyIIFNAME {
-		srcOp = expr.CmpOpEq
-		dstOp = expr.CmpOpNeq
-	} else {
-		srcOp = expr.CmpOpNeq
-		dstOp = expr.CmpOpEq
-	}
-	expressions := []expr.Any{
-		&expr.Meta{Key: netIfName, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       srcOp,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       dstOp,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
-		&expr.Verdict{
-			Kind: expr.VerdictAccept,
-		},
-	}
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: chain.Table,
-		Chain: chain,
-		Exprs: expressions,
-	})
-}
-
 func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-	var srcOp, dstOp expr.CmpOp
-	if iifname == expr.MetaKeyIIFNAME {
-		srcOp = expr.CmpOpNeq
-		dstOp = expr.CmpOpEq
-	} else {
-		srcOp = expr.CmpOpEq
-		dstOp = expr.CmpOpNeq
-	}
+	dstOp := expr.CmpOpNeq
 	expressions := []expr.Any{
 		&expr.Meta{Key: iifname, Register: 1},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
 			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       srcOp,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
 		},
 		&expr.Payload{
 			DestRegister: 2,
@@ -982,7 +581,6 @@ func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 }
 
 func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
 	expressions := []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
@@ -990,47 +588,12 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 			Register: 1,
 			Data:     ifname(m.wgIface.Name()),
 		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
 		&expr.Verdict{
 			Kind:  expr.VerdictJump,
 			Chain: to,
 		},
 	}
+
 	_ = m.rConn.AddRule(&nftables.Rule{
 		Table: chain.Table,
 		Chain: chain,
@@ -1132,7 +695,7 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
 	return nil
 }
 
-func generateRuleId(
+func generatePeerRuleId(
 	ip net.IP,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
@@ -1155,33 +718,6 @@ func generateRuleId(
 	}
 	return "set:" + ipset.Name + rulesetID
 }
-func generateRuleIdForMangle(ipset *nftables.Set, ip net.IP, proto firewall.Protocol, port *firewall.Port) string {
-	// case of icmp port is empty
-	var p string
-	if port != nil {
-		p = port.String()
-	}
-	if ipset != nil {
-		return fmt.Sprintf("p:set:%s:%s:%v", ipset.Name, proto, p)
-	} else {
-		return fmt.Sprintf("p:ip:%s:%s:%v", ip.String(), proto, p)
-	}
-}
-
-func shouldAddToPrerouting(proto firewall.Protocol, dPort *firewall.Port, direction firewall.RuleDirection) bool {
-	if proto == "all" {
-		return false
-	}
-
-	if direction != firewall.RuleDirectionIN {
-		return false
-	}
-
-	if dPort == nil && proto != firewall.ProtocolICMP {
-		return false
-	}
-	return true
-}
 
 func encodePort(port firewall.Port) []byte {
 	bs := make([]byte, 2)
@@ -1191,6 +727,19 @@ func encodePort(port firewall.Port) []byte {
 
 func ifname(n string) []byte {
 	b := make([]byte, 16)
-	copy(b, []byte(n+"\x00"))
+	copy(b, n+"\x00")
 	return b
+}
+
+func protoToInt(protocol firewall.Protocol) (uint8, error) {
+	switch protocol {
+	case firewall.ProtocolTCP:
+		return unix.IPPROTO_TCP, nil
+	case firewall.ProtocolUDP:
+		return unix.IPPROTO_UDP, nil
+	case firewall.ProtocolICMP:
+		return unix.IPPROTO_ICMP, nil
+	}
+
+	return 0, fmt.Errorf("unsupported protocol: %s", protocol)
 }

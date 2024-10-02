@@ -646,7 +646,6 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 		})
 	}
-
 }
 
 func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccountManager, string, string, error) {
@@ -991,9 +990,9 @@ func TestToSyncResponse(t *testing.T) {
 	// assert network map Firewall
 	assert.Equal(t, 1, len(response.NetworkMap.FirewallRules))
 	assert.Equal(t, "192.168.1.2", response.NetworkMap.FirewallRules[0].PeerIP)
-	assert.Equal(t, proto.FirewallRule_IN, response.NetworkMap.FirewallRules[0].Direction)
-	assert.Equal(t, proto.FirewallRule_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
-	assert.Equal(t, proto.FirewallRule_TCP, response.NetworkMap.FirewallRules[0].Protocol)
+	assert.Equal(t, proto.RuleDirection_IN, response.NetworkMap.FirewallRules[0].Direction)
+	assert.Equal(t, proto.RuleAction_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
+	assert.Equal(t, proto.RuleProtocol_TCP, response.NetworkMap.FirewallRules[0].Protocol)
 	assert.Equal(t, "80", response.NetworkMap.FirewallRules[0].Port)
 	// assert posture checks
 	assert.Equal(t, 1, len(response.Checks))

@@ -172,6 +172,11 @@ func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID 
 			return
 		}
 
+		if (rule.Ports != nil && len(*rule.Ports) != 0) && (rule.PortRanges != nil && len(*rule.PortRanges) != 0) {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either individual ports or port ranges, not both"), w)
+			return
+		}
+
 		if rule.Ports != nil && len(*rule.Ports) != 0 {
 			for _, v := range *rule.Ports {
 				if port, err := strconv.Atoi(v); err != nil || port < 1 || port > 65535 {
@@ -182,10 +187,23 @@ func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID 
 			}
 		}
 
+		if rule.PortRanges != nil && len(*rule.PortRanges) != 0 {
+			for _, portRange := range *rule.PortRanges {
+				if portRange.Start < 1 || portRange.End > 65535 {
+					util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "valid port value is in 1..65535 range"), w)
+					return
+				}
+				pr.PortRanges = append(pr.PortRanges, server.RulePortRange{
+					Start: uint16(portRange.Start),
+					End:   uint16(portRange.End),
+				})
+			}
+		}
+
 		// validate policy object
 		switch pr.Protocol {
 		case server.PolicyRuleProtocolALL, server.PolicyRuleProtocolICMP:
-			if len(pr.Ports) != 0 {
+			if len(pr.Ports) != 0 || len(pr.PortRanges) != 0 {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
 				return
 			}
@@ -194,7 +212,7 @@ func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID 
 				return
 			}
 		case server.PolicyRuleProtocolTCP, server.PolicyRuleProtocolUDP:
-			if !pr.Bidirectional && len(pr.Ports) == 0 {
+			if !pr.Bidirectional && (len(pr.Ports) == 0 || len(pr.PortRanges) != 0) {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
 				return
 			}
@@ -318,6 +336,17 @@ func toPolicyResponse(groups []*nbgroup.Group, policy *server.Policy) *api.Polic
 		if len(r.Ports) != 0 {
 			portsCopy := r.Ports
 			rule.Ports = &portsCopy
+		}
+
+		if len(r.PortRanges) != 0 {
+			portRanges := make([]api.RulePortRange, 0, len(r.PortRanges))
+			for _, portRange := range r.PortRanges {
+				portRanges = append(portRanges, api.RulePortRange{
+					End:   int(portRange.End),
+					Start: int(portRange.Start),
+				})
+			}
+			rule.PortRanges = &portRanges
 		}
 
 		for _, gid := range r.Sources {

@@ -117,9 +117,14 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		peerGroupIds = *req.PeerGroups
 	}
 
+	var accessControlGroupIds []string
+	if req.AccessControlGroups != nil {
+		accessControlGroupIds = *req.AccessControlGroups
+	}
+
 	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, peerId, peerGroupIds,
-		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, req.Enabled, userID, req.KeepRoute,
-	)
+		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute)
+
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -233,6 +238,10 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		newRoute.PeerGroups = *req.PeerGroups
 	}
 
+	if req.AccessControlGroups != nil {
+		newRoute.AccessControlGroups = *req.AccessControlGroups
+	}
+
 	err = h.accountManager.SaveRoute(r.Context(), accountID, userID, newRoute)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -325,6 +334,9 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 
 	if len(serverRoute.PeerGroups) > 0 {
 		route.PeerGroups = &serverRoute.PeerGroups
+	}
+	if len(serverRoute.AccessControlGroups) > 0 {
+		route.AccessControlGroups = &serverRoute.AccessControlGroups
 	}
 	return route, nil
 }
