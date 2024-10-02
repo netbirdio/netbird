@@ -5,7 +5,6 @@ package ebpf
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"sync"
@@ -94,13 +93,12 @@ func (p *WGEBPFProxy) Listen() error {
 }
 
 // AddTurnConn add new turn connection for the proxy
-func (p *WGEBPFProxy) AddTurnConn(ctx context.Context, turnConn net.Conn) (net.Addr, error) {
+func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (*net.UDPAddr, error) {
 	wgEndpointPort, err := p.storeTurnConn(turnConn)
 	if err != nil {
 		return nil, err
 	}
 
-	go p.proxyToLocal(ctx, wgEndpointPort, turnConn)
 	log.Infof("turn conn added to wg proxy store: %s, endpoint port: :%d", turnConn.RemoteAddr(), wgEndpointPort)
 
 	wgEndpoint := &net.UDPAddr{
@@ -135,35 +133,6 @@ func (p *WGEBPFProxy) Free() error {
 		result = multierror.Append(result, err)
 	}
 	return nberrors.FormatErrorOrNil(result)
-}
-
-func (p *WGEBPFProxy) proxyToLocal(ctx context.Context, endpointPort uint16, remoteConn net.Conn) {
-	defer p.removeTurnConn(endpointPort)
-
-	var (
-		err error
-		n   int
-	)
-	buf := make([]byte, 1500)
-	for ctx.Err() == nil {
-		n, err = remoteConn.Read(buf)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			if err != io.EOF {
-				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
-			}
-			return
-		}
-
-		if err := p.sendPkg(buf[:n], endpointPort); err != nil {
-			if ctx.Err() != nil || p.ctx.Err() != nil {
-				return
-			}
-			log.Errorf("failed to write out turn pkg to local conn: %v", err)
-		}
-	}
 }
 
 // proxyToRemote read messages from local WireGuard interface and forward it to remote conn

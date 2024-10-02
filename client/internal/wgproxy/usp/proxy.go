@@ -15,13 +15,17 @@ import (
 // WGUserSpaceProxy proxies
 type WGUserSpaceProxy struct {
 	localWGListenPort int
-	ctx               context.Context
-	cancel            context.CancelFunc
 
 	remoteConn net.Conn
 	localConn  net.Conn
+	ctx        context.Context
+	cancel     context.CancelFunc
 	closeMu    sync.Mutex
 	closed     bool
+
+	pausedMu  sync.Mutex
+	paused    bool
+	isStarted bool
 }
 
 // NewWGUserSpaceProxy instantiate a user space WireGuard proxy. This is not a thread safe implementation
@@ -33,24 +37,51 @@ func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
 	return p
 }
 
-// AddTurnConn start the proxy with the given remote conn
+// AddTurnConn
+// The provided Context must be non-nil. If the context expires before
+// the connection is complete, an error is returned. Once successfully
+// connected, any expiration of the context will not affect the
+// connection.
 func (p *WGUserSpaceProxy) AddTurnConn(ctx context.Context, remoteConn net.Conn) (net.Addr, error) {
-	p.ctx, p.cancel = context.WithCancel(ctx)
-
-	p.remoteConn = remoteConn
-
-	var err error
 	dialer := net.Dialer{}
-	p.localConn, err = dialer.DialContext(p.ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
+	localConn, err := dialer.DialContext(ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
 	if err != nil {
 		log.Errorf("failed dialing to local Wireguard port %s", err)
+		p.cancel()
 		return nil, err
 	}
 
-	go p.proxyToRemote()
-	go p.proxyToLocal()
+	p.ctx, p.cancel = context.WithCancel(ctx)
+	p.localConn = localConn
+	p.remoteConn = remoteConn
 
 	return p.localConn.LocalAddr(), err
+}
+
+func (p *WGUserSpaceProxy) Work() {
+	if p.remoteConn == nil {
+		return
+	}
+
+	p.pausedMu.Lock()
+	p.paused = false
+	p.pausedMu.Unlock()
+
+	if !p.isStarted {
+		p.isStarted = true
+		go p.proxyToRemote(p.ctx)
+		go p.proxyToLocal(p.ctx)
+	}
+}
+
+func (p *WGUserSpaceProxy) Pause() {
+	if p.remoteConn == nil {
+		return
+	}
+
+	p.pausedMu.Lock()
+	p.paused = true
+	p.pausedMu.Unlock()
 }
 
 // CloseConn close the localConn
@@ -85,7 +116,7 @@ func (p *WGUserSpaceProxy) close() error {
 }
 
 // proxyToRemote proxies from Wireguard to the RemoteKey
-func (p *WGUserSpaceProxy) proxyToRemote() {
+func (p *WGUserSpaceProxy) proxyToRemote(ctx context.Context) {
 	defer func() {
 		if err := p.close(); err != nil {
 			log.Warnf("error in proxy to remote loop: %s", err)
@@ -93,10 +124,10 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 	}()
 
 	buf := make([]byte, 1500)
-	for p.ctx.Err() == nil {
+	for ctx.Err() == nil {
 		n, err := p.localConn.Read(buf)
 		if err != nil {
-			if p.ctx.Err() != nil {
+			if ctx.Err() != nil {
 				return
 			}
 			log.Debugf("failed to read from wg interface conn: %s", err)
@@ -105,7 +136,7 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 
 		_, err = p.remoteConn.Write(buf[:n])
 		if err != nil {
-			if p.ctx.Err() != nil {
+			if ctx.Err() != nil {
 				return
 			}
 
@@ -116,7 +147,7 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 }
 
 // proxyToLocal proxies from the Remote peer to local WireGuard
-func (p *WGUserSpaceProxy) proxyToLocal() {
+func (p *WGUserSpaceProxy) proxyToLocal(ctx context.Context) {
 	defer func() {
 		if err := p.close(); err != nil {
 			log.Warnf("error in proxy to local loop: %s", err)
@@ -124,23 +155,33 @@ func (p *WGUserSpaceProxy) proxyToLocal() {
 	}()
 
 	buf := make([]byte, 1500)
-	for p.ctx.Err() == nil {
-		n, err := p.remoteConn.Read(buf)
-		if err != nil {
-			if p.ctx.Err() != nil {
+	for ctx.Err() == nil {
+		for {
+			n, err := p.remoteConn.Read(buf)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.RemoteAddr(), err)
 				return
 			}
-			log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.RemoteAddr(), err)
-			return
-		}
 
-		_, err = p.localConn.Write(buf[:n])
-		if err != nil {
-			if p.ctx.Err() != nil {
-				return
+			p.pausedMu.Lock()
+			if p.paused {
+				p.pausedMu.Unlock()
+				continue
 			}
-			log.Debugf("failed to write to wg interface conn: %s", err)
-			continue
+
+			_, err = p.localConn.Write(buf[:n])
+			p.pausedMu.Unlock()
+
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Debugf("failed to write to wg interface conn: %s", err)
+				continue
+			}
 		}
 	}
 }
