@@ -33,14 +33,16 @@ get_release() {
     local RELEASE=$1
     if [ "$RELEASE" = "latest" ]; then
         local TAG="latest"
+        local URL="https://pkgs.netbird.io/releases/latest"
     else
         local TAG="tags/${RELEASE}"
+        local URL="https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}"
     fi
     if [ -n "$GITHUB_TOKEN" ]; then
-          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}" \
+          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}" \
               | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     else
-          curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}" \
+          curl -s "${URL}" \
               | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     fi
 }
