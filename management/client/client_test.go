@@ -516,6 +516,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 }
 
 func NewSqliteTestStore(t *testing.T, ctx context.Context, testFile string) (mgmt.Store, func(), error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	err := util.CopyFileContents(testFile, filepath.Join(dataDir, "store.db"))
 	if err != nil {

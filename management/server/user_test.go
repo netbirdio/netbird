@@ -60,6 +60,9 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 	assert.Equal(t, pat.CreatedBy, mockUserID)
 
 	tokenID, err := am.Store.GetTokenIDByHashedToken(context.Background(), pat.HashedToken)
+	if err != nil {
+		t.Fatalf("Error when getting token ID by hashed token: %s", err)
+	}
 
 	if tokenID == "" {
 		t.Fatal("GetTokenIDByHashedToken failed after adding PAT")
