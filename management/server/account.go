@@ -76,7 +76,7 @@ type AccountManager interface {
 	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByID(ctx context.Context, accountID string, userID string) (*Account, error)
-	GetAccountIDByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (string, error)
+	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(ctx context.Context, pat string) (*Account, *User, *PersonalAccessToken, error)
@@ -1260,37 +1260,31 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	return nil
 }
 
-// GetAccountIDByUserOrAccountID retrieves the account ID based on either the userID or accountID provided.
-// If an accountID is provided, it checks if the account exists and returns it.
-// If no accountID is provided, but a userID is given, it tries to retrieve the account by userID.
+// GetAccountIDByUserID retrieves the account ID based on the userID provided.
+// If user does have an account, it returns the user's account ID.
 // If the user doesn't have an account, it creates one using the provided domain.
 // Returns the account ID or an error if none is found or created.
-func (am *DefaultAccountManager) GetAccountIDByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (string, error) {
-	if accountID != "" {
-		exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, accountID)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return "", status.Errorf(status.NotFound, "account %s does not exist", accountID)
-		}
-		return accountID, nil
+func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error) {
+	if userID == "" {
+		return "", status.Errorf(status.NotFound, "no valid userID provided")
 	}
 
-	if userID != "" {
-		account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
-		if err != nil {
-			return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
-		}
+	accountID, err := am.Store.GetAccountIDByUserID(userID)
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
+			if err != nil {
+				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
+			}
 
-		if err = am.addAccountIDToIDPAppMeta(ctx, userID, account); err != nil {
-			return "", err
+			if err = am.addAccountIDToIDPAppMeta(ctx, userID, account); err != nil {
+				return "", err
+			}
+			return account.Id, nil
 		}
-
-		return account.Id, nil
+		return "", err
 	}
-
-	return "", status.Errorf(status.NotFound, "no valid userID or accountID provided")
+	return accountID, nil
 }
 
 func isNil(i idp.Manager) bool {
@@ -1794,6 +1788,10 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 		return "", "", status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
+	if user.AccountID != accountID {
+		return "", "", status.Errorf(status.PermissionDenied, "user %s is not part of the account %s", claims.UserId, accountID)
+	}
+
 	if !user.IsServiceUser && claims.Invited {
 		err = am.redeemInvite(ctx, accountID, user.Id)
 		if err != nil {
@@ -1914,7 +1912,17 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
-		return am.GetAccountIDByUserOrAccountID(ctx, claims.UserId, claims.AccountId, claims.Domain)
+		if claims.AccountId != "" {
+			exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, claims.AccountId)
+			if err != nil {
+				return "", err
+			}
+			if !exists {
+				return "", status.Errorf(status.NotFound, "account %s does not exist", claims.AccountId)
+			}
+			return claims.AccountId, nil
+		}
+		return am.GetAccountIDByUserID(ctx, claims.UserId, claims.Domain)
 	} else if claims.AccountId != "" {
 		userAccountID, err := am.Store.GetAccountIDByUserID(claims.UserId)
 		if err != nil {
@@ -2227,7 +2235,11 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Ac
 	routes := make(map[route.ID]*route.Route)
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
-	users[userID] = NewOwnerUser(userID)
+
+	owner := NewOwnerUser(userID)
+	owner.AccountID = accountID
+	users[userID] = owner
+
 	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}

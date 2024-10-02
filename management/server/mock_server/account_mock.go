@@ -201,7 +201,7 @@ func (am *MockAccountManager) GetAccountIDByUserOrAccountID(ctx context.Context,
 	}
 	return "", status.Errorf(
 		codes.Unimplemented,
-		"method GetAccountIDByUserOrAccountID is not implemented",
+		"method GetAccountIDByUserID is not implemented",
 	)
 }
 

@@ -633,7 +633,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			manager, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
 
-			accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.AccountId, testCase.inputInitUserParams.Domain)
+			accountID, err := manager.GetAccountIDByUserID(context.Background(), testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.Domain)
 			require.NoError(t, err, "create init user failed")
 
 			initAccount, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -676,10 +676,10 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	require.NoError(t, err, "unable to create account manager")
 
 	accountID := initAccount.Id
-	accountID, err = manager.GetAccountIDByUserOrAccountID(context.Background(), userId, accountID, domain)
+	accountID, err = manager.GetAccountIDByUserID(context.Background(), userId, domain)
 	require.NoError(t, err, "create init user failed")
 	// as initAccount was created without account id we have to take the id after account initialization
-	// that happens inside the GetAccountIDByUserOrAccountID where the id is getting generated
+	// that happens inside the GetAccountIDByUserID where the id is getting generated
 	// it is important to set the id as it help to avoid creating additional account with empty Id and re-pointing indices to it
 	initAccount, err = manager.Store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err, "get init account failed")
@@ -885,7 +885,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 	}
 }
 
-func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
+func TestAccountManager_GetAccountByUserID(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -894,7 +894,7 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 
 	userId := "test_user"
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userId, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,14 +903,13 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 		return
 	}
 
-	_, err = manager.GetAccountIDByUserOrAccountID(context.Background(), "", accountID, "")
-	if err != nil {
-		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", accountID)
-	}
+	exists, err := manager.Store.AccountExists(context.Background(), LockingStrengthShare, accountID)
+	assert.NoError(t, err)
+	assert.True(t, exists, "expected to get existing account after creation using userid")
 
-	_, err = manager.GetAccountIDByUserOrAccountID(context.Background(), "", "", "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), "", "")
 	if err == nil {
-		t.Errorf("expected an error when user and account IDs are empty")
+		t.Errorf("expected an error when user ID is empty")
 	}
 }
 
@@ -1668,7 +1667,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
@@ -1683,7 +1682,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	_, err = manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1695,7 +1694,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	})
 	require.NoError(t, err, "unable to add peer")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -1741,7 +1740,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1769,7 +1768,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 		},
 	}
 
-	accountID, err = manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -1789,7 +1788,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	_, err = manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1801,7 +1800,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	})
 	require.NoError(t, err, "unable to add peer")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -1849,7 +1848,7 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	updated, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
@@ -1859,9 +1858,6 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
 	assert.Equal(t, updated.Settings.PeerLoginExpiration, time.Hour)
-
-	accountID, err = manager.GetAccountIDByUserOrAccountID(context.Background(), "", accountID, "")
-	require.NoError(t, err, "unable to get account by ID")
 
 	settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
 	require.NoError(t, err, "unable to get account settings")
