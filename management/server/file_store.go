@@ -964,7 +964,7 @@ func (s *FileStore) SaveUsers(_ string, _ map[string]*User) error {
 	return status.Errorf(status.Internal, "SaveUsers is not implemented")
 }
 
-func (s *FileStore) SaveGroups(_ string, _ map[string]*nbgroup.Group) error {
+func (s *FileStore) SaveGroups(_ context.Context, _ LockingStrength, _ []*nbgroup.Group) error {
 	return status.Errorf(status.Internal, "SaveGroups is not implemented")
 }
 
@@ -1041,4 +1041,12 @@ func (s *FileStore) GetAccountNameServerGroups(_ context.Context, _ LockingStren
 
 func (s *FileStore) GetNameServerGroupByID(_ context.Context, _ LockingStrength, _ string, _ string) (*dns.NameServerGroup, error) {
 	return nil, status.Errorf(status.Internal, "GetNameServerGroupByID is not implemented")
+}
+
+func (s *FileStore) SaveUser(_ context.Context, _ LockingStrength, _ *User) error {
+	return status.Errorf(status.Internal, "SaveUser is not implemented")
+}
+
+func (s *FileStore) SaveGroup(_ context.Context, _ LockingStrength, _ *nbgroup.Group) error {
+	return status.Errorf(status.Internal, "SaveGroup is not implemented")
 }

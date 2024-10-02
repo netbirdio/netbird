@@ -378,15 +378,22 @@ func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
 		Create(&usersToSave).Error
 }
 
-// SaveGroups saves the given list of groups to the database.
-// It updates existing groups if a conflict occurs.
-func (s *SqlStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
-	groupsToSave := make([]nbgroup.Group, 0, len(groups))
-	for _, group := range groups {
-		group.AccountID = accountID
-		groupsToSave = append(groupsToSave, *group)
+// SaveUser saves the given user to the database.
+func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(user)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "failed to save user to store: %v", result.Error)
 	}
-	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&groupsToSave).Error
+	return nil
+}
+
+// SaveGroups saves the given list of groups to the database.
+func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*nbgroup.Group) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&groups)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "failed to save groups to store: %v", result.Error)
+	}
+	return nil
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in SqlStore
@@ -1103,6 +1110,15 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 		return nil, status.Errorf(status.Internal, "failed to get group from store: %s", result.Error)
 	}
 	return &group, nil
+}
+
+// SaveGroup saves a group to the store.
+func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, group *nbgroup.Group) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(group)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "failed to save group to store: %v", result.Error)
+	}
+	return nil
 }
 
 // GetAccountPolicies retrieves policies for an account.

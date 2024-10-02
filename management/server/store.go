@@ -59,6 +59,7 @@ type Store interface {
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
 	SaveUsers(accountID string, users map[string]*User) error
+	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
@@ -67,7 +68,8 @@ type Store interface {
 	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*nbgroup.Group, error)
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error)
-	SaveGroups(accountID string, groups map[string]*nbgroup.Group) error
+	SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*nbgroup.Group) error
+	SaveGroup(ctx context.Context, lockStrength LockingStrength, group *nbgroup.Group) error
 
 	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error)
 	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error)
