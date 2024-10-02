@@ -36,10 +36,6 @@ type FileStore struct {
 	mux       sync.Mutex `json:"-"`
 	storeFile string     `json:"-"`
 
-	// sync.Mutex indexed by resource ID
-	resourceLocks     sync.Map   `json:"-"`
-	globalAccountLock sync.Mutex `json:"-"`
-
 	metrics telemetry.AppMetrics `json:"-"`
 }
 
@@ -61,7 +57,6 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 		s := &FileStore{
 			Accounts:                make(map[string]*Account),
 			mux:                     sync.Mutex{},
-			globalAccountLock:       sync.Mutex{},
 			SetupKeyID2AccountID:    make(map[string]string),
 			PeerKeyID2AccountID:     make(map[string]string),
 			UserID2AccountID:        make(map[string]string),
