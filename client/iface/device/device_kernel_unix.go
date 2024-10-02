@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/sharedsock"
 )
 
-type tunKernelDevice struct {
+type TunKernelDevice struct {
 	name         string
 	address      WGAddress
 	wgPort       int
@@ -32,11 +32,11 @@ type tunKernelDevice struct {
 	filterFn bind.FilterFn
 }
 
-func NewKernelDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) WGTunDevice {
+func NewKernelDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) *TunKernelDevice {
 	checkUser()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	return &tunKernelDevice{
+	return &TunKernelDevice{
 		ctx:          ctx,
 		ctxCancel:    cancel,
 		name:         name,
@@ -48,7 +48,7 @@ func NewKernelDevice(name string, address WGAddress, wgPort int, key string, mtu
 	}
 }
 
-func (t *tunKernelDevice) Create() (WGConfigurer, error) {
+func (t *TunKernelDevice) Create() (WGConfigurer, error) {
 	link := newWGLink(t.name)
 
 	if err := link.recreate(); err != nil {
@@ -77,7 +77,7 @@ func (t *tunKernelDevice) Create() (WGConfigurer, error) {
 	return configurer, nil
 }
 
-func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	if t.udpMux != nil {
 		return t.udpMux, nil
 	}
@@ -112,12 +112,12 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return t.udpMux, nil
 }
 
-func (t *tunKernelDevice) UpdateAddr(address WGAddress) error {
+func (t *TunKernelDevice) UpdateAddr(address WGAddress) error {
 	t.address = address
 	return t.assignAddr()
 }
 
-func (t *tunKernelDevice) Close() error {
+func (t *TunKernelDevice) Close() error {
 	if t.link == nil {
 		return nil
 	}
@@ -145,19 +145,19 @@ func (t *tunKernelDevice) Close() error {
 	return closErr
 }
 
-func (t *tunKernelDevice) WgAddress() WGAddress {
+func (t *TunKernelDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunKernelDevice) DeviceName() string {
+func (t *TunKernelDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunKernelDevice) FilteredDevice() *FilteredDevice {
+func (t *TunKernelDevice) FilteredDevice() *FilteredDevice {
 	return nil
 }
 
 // assignAddr Adds IP address to the tunnel interface
-func (t *tunKernelDevice) assignAddr() error {
+func (t *TunKernelDevice) assignAddr() error {
 	return t.link.assignAddr(t.address)
 }

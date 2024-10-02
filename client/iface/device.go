@@ -1,18 +1,18 @@
 //go:build !android
-// +build !android
 
-package device
+package iface
 
 import (
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 type WGTunDevice interface {
-	Create() (WGConfigurer, error)
+	Create() (device.WGConfigurer, error)
 	Up() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddr(address WGAddress) error
 	WgAddress() WGAddress
 	DeviceName() string
 	Close() error
-	FilteredDevice() *FilteredDevice
+	FilteredDevice() *device.FilteredDevice
 }

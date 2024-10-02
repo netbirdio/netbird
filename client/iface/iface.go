@@ -22,9 +22,9 @@ const (
 
 type WGAddress = device.WGAddress
 
-// WGIface represents a interface instance
+// WGIface represents an interface instance
 type WGIface struct {
-	tun           device.WGTunDevice
+	tun           WGTunDevice
 	userspaceBind bool
 	mu            sync.Mutex
 

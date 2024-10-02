@@ -32,7 +32,7 @@ type TunDevice struct {
 	configurer      configurer.WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) WGTunDevice {
+func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,

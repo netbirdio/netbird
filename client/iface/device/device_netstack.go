@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/netstack"
 )
 
-type tunNetstackDevice struct {
+type TunNetstackDevice struct {
 	name          string
 	address       WGAddress
 	port          int
@@ -31,8 +31,8 @@ type tunNetstackDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string, filterFn bind.FilterFn) WGTunDevice {
-	return &tunNetstackDevice{
+func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string, filterFn bind.FilterFn) *TunNetstackDevice {
+	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
 		port:          wgPort,
@@ -43,7 +43,7 @@ func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, m
 	}
 }
 
-func (t *tunNetstackDevice) Create() (WGConfigurer, error) {
+func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
 	log.Info("create netstack tun interface")
 	t.nsTun = netstack.NewNetStackTun(t.listenAddress, t.address.IP.String(), t.mtu)
 	tunIface, err := t.nsTun.Create()
@@ -69,7 +69,7 @@ func (t *tunNetstackDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *tunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	if t.device == nil {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
@@ -88,11 +88,11 @@ func (t *tunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *tunNetstackDevice) UpdateAddr(WGAddress) error {
+func (t *TunNetstackDevice) UpdateAddr(WGAddress) error {
 	return nil
 }
 
-func (t *tunNetstackDevice) Close() error {
+func (t *TunNetstackDevice) Close() error {
 	if t.configurer != nil {
 		t.configurer.Close()
 	}
@@ -107,14 +107,14 @@ func (t *tunNetstackDevice) Close() error {
 	return nil
 }
 
-func (t *tunNetstackDevice) WgAddress() WGAddress {
+func (t *TunNetstackDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunNetstackDevice) DeviceName() string {
+func (t *TunNetstackDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunNetstackDevice) FilteredDevice() *FilteredDevice {
+func (t *TunNetstackDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }

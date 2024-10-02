@@ -30,7 +30,7 @@ type USPDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) WGTunDevice {
+func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) *USPDevice {
 	log.Infof("using userspace bind mode")
 
 	checkUser()
