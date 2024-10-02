@@ -29,7 +29,7 @@ type TunDevice struct {
 	nativeTunDevice *tun.NativeTun
 	filteredDevice  *FilteredDevice
 	udpMux          *bind.UniversalUDPMuxDefault
-	configurer      configurer.WGConfigurer
+	configurer      WGConfigurer
 }
 
 func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) *TunDevice {
@@ -51,7 +51,7 @@ func getGUID() (windows.GUID, error) {
 	return windows.GUIDFromString(guidString)
 }
 
-func (t *TunDevice) Create() (configurer.WGConfigurer, error) {
+func (t *TunDevice) Create() (WGConfigurer, error) {
 	guid, err := getGUID()
 	if err != nil {
 		log.Errorf("failed to get GUID: %s", err)
