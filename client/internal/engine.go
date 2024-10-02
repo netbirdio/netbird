@@ -704,6 +704,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
+	// Apply ACLs in the beginning to avoid security leaks
+	if e.acl != nil {
+		e.acl.ApplyFiltering(networkMap)
+	}
+
 	protoRoutes := networkMap.GetRoutes()
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
@@ -768,10 +773,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
 	if err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
-	}
-
-	if e.acl != nil {
-		e.acl.ApplyFiltering(networkMap)
 	}
 
 	e.networkSerial = serial

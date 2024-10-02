@@ -727,17 +727,39 @@ components:
           enum: ["all", "tcp", "udp", "icmp"]
           example: "tcp"
         ports:
-          description: Policy rule affected ports or it ranges list
+          description: Policy rule affected ports
           type: array
           items:
             type: string
             example: "80"
+        port_ranges:
+          description: Policy rule affected ports ranges list
+          type: array
+          items:
+            $ref: '#/components/schemas/RulePortRange'
       required:
         - name
         - enabled
         - bidirectional
         - protocol
         - action
+
+    RulePortRange:
+      description: Policy rule affected ports range
+      type: object
+      properties:
+        start:
+          description: The starting port of the range
+          type: integer
+          example: 80
+        end:
+          description: The ending port of the range
+          type: integer
+          example: 320
+      required:
+        - start
+        - end
+
     PolicyRuleUpdate:
       allOf:
         - $ref: '#/components/schemas/PolicyRuleMinimum'
@@ -1106,6 +1128,12 @@ components:
           description: Indicate if the route should be kept after a domain doesn't resolve that IP anymore
           type: boolean
           example: true
+        access_control_groups:
+          description: Access control group identifier associated with route.
+          type: array
+          items:
+            type: string
+            example: "chacbco6lnnbn6cg5s91"
       required:
         - id
         - description

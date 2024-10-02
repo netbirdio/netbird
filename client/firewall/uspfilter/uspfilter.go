@@ -3,6 +3,7 @@ package uspfilter
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/google/gopacket"
@@ -103,26 +104,26 @@ func (m *Manager) IsServerRouteSupported() bool {
 	}
 }
 
-func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
+func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	if m.nativeFirewall == nil {
 		return errRouteNotSupported
 	}
-	return m.nativeFirewall.InsertRoutingRules(pair)
+	return m.nativeFirewall.AddNatRule(pair)
 }
 
-// RemoveRoutingRules removes a routing firewall rule
-func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
+// RemoveNatRule removes a routing firewall rule
+func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	if m.nativeFirewall == nil {
 		return errRouteNotSupported
 	}
-	return m.nativeFirewall.RemoveRoutingRules(pair)
+	return m.nativeFirewall.RemoveNatRule(pair)
 }
 
-// AddFiltering rule to the firewall
+// AddPeerFiltering rule to the firewall
 //
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
-func (m *Manager) AddFiltering(
+func (m *Manager) AddPeerFiltering(
 	ip net.IP,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
@@ -188,8 +189,22 @@ func (m *Manager) AddFiltering(
 	return []firewall.Rule{&r}, nil
 }
 
-// DeleteRule from the firewall by rule definition
-func (m *Manager) DeleteRule(rule firewall.Rule) error {
+func (m *Manager) AddRouteFiltering(sources [] netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action ) (firewall.Rule, error) {
+	if m.nativeFirewall == nil {
+		return nil, errRouteNotSupported
+	}
+	return m.nativeFirewall.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+}
+
+func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
+	if m.nativeFirewall == nil {
+		return errRouteNotSupported
+	}
+	return m.nativeFirewall.DeleteRouteRule(rule)
+}
+
+// DeletePeerRule from the firewall by rule definition
+func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -212,6 +227,11 @@ func (m *Manager) DeleteRule(rule firewall.Rule) error {
 		delete(m.outgoingRules[r.ip.String()], r.id)
 	}
 
+	return nil
+}
+
+// SetLegacyManagement doesn't need to be implemented for this manager
+func (m *Manager) SetLegacyManagement(_ bool) error {
 	return nil
 }
 
@@ -395,7 +415,7 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 		for _, r := range arr {
 			if r.id == hookID {
 				rule := r
-				return m.DeleteRule(&rule)
+				return m.DeletePeerRule(&rule)
 			}
 		}
 	}
@@ -403,7 +423,7 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 		for _, r := range arr {
 			if r.id == hookID {
 				rule := r
-				return m.DeleteRule(&rule)
+				return m.DeletePeerRule(&rule)
 			}
 		}
 	}

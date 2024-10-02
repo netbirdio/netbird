@@ -596,6 +596,10 @@ func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turn
 	response.NetworkMap.FirewallRules = firewallRules
 	response.NetworkMap.FirewallRulesIsEmpty = len(firewallRules) == 0
 
+	routesFirewallRules := toProtocolRoutesFirewallRules(networkMap.RoutesFirewallRules)
+	response.NetworkMap.RoutesFirewallRules = routesFirewallRules
+	response.NetworkMap.RoutesFirewallRulesIsEmpty = len(routesFirewallRules) == 0
+
 	return response
 }
 
