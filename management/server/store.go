@@ -262,7 +262,7 @@ func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string
 	}
 
 	if kind == PostgresStoreEngine {
-		pCleanUp, err := testutil.CreatePGDB()
+		cleanUp, err = testutil.CreatePGDB()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -276,9 +276,6 @@ func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string
 		if err != nil {
 			return nil, nil, err
 		}
-
-		cleanUp()
-		cleanUp = pCleanUp
 	}
 
 	return store, cleanUp, nil
