@@ -716,16 +716,16 @@ func newAccount(store Store, id int) error {
 func newPostgresqlStore(t *testing.T) *SqlStore {
 	t.Helper()
 
-	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
-	if !ok {
-		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
-	}
-
 	cleanUp, err := testutil.CreatePGDB()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+
+	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok {
+		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
+	}
 
 	store, err := NewPostgresqlStore(context.Background(), postgresDsn, nil)
 	if err != nil {
@@ -746,16 +746,16 @@ func newPostgresqlStoreFromSqlite(t *testing.T, filename string) *SqlStore {
 		return nil
 	}
 
-	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
-	if !ok {
-		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
-	}
-
 	cleanUpP, err := testutil.CreatePGDB()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUpP)
+
+	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok {
+		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
+	}
 
 	pstore, err := NewPostgresqlStoreFromSqlStore(context.Background(), store, postgresDsn, nil)
 	require.NoError(t, err)
