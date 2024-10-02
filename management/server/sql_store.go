@@ -361,21 +361,34 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 	return nil
 }
 
-// SaveUsers saves the given list of users to the database.
-// It updates existing users if a conflict occurs.
-func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
-	usersToSave := make([]User, 0, len(users))
-	for _, user := range users {
-		user.AccountID = accountID
-		for id, pat := range user.PATs {
-			pat.ID = id
-			user.PATsG = append(user.PATsG, *pat)
-		}
-		usersToSave = append(usersToSave, *user)
+// SaveUser saves a user to the store.
+func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error {
+	return saveRecord[User](s.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}), lockStrength, user)
+}
+
+// SaveUsers saves a list of users to the store.
+func (s *SqlStore) SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*User) error {
+	result := s.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&users)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "failed to save users to store: %v", result.Error)
 	}
-	return s.db.Session(&gorm.Session{FullSaveAssociations: true}).
-		Clauses(clause.OnConflict{UpdateAll: true}).
-		Create(&usersToSave).Error
+	return nil
+}
+
+// DeleteUser deletes a user from the store.
+func (s *SqlStore) DeleteUser(ctx context.Context, lockStrength LockingStrength, userID, accountID string) error {
+	return deleteRecordByID[User](s.db.WithContext(ctx).Select(clause.Associations), lockStrength, userID, accountID)
+}
+
+// DeleteUsers deletes a list of users from the store.
+func (s *SqlStore) DeleteUsers(ctx context.Context, strength LockingStrength, userIDs []string, accountID string) error {
+	result := s.db.WithContext(ctx).Select(clause.Associations).Clauses(clause.Locking{Strength: string(strength)}).
+		Where("id IN ? AND account_id = ?", userIDs, accountID).Delete(&User{})
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "failed to delete users from store: %v", result.Error)
+	}
+	return nil
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in SqlStore
@@ -693,6 +706,22 @@ func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) 
 	}
 
 	return accountID, nil
+}
+
+// GetAccountOwnerID returns the owner ID of the account.
+func (s *SqlStore) GetAccountOwnerID(ctx context.Context, lockStrength LockingStrength, accountID string) (string, error) {
+	var ownerID string
+
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Select("created_by").Where(idQueryCondition, accountID).First(&ownerID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "account not found")
+		}
+		return "", status.Errorf(status.Internal, "failed to get account owner from store: %v", result.Error)
+	}
+
+	return ownerID, nil
 }
 
 func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]net.IP, error) {
@@ -1151,7 +1180,7 @@ func (s *SqlStore) DeleteGroup(ctx context.Context, lockStrength LockingStrength
 // DeleteGroups deletes groups from the database.
 func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, groupIDs []string, accountID string) error {
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(strength)}).
-		Where("account_id AND id IN ?", accountID, groupIDs).Delete(&nbgroup.Group{})
+		Where("id IN ? AND account_id = ?", groupIDs, accountID).Delete(&nbgroup.Group{})
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "failed to delete groups from store: %v", result.Error)
 	}
@@ -1276,7 +1305,7 @@ func (s *SqlStore) DeleteNameServerGroup(ctx context.Context, lockStrength Locki
 func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, patID string, userID string) (*PersonalAccessToken, error) {
 	var pat PersonalAccessToken
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		First(&pat, "user_id = ? and id = ?", userID, patID)
+		First(&pat, "id = ? AND user_id = ?", patID, userID)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "PAT not found")
@@ -1295,12 +1324,17 @@ func (s *SqlStore) SavePAT(ctx context.Context, lockStrength LockingStrength, pa
 // DeletePAT deletes a personal access token from the database.
 func (s *SqlStore) DeletePAT(ctx context.Context, lockStrength LockingStrength, patID, userID string) error {
 	return s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&PersonalAccessToken{}, "user_id = ? and id = ?", userID, patID).Error
+		Delete(&PersonalAccessToken{}, "id = ? AND user_id = ?", patID, userID).Error
 }
 
 // GetAccountPeers retrieves peers for an account.
 func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
 	return getRecords[nbpeer.Peer](s.db.WithContext(ctx), lockStrength, accountID)
+}
+
+// GetUserPeers retrieves peers for a user.
+func (s *SqlStore) GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error) {
+	return getRecords[nbpeer.Peer](s.db.WithContext(ctx).Where("user_id = ?", userID), lockStrength, accountID)
 }
 
 // GetAccountPeersWithExpiration retrieves a list of peers that have Peer.LoginExpirationEnabled set to true and that were added by a user.

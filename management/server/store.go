@@ -51,6 +51,7 @@ type Store interface {
 	GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) // todo use key hash later
 	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
 	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
+	GetAccountOwnerID(ctx context.Context, lockStrength LockingStrength, accountID string) (string, error)
 	SaveAccount(ctx context.Context, account *Account) error
 	DeleteAccount(ctx context.Context, account *Account) error
 
@@ -63,7 +64,10 @@ type Store interface {
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*User, error)
-	SaveUsers(accountID string, users map[string]*User) error
+	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
+	SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*User) error
+	DeleteUser(ctx context.Context, lockStrength LockingStrength, userID, accountID string) error
+	DeleteUsers(ctx context.Context, strength LockingStrength, userIDs []string, accountID string) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
@@ -98,6 +102,7 @@ type Store interface {
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
 	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
+	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, peerID string, accountID string) (*nbpeer.Peer, error)
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error

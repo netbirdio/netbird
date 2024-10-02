@@ -959,10 +959,6 @@ func (s *FileStore) GetStoreEngine() StoreEngine {
 	return FileStoreEngine
 }
 
-func (s *FileStore) SaveUsers(_ string, _ map[string]*User) error {
-	return status.Errorf(status.Internal, "SaveUsers is not implemented")
-}
-
 func (s *FileStore) SaveGroups(_ context.Context, _ LockingStrength, _ []*nbgroup.Group) error {
 	return status.Errorf(status.Internal, "SaveGroups is not implemented")
 }
@@ -1085,6 +1081,10 @@ func (s *FileStore) GetAccountPeers(_ context.Context, _ LockingStrength, _ stri
 	return nil, status.Errorf(status.Internal, "GetAccountPeers is not implemented")
 }
 
+func (s *FileStore) GetUserPeers(_ context.Context, _ LockingStrength, _, _ string) ([]*nbpeer.Peer, error) {
+	return nil, status.Errorf(status.Internal, "GetUserPeers is not implemented")
+}
+
 func (s *FileStore) GetAccountPeersWithExpiration(_ context.Context, _ LockingStrength, _ string) ([]*nbpeer.Peer, error) {
 	return nil, status.Errorf(status.Internal, "GetAccountPeersWithExpiration is not implemented")
 }
@@ -1126,4 +1126,24 @@ func (s *FileStore) DeleteGroups(_ context.Context, _ LockingStrength, _ []strin
 
 func (s *FileStore) GetAccountUsers(_ context.Context, _ LockingStrength, _ string) ([]*User, error) {
 	return nil, status.Errorf(status.Internal, "GetAccountUsers is not implemented")
+}
+
+func (s *FileStore) SaveUser(_ context.Context, _ LockingStrength, _ *User) error {
+	return status.Errorf(status.Internal, "SaveUser is not implemented")
+}
+
+func (s *FileStore) SaveUsers(_ context.Context, _ LockingStrength, _ []*User) error {
+	return status.Errorf(status.Internal, "SaveUsers is not implemented")
+}
+
+func (s *FileStore) DeleteUser(_ context.Context, _ LockingStrength, _, _ string) error {
+	return status.Errorf(status.Internal, "DeleteUser is not implemented")
+}
+
+func (s *FileStore) DeleteUsers(_ context.Context, _ LockingStrength, _ []string, _ string) error {
+	return status.Errorf(status.Internal, "DeleteUsers is not implemented")
+}
+
+func (s *FileStore) GetAccountOwnerID(_ context.Context, _ LockingStrength, _ string) (string, error) {
+	return "", status.Errorf(status.Internal, "GetAccountOwnerID is not implemented")
 }

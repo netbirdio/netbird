@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -213,19 +214,12 @@ func NewOwnerUser(id string) *User {
 
 // createServiceUser creates a new service user under the given account.
 func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountID string, initiatorUserID string, role UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	executingUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
+		return nil, err
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if executingUser == nil {
-		return nil, status.Errorf(status.NotFound, "user not found")
-	}
-	if !executingUser.HasAdminPower() {
+	if !executingUser.HasAdminPower() || executingUser.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can create service users")
 	}
 
@@ -236,10 +230,9 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	newUserID := uuid.New().String()
 	newUser := NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, UserIssuedAPI)
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
-	account.Users[newUserID] = newUser
+	newUser.AccountID = accountID
 
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
+	if err = am.Store.SaveUser(ctx, LockingStrengthUpdate, newUser); err != nil {
 		return nil, err
 	}
 
@@ -267,11 +260,8 @@ func (am *DefaultAccountManager) CreateUser(ctx context.Context, accountID, user
 	return am.inviteNewUser(ctx, accountID, userID, user)
 }
 
-// inviteNewUser Invites a USer to a given account and creates reference in datastore
+// inviteNewUser Invites a User to a given account and creates reference in datastore
 func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, userID string, invite *UserInfo) (*UserInfo, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if am.idpManager == nil {
 		return nil, status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
@@ -292,23 +282,24 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	default:
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
-	}
-
-	initiatorUser, err := account.FindUser(userID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, status.Errorf(status.NotFound, "initiator user with ID %s doesn't exist", userID)
 	}
 
 	inviterID := userID
 	if initiatorUser.IsServiceUser {
-		inviterID = account.CreatedBy
+		ownerID, err := am.Store.GetAccountOwnerID(ctx, LockingStrengthShare, accountID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get account owner: %v", err)
+			return nil, err
+		}
+
+		inviterID = ownerID
 	}
 
 	// inviterUser is the one who is inviting the new user
-	inviterUser, err := am.lookupUserInCache(ctx, inviterID, account)
+	inviterUser, err := am.lookupUserInCache(ctx, inviterID, accountID)
 	if err != nil || inviterUser == nil {
 		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
 	}
@@ -339,27 +330,29 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 	newUser := &User{
 		Id:                   idpUser.ID,
+		AccountID:            accountID,
 		Role:                 invitedRole,
 		AutoGroups:           invite.AutoGroups,
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
 	}
-	account.Users[idpUser.ID] = newUser
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
+	if err = am.Store.SaveUser(ctx, LockingStrengthUpdate, newUser); err != nil {
 		return nil, err
 	}
 
-	_, err = am.refreshCache(ctx, account.Id)
+	_, err = am.refreshCache(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	am.StoreEvent(ctx, userID, newUser.Id, accountID, activity.UserInvited, nil)
 
-	return newUser.ToUserInfo(idpUser, account.Settings)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return newUser.ToUserInfo(idpUser, settings)
 }
 
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*User, error) {
@@ -399,20 +392,7 @@ func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.A
 // ListUsers returns lists of all users under the account.
 // It doesn't populate user information such as email or name.
 func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string) ([]*User, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	users := make([]*User, 0, len(account.Users))
-	for _, item := range account.Users {
-		users = append(users, item)
-	}
-
-	return users, nil
+	return am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
 }
 
 func (am *DefaultAccountManager) deleteServiceUser(ctx context.Context, account *Account, initiatorUserID string, targetUser *User) {
@@ -503,20 +483,12 @@ func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorU
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
 func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if am.idpManager == nil {
 		return status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
-	}
-
 	// check if the user is already registered with this ID
-	user, err := am.lookupUserInCache(ctx, targetUserID, account)
+	user, err := am.lookupUserInCache(ctx, targetUserID, accountID)
 	if err != nil {
 		return err
 	}
@@ -663,9 +635,6 @@ func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, i
 		return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	updatedUsers, err := am.SaveOrAddUsers(ctx, accountID, initiatorUserID, []*User{update}, addIfNotExists)
 	if err != nil {
 		return nil, err
@@ -686,17 +655,12 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, nil //nolint:nilnil
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	initiatorUser, err := account.FindUser(initiatorUserID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !initiatorUser.HasAdminPower() || initiatorUser.IsBlocked() {
+	if !initiatorUser.HasAdminPower() || initiatorUser.IsBlocked() || initiatorUser.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are authorized to perform user update operations")
 	}
 
@@ -704,15 +668,21 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	var (
 		expiredPeers  []*nbpeer.Peer
 		eventsToStore []func()
+		usersToSave   []*User
 	)
+
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, update := range updates {
 		if update == nil {
 			return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 		}
 
-		oldUser := account.Users[update.Id]
-		if oldUser == nil {
+		oldUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, update.Id)
+		if err != nil {
 			if !addIfNotExists {
 				return nil, status.Errorf(status.NotFound, "user to update doesn't exist: %s", update.Id)
 			}
@@ -720,7 +690,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			oldUser = update
 		}
 
-		if err := validateUserUpdate(account, initiatorUser, oldUser, update); err != nil {
+		if err := am.validateUserUpdate(ctx, accountID, initiatorUser, oldUser, update); err != nil {
 			return nil, err
 		}
 
@@ -733,29 +703,40 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		newUser.Issued = update.Issued
 		newUser.IntegrationReference = update.IntegrationReference
 
-		transferredOwnerRole := handleOwnerRoleTransfer(account, initiatorUser, update)
-		account.Users[newUser.Id] = newUser
+		// handle owner role transfer
+		transferredOwnerRole := initiatorUser.Role == UserRoleOwner && initiatorUser.Id != update.Id && update.Role == UserRoleOwner
+		if transferredOwnerRole {
+			newInitiatorUser := initiatorUser.Copy()
+			newInitiatorUser.Role = UserRoleAdmin
+
+			usersToSave = append(usersToSave, newInitiatorUser)
+		}
+		usersToSave = append(usersToSave, newUser)
 
 		if !oldUser.IsBlocked() && update.IsBlocked() {
 			// expire peers that belong to the user who's getting blocked
-			blockedPeers, err := account.FindUserPeers(update.Id)
+			blockedPeers, err := am.Store.GetUserPeers(ctx, LockingStrengthShare, update.Id, accountID)
 			if err != nil {
 				return nil, err
 			}
 			expiredPeers = append(expiredPeers, blockedPeers...)
 		}
 
-		if update.AutoGroups != nil && account.Settings.GroupsPropagationEnabled {
-			removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
+		if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
+			//removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
 			// need force update all auto groups in any case they will not be duplicated
-			account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
-			account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
+
+			//TODO: wraps this in a transaction
+
+			//account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
+			//account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
+
 		}
 
-		events := am.prepareUserUpdateEvents(ctx, initiatorUser.Id, oldUser, newUser, account, transferredOwnerRole)
+		events := am.prepareUserUpdateEvents(ctx, initiatorUser.Id, oldUser, newUser, accountID, transferredOwnerRole)
 		eventsToStore = append(eventsToStore, events...)
 
-		updatedUserInfo, err := getUserInfo(ctx, am, newUser, account)
+		updatedUserInfo, err := getUserInfo(ctx, am, newUser, accountID)
 		if err != nil {
 			return nil, err
 		}
@@ -763,40 +744,63 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if len(expiredPeers) > 0 {
-		if err := am.expireAndUpdatePeers(ctx, account, expiredPeers); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
 	}
 
-	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
-		return nil, err
-	}
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
 
-	if account.Settings.GroupsPropagationEnabled {
-		am.updateAccountPeers(ctx, account)
+		//TODO:  update groups with new members
+
+		if err = transaction.SaveUsers(ctx, LockingStrengthUpdate, usersToSave); err != nil {
+			return fmt.Errorf("failed to save users: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
+	if settings.GroupsPropagationEnabled {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return nil, fmt.Errorf("error getting account: %w", err)
+		}
+		am.updateAccountPeers(ctx, account)
+	}
+
 	return updatedUsers, nil
 }
 
+// propagateAutoGroupChangesForUser updates the user's auto-groups.
+// If group propagation is enabled, it adds or removes groups from
+// the peers owned by the user based on changes in their group assignments.
+func (am *DefaultAccountManager) propagateAutoGroupChangesForUser(ctx context.Context, oldUser, updatedUser *User) []*nbgroup.Group {
+	return nil
+}
+
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
-func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, transferredOwnerRole bool) []func() {
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *User, accountID string, transferredOwnerRole bool) []func() {
 	var eventsToStore []func()
 
 	if oldUser.IsBlocked() != newUser.IsBlocked() {
 		if newUser.IsBlocked() {
 			eventsToStore = append(eventsToStore, func() {
-				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserBlocked, nil)
+				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.UserBlocked, nil)
 			})
 		} else {
 			eventsToStore = append(eventsToStore, func() {
-				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserUnblocked, nil)
+				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.UserUnblocked, nil)
 			})
 		}
 	}
@@ -804,11 +808,11 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, in
 	switch {
 	case transferredOwnerRole:
 		eventsToStore = append(eventsToStore, func() {
-			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.TransferredOwnerRole, nil)
+			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.TransferredOwnerRole, nil)
 		})
 	case oldUser.Role != newUser.Role:
 		eventsToStore = append(eventsToStore, func() {
-			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
+			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
 		})
 	}
 
@@ -816,23 +820,35 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, in
 		removedGroups := difference(oldUser.AutoGroups, newUser.AutoGroups)
 		addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
 		for _, g := range removedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				eventsToStore = append(eventsToStore, func() {
-					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupRemovedFromUser,
-						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-				})
-
+			group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, accountID)
 			} else {
-				log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+				eventsToStore = append(eventsToStore, func() {
+					meta := map[string]any{
+						"group":           group.Name,
+						"group_id":        group.ID,
+						"is_service_user": newUser.IsServiceUser,
+						"user_name":       newUser.ServiceUserName,
+					}
+					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
+				})
 			}
 		}
+
 		for _, g := range addedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
+			group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, accountID)
+			} else {
 				eventsToStore = append(eventsToStore, func() {
-					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupAddedToUser,
-						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+					meta := map[string]any{
+						"group":           group.Name,
+						"group_id":        group.ID,
+						"is_service_user": newUser.IsServiceUser,
+						"user_name":       newUser.ServiceUserName,
+					}
+					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
 				})
 			}
 		}
@@ -841,32 +857,27 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, in
 	return eventsToStore
 }
 
-func handleOwnerRoleTransfer(account *Account, initiatorUser, update *User) bool {
-	if initiatorUser.Role == UserRoleOwner && initiatorUser.Id != update.Id && update.Role == UserRoleOwner {
-		newInitiatorUser := initiatorUser.Copy()
-		newInitiatorUser.Role = UserRoleAdmin
-		account.Users[initiatorUser.Id] = newInitiatorUser
-		return true
-	}
-	return false
-}
-
 // getUserInfo retrieves the UserInfo for a given User and Account.
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
-func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, account *Account) (*UserInfo, error) {
+func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, accountID string) (*UserInfo, error) {
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	if !isNil(am.idpManager) && !user.IsServiceUser {
-		userData, err := am.lookupUserInCache(ctx, user.Id, account)
+		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
 		}
-		return user.ToUserInfo(userData, account.Settings)
+		return user.ToUserInfo(userData, settings)
 	}
-	return user.ToUserInfo(nil, account.Settings)
+	return user.ToUserInfo(nil, settings)
 }
 
 // validateUserUpdate validates the update operation for a user.
-func validateUserUpdate(account *Account, initiatorUser, oldUser, update *User) error {
+func (am *DefaultAccountManager) validateUserUpdate(ctx context.Context, accountID string, initiatorUser, oldUser, update *User) error {
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
@@ -887,11 +898,12 @@ func validateUserUpdate(account *Account, initiatorUser, oldUser, update *User) 
 	}
 
 	for _, newGroupID := range update.AutoGroups {
-		group, ok := account.Groups[newGroupID]
-		if !ok {
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, newGroupID, accountID)
+		if err != nil {
 			return status.Errorf(status.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
 				newGroupID, update.Id)
 		}
+
 		if group.Name == "All" {
 			return status.Errorf(status.InvalidArgument, "can't add All group to the user")
 		}
@@ -942,21 +954,26 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
 // based on provided user role.
 func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*UserInfo, error) {
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "no permission to get users")
+	}
+
+	accountUsers, err := am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		users := make(map[string]userLoggedInOnce, len(account.Users))
+		users := make(map[string]userLoggedInOnce, len(accountUsers))
+
 		usersFromIntegration := make([]*idp.UserData, 0)
-		for _, user := range account.Users {
+		for _, user := range accountUsers {
 			if user.Issued == UserIssuedIntegration {
 				key := user.IntegrationReference.CacheKey(accountID, user.Id)
 				info, err := am.externalCacheManager.Get(am.ctx, key)
@@ -981,16 +998,21 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		queriedUsers = append(queriedUsers, usersFromIntegration...)
 	}
 
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	userInfos := make([]*UserInfo, 0)
 
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
-		for _, accountUser := range account.Users {
+		for _, accountUser := range accountUsers {
 			if !(user.HasAdminPower() || user.IsServiceUser || user.Id == accountUser.Id) {
 				// if user is not an admin then show only current user and do not show other users
 				continue
 			}
-			info, err := accountUser.ToUserInfo(nil, account.Settings)
+			info, err := accountUser.ToUserInfo(nil, settings)
 			if err != nil {
 				return nil, err
 			}
@@ -999,7 +1021,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return userInfos, nil
 	}
 
-	for _, localUser := range account.Users {
+	for _, localUser := range accountUsers {
 		if !(user.HasAdminPower() || user.IsServiceUser) && user.Id != localUser.Id {
 			// if user is not an admin then show only current user and do not show other users
 			continue
@@ -1007,7 +1029,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 
 		var info *UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
-			info, err = localUser.ToUserInfo(queriedUser, account.Settings)
+			info, err = localUser.ToUserInfo(queriedUser, settings)
 			if err != nil {
 				return nil, err
 			}
@@ -1020,7 +1042,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 			dashboardViewPermissions := "full"
 			if !localUser.HasAdminPower() {
 				dashboardViewPermissions = "limited"
-				if account.Settings.RegularUsersViewBlocked {
+				if settings.RegularUsersViewBlocked {
 					dashboardViewPermissions = "blocked"
 				}
 			}
@@ -1044,7 +1066,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 }
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
-func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, account *Account, peers []*nbpeer.Peer) error {
+func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
 		if peer.Status.LoginExpired {
@@ -1052,13 +1074,13 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		}
 		peerIDs = append(peerIDs, peer.ID)
 		peer.MarkLoginExpired(true)
-		account.UpdatePeer(peer)
-		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
+
+		if err := am.Store.SavePeerStatus(accountID, peer.ID, *peer.Status); err != nil {
 			return err
 		}
 		am.StoreEvent(
 			ctx,
-			peer.UserID, peer.ID, account.Id,
+			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
 		)
 	}
@@ -1066,6 +1088,10 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
 		am.updateAccountPeers(ctx, account)
 	}
 	return nil
