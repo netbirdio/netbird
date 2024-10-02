@@ -740,8 +740,8 @@ func newPostgresqlStore(t *testing.T) *SqlStore {
 func newPostgresqlStoreFromSqlite(t *testing.T, filename string) *SqlStore {
 	t.Helper()
 
-	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), filename)
-	t.Cleanup(cleanup)
+	store, cleanUpQ, err := NewSqliteTestStore(context.Background(), t.TempDir(), filename)
+	t.Cleanup(cleanUpQ)
 	if err != nil {
 		return nil
 	}
@@ -750,6 +750,12 @@ func newPostgresqlStoreFromSqlite(t *testing.T, filename string) *SqlStore {
 	if !ok {
 		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
 	}
+
+	cleanUpP, err := testutil.CreatePGDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanUpP)
 
 	pstore, err := NewPostgresqlStoreFromSqlStore(context.Background(), store, postgresDsn, nil)
 	require.NoError(t, err)
