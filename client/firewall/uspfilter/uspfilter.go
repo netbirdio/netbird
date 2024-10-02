@@ -12,7 +12,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 const layerTypeAll = 0
@@ -23,7 +24,7 @@ var (
 
 // IFaceMapper defines subset methods of interface required for manager
 type IFaceMapper interface {
-	SetFilter(iface.PacketFilter) error
+	SetFilter(device.PacketFilter) error
 	Address() iface.WGAddress
 }
 

@@ -15,9 +15,9 @@ import (
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/netbirdio/netbird/route"
 )
 

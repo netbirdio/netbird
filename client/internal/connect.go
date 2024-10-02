@@ -17,13 +17,14 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/relay/auth/hmac"
@@ -70,7 +71,7 @@ func (c *ConnectClient) RunWithProbes(
 
 // RunOnAndroid with main logic on mobile system
 func (c *ConnectClient) RunOnAndroid(
-	tunAdapter iface.TunAdapter,
+	tunAdapter device.TunAdapter,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsAddresses []string,
@@ -205,7 +206,7 @@ func (c *ConnectClient) run(
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
-			KernelInterface: iface.WireGuardModuleIsLoaded(),
+			KernelInterface: device.WireGuardModuleIsLoaded(),
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
 		c.statusRecorder.UpdateLocalPeerState(localPeerState)

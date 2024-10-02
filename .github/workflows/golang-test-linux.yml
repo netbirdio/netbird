@@ -80,7 +80,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Generate Iface Test bin
-        run: CGO_ENABLED=0 go test -c -o iface-testing.bin ./iface/
+        run: CGO_ENABLED=0 go test -c -o iface-testing.bin ./client/iface/
 
       - name: Generate Shared Sock Test bin
         run: CGO_ENABLED=0 go test -c -o sharedsock-testing.bin ./sharedsock

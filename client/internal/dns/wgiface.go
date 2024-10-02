@@ -5,7 +5,9 @@ package dns
 import (
 	"net"
 
-	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 // WGIface defines subset methods of interface required for manager
@@ -14,7 +16,7 @@ type WGIface interface {
 	Address() iface.WGAddress
 	ToInterface() *net.Interface
 	IsUserspaceBind() bool
-	GetFilter() iface.PacketFilter
-	GetDevice() *iface.DeviceWrapper
-	GetStats(peerKey string) (iface.WGStats, error)
+	GetFilter() device.PacketFilter
+	GetDevice() *device.FilteredDevice
+	GetStats(peerKey string) (configurer.WGStats, error)
 }
