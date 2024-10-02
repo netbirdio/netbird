@@ -19,15 +19,15 @@ import (
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
 
-type wgUSPConfigurer struct {
+type WGUSPConfigurer struct {
 	device     *device.Device
 	deviceName string
 
 	uapiListener net.Listener
 }
 
-func NewUSPConfigurer(device *device.Device, deviceName string) WGConfigurer {
-	wgCfg := &wgUSPConfigurer{
+func NewUSPConfigurer(device *device.Device, deviceName string) *WGUSPConfigurer {
+	wgCfg := &WGUSPConfigurer{
 		device:     device,
 		deviceName: deviceName,
 	}
@@ -35,7 +35,7 @@ func NewUSPConfigurer(device *device.Device, deviceName string) WGConfigurer {
 	return wgCfg
 }
 
-func (c *wgUSPConfigurer) ConfigureInterface(privateKey string, port int) error {
+func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
@@ -52,7 +52,7 @@ func (c *wgUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wgUSPConfigurer) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	// parse allowed ips
 	_, ipNet, err := net.ParseCIDR(allowedIps)
 	if err != nil {
@@ -80,7 +80,7 @@ func (c *wgUSPConfigurer) UpdatePeer(peerKey string, allowedIps string, keepAliv
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wgUSPConfigurer) RemovePeer(peerKey string) error {
+func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -97,7 +97,7 @@ func (c *wgUSPConfigurer) RemovePeer(peerKey string) error {
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wgUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
+func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
 		return err
@@ -121,7 +121,7 @@ func (c *wgUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wgUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
+func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
 	ipc, err := c.device.IpcGet()
 	if err != nil {
 		return err
@@ -185,7 +185,7 @@ func (c *wgUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
 }
 
 // startUAPI starts the UAPI listener for managing the WireGuard interface via external tool
-func (t *wgUSPConfigurer) startUAPI() {
+func (t *WGUSPConfigurer) startUAPI() {
 	var err error
 	t.uapiListener, err = openUAPI(t.deviceName)
 	if err != nil {
@@ -207,7 +207,7 @@ func (t *wgUSPConfigurer) startUAPI() {
 	}(t.uapiListener)
 }
 
-func (t *wgUSPConfigurer) Close() {
+func (t *WGUSPConfigurer) Close() {
 	if t.uapiListener != nil {
 		err := t.uapiListener.Close()
 		if err != nil {
@@ -223,7 +223,7 @@ func (t *wgUSPConfigurer) Close() {
 	}
 }
 
-func (t *wgUSPConfigurer) GetStats(peerKey string) (WGStats, error) {
+func (t *WGUSPConfigurer) GetStats(peerKey string) (WGStats, error) {
 	ipc, err := t.device.IpcGet()
 	if err != nil {
 		return WGStats{}, fmt.Errorf("ipc get: %w", err)

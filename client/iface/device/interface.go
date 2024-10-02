@@ -1,14 +1,13 @@
-package configurer
+package device
 
 import (
-	"errors"
 	"net"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-)
 
-var ErrPeerNotFound = errors.New("peer not found")
+	"github.com/netbirdio/netbird/client/iface/configurer"
+)
 
 type WGConfigurer interface {
 	ConfigureInterface(privateKey string, port int) error
@@ -17,5 +16,5 @@ type WGConfigurer interface {
 	AddAllowedIP(peerKey string, allowedIP string) error
 	RemoveAllowedIP(peerKey string, allowedIP string) error
 	Close()
-	GetStats(peerKey string) (WGStats, error)
+	GetStats(peerKey string) (configurer.WGStats, error)
 }

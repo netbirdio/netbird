@@ -48,7 +48,7 @@ func NewKernelDevice(name string, address WGAddress, wgPort int, key string, mtu
 	}
 }
 
-func (t *tunKernelDevice) Create() (configurer.WGConfigurer, error) {
+func (t *tunKernelDevice) Create() (WGConfigurer, error) {
 	link := newWGLink(t.name)
 
 	if err := link.recreate(); err != nil {

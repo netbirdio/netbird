@@ -27,7 +27,7 @@ type USPDevice struct {
 	device         *device.Device
 	filteredDevice *FilteredDevice
 	udpMux         *bind.UniversalUDPMuxDefault
-	configurer     configurer.WGConfigurer
+	configurer     WGConfigurer
 }
 
 func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) WGTunDevice {
@@ -44,7 +44,7 @@ func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int,
 		iceBind: bind.NewICEBind(transportNet, filterFn)}
 }
 
-func (t *USPDevice) Create() (configurer.WGConfigurer, error) {
+func (t *USPDevice) Create() (WGConfigurer, error) {
 	log.Info("create tun interface")
 	tunIface, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {

@@ -28,7 +28,7 @@ type tunNetstackDevice struct {
 	filteredDevice *FilteredDevice
 	nsTun          *netstack.NetStackTun
 	udpMux         *bind.UniversalUDPMuxDefault
-	configurer     configurer.WGConfigurer
+	configurer     WGConfigurer
 }
 
 func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string, filterFn bind.FilterFn) WGTunDevice {
@@ -43,7 +43,7 @@ func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, m
 	}
 }
 
-func (t *tunNetstackDevice) Create() (configurer.WGConfigurer, error) {
+func (t *tunNetstackDevice) Create() (WGConfigurer, error) {
 	log.Info("create netstack tun interface")
 	t.nsTun = netstack.NewNetStackTun(t.listenAddress, t.address.IP.String(), t.mtu)
 	tunIface, err := t.nsTun.Create()

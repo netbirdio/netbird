@@ -12,18 +12,17 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-type kernelConfigurer struct {
+type KernelConfigurer struct {
 	deviceName string
 }
 
-func NewKernelConfigurer(deviceName string) WGConfigurer {
-	wgc := &kernelConfigurer{
+func NewKernelConfigurer(deviceName string) *KernelConfigurer {
+	return &KernelConfigurer{
 		deviceName: deviceName,
 	}
-	return wgc
 }
 
-func (c *kernelConfigurer) ConfigureInterface(privateKey string, port int) error {
+func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
@@ -44,7 +43,7 @@ func (c *kernelConfigurer) ConfigureInterface(privateKey string, port int) error
 	return nil
 }
 
-func (c *kernelConfigurer) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	// parse allowed ips
 	_, ipNet, err := net.ParseCIDR(allowedIps)
 	if err != nil {
@@ -75,7 +74,7 @@ func (c *kernelConfigurer) UpdatePeer(peerKey string, allowedIps string, keepAli
 	return nil
 }
 
-func (c *kernelConfigurer) RemovePeer(peerKey string) error {
+func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -96,7 +95,7 @@ func (c *kernelConfigurer) RemovePeer(peerKey string) error {
 	return nil
 }
 
-func (c *kernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
+func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
 		return err
@@ -123,7 +122,7 @@ func (c *kernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error 
 	return nil
 }
 
-func (c *kernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP string) error {
+func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
 		return fmt.Errorf("parse allowed IP: %w", err)
@@ -165,7 +164,7 @@ func (c *kernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP string) err
 	return nil
 }
 
-func (c *kernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
+func (c *KernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 	wg, err := wgctrl.New()
 	if err != nil {
 		return wgtypes.Peer{}, fmt.Errorf("wgctl: %w", err)
@@ -189,7 +188,7 @@ func (c *kernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, 
 	return wgtypes.Peer{}, ErrPeerNotFound
 }
 
-func (c *kernelConfigurer) configure(config wgtypes.Config) error {
+func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 	wg, err := wgctrl.New()
 	if err != nil {
 		return err
@@ -205,10 +204,10 @@ func (c *kernelConfigurer) configure(config wgtypes.Config) error {
 	return wg.ConfigureDevice(c.deviceName, config)
 }
 
-func (c *kernelConfigurer) Close() {
+func (c *KernelConfigurer) Close() {
 }
 
-func (c *kernelConfigurer) GetStats(peerKey string) (WGStats, error) {
+func (c *KernelConfigurer) GetStats(peerKey string) (WGStats, error) {
 	peer, err := c.getPeer(c.deviceName, peerKey)
 	if err != nil {
 		return WGStats{}, fmt.Errorf("get wireguard stats: %w", err)

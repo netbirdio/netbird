@@ -28,7 +28,7 @@ type WGIface struct {
 	userspaceBind bool
 	mu            sync.Mutex
 
-	configurer configurer.WGConfigurer
+	configurer device.WGConfigurer
 	filter     device.PacketFilter
 }
 
