@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/dns"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/dns"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 
@@ -239,23 +240,29 @@ func getMigrations(ctx context.Context) []migrationFunc {
 	}
 }
 
-// NewTestStoreFromJson is only used in tests
-func NewTestStoreFromJson(ctx context.Context, dataDir string) (Store, func(), error) {
-	fstore, err := NewFileStore(ctx, dataDir, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
+// NewTestStoreFromSqlite is only used in tests
+func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
 	// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
 		kind = SqliteStoreEngine
 	}
 
-	var (
-		store   Store
-		cleanUp func()
-	)
+	var store *SqlStore
+	var err error
+	var cleanUp func()
+
+	if filename == "" {
+		store, err = NewSqliteStore(ctx, dataDir, nil)
+		cleanUp = func() {
+			store.Close(ctx)
+		}
+	} else {
+		store, cleanUp, err = NewSqliteTestStore(ctx, dataDir, filename)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
 
 	if kind == PostgresStoreEngine {
 		cleanUp, err = testutil.CreatePGDB()
@@ -268,19 +275,30 @@ func NewTestStoreFromJson(ctx context.Context, dataDir string) (Store, func(), e
 			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 		}
 
-		store, err = NewPostgresqlStoreFromFileStore(ctx, fstore, dsn, nil)
+		store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
 		if err != nil {
 			return nil, nil, err
 		}
-	} else {
-		store, err = NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil)
-		if err != nil {
-			return nil, nil, err
-		}
-		cleanUp = func() { store.Close(ctx) }
 	}
 
 	return store, cleanUp, nil
+}
+
+func NewSqliteTestStore(ctx context.Context, dataDir string, testFile string) (*SqlStore, func(), error) {
+	err := util.CopyFileContents(testFile, filepath.Join(dataDir, "store.db"))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	store, err := NewSqliteStore(ctx, dataDir, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return store, func() {
+		store.Close(ctx)
+		os.Remove(filepath.Join(dataDir, "store.db"))
+	}, nil
 }
 
 // MigrateFileStoreToSqlite migrates the file store to the SQLite store.

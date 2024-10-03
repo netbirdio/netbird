@@ -5,9 +5,9 @@ import (
 	"net/netip"
 	"sync"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
-	"github.com/netbirdio/netbird/iface"
 )
 
 type Nexthop struct {
@@ -15,7 +15,7 @@ type Nexthop struct {
 	Intf *net.Interface
 }
 
-type ExclusionCounter = refcounter.Counter[any, Nexthop]
+type ExclusionCounter = refcounter.Counter[netip.Prefix, struct{}, Nexthop]
 
 type SysOps struct {
 	refCounter  *ExclusionCounter

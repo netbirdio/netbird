@@ -1597,9 +1597,10 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Routes: map[route.ID]*route.Route{
 			"route1": {
-				ID:         "route1",
-				PeerGroups: []string{},
-				Groups:     []string{"group1"},
+				ID:                  "route1",
+				PeerGroups:          []string{},
+				Groups:              []string{"group1"},
+				AccessControlGroups: []string{},
 			},
 		},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
@@ -2422,7 +2423,7 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 func createStore(t TB) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)
+	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}

@@ -927,6 +927,28 @@ func NewPostgresqlStoreFromFileStore(ctx context.Context, fileStore *FileStore, 
 	return store, nil
 }
 
+// NewPostgresqlStoreFromSqlStore restores a store from SqlStore and stores Postgres DB.
+func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	store, err := NewPostgresqlStore(ctx, dsn, metrics)
+	if err != nil {
+		return nil, err
+	}
+
+	err = store.SaveInstallationID(ctx, sqliteStore.GetInstallationID())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, account := range sqliteStore.GetAllAccounts(ctx) {
+		err := store.SaveAccount(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return store, nil
+}
+
 func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error) {
 	var setupKey SetupKey
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).

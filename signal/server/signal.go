@@ -71,11 +71,6 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.Debugf("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
-	if msg.RemoteKey == "dummy" {
-		// Test message send during netbird status
-		return &proto.EncryptedMessage{}, nil
-	}
-
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		s.forwardMessageToPeer(ctx, msg)
 		return &proto.EncryptedMessage{}, nil
