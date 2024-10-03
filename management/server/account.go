@@ -1851,6 +1851,10 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		}
 	}()
 
+	if err = am.Store.SaveGroups(ctx, LockingStrengthUpdate, newGroupsToCreate); err != nil {
+		return fmt.Errorf("error saving groups: %w", err)
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		user, err := transaction.GetUserByUserID(ctx, LockingStrengthUpdate, claims.UserId)
 		if err != nil {
@@ -1860,10 +1864,6 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		addNewGroups := difference(updatedAutoGroups, user.AutoGroups)
 		removeOldGroups := difference(user.AutoGroups, updatedAutoGroups)
 
-		if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, newGroupsToCreate); err != nil {
-			return fmt.Errorf("error saving groups: %w", err)
-		}
-
 		user.AutoGroups = updatedAutoGroups
 		if err = transaction.SaveUser(ctx, LockingStrengthUpdate, user); err != nil {
 			return fmt.Errorf("error saving user: %w", err)
@@ -1871,12 +1871,13 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			if err = transaction.AddUserPeersToGroups(ctx, accountID, claims.UserId, addNewGroups); err != nil {
-				return fmt.Errorf("error adding user peers to groups: %w", err)
+			updatedGroups, err := am.updateUserPeersInGroups(ctx, accountID, claims.UserId, addNewGroups, removeOldGroups)
+			if err != nil {
+				return fmt.Errorf("error modifying user peers in groups: %w", err)
 			}
 
-			if err = transaction.RemoveUserPeersFromGroups(ctx, accountID, claims.UserId, removeOldGroups); err != nil {
-				return fmt.Errorf("error removing user peers from groups: %w", err)
+			if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, updatedGroups); err != nil {
+				return fmt.Errorf("error saving groups: %w", err)
 			}
 
 			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
