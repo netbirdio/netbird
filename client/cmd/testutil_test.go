@@ -38,7 +38,7 @@ func startTestingServices(t *testing.T) string {
 	signalAddr := signalLis.Addr().String()
 	config.Signal.URI = signalAddr
 
-	_, mgmLis := startManagement(t, config, "../testdata/store.sqlite")
+	_, mgmLis := startManagement(t, config, "../testdata/store.sql")
 	mgmAddr := mgmLis.Addr().String()
 	return mgmAddr
 }

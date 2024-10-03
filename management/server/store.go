@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/netip"
 	"os"
@@ -249,16 +250,16 @@ func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string
 	var err error
 	var cleanUp func()
 
-	if filename == "" {
-		store, err = NewSqliteStore(ctx, dataDir, nil)
-		cleanUp = func() {
-			store.Close(ctx)
-		}
-	} else {
-		store, cleanUp, err = NewSqliteTestStore(ctx, dataDir, filename)
+	store, err = NewSqliteStore(ctx, dataDir, nil)
+	cleanUp = func() {
+		store.Close(ctx)
 	}
-	if err != nil {
-		return nil, nil, err
+
+	if filename != "" {
+		err = loadSQL(store.db, filename)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
+		}
 	}
 
 	if kind == PostgresStoreEngine {
@@ -281,21 +282,25 @@ func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string
 	return store, cleanUp, nil
 }
 
-func NewSqliteTestStore(ctx context.Context, dataDir string, testFile string) (*SqlStore, func(), error) {
-	err := util.CopyFileContents(testFile, filepath.Join(dataDir, "store.db"))
+func loadSQL(db *gorm.DB, filepath string) error {
+	sqlContent, err := ioutil.ReadFile(filepath)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
-	store, err := NewSqliteStore(ctx, dataDir, nil)
-	if err != nil {
-		return nil, nil, err
+	queries := strings.Split(string(sqlContent), ";")
+
+	for _, query := range queries {
+		query = strings.TrimSpace(query)
+		if query != "" {
+			err := db.Exec(query).Error
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	return store, func() {
-		store.Close(ctx)
-		os.Remove(filepath.Join(dataDir, "store.db"))
-	}, nil
+	return nil
 }
 
 // MigrateFileStoreToSqlite migrates the file store to the SQLite store.

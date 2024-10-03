@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -58,7 +57,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := NewSqliteTestStore(t, context.Background(), "../server/testdata/store.sqlite")
+	store, cleanUp, err := mgmt.NewTestStoreFromSqlite(context.Background(), "../server/testdata/store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,23 +512,4 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientSecret, flowInfo.ProviderConfig.ClientSecret, "provider configured client secret should match")
-}
-
-func NewSqliteTestStore(t *testing.T, ctx context.Context, testFile string) (mgmt.Store, func(), error) {
-	t.Helper()
-	dataDir := t.TempDir()
-	err := util.CopyFileContents(testFile, filepath.Join(dataDir, "store.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	store, err := mgmt.NewSqliteStore(ctx, dataDir, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return store, func() {
-		store.Close(ctx)
-		os.Remove(filepath.Join(dataDir, "store.db"))
-	}, nil
 }

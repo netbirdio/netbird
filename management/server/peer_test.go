@@ -1004,7 +1004,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	store, cleanup, err := NewTestStoreFromSqlite(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1069,7 +1069,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	store, cleanup, err := NewTestStoreFromSqlite(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1135,7 +1135,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	store, cleanup, err := NewTestStoreFromSqlite(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

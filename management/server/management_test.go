@@ -58,7 +58,7 @@ var _ = Describe("Management service", func() {
 		Expect(err).NotTo(HaveOccurred())
 		config.Datadir = dataDir
 
-		s, listener = startServer(config, dataDir, "testdata/store.sqlite")
+		s, listener = startServer(config, dataDir, "testdata/store.sql")
 		addr = listener.Addr().String()
 		client, conn = createRawClient(addr)
 

@@ -832,7 +832,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		return
 	}
 	defer sigServer.Stop()
-	mgmtServer, mgmtAddr, err := startManagement(t, t.TempDir(), "../testdata/store.sqlite")
+	mgmtServer, mgmtAddr, err := startManagement(t, t.TempDir(), "../testdata/store.sql")
 	if err != nil {
 		t.Fatal(err)
 		return
