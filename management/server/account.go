@@ -1844,10 +1844,17 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		return nil
 	}
 
-	return am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		user, err := transaction.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer func() {
+		if unlockPeer != nil {
+			unlockPeer()
+		}
+	}()
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		user, err := transaction.GetUserByUserID(ctx, LockingStrengthUpdate, claims.UserId)
 		if err != nil {
-			return err
+			return fmt.Errorf("error getting user: %w", err)
 		}
 
 		addNewGroups := difference(updatedAutoGroups, user.AutoGroups)
@@ -1875,14 +1882,9 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
-
-			account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-			if err != nil {
-				return fmt.Errorf("error getting account: %w", err)
-			}
-			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			am.updateAccountPeers(ctx, account)
 		}
+		unlockPeer()
+		unlockPeer = nil
 
 		for _, g := range addNewGroups {
 			group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
@@ -1911,6 +1913,21 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	if settings.GroupsPropagationEnabled {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
+
+		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
+		am.updateAccountPeers(ctx, account)
+	}
+
+	return nil
 }
 
 // getAccountIDWithAuthorizationClaims retrieves an account ID using JWT Claims.
