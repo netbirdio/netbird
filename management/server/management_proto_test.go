@@ -482,8 +482,8 @@ func Test_SyncStatusRace(t *testing.T) {
 	}
 }
 func testSyncStatusRace(t *testing.T) {
-	t.Skip()
 	t.Helper()
+	t.Skip()
 	dir := t.TempDir()
 
 	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &Config{
