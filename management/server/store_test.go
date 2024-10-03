@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -80,10 +79,6 @@ func BenchmarkTest_StoreRead(b *testing.B) {
 
 func newStore(t *testing.T) Store {
 	t.Helper()
-
-	if runtime.GOOS == "windows" {
-		t.Skip("sqlite not supported on windows")
-	}
 
 	store := newSqliteStore(t)
 
