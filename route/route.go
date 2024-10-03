@@ -100,6 +100,7 @@ type Route struct {
 	Metric      int
 	Enabled     bool
 	Groups      []string `gorm:"serializer:json"`
+	AccessControlGroups []string `gorm:"serializer:json"`
 }
 
 // EventMeta returns activity event meta related to the route
@@ -123,6 +124,7 @@ func (r *Route) Copy() *Route {
 		Masquerade:  r.Masquerade,
 		Enabled:     r.Enabled,
 		Groups:      slices.Clone(r.Groups),
+		AccessControlGroups: slices.Clone(r.AccessControlGroups),
 	}
 	return route
 }
@@ -147,7 +149,8 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.Masquerade == r.Masquerade &&
 		other.Enabled == r.Enabled &&
 		slices.Equal(r.Groups, other.Groups) &&
-		slices.Equal(r.PeerGroups, other.PeerGroups)
+		slices.Equal(r.PeerGroups, other.PeerGroups)&&
+		slices.Equal(r.AccessControlGroups, other.AccessControlGroups)
 }
 
 // IsDynamic returns if the route is dynamic, i.e. has domains

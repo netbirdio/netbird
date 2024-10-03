@@ -59,7 +59,7 @@ func (nw *NetworkMonitor) Start(ctx context.Context, callback func()) (err error
 	// recover in case sys ops panic
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+			err = fmt.Errorf("panic occurred: %v, stack trace: %s", r, debug.Stack())
 		}
 	}()
 

@@ -77,8 +77,8 @@ func initPATTestData() *PATHandler {
 				}, nil
 			},
 
-			GetAccountFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return testAccount, testAccount.Users[existingUserID], nil
+			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, claims.UserId, nil
 			},
 			DeletePATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
 				if accountID != existingAccountID {
@@ -119,7 +119,7 @@ func initPATTestData() *PATHandler {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    existingUserID,
 					Domain:    testDomain,
-					AccountId: testNSGroupAccountID,
+					AccountId: existingAccountID,
 				}
 			}),
 		),

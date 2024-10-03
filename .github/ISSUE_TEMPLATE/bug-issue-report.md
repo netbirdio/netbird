@@ -35,7 +35,7 @@ Please specify whether you use NetBird Cloud or self-host NetBird's control plan
 
 If applicable, add the `netbird status -dA' command output.
 
-**Do you face any client issues on desktop?**
+**Do you face any (non-mobile) client issues?**
 
 Please provide the file created by `netbird debug for 1m -AS`.
 We advise reviewing the anonymized files for any remaining PII.

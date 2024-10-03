@@ -16,10 +16,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
-	"github.com/netbirdio/netbird/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -41,7 +41,7 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP) (nbnet.AddHookFunc, nbn
 	}
 
 	refCounter := refcounter.New(
-		func(prefix netip.Prefix, _ any) (Nexthop, error) {
+		func(prefix netip.Prefix, _ struct{}) (Nexthop, error) {
 			initialNexthop := initialNextHopV4
 			if prefix.Addr().Is6() {
 				initialNexthop = initialNextHopV6
@@ -122,7 +122,7 @@ func (r *SysOps) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 
 // addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
 // If the next hop or interface is pointing to the VPN interface, it will return the initial values.
-func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNextHop Nexthop) (Nexthop, error) {
+func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf iface.IWGIface, initialNextHop Nexthop) (Nexthop, error) {
 	addr := prefix.Addr()
 	switch {
 	case addr.IsLoopback(),
@@ -317,7 +317,7 @@ func (r *SysOps) setupHooks(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.Re
 			return fmt.Errorf("convert ip to prefix: %w", err)
 		}
 
-		if _, err := r.refCounter.IncrementWithID(string(connID), prefix, nil); err != nil {
+		if _, err := r.refCounter.IncrementWithID(string(connID), prefix, struct{}{}); err != nil {
 			return fmt.Errorf("adding route reference: %v", err)
 		}
 

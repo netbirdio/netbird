@@ -1,7 +1,6 @@
 package geolocation
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -15,10 +14,6 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/netbirdio/netbird/management/server/status"
-)
-
-const (
-	GeoSqliteDBFile = "geonames.db"
 )
 
 type GeoNames struct {
@@ -44,31 +39,24 @@ func (*GeoNames) TableName() string {
 
 // SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
-	db        *gorm.DB
-	filePath  string
-	mux       sync.RWMutex
-	closed    bool
-	sha256sum []byte
+	db       *gorm.DB
+	filePath string
+	mux      sync.RWMutex
+	closed   bool
 }
 
-func NewSqliteStore(ctx context.Context, dataDir string) (*SqliteStore, error) {
-	file := filepath.Join(dataDir, GeoSqliteDBFile)
+func NewSqliteStore(ctx context.Context, dataDir string, dbPath string) (*SqliteStore, error) {
+	file := filepath.Join(dataDir, dbPath)
 
 	db, err := connectDB(ctx, file)
 	if err != nil {
 		return nil, err
 	}
 
-	sha256sum, err := calculateFileSHA256(file)
-	if err != nil {
-		return nil, err
-	}
-
 	return &SqliteStore{
-		db:        db,
-		filePath:  file,
-		mux:       sync.RWMutex{},
-		sha256sum: sha256sum,
+		db:       db,
+		filePath: file,
+		mux:      sync.RWMutex{},
 	}, nil
 }
 
@@ -113,48 +101,6 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 	}
 
 	return cities, nil
-}
-
-// reload attempts to reload the SqliteStore's database if the database file has changed.
-func (s *SqliteStore) reload(ctx context.Context) error {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	newSha256sum1, err := calculateFileSHA256(s.filePath)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
-	}
-
-	if !bytes.Equal(s.sha256sum, newSha256sum1) {
-		// we check sum twice just to avoid possible case when we reload during update of the file
-		// considering the frequency of file update (few times a week) checking sum twice should be enough
-		time.Sleep(50 * time.Millisecond)
-		newSha256sum2, err := calculateFileSHA256(s.filePath)
-		if err != nil {
-			return fmt.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
-		}
-		if !bytes.Equal(newSha256sum1, newSha256sum2) {
-			return fmt.Errorf("sha256 sum changed during reloading of '%s'", s.filePath)
-		}
-
-		log.WithContext(ctx).Infof("Reloading '%s'", s.filePath)
-		_ = s.close()
-		s.closed = true
-
-		newDb, err := connectDB(ctx, s.filePath)
-		if err != nil {
-			return err
-		}
-
-		s.closed = false
-		s.db = newDb
-
-		log.WithContext(ctx).Infof("Successfully reloaded '%s'", s.filePath)
-	} else {
-		log.WithContext(ctx).Tracef("No changes in '%s', no need to reload", s.filePath)
-	}
-
-	return nil
 }
 
 // close closes the database connection.

@@ -103,13 +103,25 @@ wait_api() {
     INSTANCE_URL=$1
     PAT=$2
     set +e
+    counter=1
     while true; do
-      curl -s --fail -o /dev/null "$INSTANCE_URL/auth/v1/users/me" -H "Authorization: Bearer $PAT"
+      FLAGS="-s"
+      if [[ $counter -eq 45 ]]; then
+        FLAGS="-v"
+        echo ""
+      fi
+
+      curl $FLAGS --fail --connect-timeout 1 -o /dev/null "$INSTANCE_URL/auth/v1/users/me" -H "Authorization: Bearer $PAT"
       if [[ $? -eq 0 ]]; then
         break
       fi
+      if [[ $counter -eq 45 ]]; then
+        echo ""
+        echo "Unable to connect to Zitadel for more than 45s, please check the output above, your firewall rules and the caddy container logs to confirm if there are any issues provisioning TLS certificates"
+      fi
       echo -n " ."
       sleep 1
+      counter=$((counter + 1))
     done
     echo " done"
     set -e
@@ -424,8 +436,10 @@ initEnvironment() {
   ZITADEL_MASTERKEY="$(openssl rand -base64 32 | head -c 32)"
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
+  NETBIRD_RELAY_PROTO="rel"
   TURN_USER="self"
   TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
+  NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed 's/=//g')
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
   TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
@@ -442,6 +456,7 @@ initEnvironment() {
     NETBIRD_PORT=443
     CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
     NETBIRD_HTTP_PROTOCOL="https"
+    NETBIRD_RELAY_PROTO="rels"
   fi
 
   if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -458,7 +473,7 @@ initEnvironment() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json"
+    echo "  rm -f docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json relay.env"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -484,6 +499,7 @@ initEnvironment() {
   echo "" > dashboard.env
   echo "" > turnserver.conf
   echo "" > management.json
+  echo "" > relay.env
 
   mkdir -p machinekey
   chmod 777 machinekey
@@ -498,6 +514,7 @@ initEnvironment() {
   renderTurnServerConf > turnserver.conf
   renderManagementJson > management.json
   renderDashboardEnv > dashboard.env
+  renderRelayEnv > relay.env
 
   echo -e "\nStarting NetBird services\n"
   $DOCKER_COMPOSE_COMMAND up -d
@@ -541,7 +558,7 @@ renderCaddyfile() {
 
         # clickjacking protection
         # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-frame-options
-        X-Frame-Options "DENY"
+        X-Frame-Options "SAMEORIGIN"
 
         # xss protection
         # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-xss-protection
@@ -559,6 +576,8 @@ renderCaddyfile() {
 
 :80${CADDY_SECURE_DOMAIN} {
     import security_headers
+    # relay
+    reverse_proxy /relay* relay:80
     # Signal
     reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
     # Management
@@ -628,6 +647,11 @@ renderManagementJson() {
             }
         ],
         "TimeBasedCredentials": false
+    },
+    "Relay": {
+        "Addresses": ["$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT"],
+        "CredentialsTTL": "24h",
+        "Secret": "$NETBIRD_RELAY_AUTH_SECRET"
     },
     "Signal": {
         "Proto": "$NETBIRD_HTTP_PROTOCOL",
@@ -744,6 +768,15 @@ POSTGRES_PASSWORD=$POSTGRES_ROOT_PASSWORD
 EOF
 }
 
+renderRelayEnv() {
+  cat <<EOF
+NB_LOG_LEVEL=info
+NB_LISTEN_ADDRESS=:80
+NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
+NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+EOF
+}
+
 renderDockerCompose() {
   cat <<EOF
 version: "3.4"
@@ -760,6 +793,11 @@ services:
     volumes:
       - netbird_caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
   # UI dashboard
   dashboard:
     image: netbirdio/dashboard:latest
@@ -777,6 +815,18 @@ services:
     image: netbirdio/signal:latest
     restart: unless-stopped
     networks: [netbird]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+  # Relay
+  relay:
+    image: netbirdio/relay:latest
+    restart: unless-stopped
+    networks: [netbird]
+    env_file:
+      - ./relay.env
     logging:
       driver: "json-file"
       options:

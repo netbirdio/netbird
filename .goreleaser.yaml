@@ -1,3 +1,5 @@
+version: 2
+
 project_name: netbird
 builds:
   - id: netbird
@@ -22,7 +24,7 @@ builds:
         goarch: 386
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-    mod_timestamp: '{{ .CommitTimestamp }}'
+    mod_timestamp: "{{ .CommitTimestamp }}"
     tags:
       - load_wgnt_from_rsrc
 
@@ -42,19 +44,19 @@ builds:
       - softfloat
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-    mod_timestamp: '{{ .CommitTimestamp }}'
+    mod_timestamp: "{{ .CommitTimestamp }}"
     tags:
       - load_wgnt_from_rsrc
 
   - id: netbird-mgmt
     dir: management
     env:
-    - CGO_ENABLED=1
-    - >-
-      {{- if eq .Runtime.Goos "linux" }}
-        {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
-        {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
-      {{- end }}
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
     binary: netbird-mgmt
     goos:
       - linux
@@ -64,7 +66,7 @@ builds:
       - arm
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-    mod_timestamp: '{{ .CommitTimestamp }}'
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
   - id: netbird-signal
     dir: signal
@@ -78,7 +80,21 @@ builds:
       - arm
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-    mod_timestamp: '{{ .CommitTimestamp }}'
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-relay
+    dir: relay
+    env: [CGO_ENABLED=0]
+    binary: netbird-relay
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - builds:
@@ -86,7 +102,6 @@ archives:
       - netbird-static
 
 nfpms:
-
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
@@ -153,6 +168,52 @@ dockers:
     goarm: 6
     use: buildx
     dockerfile: client/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/relay:{{ .Version }}-amd64
+    ids:
+      - netbird-relay
+    goarch: amd64
+    use: buildx
+    dockerfile: relay/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/relay:{{ .Version }}-arm64v8
+    ids:
+      - netbird-relay
+    goarch: arm64
+    use: buildx
+    dockerfile: relay/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/relay:{{ .Version }}-arm
+    ids:
+      - netbird-relay
+    goarch: arm
+    goarm: 6
+    use: buildx
+    dockerfile: relay/Dockerfile
     build_flag_templates:
       - "--platform=linux/arm"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -313,6 +374,18 @@ docker_manifests:
       - netbirdio/netbird:{{ .Version }}-arm
       - netbirdio/netbird:{{ .Version }}-amd64
 
+  - name_template: netbirdio/relay:{{ .Version }}
+    image_templates:
+      - netbirdio/relay:{{ .Version }}-arm64v8
+      - netbirdio/relay:{{ .Version }}-arm
+      - netbirdio/relay:{{ .Version }}-amd64
+
+  - name_template: netbirdio/relay:latest
+    image_templates:
+      - netbirdio/relay:{{ .Version }}-arm64v8
+      - netbirdio/relay:{{ .Version }}-arm
+      - netbirdio/relay:{{ .Version }}-amd64
+
   - name_template: netbirdio/signal:{{ .Version }}
     image_templates:
       - netbirdio/signal:{{ .Version }}-arm64v8
@@ -344,10 +417,9 @@ docker_manifests:
       - netbirdio/management:{{ .Version }}-debug-amd64
 
 brews:
-  -
-    ids:
+  - ids:
       - default
-    tap:
+    repository:
       owner: netbirdio
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
@@ -364,7 +436,7 @@ brews:
 uploads:
   - name: debian
     ids:
-    - netbird-deb
+      - netbird-deb
     mode: archive
     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com

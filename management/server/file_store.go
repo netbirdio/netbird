@@ -2,20 +2,23 @@ package server
 
 import (
 	"context"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-
+	"github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/route"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -44,6 +47,158 @@ type FileStore struct {
 	globalAccountLock sync.Mutex `json:"-"`
 
 	metrics telemetry.AppMetrics `json:"-"`
+}
+
+func (s *FileStore) ExecuteInTransaction(ctx context.Context, f func(store Store) error) error {
+	return f(s)
+}
+
+func (s *FileStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKeyID)]
+	if !ok {
+		return status.NewSetupKeyNotFoundError()
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	account.SetupKeys[setupKeyID].UsedTimes++
+
+	return s.SaveAccount(ctx, account)
+}
+
+func (s *FileStore) AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	allGroup, err := account.GetGroupAll()
+	if err != nil || allGroup == nil {
+		return errors.New("all group not found")
+	}
+
+	allGroup.Peers = append(allGroup.Peers, peerID)
+
+	return nil
+}
+
+func (s *FileStore) AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountId)
+	if err != nil {
+		return err
+	}
+
+	account.Groups[groupID].Peers = append(account.Groups[groupID].Peers, peerId)
+
+	return nil
+}
+
+func (s *FileStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, ok := s.Accounts[peer.AccountID]
+	if !ok {
+		return status.NewAccountNotFoundError(peer.AccountID)
+	}
+
+	account.Peers[peer.ID] = peer
+	return s.SaveAccount(ctx, account)
+}
+
+func (s *FileStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, ok := s.Accounts[accountId]
+	if !ok {
+		return status.NewAccountNotFoundError(accountId)
+	}
+
+	account.Network.Serial++
+
+	return s.SaveAccount(ctx, account)
+}
+
+func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(key)]
+	if !ok {
+		return nil, status.NewSetupKeyNotFoundError()
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	setupKey, ok := account.SetupKeys[key]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "setup key not found")
+	}
+
+	return setupKey, nil
+}
+
+func (s *FileStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]net.IP, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	var takenIps []net.IP
+	for _, existingPeer := range account.Peers {
+		takenIps = append(takenIps, existingPeer.IP)
+	}
+
+	return takenIps, nil
+}
+
+func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	existingLabels := []string{}
+	for _, peer := range account.Peers {
+		if peer.DNSLabel != "" {
+			existingLabels = append(existingLabels, peer.DNSLabel)
+		}
+	}
+	return existingLabels, nil
+}
+
+func (s *FileStore) GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountID string) (*Network, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Network, nil
 }
 
 type StoredAccount struct{}
@@ -422,7 +577,7 @@ func (s *FileStore) GetAccountBySetupKey(_ context.Context, setupKey string) (*A
 
 	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+		return nil, status.NewSetupKeyNotFoundError()
 	}
 
 	account, err := s.getAccount(accountID)
@@ -469,6 +624,44 @@ func (s *FileStore) GetUserByTokenID(_ context.Context, tokenID string) (*User, 
 	return account.Users[userID].Copy(), nil
 }
 
+func (s *FileStore) GetUserByUserID(_ context.Context, _ LockingStrength, userID string) (*User, error) {
+	accountID, ok := s.UserID2AccountID[userID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "accountID not found: provided userID doesn't exists")
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	user := account.Users[userID].Copy()
+	pat := make([]PersonalAccessToken, 0, len(user.PATs))
+	for _, token := range user.PATs {
+		if token != nil {
+			pat = append(pat, *token)
+		}
+	}
+	user.PATsG = pat
+
+	return user, nil
+}
+
+func (s *FileStore) GetAccountGroups(_ context.Context, accountID string) ([]*nbgroup.Group, error) {
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	groupsSlice := make([]*nbgroup.Group, 0, len(account.Groups))
+
+	for _, group := range account.Groups {
+		groupsSlice = append(groupsSlice, group)
+	}
+
+	return groupsSlice, nil
+}
+
 // GetAllAccounts returns all accounts
 func (s *FileStore) GetAllAccounts(_ context.Context) (all []*Account) {
 	s.mux.Lock()
@@ -484,7 +677,7 @@ func (s *FileStore) GetAllAccounts(_ context.Context) (all []*Account) {
 func (s *FileStore) getAccount(accountID string) (*Account, error) {
 	account, ok := s.Accounts[accountID]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "account not found")
+		return nil, status.NewAccountNotFoundError(accountID)
 	}
 
 	return account, nil
@@ -610,13 +803,13 @@ func (s *FileStore) GetAccountIDBySetupKey(_ context.Context, setupKey string) (
 
 	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !ok {
-		return "", status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+		return "", status.NewSetupKeyNotFoundError()
 	}
 
 	return accountID, nil
 }
 
-func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, peerKey string) (*nbpeer.Peer, error) {
+func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, _ LockingStrength, peerKey string) (*nbpeer.Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -639,7 +832,7 @@ func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, peerKey string) (*nbp
 	return nil, status.NewPeerNotFoundError(peerKey)
 }
 
-func (s *FileStore) GetAccountSettings(_ context.Context, accountID string) (*Settings, error) {
+func (s *FileStore) GetAccountSettings(_ context.Context, _ LockingStrength, accountID string) (*Settings, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -729,7 +922,7 @@ func (s *FileStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.
 }
 
 // SaveUserLastLogin stores the last login time for a user in memory. It doesn't attempt to persist data to speed up things.
-func (s *FileStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
+func (s *FileStore) SaveUserLastLogin(_ context.Context, accountID, userID string, lastLogin time.Time) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -748,7 +941,7 @@ func (s *FileStore) SaveUserLastLogin(accountID, userID string, lastLogin time.T
 	return nil
 }
 
-func (s *FileStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+func (s *FileStore) GetPostureCheckByChecksDefinition(_ string, _ *posture.ChecksDefinition) (*posture.Checks, error) {
 	return nil, status.Errorf(status.Internal, "GetPostureCheckByChecksDefinition is not implemented")
 }
 
@@ -767,10 +960,85 @@ func (s *FileStore) GetStoreEngine() StoreEngine {
 	return FileStoreEngine
 }
 
-func (s *FileStore) SaveUsers(accountID string, users map[string]*User) error {
+func (s *FileStore) SaveUsers(_ string, _ map[string]*User) error {
 	return status.Errorf(status.Internal, "SaveUsers is not implemented")
 }
 
-func (s *FileStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
+func (s *FileStore) SaveGroups(_ string, _ map[string]*nbgroup.Group) error {
 	return status.Errorf(status.Internal, "SaveGroups is not implemented")
+}
+
+func (s *FileStore) GetAccountIDByPrivateDomain(_ context.Context, _ LockingStrength, _ string) (string, error) {
+	return "", status.Errorf(status.Internal, "GetAccountIDByPrivateDomain is not implemented")
+}
+
+func (s *FileStore) GetAccountDomainAndCategory(_ context.Context, _ LockingStrength, accountID string) (string, string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return "", "", err
+	}
+
+	return account.Domain, account.DomainCategory, nil
+}
+
+// AccountExists checks whether an account exists by the given ID.
+func (s *FileStore) AccountExists(_ context.Context, _ LockingStrength, id string) (bool, error) {
+	_, exists := s.Accounts[id]
+	return exists, nil
+}
+
+func (s *FileStore) GetAccountDNSSettings(_ context.Context, _ LockingStrength, _ string) (*DNSSettings, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountDNSSettings is not implemented")
+}
+
+func (s *FileStore) GetGroupByID(_ context.Context, _ LockingStrength, _, _ string) (*nbgroup.Group, error) {
+	return nil, status.Errorf(status.Internal, "GetGroupByID is not implemented")
+}
+
+func (s *FileStore) GetGroupByName(_ context.Context, _ LockingStrength, _, _ string) (*nbgroup.Group, error) {
+	return nil, status.Errorf(status.Internal, "GetGroupByName is not implemented")
+}
+
+func (s *FileStore) GetAccountPolicies(_ context.Context, _ LockingStrength, _ string) ([]*Policy, error) {
+	return nil, status.Errorf(status.Internal, "GetPolicyByID is not implemented")
+}
+
+func (s *FileStore) GetPolicyByID(_ context.Context, _ LockingStrength, _ string, _ string) (*Policy, error) {
+	return nil, status.Errorf(status.Internal, "GetPolicyByID is not implemented")
+
+}
+
+func (s *FileStore) GetAccountPostureChecks(_ context.Context, _ LockingStrength, _ string) ([]*posture.Checks, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountPostureChecks is not implemented")
+}
+
+func (s *FileStore) GetPostureChecksByID(_ context.Context, _ LockingStrength, _ string, _ string) (*posture.Checks, error) {
+	return nil, status.Errorf(status.Internal, "GetPostureChecksByID is not implemented")
+}
+
+func (s *FileStore) GetAccountRoutes(_ context.Context, _ LockingStrength, _ string) ([]*route.Route, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountRoutes is not implemented")
+}
+
+func (s *FileStore) GetRouteByID(_ context.Context, _ LockingStrength, _ string, _ string) (*route.Route, error) {
+	return nil, status.Errorf(status.Internal, "GetRouteByID is not implemented")
+}
+
+func (s *FileStore) GetAccountSetupKeys(_ context.Context, _ LockingStrength, _ string) ([]*SetupKey, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountSetupKeys is not implemented")
+}
+
+func (s *FileStore) GetSetupKeyByID(_ context.Context, _ LockingStrength, _ string, _ string) (*SetupKey, error) {
+	return nil, status.Errorf(status.Internal, "GetSetupKeyByID is not implemented")
+}
+
+func (s *FileStore) GetAccountNameServerGroups(_ context.Context, _ LockingStrength, _ string) ([]*dns.NameServerGroup, error) {
+	return nil, status.Errorf(status.Internal, "GetAccountNameServerGroups is not implemented")
+}
+
+func (s *FileStore) GetNameServerGroupByID(_ context.Context, _ LockingStrength, _ string, _ string) (*dns.NameServerGroup, error) {
+	return nil, status.Errorf(status.Internal, "GetNameServerGroupByID is not implemented")
 }

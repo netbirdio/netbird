@@ -177,6 +177,8 @@ message WiretrusteeConfig {
 
   // a Signal server config
   HostConfig signal = 3;
+
+  RelayConfig relay = 4;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -193,6 +195,13 @@ message HostConfig {
     DTLS = 4;
   }
 }
+
+message RelayConfig {
+  repeated string urls = 1;
+  string tokenPayload = 2;
+  string tokenSignature = 3;
+}
+
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
 // Mostly used for TURN servers
 message ProtectedHostConfig {
@@ -245,6 +254,12 @@ message NetworkMap {
 
   // firewallRulesIsEmpty indicates whether FirewallRule array is empty or not to bypass protobuf null and empty array equality.
   bool firewallRulesIsEmpty = 9;
+
+  // RoutesFirewallRules represents a list of routes firewall rules to be applied to peer
+  repeated RouteFirewallRule routesFirewallRules = 10;
+
+  // RoutesFirewallRulesIsEmpty indicates whether RouteFirewallRule array is empty or not to bypass protobuf null and empty array equality.
+  bool routesFirewallRulesIsEmpty = 11;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -375,29 +390,32 @@ message NameServer {
   int64  Port = 3;
 }
 
+enum RuleProtocol {
+  UNKNOWN = 0;
+  ALL = 1;
+  TCP = 2;
+  UDP = 3;
+  ICMP = 4;
+}
+
+enum RuleDirection {
+  IN = 0;
+  OUT = 1;
+}
+
+enum RuleAction {
+  ACCEPT = 0;
+  DROP = 1;
+}
+
+
 // FirewallRule represents a firewall rule
 message FirewallRule {
   string PeerIP = 1;
-  direction Direction = 2;
-  action Action = 3;
-  protocol Protocol = 4;
+  RuleDirection Direction = 2;
+  RuleAction Action = 3;
+  RuleProtocol Protocol = 4;
   string Port = 5;
-
-  enum direction {
-    IN = 0;
-    OUT = 1;
-  }
-  enum action {
-    ACCEPT = 0;
-    DROP = 1;
-  }
-  enum protocol {
-    UNKNOWN = 0;
-    ALL = 1;
-    TCP = 2;
-    UDP = 3;
-    ICMP = 4;
-  }
 }
 
 message NetworkAddress {
@@ -406,5 +424,40 @@ message NetworkAddress {
 }
 
 message Checks {
-  repeated string Files= 1;
+  repeated string Files = 1;
 }
+
+
+message PortInfo {
+  oneof portSelection {
+    uint32 port = 1;
+    Range range = 2;
+  }
+
+  message Range {
+    uint32 start = 1;
+    uint32 end = 2;
+  }
+}
+
+// RouteFirewallRule signifies a firewall rule applicable for a routed network.
+message RouteFirewallRule {
+  // sourceRanges IP ranges of the routing peers.
+  repeated string sourceRanges = 1;
+
+  // Action to be taken by the firewall when the rule is applicable.
+  RuleAction action = 2;
+
+  // Network prefix for the routed network.
+  string destination = 3;
+
+  // Protocol of the routed network.
+  RuleProtocol protocol = 4;
+
+  // Details about the port.
+  PortInfo portInfo = 5;
+
+  // IsDynamic indicates if the route is a DNS route.
+  bool isDynamic = 6;
+}
+

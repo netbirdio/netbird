@@ -83,7 +83,7 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 			log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
 		default:
 			dropped = true
-			log.WithContext(ctx).Warnf("channel for peer %s is %d full", peerID, len(channel))
+			log.WithContext(ctx).Warnf("channel for peer %s is %d full or closed", peerID, len(channel))
 		}
 	} else {
 		log.WithContext(ctx).Debugf("peer %s has no channel", peerID)
