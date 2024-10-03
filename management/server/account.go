@@ -1855,15 +1855,15 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		return fmt.Errorf("error saving groups: %w", err)
 	}
 
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+	if err != nil {
+		return fmt.Errorf("error getting user: %w", err)
+	}
+
+	addNewGroups := difference(updatedAutoGroups, user.AutoGroups)
+	removeOldGroups := difference(user.AutoGroups, updatedAutoGroups)
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		user, err := transaction.GetUserByUserID(ctx, LockingStrengthUpdate, claims.UserId)
-		if err != nil {
-			return fmt.Errorf("error getting user: %w", err)
-		}
-
-		addNewGroups := difference(updatedAutoGroups, user.AutoGroups)
-		removeOldGroups := difference(user.AutoGroups, updatedAutoGroups)
-
 		user.AutoGroups = updatedAutoGroups
 		if err = transaction.SaveUser(ctx, LockingStrengthUpdate, user); err != nil {
 			return fmt.Errorf("error saving user: %w", err)
@@ -1887,35 +1887,36 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		unlockPeer()
 		unlockPeer = nil
 
-		for _, g := range addNewGroups {
-			group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
-			if err != nil {
-				log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
-			} else {
-				meta := map[string]any{
-					"group": group.Name, "group_id": group.ID,
-					"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
-				}
-				am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupAddedToUser, meta)
-			}
-		}
-
-		for _, g := range removeOldGroups {
-			group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
-			if err != nil {
-				log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
-			} else {
-				meta := map[string]any{
-					"group": group.Name, "group_id": group.ID,
-					"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
-				}
-				am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupRemovedFromUser, meta)
-			}
-		}
 		return nil
 	})
 	if err != nil {
 		return err
+	}
+
+	for _, g := range addNewGroups {
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		if err != nil {
+			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
+		} else {
+			meta := map[string]any{
+				"group": group.Name, "group_id": group.ID,
+				"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
+			}
+			am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupAddedToUser, meta)
+		}
+	}
+
+	for _, g := range removeOldGroups {
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		if err != nil {
+			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
+		} else {
+			meta := map[string]any{
+				"group": group.Name, "group_id": group.ID,
+				"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
+			}
+			am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupRemovedFromUser, meta)
+		}
 	}
 
 	if settings.GroupsPropagationEnabled {
