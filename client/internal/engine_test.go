@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -824,20 +823,6 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 func TestEngine_MultiplePeers(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 
-	dir := t.TempDir()
-
-	err := util.CopyFileContents("../testdata/store.json", filepath.Join(dir, "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		err = os.Remove(filepath.Join(dir, "store.json")) //nolint
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
-	}()
-
 	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
 
@@ -847,7 +832,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		return
 	}
 	defer sigServer.Stop()
-	mgmtServer, mgmtAddr, err := startManagement(t, dir)
+	mgmtServer, mgmtAddr, err := startManagement(t, t.TempDir(), "../testdata/store.sqlite")
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1070,7 +1055,7 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 	return s, lis.Addr().String(), nil
 }
 
-func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error) {
+func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, string, error) {
 	t.Helper()
 
 	config := &server.Config{
@@ -1095,7 +1080,7 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanUp, err := server.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := server.NewTestStoreFromSqlite(context.Background(), testFile, config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}

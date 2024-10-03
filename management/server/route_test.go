@@ -1257,7 +1257,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 func createRouterStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)
+	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1737,7 +1737,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		}
 		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
 
-		//peerD is also the routing peer for route1, should contain same routes firewall rules as peerA
+		// peerD is also the routing peer for route1, should contain same routes firewall rules as peerA
 		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerD", validatedPeers)
 		assert.Len(t, routesFirewallRules, 2)
 		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
