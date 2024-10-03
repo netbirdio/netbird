@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/netip"
 	"os"
@@ -254,6 +253,9 @@ func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string
 	cleanUp = func() {
 		store.Close(ctx)
 	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create SQLite store: %v", err)
+	}
 
 	if filename != "" {
 		err = loadSQL(store.db, filename)
@@ -283,7 +285,7 @@ func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {
-	sqlContent, err := ioutil.ReadFile(filepath)
+	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {
 		return err
 	}
