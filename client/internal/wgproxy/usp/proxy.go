@@ -42,22 +42,31 @@ func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
 // the connection is complete, an error is returned. Once successfully
 // connected, any expiration of the context will not affect the
 // connection.
-func (p *WGUserSpaceProxy) AddTurnConn(ctx context.Context, remoteConn net.Conn) (net.Addr, error) {
+func (p *WGUserSpaceProxy) AddTurnConn(ctx context.Context, remoteConn net.Conn) error {
 	dialer := net.Dialer{}
 	localConn, err := dialer.DialContext(ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
 	if err != nil {
 		log.Errorf("failed dialing to local Wireguard port %s", err)
 		p.cancel()
-		return nil, err
+		return err
 	}
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.localConn = localConn
 	p.remoteConn = remoteConn
 
-	return p.localConn.LocalAddr(), err
+	return err
 }
 
+func (p *WGUserSpaceProxy) EndpointAddr() *net.UDPAddr {
+	if p.localConn == nil {
+		return nil
+	}
+	endpointUdpAddr, _ := net.ResolveUDPAddr(p.localConn.LocalAddr().Network(), p.localConn.LocalAddr().String())
+	return endpointUdpAddr
+}
+
+// Work starts the proxy or resumes it if it was paused
 func (p *WGUserSpaceProxy) Work() {
 	if p.remoteConn == nil {
 		return
@@ -74,6 +83,7 @@ func (p *WGUserSpaceProxy) Work() {
 	}
 }
 
+// Pause pauses the proxy from receiving data from the remote peer
 func (p *WGUserSpaceProxy) Pause() {
 	if p.remoteConn == nil {
 		return
@@ -147,6 +157,7 @@ func (p *WGUserSpaceProxy) proxyToRemote(ctx context.Context) {
 }
 
 // proxyToLocal proxies from the Remote peer to local WireGuard
+// if the proxy is paused it will drain the remote conn and drop the packets
 func (p *WGUserSpaceProxy) proxyToLocal(ctx context.Context) {
 	defer func() {
 		if err := p.close(); err != nil {

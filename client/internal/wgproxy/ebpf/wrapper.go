@@ -20,22 +20,26 @@ type ProxyWrapper struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 
-	wgEndpointPort uint16
+	wgEndpointAddr *net.UDPAddr
 
 	pausedMu  sync.Mutex
 	paused    bool
 	isStarted bool
 }
 
-func (p *ProxyWrapper) AddTurnConn(ctx context.Context, remoteConn net.Conn) (net.Addr, error) {
+func (p *ProxyWrapper) AddTurnConn(ctx context.Context, remoteConn net.Conn) error {
 	addr, err := p.WgeBPFProxy.AddTurnConn(remoteConn)
 	if err != nil {
-		return nil, fmt.Errorf("add turn conn: %w", err)
+		return fmt.Errorf("add turn conn: %w", err)
 	}
 	p.remoteConn = remoteConn
 	p.ctx, p.cancel = context.WithCancel(ctx)
-	p.wgEndpointPort = uint16(addr.Port)
-	return addr, err
+	p.wgEndpointAddr = addr
+	return err
+}
+
+func (p *ProxyWrapper) EndpointAddr() *net.UDPAddr {
+	return p.wgEndpointAddr
 }
 
 func (p *ProxyWrapper) Work() {
@@ -88,7 +92,7 @@ func (e *ProxyWrapper) CloseConn() error {
 }
 
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
-	defer p.WgeBPFProxy.removeTurnConn(p.wgEndpointPort)
+	defer p.WgeBPFProxy.removeTurnConn(uint16(p.wgEndpointAddr.Port))
 
 	var (
 		err error
@@ -102,12 +106,12 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 				return
 			}
 			if err != io.EOF {
-				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgEndpointPort, err)
+				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgEndpointAddr.Port, err)
 			}
 			return
 		}
 
-		if err := p.WgeBPFProxy.sendPkg(buf[:n], p.wgEndpointPort); err != nil {
+		if err := p.WgeBPFProxy.sendPkg(buf[:n], p.wgEndpointAddr.Port); err != nil {
 			if ctx.Err() != nil {
 				return
 			}

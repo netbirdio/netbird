@@ -249,7 +249,7 @@ func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
 	return packetConn, nil
 }
 
-func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
+func (p *WGEBPFProxy) sendPkg(data []byte, port int) error {
 	localhost := net.ParseIP("127.0.0.1")
 
 	payload := gopacket.Payload(data)
