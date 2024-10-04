@@ -76,6 +76,7 @@ type AccountManager interface {
 	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByID(ctx context.Context, accountID string, userID string) (*Account, error)
+	AccountExists(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
@@ -1259,6 +1260,11 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 
 	log.WithContext(ctx).Debugf("account %s deleted", accountID)
 	return nil
+}
+
+// AccountExists checks if an account exists.
+func (am *DefaultAccountManager) AccountExists(ctx context.Context, accountID string) (bool, error) {
+	return am.Store.AccountExists(ctx, LockingStrengthShare, accountID)
 }
 
 // GetAccountIDByUserID retrieves the account ID based on the userID provided.

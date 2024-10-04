@@ -27,6 +27,7 @@ type MockAccountManager struct {
 	CreateSetupKeyFunc           func(ctx context.Context, accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*server.SetupKey, error)
 	GetSetupKeyFunc                     func(ctx context.Context, accountID, userID, keyID string) (*server.SetupKey, error)
+	AccountExistsFunc                   func(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserIdFunc            func(ctx context.Context, userId, domain string) (string, error)
 	GetUserFunc                         func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.User, error)
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*server.User, error)
@@ -58,7 +59,7 @@ type MockAccountManager struct {
 	UpdatePeerMetaFunc                  func(ctx context.Context, peerID string, meta nbpeer.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc                func(ctx context.Context, peerID string, sshKey string) error
 	UpdatePeerFunc                      func(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
-	CreateRouteFunc                     func(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peer string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups,accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
+	CreateRouteFunc                     func(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peer string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
 	GetRouteFunc                        func(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
 	SaveRouteFunc                       func(ctx context.Context, accountID string, userID string, route *route.Route) error
 	DeleteRouteFunc                     func(ctx context.Context, accountID string, routeID route.ID, userID string) error
@@ -192,6 +193,14 @@ func (am *MockAccountManager) CreateSetupKey(
 		return am.CreateSetupKeyFunc(ctx, accountID, keyName, keyType, expiresIn, autoGroups, usageLimit, userID, ephemeral)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
+}
+
+// AccountExists mock implementation of AccountExists from server.AccountManager interface
+func (am *MockAccountManager) AccountExists(ctx context.Context, accountID string) (bool, error) {
+	if am.GetAccountIDByUserIdFunc != nil {
+		return am.AccountExistsFunc(ctx, accountID)
+	}
+	return false, status.Errorf(codes.Unimplemented, "method AccountExists is not implemented")
 }
 
 // GetAccountIDByUserID mock implementation of GetAccountIDByUserID from server.AccountManager interface
@@ -444,7 +453,7 @@ func (am *MockAccountManager) UpdatePeer(ctx context.Context, accountID, userID 
 // CreateRoute mock implementation of CreateRoute from server.AccountManager interface
 func (am *MockAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupID []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
 	if am.CreateRouteFunc != nil {
-		return am.CreateRouteFunc(ctx, accountID, prefix, networkType, domains, peerID, peerGroupIDs, description, netID, masquerade, metric, groups,accessControlGroupID, enabled, userID, keepRoute)
+		return am.CreateRouteFunc(ctx, accountID, prefix, networkType, domains, peerID, peerGroupIDs, description, netID, masquerade, metric, groups, accessControlGroupID, enabled, userID, keepRoute)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateRoute is not implemented")
 }
