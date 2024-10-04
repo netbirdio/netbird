@@ -210,9 +210,3 @@ func (cm *ConnMonitor) triggerReconnect() {
 	default:
 	}
 }
-
-func (cm *ConnMonitor) GetCurrentCandidates() []ice.Candidate {
-	cm.candidatesMu.Lock()
-	defer cm.candidatesMu.Unlock()
-	return append([]ice.Candidate{}, cm.currentCandidates...)
-}
