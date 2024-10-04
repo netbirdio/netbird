@@ -197,7 +197,7 @@ func (am *MockAccountManager) CreateSetupKey(
 
 // AccountExists mock implementation of AccountExists from server.AccountManager interface
 func (am *MockAccountManager) AccountExists(ctx context.Context, accountID string) (bool, error) {
-	if am.GetAccountIDByUserIdFunc != nil {
+	if am.AccountExistsFunc != nil {
 		return am.AccountExistsFunc(ctx, accountID)
 	}
 	return false, status.Errorf(codes.Unimplemented, "method AccountExists is not implemented")
