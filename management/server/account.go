@@ -478,12 +478,12 @@ func (a *Account) GetPeerNetworkMap(
 	}
 
 	nm := &NetworkMap{
-		Peers:         peersToConnect,
-		Network:       a.Network.Copy(),
-		Routes:        routesUpdate,
-		DNSConfig:     dnsUpdate,
-		OfflinePeers:  expiredPeers,
-		FirewallRules: firewallRules,
+		Peers:               peersToConnect,
+		Network:             a.Network.Copy(),
+		Routes:              routesUpdate,
+		DNSConfig:           dnsUpdate,
+		OfflinePeers:        expiredPeers,
+		FirewallRules:       firewallRules,
 		RoutesFirewallRules: routesFirewallRules,
 	}
 
@@ -1857,7 +1857,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		return fmt.Errorf("error saving groups: %w", err)
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthUpdate, claims.UserId)
 	if err != nil {
 		return fmt.Errorf("error getting user: %w", err)
 	}
