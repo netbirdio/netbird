@@ -846,17 +846,7 @@ func (a *Account) GetPeer(peerID string) *nbpeer.Peer {
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
 // Returns a bool indicating if there are changes in the JWT group membership, the updated user AutoGroups,
 // newly groups to create and an error if any occurred.
-func (am *DefaultAccountManager) getJWTGroupsChanges(ctx context.Context, userID, accountID string, groupNames []string) (bool, []string, []*nbgroup.Group, error) {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
-	if err != nil {
-		return false, nil, nil, err
-	}
-
-	groups, err := am.Store.GetAccountGroups(ctx, accountID)
-	if err != nil {
-		return false, nil, nil, err
-	}
-
+func (am *DefaultAccountManager) getJWTGroupsChanges(user *User, groups []*nbgroup.Group, groupNames []string) (bool, []string, []*nbgroup.Group, error) {
 	existedGroupsByName := make(map[string]*nbgroup.Group)
 	for _, group := range groups {
 		existedGroupsByName[group.Name] = group
@@ -880,7 +870,7 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(ctx context.Context, userID
 		if !exists {
 			group = &nbgroup.Group{
 				ID:        xid.New().String(),
-				AccountID: accountID,
+				AccountID: user.AccountID,
 				Name:      name,
 				Issued:    nbgroup.GroupIssuedJWT,
 			}
@@ -1836,16 +1826,6 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 	jwtGroupsNames := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
 
-	hasChanges, updatedAutoGroups, newGroupsToCreate, err := am.getJWTGroupsChanges(ctx, claims.UserId, accountID, jwtGroupsNames)
-	if err != nil {
-		return err
-	}
-
-	// skip update if no changes
-	if !hasChanges {
-		return nil
-	}
-
 	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer func() {
 		if unlockPeer != nil {
@@ -1853,19 +1833,39 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		}
 	}()
 
-	if err = am.Store.SaveGroups(ctx, LockingStrengthUpdate, newGroupsToCreate); err != nil {
-		return fmt.Errorf("error saving groups: %w", err)
-	}
-
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthUpdate, claims.UserId)
-	if err != nil {
-		return fmt.Errorf("error getting user: %w", err)
-	}
-
-	addNewGroups := difference(updatedAutoGroups, user.AutoGroups)
-	removeOldGroups := difference(user.AutoGroups, updatedAutoGroups)
-
+	var addNewGroups []string
+	var removeOldGroups []string
+	var hasChanges bool
+	var user *User
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		user, err = am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+		if err != nil {
+			return fmt.Errorf("error getting user: %w", err)
+		}
+
+		groups, err := am.Store.GetAccountGroups(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account groups: %w", err)
+		}
+
+		changed, updatedAutoGroups, newGroupsToCreate, err := am.getJWTGroupsChanges(user, groups, jwtGroupsNames)
+		if err != nil {
+			return fmt.Errorf("error getting JWT groups changes: %w", err)
+		}
+
+		hasChanges = changed
+		// skip update if no changes
+		if !changed {
+			return nil
+		}
+
+		if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, newGroupsToCreate); err != nil {
+			return fmt.Errorf("error saving groups: %w", err)
+		}
+
+		addNewGroups = difference(updatedAutoGroups, user.AutoGroups)
+		removeOldGroups = difference(user.AutoGroups, updatedAutoGroups)
+
 		user.AutoGroups = updatedAutoGroups
 		if err = transaction.SaveUser(ctx, LockingStrengthUpdate, user); err != nil {
 			return fmt.Errorf("error saving user: %w", err)
@@ -1873,7 +1873,22 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			updatedGroups, err := am.updateUserPeersInGroups(ctx, accountID, claims.UserId, addNewGroups, removeOldGroups)
+			groups, err = transaction.GetAccountGroups(ctx, accountID)
+			if err != nil {
+				return fmt.Errorf("error getting account groups: %w", err)
+			}
+
+			groupsMap := make(map[string]*nbgroup.Group, len(groups))
+			for _, group := range groups {
+				groupsMap[group.ID] = group
+			}
+
+			peers, err := transaction.GetUserPeers(ctx, LockingStrengthShare, accountID, claims.UserId)
+			if err != nil {
+				return fmt.Errorf("error getting user peers: %w", err)
+			}
+
+			updatedGroups, err := am.updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
 			if err != nil {
 				return fmt.Errorf("error modifying user peers in groups: %w", err)
 			}
@@ -1893,6 +1908,10 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	})
 	if err != nil {
 		return err
+	}
+
+	if !hasChanges {
+		return nil
 	}
 
 	for _, g := range addNewGroups {

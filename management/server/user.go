@@ -1255,16 +1255,11 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 }
 
 // updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
-func (am *DefaultAccountManager) updateUserPeersInGroups(ctx context.Context, accountID, userID string, groupsToAdd,
+func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[string]*nbgroup.Group, peers []*nbpeer.Peer, groupsToAdd,
 	groupsToRemove []string) (groupsToUpdate []*nbgroup.Group, err error) {
 
 	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
 		return
-	}
-
-	peers, err := am.Store.GetUserPeers(ctx, LockingStrengthShare, accountID, userID)
-	if err != nil {
-		return nil, err
 	}
 
 	userPeerIDMap := make(map[string]struct{}, len(peers))
@@ -1273,18 +1268,18 @@ func (am *DefaultAccountManager) updateUserPeersInGroups(ctx context.Context, ac
 	}
 
 	for _, gid := range groupsToAdd {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, gid, accountID)
-		if err != nil {
-			return nil, err
+		group, ok := accountGroups[gid]
+		if !ok {
+			return nil, errors.New("group not found")
 		}
 		addUserPeersToGroup(userPeerIDMap, group)
 		groupsToUpdate = append(groupsToUpdate, group)
 	}
 
 	for _, gid := range groupsToRemove {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, gid, accountID)
-		if err != nil {
-			return nil, err
+		group, ok := accountGroups[gid]
+		if !ok {
+			return nil, errors.New("group not found")
 		}
 		removeUserPeersFromGroup(userPeerIDMap, group)
 		groupsToUpdate = append(groupsToUpdate, group)
