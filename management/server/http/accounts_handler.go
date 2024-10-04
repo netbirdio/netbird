@@ -35,25 +35,26 @@ func NewAccountsHandler(accountManager server.AccountManager, authCfg AuthCfg) *
 // GetAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
 func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	if !(user.HasAdminPower() || user.IsServiceUser) {
-		util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "the user has no permission to access account data"), w)
+	settings, err := h.accountManager.GetAccountSettings(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	resp := toAccountResponse(account)
+	resp := toAccountResponse(accountID, settings)
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
 // UpdateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
 func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	_, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	_, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -96,24 +97,19 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
 	}
 
-	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, user.Id, settings)
+	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	resp := toAccountResponse(updatedAccount)
+	resp := toAccountResponse(updatedAccount.Id, updatedAccount.Settings)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
 // DeleteAccount is a HTTP DELETE handler to delete an account
 func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
 	claims := h.claimsExtractor.FromRequestContext(r)
 	vars := mux.Vars(r)
 	targetAccountID := vars["accountId"]
@@ -131,28 +127,28 @@ func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
-func toAccountResponse(account *server.Account) *api.Account {
-	jwtAllowGroups := account.Settings.JWTAllowGroups
+func toAccountResponse(accountID string, settings *server.Settings) *api.Account {
+	jwtAllowGroups := settings.JWTAllowGroups
 	if jwtAllowGroups == nil {
 		jwtAllowGroups = []string{}
 	}
 
-	settings := api.AccountSettings{
-		PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
-		PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
-		GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
-		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
-		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
+	apiSettings := api.AccountSettings{
+		PeerLoginExpiration:        int(settings.PeerLoginExpiration.Seconds()),
+		PeerLoginExpirationEnabled: settings.PeerLoginExpirationEnabled,
+		GroupsPropagationEnabled:   &settings.GroupsPropagationEnabled,
+		JwtGroupsEnabled:           &settings.JWTGroupsEnabled,
+		JwtGroupsClaimName:         &settings.JWTGroupsClaimName,
 		JwtAllowGroups:             &jwtAllowGroups,
-		RegularUsersViewBlocked:    account.Settings.RegularUsersViewBlocked,
+		RegularUsersViewBlocked:    settings.RegularUsersViewBlocked,
 	}
 
-	if account.Settings.Extra != nil {
-		settings.Extra = &api.AccountExtraSettings{PeerApprovalEnabled: &account.Settings.Extra.PeerApprovalEnabled}
+	if settings.Extra != nil {
+		apiSettings.Extra = &api.AccountExtraSettings{PeerApprovalEnabled: &settings.Extra.PeerApprovalEnabled}
 	}
 
 	return &api.Account{
-		Id:       account.Id,
-		Settings: settings,
+		Id:       accountID,
+		Settings: apiSettings,
 	}
 }

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/util"
 )
 

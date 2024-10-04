@@ -49,6 +49,23 @@ services:
       options:
         max-size: "500m"
         max-file: "2"
+  # Relay
+  relay:
+    image: netbirdio/relay:$NETBIRD_RELAY_TAG
+    restart: unless-stopped
+    environment:
+    - NB_LOG_LEVEL=info
+    - NB_LISTEN_ADDRESS=:$NETBIRD_RELAY_PORT
+    - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_DOMAIN:$NETBIRD_RELAY_PORT
+    # todo: change to a secure secret
+    - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+    ports:
+      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
   # Management
   management:
@@ -77,6 +94,9 @@ services:
       options:
         max-size: "500m"
         max-file: "2"
+    environment:
+      - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
+      
   # Coturn
   coturn:
     image: coturn/coturn:$COTURN_TAG

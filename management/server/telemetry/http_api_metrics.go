@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -54,112 +55,89 @@ func (rw *WrappedResponseWriter) WriteHeader(code int) {
 // HTTPMiddleware handler used to collect metrics of every request/response coming to the API.
 // Also adds request tracing (logging).
 type HTTPMiddleware struct {
-	meter metric.Meter
-	ctx   context.Context
+	ctx context.Context
 	// all HTTP requests by endpoint & method
-	httpRequestCounters map[string]metric.Int64Counter
+	httpRequestCounter metric.Int64Counter
 	// all HTTP responses by endpoint & method & status code
-	httpResponseCounters map[string]metric.Int64Counter
+	httpResponseCounter metric.Int64Counter
 	// all HTTP requests
 	totalHTTPRequestsCounter metric.Int64Counter
 	// all HTTP responses
 	totalHTTPResponseCounter metric.Int64Counter
 	// all HTTP responses by status code
-	totalHTTPResponseCodeCounters map[int]metric.Int64Counter
+	totalHTTPResponseCodeCounter metric.Int64Counter
 	// all HTTP requests durations by endpoint and method
-	httpRequestDurations map[string]metric.Int64Histogram
+	httpRequestDuration metric.Int64Histogram
 	// all HTTP requests durations
 	totalHTTPRequestDuration metric.Int64Histogram
 }
 
 // NewMetricsMiddleware creates a new HTTPMiddleware
 func NewMetricsMiddleware(ctx context.Context, meter metric.Meter) (*HTTPMiddleware, error) {
-	totalHTTPRequestsCounter, err := meter.Int64Counter(fmt.Sprintf("%s_total", httpRequestCounterPrefix), metric.WithUnit("1"))
+	httpRequestCounter, err := meter.Int64Counter(httpRequestCounterPrefix, metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
 
-	totalHTTPResponseCounter, err := meter.Int64Counter(fmt.Sprintf("%s_total", httpResponseCounterPrefix), metric.WithUnit("1"))
+	httpResponseCounter, err := meter.Int64Counter(httpResponseCounterPrefix, metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
 
-	totalHTTPRequestDuration, err := meter.Int64Histogram(fmt.Sprintf("%s_total", httpRequestDurationPrefix), metric.WithUnit("milliseconds"))
+	totalHTTPRequestsCounter, err := meter.Int64Counter(fmt.Sprintf("%s.total", httpRequestCounterPrefix), metric.WithUnit("1"))
+	if err != nil {
+		return nil, err
+	}
+
+	totalHTTPResponseCounter, err := meter.Int64Counter(fmt.Sprintf("%s.total", httpResponseCounterPrefix), metric.WithUnit("1"))
+	if err != nil {
+		return nil, err
+	}
+
+	totalHTTPResponseCodeCounter, err := meter.Int64Counter(fmt.Sprintf("%s.code.total", httpResponseCounterPrefix), metric.WithUnit("1"))
+	if err != nil {
+		return nil, err
+	}
+
+	httpRequestDuration, err := meter.Int64Histogram(httpRequestDurationPrefix, metric.WithUnit("milliseconds"))
+	if err != nil {
+		return nil, err
+	}
+
+	totalHTTPRequestDuration, err := meter.Int64Histogram(fmt.Sprintf("%s.total", httpRequestDurationPrefix), metric.WithUnit("milliseconds"))
 	if err != nil {
 		return nil, err
 	}
 
 	return &HTTPMiddleware{
-			ctx:                           ctx,
-			httpRequestCounters:           map[string]metric.Int64Counter{},
-			httpResponseCounters:          map[string]metric.Int64Counter{},
-			httpRequestDurations:          map[string]metric.Int64Histogram{},
-			totalHTTPResponseCodeCounters: map[int]metric.Int64Counter{},
-			meter:                         meter,
-			totalHTTPRequestsCounter:      totalHTTPRequestsCounter,
-			totalHTTPResponseCounter:      totalHTTPResponseCounter,
-			totalHTTPRequestDuration:      totalHTTPRequestDuration,
+			ctx:                          ctx,
+			httpRequestCounter:           httpRequestCounter,
+			httpResponseCounter:          httpResponseCounter,
+			httpRequestDuration:          httpRequestDuration,
+			totalHTTPResponseCodeCounter: totalHTTPResponseCodeCounter,
+			totalHTTPRequestsCounter:     totalHTTPRequestsCounter,
+			totalHTTPResponseCounter:     totalHTTPResponseCounter,
+			totalHTTPRequestDuration:     totalHTTPRequestDuration,
 		},
 		nil
 }
 
-// AddHTTPRequestResponseCounter adds a new meter for an HTTP defaultEndpoint and Method (GET, POST, etc)
-// Creates one request counter and multiple response counters (one per http response status code).
-func (m *HTTPMiddleware) AddHTTPRequestResponseCounter(endpoint string, method string) error {
-	meterKey := getRequestCounterKey(endpoint, method)
-	httpReqCounter, err := m.meter.Int64Counter(meterKey, metric.WithUnit("1"))
-	if err != nil {
-		return err
-	}
-	m.httpRequestCounters[meterKey] = httpReqCounter
-
-	durationKey := getRequestDurationKey(endpoint, method)
-	requestDuration, err := m.meter.Int64Histogram(durationKey, metric.WithUnit("milliseconds"))
-	if err != nil {
-		return err
-	}
-	m.httpRequestDurations[durationKey] = requestDuration
-
-	respCodes := []int{200, 204, 400, 401, 403, 404, 500, 502, 503}
-	for _, code := range respCodes {
-		meterKey = getResponseCounterKey(endpoint, method, code)
-		httpRespCounter, err := m.meter.Int64Counter(meterKey, metric.WithUnit("1"))
-		if err != nil {
-			return err
-		}
-		m.httpResponseCounters[meterKey] = httpRespCounter
-
-		meterKey = fmt.Sprintf("%s_%d_total", httpResponseCounterPrefix, code)
-		totalHTTPResponseCodeCounter, err := m.meter.Int64Counter(meterKey, metric.WithUnit("1"))
-		if err != nil {
-			return err
-		}
-		m.totalHTTPResponseCodeCounters[code] = totalHTTPResponseCodeCounter
-	}
-
-	return nil
-}
-
 func replaceEndpointChars(endpoint string) string {
-	endpoint = strings.ReplaceAll(endpoint, "/", "_")
 	endpoint = strings.ReplaceAll(endpoint, "{", "")
 	endpoint = strings.ReplaceAll(endpoint, "}", "")
 	return endpoint
 }
 
-func getRequestCounterKey(endpoint, method string) string {
-	endpoint = replaceEndpointChars(endpoint)
-	return fmt.Sprintf("%s%s_%s", httpRequestCounterPrefix, endpoint, method)
-}
-
-func getRequestDurationKey(endpoint, method string) string {
-	endpoint = replaceEndpointChars(endpoint)
-	return fmt.Sprintf("%s%s_%s", httpRequestDurationPrefix, endpoint, method)
-}
-
-func getResponseCounterKey(endpoint, method string, status int) string {
-	endpoint = replaceEndpointChars(endpoint)
-	return fmt.Sprintf("%s%s_%s_%d", httpResponseCounterPrefix, endpoint, method, status)
+func getEndpointMetricAttr(r *http.Request) string {
+	var endpoint string
+	route := mux.CurrentRoute(r)
+	if route != nil {
+		pathTmpl, err := route.GetPathTemplate()
+		if err == nil {
+			endpoint = replaceEndpointChars(pathTmpl)
+		}
+	}
+	return endpoint
 }
 
 // Handler logs every request and response and adds the, to metrics.
@@ -176,11 +154,10 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		log.WithContext(ctx).Tracef("HTTP request %v: %v %v", reqID, r.Method, r.URL)
 
-		metricKey := getRequestCounterKey(r.URL.Path, r.Method)
+		endpointAttr := attribute.String("endpoint", getEndpointMetricAttr(r))
+		methodAttr := attribute.String("method", r.Method)
 
-		if c, ok := m.httpRequestCounters[metricKey]; ok {
-			c.Add(m.ctx, 1)
-		}
+		m.httpRequestCounter.Add(m.ctx, 1, metric.WithAttributes(endpointAttr, methodAttr))
 		m.totalHTTPRequestsCounter.Add(m.ctx, 1)
 
 		w := WrapResponseWriter(rw)
@@ -193,21 +170,14 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 			log.WithContext(ctx).Tracef("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		}
 
-		metricKey = getResponseCounterKey(r.URL.Path, r.Method, w.Status())
-		if c, ok := m.httpResponseCounters[metricKey]; ok {
-			c.Add(m.ctx, 1)
-		}
+		statusCodeAttr := attribute.Int("code", w.Status())
 
+		m.httpResponseCounter.Add(m.ctx, 1, metric.WithAttributes(endpointAttr, methodAttr, statusCodeAttr))
 		m.totalHTTPResponseCounter.Add(m.ctx, 1)
-		if c, ok := m.totalHTTPResponseCodeCounters[w.Status()]; ok {
-			c.Add(m.ctx, 1)
-		}
+		m.totalHTTPResponseCodeCounter.Add(m.ctx, 1, metric.WithAttributes(statusCodeAttr))
 
-		durationKey := getRequestDurationKey(r.URL.Path, r.Method)
 		reqTook := time.Since(reqStart)
-		if c, ok := m.httpRequestDurations[durationKey]; ok {
-			c.Record(m.ctx, reqTook.Milliseconds())
-		}
+		m.httpRequestDuration.Record(m.ctx, reqTook.Milliseconds(), metric.WithAttributes(endpointAttr, methodAttr))
 		log.WithContext(ctx).Debugf("request %s %s took %d ms and finished with status %d", r.Method, r.URL.Path, reqTook.Milliseconds(), w.Status())
 
 		if w.Status() == 200 && (r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete) {

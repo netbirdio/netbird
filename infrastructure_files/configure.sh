@@ -41,6 +41,18 @@ if [[ "x-$NETBIRD_DOMAIN" == "x-" ]]; then
   exit 1
 fi
 
+# Check if PostgreSQL is set as the store engine
+if [[ "$NETBIRD_STORE_CONFIG_ENGINE" == "postgres" ]]; then
+  # Exit if 'NETBIRD_STORE_ENGINE_POSTGRES_DSN' is not set
+  if [[ -z "$NETBIRD_STORE_ENGINE_POSTGRES_DSN" ]]; then
+    echo "Warning: NETBIRD_STORE_CONFIG_ENGINE=postgres but NETBIRD_STORE_ENGINE_POSTGRES_DSN is not set."
+    echo "Please add the following line to your setup.env file:"
+    echo 'NETBIRD_STORE_ENGINE_POSTGRES_DSN="host=<PG_HOST> user=<PG_USER> password=<PG_PASSWORD> dbname=<PG_DB_NAME> port=<PG_PORT>"'
+    exit 1
+  fi
+  export NETBIRD_STORE_ENGINE_POSTGRES_DSN
+fi
+
 # local development or tests
 if [[ $NETBIRD_DOMAIN == "localhost" || $NETBIRD_DOMAIN == "127.0.0.1" ]]; then
   export NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN="netbird.selfhosted"
@@ -76,6 +88,11 @@ else
 fi
 
 export TURN_EXTERNAL_IP_CONFIG
+
+# if not provided, we generate a relay auth secret
+if [[ "x-$NETBIRD_RELAY_AUTH_SECRET" == "x-" ]]; then
+  export NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed 's/=//g')
+fi
 
 artifacts_path="./artifacts"
 mkdir -p $artifacts_path

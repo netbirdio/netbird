@@ -13,10 +13,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
@@ -48,7 +48,7 @@ type Route struct {
 	currentPeerKey       string
 	cancel               context.CancelFunc
 	statusRecorder       *peer.Status
-	wgInterface          *iface.WGIface
+	wgInterface          iface.IWGIface
 	resolverAddr         string
 }
 
@@ -58,7 +58,7 @@ func NewRoute(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	interval time.Duration,
 	statusRecorder *peer.Status,
-	wgInterface *iface.WGIface,
+	wgInterface iface.IWGIface,
 	resolverAddr string,
 ) *Route {
 	return &Route{
@@ -303,7 +303,7 @@ func (r *Route) addRoutes(domain domain.Domain, prefixes []netip.Prefix) ([]neti
 	var merr *multierror.Error
 
 	for _, prefix := range prefixes {
-		if _, err := r.routeRefCounter.Increment(prefix, nil); err != nil {
+		if _, err := r.routeRefCounter.Increment(prefix, struct{}{}); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add dynamic route for IP %s: %w", prefix, err))
 			continue
 		}

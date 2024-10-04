@@ -31,9 +31,9 @@ type peerStateDetailOutput struct {
 	Status                 string           `json:"status" yaml:"status"`
 	LastStatusUpdate       time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
 	ConnType               string           `json:"connectionType" yaml:"connectionType"`
-	Direct                 bool             `json:"direct" yaml:"direct"`
 	IceCandidateType       iceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
 	IceCandidateEndpoint   iceCandidateType `json:"iceCandidateEndpoint" yaml:"iceCandidateEndpoint"`
+	RelayAddress           string           `json:"relayAddress" yaml:"relayAddress"`
 	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
 	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
@@ -335,16 +335,18 @@ func mapNSGroups(servers []*proto.NSGroupState) []nsServerGroupStateOutput {
 
 func mapPeers(peers []*proto.PeerState) peersStateOutput {
 	var peersStateDetail []peerStateDetailOutput
-	localICE := ""
-	remoteICE := ""
-	localICEEndpoint := ""
-	remoteICEEndpoint := ""
-	connType := ""
 	peersConnected := 0
-	lastHandshake := time.Time{}
-	transferReceived := int64(0)
-	transferSent := int64(0)
 	for _, pbPeerState := range peers {
+		localICE := ""
+		remoteICE := ""
+		localICEEndpoint := ""
+		remoteICEEndpoint := ""
+		relayServerAddress := ""
+		connType := ""
+		lastHandshake := time.Time{}
+		transferReceived := int64(0)
+		transferSent := int64(0)
+
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
 		if skipDetailByFilters(pbPeerState, isPeerConnected) {
 			continue
@@ -360,6 +362,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			if pbPeerState.Relayed {
 				connType = "Relayed"
 			}
+			relayServerAddress = pbPeerState.GetRelayAddress()
 			lastHandshake = pbPeerState.GetLastWireguardHandshake().AsTime().Local()
 			transferReceived = pbPeerState.GetBytesRx()
 			transferSent = pbPeerState.GetBytesTx()
@@ -372,7 +375,6 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			Status:           pbPeerState.GetConnStatus(),
 			LastStatusUpdate: timeLocal,
 			ConnType:         connType,
-			Direct:           pbPeerState.GetDirect(),
 			IceCandidateType: iceCandidateType{
 				Local:  localICE,
 				Remote: remoteICE,
@@ -381,6 +383,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 				Local:  localICEEndpoint,
 				Remote: remoteICEEndpoint,
 			},
+			RelayAddress:           relayServerAddress,
 			FQDN:                   pbPeerState.GetFqdn(),
 			LastWireguardHandshake: lastHandshake,
 			TransferReceived:       transferReceived,
@@ -641,9 +644,9 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Status: %s\n"+
 				"  -- detail --\n"+
 				"  Connection type: %s\n"+
-				"  Direct: %t\n"+
 				"  ICE candidate (Local/Remote): %s/%s\n"+
 				"  ICE candidate endpoints (Local/Remote): %s/%s\n"+
+				"  Relay server address: %s\n"+
 				"  Last connection update: %s\n"+
 				"  Last WireGuard handshake: %s\n"+
 				"  Transfer status (received/sent) %s/%s\n"+
@@ -655,11 +658,11 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			peerState.PubKey,
 			peerState.Status,
 			peerState.ConnType,
-			peerState.Direct,
 			localICE,
 			remoteICE,
 			localICEEndpoint,
 			remoteICEEndpoint,
+			peerState.RelayAddress,
 			timeAgo(peerState.LastStatusUpdate),
 			timeAgo(peerState.LastWireguardHandshake),
 			toIEC(peerState.TransferReceived),
@@ -802,6 +805,9 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
 	if remoteIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Remote); err == nil {
 		peer.IceCandidateEndpoint.Remote = fmt.Sprintf("%s:%s", a.AnonymizeIPString(remoteIP), port)
 	}
+
+	peer.RelayAddress = a.AnonymizeURI(peer.RelayAddress)
+
 	for i, route := range peer.Routes {
 		peer.Routes[i] = a.AnonymizeIPString(route)
 	}

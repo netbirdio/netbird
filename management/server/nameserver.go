@@ -19,30 +19,16 @@ const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view name server groups")
 	}
 
-	if !(user.HasAdminPower() || user.IsServiceUser) {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view nameserver groups")
-	}
-
-	nsGroup, found := account.NameServerGroups[nsGroupID]
-	if found {
-		return nsGroup.Copy(), nil
-	}
-
-	return nil, status.Errorf(status.NotFound, "nameserver group with ID %s not found", nsGroupID)
+	return am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, nsGroupID, accountID)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
@@ -159,30 +145,16 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 // ListNameServerGroups returns a list of nameserver groups from account
 func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error) {
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !(user.HasAdminPower() || user.IsServiceUser) {
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view name server groups")
 	}
 
-	nsGroups := make([]*nbdns.NameServerGroup, 0, len(account.NameServerGroups))
-	for _, item := range account.NameServerGroups {
-		nsGroups = append(nsGroups, item.Copy())
-	}
-
-	return nsGroups, nil
+	return am.Store.GetAccountNameServerGroups(ctx, LockingStrengthShare, accountID)
 }
 
 func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServerGroup, account *Account) error {

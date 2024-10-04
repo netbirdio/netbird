@@ -15,11 +15,11 @@ import (
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -168,7 +168,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	ctx, cancel = context.WithCancel(ctx)
 	SetupCloseHandler(ctx, cancel)
 
-	connectClient := internal.NewConnectClient(ctx, config, peer.NewRecorder(config.ManagementURL.String()))
+	r := peer.NewRecorder(config.ManagementURL.String())
+	r.GetFullStatus()
+
+	connectClient := internal.NewConnectClient(ctx, config, r)
 	return connectClient.Run()
 }
 

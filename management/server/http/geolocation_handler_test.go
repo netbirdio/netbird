@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/netbirdio/netbird/management/server"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -24,32 +25,29 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 	t.Helper()
 
 	var (
-		mmdbPath       = "../testdata/GeoLite2-City-Test.mmdb"
-		geonamesDBPath = "../testdata/geonames-test.db"
+		mmdbPath       = "../testdata/GeoLite2-City_20240305.mmdb"
+		geonamesdbPath = "../testdata/geonames_20240305.db"
 	)
 
 	tempDir := t.TempDir()
 
-	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, geolocation.MMDBFileName))
+	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, filepath.Base(mmdbPath)))
 	assert.NoError(t, err)
 
-	err = util.CopyFileContents(geonamesDBPath, path.Join(tempDir, geolocation.GeoSqliteDBFile))
+	err = util.CopyFileContents(geonamesdbPath, path.Join(tempDir, filepath.Base(geonamesdbPath)))
 	assert.NoError(t, err)
 
-	geo, err := geolocation.NewGeolocation(context.Background(), tempDir)
+	geo, err := geolocation.NewGeolocation(context.Background(), tempDir, false)
 	assert.NoError(t, err)
 	t.Cleanup(func() { _ = geo.Stop() })
 
 	return &GeolocationsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				user := server.NewAdminUser("test_user")
-				return &server.Account{
-					Id: claims.AccountId,
-					Users: map[string]*server.User{
-						"test_user": user,
-					},
-				}, user, nil
+			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, claims.UserId, nil
+			},
+			GetUserByIDFunc: func(ctx context.Context, id string) (*server.User, error) {
+				return server.NewAdminUser(id), nil
 			},
 		},
 		geolocationManager: geo,

@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -416,7 +416,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
-			routeManager := NewManager(ctx, localPeerKey, 0, wgInterface, statusRecorder, nil)
+			routeManager := NewManager(ctx, localPeerKey, 0, wgInterface, statusRecorder, nil, nil)
 
 			_, _, err = routeManager.Init()
 

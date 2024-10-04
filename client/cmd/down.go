@@ -42,6 +42,8 @@ var downCmd = &cobra.Command{
 			log.Errorf("call service down method: %v", err)
 			return err
 		}
+
+		cmd.Println("Disconnected")
 		return nil
 	},
 }

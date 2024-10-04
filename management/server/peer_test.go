@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -19,9 +20,11 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/activity"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	nbroute "github.com/netbirdio/netbird/route"
 )
 
@@ -248,7 +251,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 			Action:        PolicyTrafficActionAccept,
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -296,7 +299,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	}
 
 	policy.Enabled = false
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -643,7 +646,6 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 		})
 	}
-
 }
 
 func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccountManager, string, string, error) {
@@ -849,9 +851,9 @@ func TestToSyncResponse(t *testing.T) {
 		DNSLabel:   "peer1",
 		SSHKey:     "peer1-ssh-key",
 	}
-	turnCredentials := &TURNCredentials{
-		Username: "turn-user",
-		Password: "turn-pass",
+	turnRelayToken := &Token{
+		Payload:   "turn-user",
+		Signature: "turn-pass",
 	}
 	networkMap := &NetworkMap{
 		Network:      &Network{Net: *ipnet, Serial: 1000},
@@ -917,7 +919,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 
-	response := toSyncResponse(context.Background(), config, peer, turnCredentials, networkMap, dnsName, checks, dnsCache)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache)
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -988,164 +990,192 @@ func TestToSyncResponse(t *testing.T) {
 	// assert network map Firewall
 	assert.Equal(t, 1, len(response.NetworkMap.FirewallRules))
 	assert.Equal(t, "192.168.1.2", response.NetworkMap.FirewallRules[0].PeerIP)
-	assert.Equal(t, proto.FirewallRule_IN, response.NetworkMap.FirewallRules[0].Direction)
-	assert.Equal(t, proto.FirewallRule_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
-	assert.Equal(t, proto.FirewallRule_TCP, response.NetworkMap.FirewallRules[0].Protocol)
+	assert.Equal(t, proto.RuleDirection_IN, response.NetworkMap.FirewallRules[0].Direction)
+	assert.Equal(t, proto.RuleAction_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
+	assert.Equal(t, proto.RuleProtocol_TCP, response.NetworkMap.FirewallRules[0].Protocol)
 	assert.Equal(t, "80", response.NetworkMap.FirewallRules[0].Port)
 	// assert posture checks
 	assert.Equal(t, 1, len(response.Checks))
 	assert.Equal(t, "/usr/bin/netbird", response.Checks[0].Files[0])
 }
 
-func TestPeerAccountPeerUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+func Test_RegisterPeerByUser(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
 
-	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+
+	eventStore := &activity.InMemoryEventStore{}
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	assert.NoError(t, err)
+
+	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	assert.NoError(t, err)
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	existingUserID := "edafee4e-63fb-11ec-90d6-0242ac120003"
+
+	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "group-id",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
-	require.NoError(t, err)
-
-	// create a user with auto groups
-	_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &User{
-		Id:         "regularUser1",
-		AccountID:  account.Id,
-		Role:       UserRoleAdmin,
-		Issued:     UserIssuedAPI,
-		AutoGroups: []string{"group-id"},
-	}, true)
-	require.NoError(t, err)
-
-	var peer4 *nbpeer.Peer
-
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
-	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err := manager.UpdatePeer(context.Background(), account.Id, userID, peer2)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// Adding peer with an unused group in active dns, route, acl should not update account peers and not send peer update
-	t.Run("adding peer with unused group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		key, err := wgtypes.GeneratePrivateKey()
-		require.NoError(t, err)
-
-		expectedPeerKey := key.PublicKey().String()
-		peer4, _, _, err = manager.AddPeer(context.Background(), "", "regularUser1", &nbpeer.Peer{
-			Key:  expectedPeerKey,
-			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		})
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// Deleting peer with an unused group in active dns, route, acl should not update account peers and not send peer update
-	t.Run("deleting peer with unused group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
-	// use the group-id in policy
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
-		ID:      "policy",
-		Enabled: true,
-		Rules: []*PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
-				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
-			},
+	newPeer := &nbpeer.Peer{
+		ID:        xid.New().String(),
+		AccountID: existingAccountID,
+		Key:       "newPeerKey",
+		SetupKey:  "",
+		IP:        net.IP{123, 123, 123, 123},
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "newPeer",
+			GoOS:     "linux",
 		},
-	})
+		Name:       "newPeerName",
+		DNSLabel:   "newPeer.test",
+		UserID:     existingUserID,
+		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+		LastLogin:  time.Now(),
+	}
+
+	addedPeer, _, _, err := am.AddPeer(context.Background(), "", existingUserID, newPeer)
 	require.NoError(t, err)
 
-	// Adding peer with a used group in active dns, route or policy should update account peers and send peer update
-	t.Run("adding peer with used group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+	peer, err := store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, addedPeer.Key)
+	require.NoError(t, err)
+	assert.Equal(t, peer.AccountID, existingAccountID)
+	assert.Equal(t, peer.UserID, existingUserID)
 
-		key, err := wgtypes.GeneratePrivateKey()
-		require.NoError(t, err)
+	account, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.Contains(t, account.Peers, addedPeer.ID)
+	assert.Equal(t, peer.Meta.Hostname, newPeer.Meta.Hostname)
+	assert.Contains(t, account.Groups["cfefqs706sqkneg59g3g"].Peers, addedPeer.ID)
+	assert.Contains(t, account.Groups["cfefqs706sqkneg59g4g"].Peers, addedPeer.ID)
 
-		expectedPeerKey := key.PublicKey().String()
-		peer4, _, _, err = manager.AddPeer(context.Background(), "", "regularUser1", &nbpeer.Peer{
-			Key:                    expectedPeerKey,
-			LoginExpirationEnabled: true,
-			Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		})
-		require.NoError(t, err)
+	assert.Equal(t, uint64(1), account.Network.Serial)
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+	lastLogin, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
+	assert.NoError(t, err)
+	assert.NotEqual(t, lastLogin, account.Users[existingUserID].LastLogin)
+}
 
-	//Deleting peer with a used group in active dns, route or acl should update account peers and send peer update
-	t.Run("deleting peer with used group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+func Test_RegisterPeerBySetupKey(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
 
-		err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
-		require.NoError(t, err)
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+	eventStore := &activity.InMemoryEventStore{}
 
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	assert.NoError(t, err)
+
+	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	assert.NoError(t, err)
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	existingSetupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+
+	_, err = store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	newPeer := &nbpeer.Peer{
+		ID:        xid.New().String(),
+		AccountID: existingAccountID,
+		Key:       "newPeerKey",
+		SetupKey:  "existingSetupKey",
+		UserID:    "",
+		IP:        net.IP{123, 123, 123, 123},
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "newPeer",
+			GoOS:     "linux",
+		},
+		Name:       "newPeerName",
+		DNSLabel:   "newPeer.test",
+		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+	}
+
+	addedPeer, _, _, err := am.AddPeer(context.Background(), existingSetupKeyID, "", newPeer)
+
+	require.NoError(t, err)
+
+	peer, err := store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, newPeer.Key)
+	require.NoError(t, err)
+	assert.Equal(t, peer.AccountID, existingAccountID)
+	assert.Equal(t, peer.SetupKey, existingSetupKeyID)
+
+	account, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.Contains(t, account.Peers, addedPeer.ID)
+	assert.Contains(t, account.Groups["cfefqs706sqkneg59g2g"].Peers, addedPeer.ID)
+	assert.Contains(t, account.Groups["cfefqs706sqkneg59g4g"].Peers, addedPeer.ID)
+
+	assert.Equal(t, uint64(1), account.Network.Serial)
+
+	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
+	assert.NoError(t, err)
+	assert.NotEqual(t, lastUsed, account.SetupKeys[existingSetupKeyID].LastUsed)
+	assert.Equal(t, 1, account.SetupKeys[existingSetupKeyID].UsedTimes)
+
+}
+
+func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+
+	eventStore := &activity.InMemoryEventStore{}
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	assert.NoError(t, err)
+
+	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	assert.NoError(t, err)
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	faultyKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBC"
+
+	_, err = store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	newPeer := &nbpeer.Peer{
+		ID:        xid.New().String(),
+		AccountID: existingAccountID,
+		Key:       "newPeerKey",
+		SetupKey:  "existingSetupKey",
+		UserID:    "",
+		IP:        net.IP{123, 123, 123, 123},
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "newPeer",
+			GoOS:     "linux",
+		},
+		Name:       "newPeerName",
+		DNSLabel:   "newPeer.test",
+		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+	}
+
+	_, _, _, err = am.AddPeer(context.Background(), faultyKey, "", newPeer)
+	require.Error(t, err)
+
+	_, err = store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, newPeer.Key)
+	require.Error(t, err)
+
+	account, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.NotContains(t, account.Peers, newPeer.ID)
+	assert.NotContains(t, account.Groups["cfefqs706sqkneg59g3g"].Peers, newPeer.ID)
+	assert.NotContains(t, account.Groups["cfefqs706sqkneg59g4g"].Peers, newPeer.ID)
+
+	assert.Equal(t, uint64(0), account.Network.Serial)
+
+	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
+	assert.NoError(t, err)
+	assert.Equal(t, lastUsed, account.SetupKeys[faultyKey].LastUsed)
+	assert.Equal(t, 0, account.SetupKeys[faultyKey].UsedTimes)
 }
