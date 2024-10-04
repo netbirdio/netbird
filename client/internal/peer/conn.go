@@ -32,10 +32,7 @@ const (
 	connPriorityICETurn ConnPriority = 1
 	connPriorityICEP2P  ConnPriority = 2
 
-	reconnectMaxElapsedTime    = 30 * time.Minute
-	candidatesMonitorPeriod    = 5 * time.Minute
-	candidatedGatheringTimeout = 5 * time.Second
-	signalerMonitorPeriod      = 5 * time.Second
+	reconnectMaxElapsedTime = 30 * time.Minute
 )
 
 type WgConfig struct {
@@ -113,10 +110,8 @@ type Conn struct {
 	// for reconnection operations
 	iCEDisconnected   chan bool
 	relayDisconnected chan bool
-	reconnectCh       chan struct{}
-
-	currentCandidates []ice.Candidate
-	candidatesMu      sync.Mutex
+	connMonitor       *ConnMonitor
+	reconnectCh       <-chan struct{}
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -147,8 +142,15 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 
 		iCEDisconnected:   make(chan bool, 1),
 		relayDisconnected: make(chan bool, 1),
-		reconnectCh:       make(chan struct{}, 1),
 	}
+
+	conn.connMonitor, conn.reconnectCh = NewConnMonitor(
+		signaler,
+		iFaceDiscover,
+		config,
+		conn.relayDisconnected,
+		conn.iCEDisconnected,
+	)
 
 	rFns := WorkerRelayCallbacks{
 		OnConnReady:    conn.relayConnectionIsReady,
@@ -211,6 +213,8 @@ func (conn *Conn) startHandshakeAndReconnect() {
 	if err != nil {
 		conn.log.Errorf("failed to send initial offer: %v", err)
 	}
+
+	go conn.connMonitor.Start(conn.ctx)
 
 	if conn.workerRelay.IsController() {
 		conn.reconnectLoopWithRetry()
@@ -324,8 +328,6 @@ func (conn *Conn) reconnectLoopWithRetry() {
 		return
 	case <-time.After(3 * time.Second):
 	}
-
-	go conn.monitorReconnectEvents()
 
 	ticker := conn.prepareExponentTicker()
 	defer ticker.Stop()
