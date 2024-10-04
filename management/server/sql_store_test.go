@@ -26,8 +26,8 @@ import (
 )
 
 func TestSqlite_NewStore(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -205,8 +205,8 @@ func randomIPv4() net.IP {
 }
 
 func TestSqlite_SaveAccount(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -280,8 +280,8 @@ func TestSqlite_SaveAccount(t *testing.T) {
 }
 
 func TestSqlite_DeleteAccount(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -357,8 +357,8 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 }
 
 func TestSqlite_GetAccount(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -380,8 +380,8 @@ func TestSqlite_GetAccount(t *testing.T) {
 }
 
 func TestSqlite_SavePeer(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -431,8 +431,8 @@ func TestSqlite_SavePeer(t *testing.T) {
 }
 
 func TestSqlite_SavePeerStatus(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -487,8 +487,8 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 }
 
 func TestSqlite_SavePeerLocation(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -541,8 +541,8 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 }
 
 func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -564,8 +564,8 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 }
 
 func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
@@ -588,8 +588,8 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 }
 
 func TestSqlite_GetUserByTokenID(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
