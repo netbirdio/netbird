@@ -1188,6 +1188,6 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
 	assert.NoError(t, err)
-	assert.Equal(t, lastUsed, account.SetupKeys[faultyKey].LastUsed)
+	assert.Equal(t, lastUsed, account.SetupKeys[faultyKey].LastUsed.UTC())
 	assert.Equal(t, 0, account.SetupKeys[faultyKey].UsedTimes)
 }
