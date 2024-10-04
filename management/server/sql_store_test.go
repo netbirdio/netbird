@@ -26,7 +26,7 @@ import (
 )
 
 func TestSqlite_NewStore(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -41,9 +41,10 @@ func TestSqlite_NewStore(t *testing.T) {
 }
 
 func TestSqlite_SaveAccount_Large(t *testing.T) {
-	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" || runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
-		t.Skip("skip large test on non-linux OS due to environment restrictions")
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
+		t.Skip("skip CI tests on darwin and windows")
 	}
+
 	t.Run("SQLite", func(t *testing.T) {
 		t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
 		store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
@@ -204,7 +205,7 @@ func randomIPv4() net.IP {
 }
 
 func TestSqlite_SaveAccount(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -279,7 +280,7 @@ func TestSqlite_SaveAccount(t *testing.T) {
 }
 
 func TestSqlite_DeleteAccount(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -356,7 +357,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 }
 
 func TestSqlite_GetAccount(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -379,7 +380,7 @@ func TestSqlite_GetAccount(t *testing.T) {
 }
 
 func TestSqlite_SavePeer(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -430,7 +431,7 @@ func TestSqlite_SavePeer(t *testing.T) {
 }
 
 func TestSqlite_SavePeerStatus(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -486,7 +487,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 }
 
 func TestSqlite_SavePeerLocation(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -540,7 +541,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 }
 
 func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -563,7 +564,7 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 }
 
 func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -587,7 +588,7 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 }
 
 func TestSqlite_GetUserByTokenID(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -610,7 +611,7 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 }
 
 func TestMigrate(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -731,7 +732,7 @@ func newAccount(store Store, id int) error {
 }
 
 func TestPostgresql_NewStore(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -746,7 +747,7 @@ func TestPostgresql_NewStore(t *testing.T) {
 }
 
 func TestPostgresql_SaveAccount(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -821,7 +822,7 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 }
 
 func TestPostgresql_DeleteAccount(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -898,7 +899,7 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 }
 
 func TestPostgresql_SavePeerStatus(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -940,7 +941,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 }
 
 func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -960,7 +961,7 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 }
 
 func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
@@ -978,7 +979,7 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 }
 
 func TestPostgresql_GetUserByTokenID(t *testing.T) {
-	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
