@@ -731,6 +731,10 @@ func newAccount(store Store, id int) error {
 }
 
 func TestPostgresql_NewStore(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
@@ -742,6 +746,10 @@ func TestPostgresql_NewStore(t *testing.T) {
 }
 
 func TestPostgresql_SaveAccount(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
@@ -813,6 +821,10 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 }
 
 func TestPostgresql_DeleteAccount(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
@@ -886,6 +898,10 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 }
 
 func TestPostgresql_SavePeerStatus(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
@@ -924,6 +940,10 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 }
 
 func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
@@ -940,6 +960,10 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 }
 
 func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
@@ -954,6 +978,10 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 }
 
 func TestPostgresql_GetUserByTokenID(t *testing.T) {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
