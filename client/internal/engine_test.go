@@ -1080,7 +1080,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanUp, err := server.NewTestStoreFromSqlite(context.Background(), testFile, config.Datadir)
+	store, cleanUp, err := server.NewTestStoreFromSQL(context.Background(), testFile, config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}

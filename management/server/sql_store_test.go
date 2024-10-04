@@ -31,7 +31,7 @@ func TestSqlite_NewStore(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -47,7 +47,7 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 
 	t.Run("SQLite", func(t *testing.T) {
 		t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-		store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+		store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 		t.Cleanup(cleanUp)
 		assert.NoError(t, err)
 		runLargeTest(t, store)
@@ -55,7 +55,7 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 
 	// create store outside to have a better time counter for the test
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 	t.Run("PostgreSQL", func(t *testing.T) {
@@ -210,7 +210,7 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -285,7 +285,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -362,7 +362,7 @@ func TestSqlite_GetAccount(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -385,7 +385,7 @@ func TestSqlite_SavePeer(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -436,7 +436,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -492,7 +492,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -546,7 +546,7 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -569,7 +569,7 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -593,7 +593,7 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -618,7 +618,7 @@ func TestMigrate(t *testing.T) {
 	// TODO: figure out why this fails on postgres
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
 
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -740,7 +740,7 @@ func TestPostgresql_NewStore(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -755,7 +755,7 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -830,7 +830,7 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -907,7 +907,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -949,7 +949,7 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -969,7 +969,7 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -987,7 +987,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -1000,7 +1000,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 
 func TestSqlite_GetTakenIPs(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSqlite(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	defer cleanup()
 	if err != nil {
 		t.Fatal(err)
@@ -1045,7 +1045,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 
 func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSqlite(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		return
 	}
@@ -1087,7 +1087,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 
 func TestSqlite_GetAccountNetwork(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSqlite(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1110,7 +1110,7 @@ func TestSqlite_GetAccountNetwork(t *testing.T) {
 
 func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSqlite(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1130,7 +1130,7 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 
 func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSqlite(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)

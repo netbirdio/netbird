@@ -237,9 +237,9 @@ func getMigrations(ctx context.Context) []migrationFunc {
 	}
 }
 
-// NewTestStoreFromSqlite is only used in tests
-func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
-	// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
+// NewTestStoreFromSQL is only used in tests. It will create a test database base of the store engine set in env.
+// Optionally it can load a SQL file to the database. If the filename is empty it will return an empty database
+func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
 		kind = SqliteStoreEngine

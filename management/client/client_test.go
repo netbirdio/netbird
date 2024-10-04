@@ -57,7 +57,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := mgmt.NewTestStoreFromSqlite(context.Background(), "../server/testdata/store.sql", t.TempDir())
+	store, cleanUp, err := mgmt.NewTestStoreFromSQL(context.Background(), "../server/testdata/store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

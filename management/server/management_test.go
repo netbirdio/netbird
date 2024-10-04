@@ -532,7 +532,7 @@ func startServer(config *server.Config, dataDir string, testFile string) (*grpc.
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
 
-	store, _, err := server.NewTestStoreFromSqlite(context.Background(), testFile, dataDir)
+	store, _, err := server.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
