@@ -1185,3 +1185,37 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, setupKey.UsedTimes)
 }
+
+func TestSqlite_CreateAndGetObjcetInTransaction(t *testing.T) {
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	group := &nbgroup.Group{
+		ID:        "group-id",
+		AccountID: "account-id",
+		Name:      "group-name",
+		Issued:    "api",
+		Peers:     nil,
+	}
+	store.ExecuteInTransaction(context.Background(), func(transaction Store) error {
+		err := transaction.SaveGroup(context.Background(), LockingStrengthUpdate, group)
+		if err != nil {
+			t.Fatal("failed to save group")
+			return err
+		}
+
+		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthUpdate, group.ID, group.AccountID)
+		if err != nil {
+			t.Fatal("failed to get group")
+			return err
+		}
+
+		t.Logf("group: %v", group)
+
+		return nil
+	})
+
+}
