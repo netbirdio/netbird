@@ -20,6 +20,11 @@ import (
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
+
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -36,10 +41,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 )
 
 const (
@@ -1764,7 +1765,7 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
+	if user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
 	}
 
