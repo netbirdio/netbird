@@ -96,7 +96,6 @@ type AccountManager interface {
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
-	UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*nbgroup.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)
@@ -478,12 +477,12 @@ func (a *Account) GetPeerNetworkMap(
 	}
 
 	nm := &NetworkMap{
-		Peers:         peersToConnect,
-		Network:       a.Network.Copy(),
-		Routes:        routesUpdate,
-		DNSConfig:     dnsUpdate,
-		OfflinePeers:  expiredPeers,
-		FirewallRules: firewallRules,
+		Peers:               peersToConnect,
+		Network:             a.Network.Copy(),
+		Routes:              routesUpdate,
+		DNSConfig:           dnsUpdate,
+		OfflinePeers:        expiredPeers,
+		FirewallRules:       firewallRules,
 		RoutesFirewallRules: routesFirewallRules,
 	}
 
@@ -1860,7 +1859,9 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			am.updateAccountPeers(ctx, account)
+			if areGroupChangesAffectPeers(account, addNewGroups) || areGroupChangesAffectPeers(account, removeOldGroups) {
+				am.updateAccountPeers(ctx, account)
+			}
 		}
 
 		for _, g := range addNewGroups {

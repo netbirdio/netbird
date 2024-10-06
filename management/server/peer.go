@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -185,7 +186,9 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 	}
 
-	if peer.Name != update.Name {
+	peerLabelUpdated := peer.Name != update.Name
+
+	if peerLabelUpdated {
 		peer.Name = update.Name
 
 		existingLabels := account.getPeerDNSLabels()
@@ -226,7 +229,10 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
+	if peerLabelUpdated || (expired && peer.LoginExpirationEnabled) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return peer, nil
 }
@@ -290,6 +296,8 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return err
 	}
 
+	updateAccountPeers := isPeerInActiveGroup(account, peerID)
+
 	err = am.deletePeers(ctx, account, []string{peerID}, userID)
 	if err != nil {
 		return err
@@ -300,7 +308,9 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if updateAccountPeers {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -390,9 +400,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	var newPeer *nbpeer.Peer
+	var groupsToAdd []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		var groupsToAdd []string
 		var setupKeyID string
 		var setupKeyName string
 		var ephemeral bool
@@ -541,6 +551,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error getting account: %w", err)
+	}
+
+	if areGroupChangesAffectPeers(account, groupsToAdd) {
+		am.updateAccountPeers(ctx, account)
 	}
 
 	am.updateAccountPeers(ctx, account)
@@ -859,51 +873,6 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *Settings
 	return false
 }
 
-// UpdatePeerSSHKey updates peer's public SSH key
-func (am *DefaultAccountManager) UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error {
-	if sshKey == "" {
-		log.WithContext(ctx).Debugf("empty SSH key provided for peer %s, skipping update", peerID)
-		return nil
-	}
-
-	account, err := am.Store.GetAccountByPeerID(ctx, peerID)
-	if err != nil {
-		return err
-	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
-	defer unlock()
-
-	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
-	account, err = am.Store.GetAccount(ctx, account.Id)
-	if err != nil {
-		return err
-	}
-
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
-	}
-
-	if peer.SSHKey == sshKey {
-		log.WithContext(ctx).Debugf("same SSH key provided for peer %s, skipping update", peerID)
-		return nil
-	}
-
-	peer.SSHKey = sshKey
-	account.UpdatePeer(peer)
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return err
-	}
-
-	// trigger network map update
-	am.updateAccountPeers(ctx, account)
-
-	return nil
-}
-
 // GetPeer for a given accountID, peerID and userID error if not found.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
@@ -1009,4 +978,16 @@ func ConvertSliceToMap(existingLabels []string) map[string]struct{} {
 		labelMap[label] = struct{}{}
 	}
 	return labelMap
+}
+
+// IsPeerInActiveGroup checks if the given peer is part of a group that is used
+// in an active DNS, route, or ACL configuration.
+func isPeerInActiveGroup(account *Account, peerID string) bool {
+	peerGroupIDs := make([]string, 0)
+	for _, group := range account.Groups {
+		if slices.Contains(group.Peers, peerID) {
+			peerGroupIDs = append(peerGroupIDs, group.ID)
+		}
+	}
+	return areGroupChangesAffectPeers(account, peerGroupIDs)
 }
