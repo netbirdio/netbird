@@ -1285,7 +1285,7 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userI
 				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
 			}
 
-			if err = am.addAccountIDToIDPAppMeta(ctx, userID, account); err != nil {
+			if err = am.addAccountIDToIDPAppMeta(ctx, userID, account.Id); err != nil {
 				return "", err
 			}
 			return account.Id, nil
@@ -1300,28 +1300,36 @@ func isNil(i idp.Manager) bool {
 }
 
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
-func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, account *Account) error {
+func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
+		accountUsers, err := am.Store.GetAccountUsers(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		cachedAccount := &Account{Id: accountID}
+		for _, user := range accountUsers {
+			cachedAccount.Users[user.Id] = user
+		}
 
 		// user can be nil if it wasn't found (e.g., just created)
-		user, err := am.lookupUserInCache(ctx, userID, account)
+		user, err := am.lookupUserInCache(ctx, userID, cachedAccount)
 		if err != nil {
 			return err
 		}
 
-		if user != nil && user.AppMetadata.WTAccountID == account.Id {
+		if user != nil && user.AppMetadata.WTAccountID == accountID {
 			// it was already set, so we skip the unnecessary update
 			log.WithContext(ctx).Debugf("skipping IDP App Meta update because accountID %s has been already set for user %s",
-				account.Id, userID)
+				accountID, userID)
 			return nil
 		}
 
-		err = am.idpManager.UpdateUserAppMetadata(ctx, userID, idp.AppMetadata{WTAccountID: account.Id})
+		err = am.idpManager.UpdateUserAppMetadata(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
 		if err != nil {
 			return status.Errorf(status.Internal, "updating user's app metadata failed with: %v", err)
 		}
 		// refresh cache to reflect the update
-		_, err = am.refreshCache(ctx, account.Id)
+		_, err = am.refreshCache(ctx, accountID)
 		if err != nil {
 			return err
 		}
@@ -1576,17 +1584,26 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(ctx context.Conte
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
 func (am *DefaultAccountManager) handleExistingUserAccount(
 	ctx context.Context,
-	existingAcc *Account,
-	primaryDomain bool,
+	userAccountID string,
+	domainAccountID string,
 	claims jwtclaims.AuthorizationClaims,
 ) error {
-	err := am.updateAccountDomainAttributes(ctx, existingAcc, claims, primaryDomain)
+	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, userAccountID)
+	defer unlockAccount()
+
+	userAccount, err := am.Store.GetAccountByUser(ctx, claims.UserId)
+	if err != nil {
+		return err
+	}
+
+	primaryDomain := domainAccountID == "" || userAccountID == domainAccountID
+	err = am.updateAccountDomainAttributes(ctx, userAccount, claims, primaryDomain)
 	if err != nil {
 		return err
 	}
 
 	// we should register the account ID to this user's metadata in our IDP manager
-	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, existingAcc)
+	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, userAccount.Id)
 	if err != nil {
 		return err
 	}
@@ -1594,44 +1611,51 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 	return nil
 }
 
-// handleNewUserAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
+// addNewPrivateAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
 // otherwise it will create a new account and make it primary account for the domain.
-func (am *DefaultAccountManager) handleNewUserAccount(ctx context.Context, domainAcc *Account, claims jwtclaims.AuthorizationClaims) (*Account, error) {
+func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domainAccountID string, claims jwtclaims.AuthorizationClaims) (string, error) {
 	if claims.UserId == "" {
-		return nil, fmt.Errorf("user ID is empty")
-	}
-	var (
-		account *Account
-		err     error
-	)
-	lowerDomain := strings.ToLower(claims.Domain)
-	// if domain already has a primary account, add regular user
-	if domainAcc != nil {
-		account = domainAcc
-		account.Users[claims.UserId] = NewRegularUser(claims.UserId)
-		err = am.Store.SaveAccount(ctx, account)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		account, err = am.newAccount(ctx, claims.UserId, lowerDomain)
-		if err != nil {
-			return nil, err
-		}
-		err = am.updateAccountDomainAttributes(ctx, account, claims, true)
-		if err != nil {
-			return nil, err
-		}
+		return "", fmt.Errorf("user ID is empty")
 	}
 
-	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, account)
+	lowerDomain := strings.ToLower(claims.Domain)
+
+	account, err := am.newAccount(ctx, claims.UserId, lowerDomain)
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+
+	err = am.updateAccountDomainAttributes(ctx, account, claims, true)
+	if err != nil {
+		return "", err
+	}
+
+	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, account.Id)
+	if err != nil {
+		return "", err
 	}
 
 	am.StoreEvent(ctx, claims.UserId, claims.UserId, account.Id, activity.UserJoined, nil)
 
-	return account, nil
+	return account.Id, nil
+}
+
+func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, claims jwtclaims.AuthorizationClaims) (string, error) {
+	usersMap := make(map[string]*User)
+	usersMap[claims.UserId] = NewRegularUser(claims.UserId)
+	err := am.Store.SaveUsers(domainAccountID, usersMap)
+	if err != nil {
+		return "", err
+	}
+
+	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, domainAccountID)
+	if err != nil {
+		return "", err
+	}
+
+	am.StoreEvent(ctx, claims.UserId, claims.UserId, domainAccountID, activity.UserJoined, nil)
+
+	return domainAccountID, nil
 }
 
 // redeemInvite checks whether user has been invited and redeems the invite
@@ -1961,6 +1985,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 }
 
 // getAccountIDWithAuthorizationClaims retrieves an account ID using JWT Claims.
+// if domain is not private or domain is invalid, it will return the account ID by user ID.
 // if domain is of the PrivateCategory category, it will evaluate
 // if account is new, existing or if there is another account with the same domain
 //
@@ -1980,98 +2005,117 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {
 	log.WithContext(ctx).Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
 		claims.UserId, claims.AccountId, claims.Domain, claims.DomainCategory)
+
 	if claims.UserId == "" {
 		return "", fmt.Errorf("user ID is empty")
 	}
 
-	// if Account ID is part of the claims
-	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
-		if claims.AccountId != "" {
-			exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, claims.AccountId)
-			if err != nil {
-				return "", err
-			}
-			if !exists {
-				return "", status.Errorf(status.NotFound, "account %s does not exist", claims.AccountId)
-			}
-			return claims.AccountId, nil
-		}
 		return am.GetAccountIDByUserID(ctx, claims.UserId, claims.Domain)
-	} else if claims.AccountId != "" {
-		userAccountID, err := am.Store.GetAccountIDByUserID(claims.UserId)
-		if err != nil {
-			return "", err
-		}
-
-		if userAccountID != claims.AccountId {
-			return "", fmt.Errorf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
-		}
-
-		domain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, claims.AccountId)
-		if err != nil {
-			return "", err
-		}
-
-		if domainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory || domain != claims.Domain {
-			return userAccountID, nil
-		}
 	}
 
-	start := time.Now()
-	unlock := am.Store.AcquireGlobalLock(ctx)
-	defer unlock()
-	log.WithContext(ctx).Debugf("Acquired global lock in %s for user %s", time.Since(start), claims.UserId)
+	if claims.AccountId != "" {
+		return am.handlePrivateAccountWithIDFromClaim(ctx, claims)
+	}
 
 	// We checked if the domain has a primary account already
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, claims.Domain)
-	if err != nil {
-		// if NotFound we are good to continue, otherwise return error
-		e, ok := status.FromError(err)
-		if !ok || e.Type() != status.NotFound {
-			return "", err
-		}
+	if handleNotFound(err) != nil {
+		log.WithContext(ctx).Errorf("error getting account ID by private domain: %v", err)
+		return "", err
+	}
+
+	if domainAccountID == "" {
+		log.WithContext(ctx).Debugf("no primary account found for domain %s, acquiring global lock", claims.Domain)
+		cancel := am.Store.AcquireGlobalLock(ctx)
+		defer cancel()
 	}
 
 	userAccountID, err := am.Store.GetAccountIDByUserID(claims.UserId)
-	if err == nil {
-		unlockAccount := am.Store.AcquireWriteLockByUID(ctx, userAccountID)
-		defer unlockAccount()
-		account, err := am.Store.GetAccountByUser(ctx, claims.UserId)
-		if err != nil {
-			return "", err
-		}
+	if handleNotFound(err) != nil {
+		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
+		return "", err
+	}
+
+	if userAccountID != "" {
 		// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
 		// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
 		// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
 		// was previously unclassified or classified as public so N users that logged int that time, has they own account
 		// and peers that shouldn't be lost.
-		primaryDomain := domainAccountID == "" || account.Id == domainAccountID
-		if err = am.handleExistingUserAccount(ctx, account, primaryDomain, claims); err != nil {
+
+		if err = am.handleExistingUserAccount(ctx, userAccountID, domainAccountID, claims); err != nil {
 			return "", err
 		}
 
-		return account.Id, nil
-	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-		var domainAccount *Account
-		if domainAccountID != "" {
-			unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
-			defer unlockAccount()
-			domainAccount, err = am.Store.GetAccountByPrivateDomain(ctx, claims.Domain)
-			if err != nil {
-				return "", err
-			}
-		}
+		return userAccountID, nil
+	}
 
-		account, err := am.handleNewUserAccount(ctx, domainAccount, claims)
+	if domainAccountID != "" {
+		account, err := am.addNewUserToDomainAccount(ctx, domainAccountID, claims)
 		if err != nil {
 			return "", err
 		}
-		return account.Id, nil
-	} else {
-		// other error
+		return account, nil
+	}
+
+	accountID, err := am.addNewPrivateAccount(ctx, domainAccountID, claims)
+	if err != nil {
 		return "", err
 	}
+	return accountID, nil
+}
+
+func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {
+	userAccountID, err := am.Store.GetAccountIDByUserID(claims.UserId)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
+		return "", err
+	}
+
+	if userAccountID != claims.AccountId {
+		return "", fmt.Errorf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
+	}
+
+	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, claims.AccountId)
+	if handleNotFound(err) != nil {
+		log.WithContext(ctx).Errorf("error getting account domain and category: %v", err)
+		return "", err
+	}
+
+	if domainIsUpToDate(accountDomain, domainCategory, claims) {
+		return claims.AccountId, nil
+	}
+
+	// We checked if the domain has a primary account already
+	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, claims.Domain)
+	if handleNotFound(err) != nil {
+		log.WithContext(ctx).Errorf("error getting account ID by private domain: %v", err)
+		return "", err
+	}
+
+	err = am.handleExistingUserAccount(ctx, claims.AccountId, domainAccountID, claims)
+	if err != nil {
+		return "", err
+	}
+
+	return claims.AccountId, nil
+}
+
+func handleNotFound(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	e, ok := status.FromError(err)
+	if !ok || e.Type() != status.NotFound {
+		return err
+	}
+	return nil
+}
+
+func domainIsUpToDate(domain string, domainCategory string, claims jwtclaims.AuthorizationClaims) bool {
+	return claims.Domain != "" && claims.Domain != domain && claims.DomainCategory == PrivateCategory && domainCategory != PrivateCategory
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
