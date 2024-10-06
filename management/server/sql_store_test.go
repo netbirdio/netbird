@@ -1215,3 +1215,17 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 	})
 	assert.NoError(t, err)
 }
+
+func TestSqlite_GetAccoundUsers(t *testing.T) {
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	account, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	users, err := store.GetAccountUsers(context.Background(), accountID)
+	require.NoError(t, err)
+	require.Len(t, users, len(account.Users))
+}

@@ -59,6 +59,7 @@ type Store interface {
 
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
+	GetAccountUsers(ctx context.Context, accountID string) ([]*User, error)
 	SaveUsers(accountID string, users map[string]*User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error

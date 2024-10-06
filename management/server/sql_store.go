@@ -511,6 +511,20 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 	return &user, nil
 }
 
+func (s *SqlStore) GetAccountUsers(ctx context.Context, accountID string) ([]*User, error) {
+	var users []*User
+	result := s.db.Find(&users, accountIDCondition, accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
+		}
+		log.WithContext(ctx).Errorf("error when getting users from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting users from store")
+	}
+
+	return users, nil
+}
+
 func (s *SqlStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
 	var groups []*nbgroup.Group
 	result := s.db.Find(&groups, accountIDCondition, accountID)
