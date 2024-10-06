@@ -18,7 +18,6 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
-	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -1764,7 +1763,7 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
+	if user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
 	}
 
