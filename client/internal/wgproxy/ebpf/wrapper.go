@@ -85,7 +85,7 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 	defer p.WgeBPFProxy.removeTurnConn(uint16(p.wgEndpointAddr.Port))
 
 	buf := make([]byte, 1500)
-	for ctx.Err() == nil {
+	for {
 		n, err := p.readFromRemote(ctx, buf)
 		if err != nil {
 			return

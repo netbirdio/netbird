@@ -166,33 +166,31 @@ func (p *WGUserSpaceProxy) proxyToLocal(ctx context.Context) {
 	}()
 
 	buf := make([]byte, 1500)
-	for ctx.Err() == nil {
-		for {
-			n, err := p.remoteConn.Read(buf)
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.RemoteAddr(), err)
+	for {
+		n, err := p.remoteConn.Read(buf)
+		if err != nil {
+			if ctx.Err() != nil {
 				return
 			}
+			log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.RemoteAddr(), err)
+			return
+		}
 
-			p.pausedMu.Lock()
-			if p.paused {
-				p.pausedMu.Unlock()
-				continue
-			}
-
-			_, err = p.localConn.Write(buf[:n])
+		p.pausedMu.Lock()
+		if p.paused {
 			p.pausedMu.Unlock()
+			continue
+		}
 
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				log.Debugf("failed to write to wg interface conn: %s", err)
-				continue
+		_, err = p.localConn.Write(buf[:n])
+		p.pausedMu.Unlock()
+
+		if err != nil {
+			if ctx.Err() != nil {
+				return
 			}
+			log.Debugf("failed to write to wg interface conn: %s", err)
+			continue
 		}
 	}
 }
