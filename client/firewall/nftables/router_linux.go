@@ -248,9 +248,13 @@ func (r *router) AddRouteFiltering(
 		UserData: []byte(ruleKey),
 	}
 
+	if err := r.conn.Flush(); err != nil {
+		return nil, fmt.Errorf(flushError, err)
+	}
+
 	r.rules[string(ruleKey)] = r.conn.AddRule(rule)
 
-	return ruleKey, r.conn.Flush()
+	return ruleKey, nil
 }
 
 func (r *router) getIpSetExprs(sources []netip.Prefix, exprs []expr.Any) ([]expr.Any, error) {
