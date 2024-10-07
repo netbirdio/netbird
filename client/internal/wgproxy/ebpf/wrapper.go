@@ -101,7 +101,16 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 			return
 		}
 
-		if err := p.WgeBPFProxy.sendPkg(buf[:n], p.wgEndpointAddr.Port); err != nil {
+		p.pausedMu.Lock()
+		if p.paused {
+			p.pausedMu.Unlock()
+			continue
+		}
+
+		err := p.WgeBPFProxy.sendPkg(buf[:n], p.wgEndpointAddr.Port)
+		p.pausedMu.Unlock()
+
+		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
