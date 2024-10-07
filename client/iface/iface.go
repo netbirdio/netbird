@@ -6,12 +6,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
 const (
@@ -28,8 +31,13 @@ type WGIface struct {
 	userspaceBind bool
 	mu            sync.Mutex
 
-	configurer device.WGConfigurer
-	filter     device.PacketFilter
+	configurer     device.WGConfigurer
+	filter         device.PacketFilter
+	wgProxyFactory *wgproxy.Factory
+}
+
+func (w *WGIface) GetProxy() wgproxy.Proxy {
+	return w.wgProxyFactory.GetProxy()
 }
 
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
@@ -124,22 +132,26 @@ func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	err := w.tun.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err)
+	var result *multierror.Error
+
+	if err := w.wgProxyFactory.Free(); err != nil {
+		result = multierror.Append(result, fmt.Errorf("failed to free WireGuard proxy: %w", err))
 	}
 
-	err = w.waitUntilRemoved()
-	if err != nil {
+	if err := w.tun.Close(); err != nil {
+		result = multierror.Append(result, fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err))
+	}
+
+	if err := w.waitUntilRemoved(); err != nil {
 		log.Warnf("failed to remove WireGuard interface %s: %v", w.Name(), err)
-		err = w.Destroy()
-		if err != nil {
-			return fmt.Errorf("failed to remove WireGuard interface %s: %w", w.Name(), err)
+		if err := w.Destroy(); err != nil {
+			result = multierror.Append(result, fmt.Errorf("failed to remove WireGuard interface %s: %w", w.Name(), err))
+			return errors.FormatErrorOrNil(result)
 		}
 		log.Infof("interface %s successfully removed", w.Name())
 	}
 
-	return nil
+	return errors.FormatErrorOrNil(result)
 }
 
 // SetFilter sets packet filters for the userspace implementation

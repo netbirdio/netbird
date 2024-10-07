@@ -35,7 +35,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
-	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -141,8 +140,7 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	wgInterface    iface.IWGIface
-	wgProxyFactory *wgproxy.Factory
+	wgInterface iface.IWGIface
 
 	udpMux *bind.UniversalUDPMuxDefault
 
@@ -291,9 +289,6 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
-
-	userspace := e.wgInterface.IsUserspaceBind()
-	e.wgProxyFactory = wgproxy.NewFactory(userspace, e.config.WgPort)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
@@ -959,7 +954,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		},
 	}
 
-	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.wgProxyFactory, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager)
+	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager)
 	if err != nil {
 		return nil, err
 	}
@@ -1110,12 +1105,6 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
-	if e.wgProxyFactory != nil {
-		if err := e.wgProxyFactory.Free(); err != nil {
-			log.Errorf("failed closing ebpf proxy: %s", err)
-		}
-	}
-
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
 	e.stopDNSServer()
 

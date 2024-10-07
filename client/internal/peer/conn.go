@@ -17,8 +17,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -79,10 +79,10 @@ type Conn struct {
 	ctxCancel      context.CancelFunc
 	config         ConnConfig
 	statusRecorder *Status
-	wgProxyFactory *wgproxy.Factory
 	signaler       *Signaler
 	relayManager   *relayClient.Manager
-	allowedIPsIP   string
+	allowedIP      net.IP
+	allowedNet     string
 	handshaker     *Handshaker
 
 	onConnected    func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
@@ -111,8 +111,8 @@ type Conn struct {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.Factory, signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, relayManager *relayClient.Manager) (*Conn, error) {
-	_, allowedIPsIP, err := net.ParseCIDR(config.WgConfig.AllowedIps)
+func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Status, signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, relayManager *relayClient.Manager) (*Conn, error) {
+	allowedIP, allowedNet, err := net.ParseCIDR(config.WgConfig.AllowedIps)
 	if err != nil {
 		log.Errorf("failed to parse allowedIPS: %v", err)
 		return nil, err
@@ -127,10 +127,10 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		ctxCancel:         ctxCancel,
 		config:            config,
 		statusRecorder:    statusRecorder,
-		wgProxyFactory:    wgProxyFactory,
 		signaler:          signaler,
 		relayManager:      relayManager,
-		allowedIPsIP:      allowedIPsIP.String(),
+		allowedIP:         allowedIP,
+		allowedNet:        allowedNet.String(),
 		statusRelay:       NewAtomicConnStatus(),
 		statusICE:         NewAtomicConnStatus(),
 		iCEDisconnected:   make(chan bool, 1),
@@ -676,7 +676,7 @@ func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAdd
 	}
 
 	if conn.onConnected != nil {
-		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, conn.allowedIPsIP, remoteRosenpassAddr)
+		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, conn.allowedNet, remoteRosenpassAddr)
 	}
 }
 
@@ -767,8 +767,13 @@ func (conn *Conn) freeUpConnID() {
 
 func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {
 	conn.log.Debugf("setup proxied WireGuard connection")
-	wgProxy := conn.wgProxyFactory.GetProxy()
-	if err := wgProxy.AddTurnConn(conn.ctx, remoteConn); err != nil {
+	udpAddr := &net.UDPAddr{
+		IP:   conn.allowedIP,
+		Port: conn.config.WgConfig.WgListenPort,
+	}
+
+	wgProxy := conn.config.WgConfig.WgInterface.GetProxy()
+	if err := wgProxy.AddTurnConn(conn.ctx, udpAddr, remoteConn); err != nil {
 		conn.log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
 		return nil, err
 	}

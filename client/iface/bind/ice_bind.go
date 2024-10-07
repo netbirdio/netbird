@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/pion/stun/v2"
@@ -27,15 +28,17 @@ type ICEBind struct {
 	muUDPMux sync.Mutex
 
 	transportNet transport.Net
-	udpMux       *UniversalUDPMuxDefault
+	filterFn     FilterFn
+	endpoints    map[string]net.Conn
 
-	filterFn FilterFn
+	udpMux *UniversalUDPMuxDefault
 }
 
 func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
 	ib := &ICEBind{
 		transportNet: transportNet,
 		filterFn:     filterFn,
+		endpoints:    make(map[string]net.Conn),
 	}
 
 	rc := receiverCreator{
@@ -54,6 +57,33 @@ func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 	}
 
 	return s.udpMux, nil
+}
+
+func (b *ICEBind) SetEndpoint(peerAddress *net.UDPAddr, conn net.Conn) (*net.UDPAddr, error) {
+	fakeAddr, err := fakeAddress(peerAddress)
+	if err != nil {
+		return nil, err
+	}
+	b.endpoints[fakeAddr.String()] = conn
+	return fakeAddr, nil
+}
+
+func (b *ICEBind) RemoveEndpoint(fakeAddr *net.UDPAddr) {
+	delete(b.endpoints, fakeAddr.String())
+}
+
+func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
+	conn, ok := b.endpoints[ep.DstToString()]
+	if !ok {
+		return b.StdNetBind.Send(bufs, ep)
+	}
+
+	for _, buf := range bufs {
+		if _, err := conn.Write(buf); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketConn, conn *net.UDPConn) wgConn.ReceiveFunc {
@@ -90,6 +120,7 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 		for i := 0; i < numMsgs; i++ {
 			msg := &(*msgs)[i]
 
+			log.Infof("---- read msg: %s", msg.Addr.String())
 			// todo: handle err
 			ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
 			if ok {
@@ -101,6 +132,7 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
 			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
 			wgConn.GetSrcFromControl(msg.OOB[:msg.NN], ep)
+			log.Infof("---- ep msg: %v", ep)
 			eps[i] = ep
 		}
 		return numMsgs, nil
@@ -139,4 +171,17 @@ func (s *ICEBind) parseSTUNMessage(raw []byte) (*stun.Message, error) {
 	}
 
 	return msg, nil
+}
+
+func fakeAddress(peerAddress *net.UDPAddr) (*net.UDPAddr, error) {
+	octets := strings.Split(peerAddress.IP.String(), ".")
+	if len(octets) != 4 {
+		return nil, fmt.Errorf("invalid IP format")
+	}
+
+	newAddr := &net.UDPAddr{
+		IP:   net.ParseIP(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3])),
+		Port: peerAddress.Port,
+	}
+	return newAddr, nil
 }

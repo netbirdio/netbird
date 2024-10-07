@@ -27,7 +27,7 @@ type ProxyWrapper struct {
 	isStarted bool
 }
 
-func (p *ProxyWrapper) AddTurnConn(ctx context.Context, remoteConn net.Conn) error {
+func (p *ProxyWrapper) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
 	addr, err := p.WgeBPFProxy.AddTurnConn(remoteConn)
 	if err != nil {
 		return fmt.Errorf("add turn conn: %w", err)
