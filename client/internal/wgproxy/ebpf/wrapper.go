@@ -84,20 +84,10 @@ func (e *ProxyWrapper) CloseConn() error {
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 	defer p.WgeBPFProxy.removeTurnConn(uint16(p.wgEndpointAddr.Port))
 
-	var (
-		err error
-		n   int
-	)
 	buf := make([]byte, 1500)
 	for ctx.Err() == nil {
-		n, err = p.remoteConn.Read(buf)
+		n, err := p.readFromRemote(ctx, buf)
 		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			if err != io.EOF {
-				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgEndpointAddr.Port, err)
-			}
 			return
 		}
 
@@ -107,7 +97,7 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 			continue
 		}
 
-		err := p.WgeBPFProxy.sendPkg(buf[:n], p.wgEndpointAddr.Port)
+		err = p.WgeBPFProxy.sendPkg(buf[:n], p.wgEndpointAddr.Port)
 		p.pausedMu.Unlock()
 
 		if err != nil {
@@ -117,4 +107,24 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 			log.Errorf("failed to write out turn pkg to local conn: %v", err)
 		}
 	}
+}
+
+func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, error) {
+	n, err := p.remoteConn.Read(buf)
+	if err != nil {
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		if err != io.EOF {
+			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgEndpointAddr.Port, err)
+		}
+		return 0, err
+	}
+	return n, nil
+}
+
+func (p *ProxyWrapper) isPaused() bool {
+	p.pausedMu.Lock()
+	defer p.pausedMu.Unlock()
+	return p.paused
 }
