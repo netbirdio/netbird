@@ -122,9 +122,3 @@ func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, err
 	}
 	return n, nil
 }
-
-func (p *ProxyWrapper) isPaused() bool {
-	p.pausedMu.Lock()
-	defer p.pausedMu.Unlock()
-	return p.paused
-}
