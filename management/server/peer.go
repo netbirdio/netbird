@@ -695,7 +695,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	if login.UserID != "" {
 		if peer.UserID != login.UserID {
 			log.Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, login.UserID)
-			return nil, nil, nil, status.Errorf(status.Unauthenticated, "can't login")
+			return nil, nil, nil, status.Errorf(status.Unauthenticated, "invalid user")
 		}
 
 		changed, err := am.handleUserPeer(ctx, peer, settings)
