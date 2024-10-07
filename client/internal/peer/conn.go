@@ -458,16 +458,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	}
 
 	if err = conn.configureWGEndpoint(ep); err != nil {
-		conn.log.Warnf("Failed to update wg peer configuration: %v", err)
-		if wgProxy != nil {
-			if ierr := wgProxy.CloseConn(); ierr != nil {
-				conn.log.Warnf("Failed to close wg proxy: %v", ierr)
-			}
-		}
-
-		if conn.wgProxyRelay != nil {
-			conn.wgProxyRelay.Work()
-		}
+		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
 	wgConfigWorkaround()
@@ -807,6 +798,18 @@ func (conn *Conn) notifyReconnectLoopICEDisconnected(changed bool) {
 	select {
 	case conn.iCEDisconnected <- changed:
 	default:
+	}
+}
+
+func (conn *Conn) handleConfigurationFailure(err error, wgProxy wgproxy.Proxy) {
+	conn.log.Warnf("Failed to update wg peer configuration: %v", err)
+	if wgProxy != nil {
+		if ierr := wgProxy.CloseConn(); ierr != nil {
+			conn.log.Warnf("Failed to close wg proxy: %v", ierr)
+		}
+	}
+	if conn.wgProxyRelay != nil {
+		conn.wgProxyRelay.Work()
 	}
 }
 
