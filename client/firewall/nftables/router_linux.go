@@ -292,6 +292,10 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 		return nil
 	}
 
+	if nftRule.Handle == 0 {
+		return fmt.Errorf("route rule %s has no handle", ruleKey)
+	}
+
 	setName := r.findSetNameInRule(nftRule)
 
 	if err := r.deleteNftRule(nftRule, ruleKey); err != nil {
