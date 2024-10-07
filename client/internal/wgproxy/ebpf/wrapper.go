@@ -67,16 +67,6 @@ func (p *ProxyWrapper) Pause() {
 	p.pausedMu.Unlock()
 }
 
-func (p *ProxyWrapper) Resume() {
-	if p.remoteConn == nil {
-		return
-	}
-
-	p.pausedMu.Lock()
-	p.paused = false
-	p.pausedMu.Unlock()
-}
-
 // CloseConn close the remoteConn and automatically remove the conn instance from the map
 func (e *ProxyWrapper) CloseConn() error {
 	if e.cancel == nil {
