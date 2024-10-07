@@ -509,7 +509,7 @@ func (m *AclManager) createChain(name string) *nftables.Chain {
 	return chain
 }
 
-func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.ChainHook) *nftables.Chain {
+func (m *AclManager) createFilterChainWithHook(name string, hookNum *nftables.ChainHook) *nftables.Chain {
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
 		Name:     name,

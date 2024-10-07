@@ -157,11 +157,13 @@ func (r *router) createContainers() error {
 
 	insertReturnTrafficRule(r.conn, r.workTable, r.chains[chainNameRoutingFw])
 
+	prio := *nftables.ChainPriorityNATSource - 1
+
 	r.chains[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
 		Name:     chainNameRoutingNat,
 		Table:    r.workTable,
 		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: nftables.ChainPriorityNATSource - 1,
+		Priority: &prio,
 		Type:     nftables.ChainTypeNAT,
 	})
 
