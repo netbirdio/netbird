@@ -347,7 +347,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			for i, expr := range nftRule.Exprs {
 				t.Logf("  [%d] %T: %+v", i, expr, expr)
 			}
-		
+
 			// Verify actual nftables rule content
 			verifyRule(t, nftRule, tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action, tt.expectSet)
 		})

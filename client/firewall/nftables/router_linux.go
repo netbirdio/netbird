@@ -190,6 +190,8 @@ func (r *router) AddRouteFiltering(
 	dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
+	log.Tracef("Adding route rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v", sources, destination, proto, sPort, dPort, action)
+
 	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
