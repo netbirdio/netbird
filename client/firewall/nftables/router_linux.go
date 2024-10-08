@@ -250,11 +250,13 @@ func (r *router) AddRouteFiltering(
 		UserData: []byte(ruleKey),
 	}
 
+	rule = r.conn.AddRule(rule)
+
 	if err := r.conn.Flush(); err != nil {
 		return nil, fmt.Errorf(flushError, err)
 	}
 
-	r.rules[string(ruleKey)] = r.conn.AddRule(rule)
+	r.rules[string(ruleKey)] = rule
 
 	return ruleKey, nil
 }
