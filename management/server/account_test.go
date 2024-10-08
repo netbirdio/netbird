@@ -1134,9 +1134,13 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	group := group.Group{
-		ID:    "group-id",
+		ID:    "groupA",
 		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		Peers: []string{},
+	}
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+		t.Errorf("save group: %v", err)
+		return
 	}
 
 	policy := Policy{
@@ -1145,14 +1149,14 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		Rules: []*PolicyRule{
 			{
 				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
 	}
-	err := manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -1170,6 +1174,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		}
 	}()
 
+	group.Peers = []string{peer1.ID, peer2.ID, peer3.ID}
 	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
 		t.Errorf("save group: %v", err)
 		return
@@ -1208,7 +1213,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
 
 	group := group.Group{
-		ID:    "group-id",
+		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID},
 	}
@@ -1225,8 +1230,8 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		Rules: []*PolicyRule{
 			{
 				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},
@@ -1245,10 +1250,10 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		}
 	}()
 
-		if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
-			t.Errorf("delete default rule: %v", err)
-			return
-		}
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
 
 	wg.Wait()
 }
@@ -1257,7 +1262,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	manager, account, peer1, _, peer3 := setupNetworkMapTest(t)
 
 	group := group.Group{
-		ID:    "group-id",
+		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer3.ID},
 	}
@@ -1271,15 +1276,15 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		Rules: []*PolicyRule{
 			{
 				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
 	}
 
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
 		t.Errorf("save policy: %v", err)
 		return
 	}
@@ -1314,7 +1319,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
 	group := group.Group{
-		ID:    "group-id",
+		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	}
@@ -1324,8 +1329,8 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		Rules: []*PolicyRule{
 			{
 				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},
@@ -1337,7 +1342,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		return
 	}
 
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
 		t.Errorf("save policy: %v", err)
 		return
 	}
