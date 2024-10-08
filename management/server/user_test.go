@@ -1372,7 +1372,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// updating user with linked peers should update account peers and send peer update
-	t.Run("updating user with no linked peers", func(t *testing.T) {
+	t.Run("updating user with linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
