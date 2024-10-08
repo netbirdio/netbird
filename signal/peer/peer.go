@@ -18,16 +18,20 @@ type Peer struct {
 
 	StreamID int64
 
-	//a gRpc connection stream to the Peer
+	// a gRpc connection stream to the Peer
 	Stream proto.SignalExchange_ConnectStreamServer
+
+	// registration time
+	RegisteredAt time.Time
 }
 
 // NewPeer creates a new instance of a connected Peer
 func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer) *Peer {
 	return &Peer{
-		Id:       id,
-		Stream:   stream,
-		StreamID: time.Now().UnixNano(),
+		Id:           id,
+		Stream:       stream,
+		StreamID:     time.Now().UnixNano(),
+		RegisteredAt: time.Now(),
 	}
 }
 
@@ -78,8 +82,11 @@ func (registry *Registry) Register(peer *Peer) {
 		log.Warnf("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
 			peer.Id, peer.StreamID, pp.StreamID)
 		registry.Peers.Store(peer.Id, peer)
+		return
 	}
+
 	log.Debugf("peer registered [%s]", peer.Id)
+	registry.metrics.ActivePeers.Add(context.Background(), 1)
 
 	// record time as milliseconds
 	registry.metrics.RegistrationDelay.Record(context.Background(), float64(time.Since(start).Nanoseconds())/1e6)
@@ -101,8 +108,8 @@ func (registry *Registry) Deregister(peer *Peer) {
 				peer.Id, pp.StreamID, peer.StreamID)
 			return
 		}
+		registry.metrics.ActivePeers.Add(context.Background(), -1)
+		log.Debugf("peer deregistered [%s]", peer.Id)
+		registry.metrics.Deregistrations.Add(context.Background(), 1)
 	}
-	log.Debugf("peer deregistered [%s]", peer.Id)
-
-	registry.metrics.Deregistrations.Add(context.Background(), 1)
 }

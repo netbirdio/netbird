@@ -23,8 +23,11 @@ import (
 func initAccountsTestData(account *server.Account, admin *server.User) *AccountsHandler {
 	return &AccountsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return account, admin, nil
+			GetAccountIDFromTokenFunc: func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return account.Id, admin.Id, nil
+			},
+			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*server.Settings, error) {
+				return account.Settings, nil
 			},
 			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
 				halfYearLimit := 180 * 24 * time.Hour

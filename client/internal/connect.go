@@ -17,15 +17,18 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/relay/auth/hmac"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 	signal "github.com/netbirdio/netbird/signal/client"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
@@ -55,22 +58,20 @@ func NewConnectClient(
 
 // Run with main logic.
 func (c *ConnectClient) Run() error {
-	return c.run(MobileDependency{}, nil, nil, nil, nil)
+	return c.run(MobileDependency{}, nil, nil)
 }
 
 // RunWithProbes runs the client's main logic with probes attached
 func (c *ConnectClient) RunWithProbes(
-	mgmProbe *Probe,
-	signalProbe *Probe,
-	relayProbe *Probe,
-	wgProbe *Probe,
+	probes *ProbeHolder,
+	runningChan chan error,
 ) error {
-	return c.run(MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe)
+	return c.run(MobileDependency{}, probes, runningChan)
 }
 
 // RunOnAndroid with main logic on mobile system
 func (c *ConnectClient) RunOnAndroid(
-	tunAdapter iface.TunAdapter,
+	tunAdapter device.TunAdapter,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsAddresses []string,
@@ -84,7 +85,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.run(mobileDependency, nil, nil, nil, nil)
+	return c.run(mobileDependency, nil, nil)
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -100,15 +101,13 @@ func (c *ConnectClient) RunOniOS(
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}
-	return c.run(mobileDependency, nil, nil, nil, nil)
+	return c.run(mobileDependency, nil, nil)
 }
 
 func (c *ConnectClient) run(
 	mobileDependency MobileDependency,
-	mgmProbe *Probe,
-	signalProbe *Probe,
-	relayProbe *Probe,
-	wgProbe *Probe,
+	probes *ProbeHolder,
+	runningChan chan error,
 ) error {
 	defer func() {
 		if r := recover(); r != nil {
@@ -160,12 +159,11 @@ func (c *ConnectClient) run(
 	}
 
 	defer c.statusRecorder.ClientStop()
+	runningChanOpen := true
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
-		select {
-		case <-c.ctx.Done():
+		if c.isContextCancelled() {
 			return nil
-		default:
 		}
 
 		state.Set(StatusConnecting)
@@ -187,8 +185,7 @@ func (c *ConnectClient) run(
 
 		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {
-			err = mgmClient.Close()
-			if err != nil {
+			if err = mgmClient.Close(); err != nil {
 				log.Warnf("failed to close the Management service client %v", err)
 			}
 		}()
@@ -199,6 +196,7 @@ func (c *ConnectClient) run(
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
+				_ = c.Stop()
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
@@ -208,10 +206,9 @@ func (c *ConnectClient) run(
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
-			KernelInterface: iface.WireGuardModuleIsLoaded(),
+			KernelInterface: device.WireGuardModuleIsLoaded(),
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
-
 		c.statusRecorder.UpdateLocalPeerState(localPeerState)
 
 		signalURL := fmt.Sprintf("%s://%s",
@@ -244,6 +241,23 @@ func (c *ConnectClient) run(
 
 		c.statusRecorder.MarkSignalConnected()
 
+		relayURLs, token := parseRelayInfo(loginResp)
+		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		if len(relayURLs) > 0 {
+			if token != nil {
+				if err := relayManager.UpdateToken(token); err != nil {
+					log.Errorf("failed to update token: %s", err)
+					return wrapErr(err)
+				}
+			}
+			log.Infof("connecting to the Relay service(s): %s", strings.Join(relayURLs, ", "))
+			if err = relayManager.Serve(); err != nil {
+				log.Error(err)
+				return wrapErr(err)
+			}
+			c.statusRecorder.SetRelayMgr(relayManager)
+		}
+
 		peerConfig := loginResp.GetPeerConfig()
 
 		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
@@ -255,11 +269,11 @@ func (c *ConnectClient) run(
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
+		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
+
 		c.engineMutex.Unlock()
 
-		err = c.engine.Start()
-		if err != nil {
+		if err := c.engine.Start(); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
@@ -267,16 +281,25 @@ func (c *ConnectClient) run(
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
+		if runningChan != nil && runningChanOpen {
+			runningChan <- nil
+			close(runningChan)
+			runningChanOpen = false
+		}
+
 		<-engineCtx.Done()
+		c.engineMutex.Lock()
+		if c.engine != nil && c.engine.wgInterface != nil {
+			log.Infof("ensuring %s is removed, Netbird engine context cancelled", c.engine.wgInterface.Name())
+			if err := c.engine.Stop(); err != nil {
+				log.Errorf("Failed to stop engine: %v", err)
+			}
+			c.engine = nil
+		}
+		c.engineMutex.Unlock()
 		c.statusRecorder.ClientTeardown()
 
 		backOff.Reset()
-
-		err = c.engine.Stop()
-		if err != nil {
-			log.Errorf("failed stopping engine %v", err)
-			return wrapErr(err)
-		}
 
 		log.Info("stopped NetBird client")
 
@@ -293,18 +316,58 @@ func (c *ConnectClient) run(
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
+			_ = c.Stop()
 		}
 		return err
 	}
 	return nil
 }
 
+func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
+	relayCfg := loginResp.GetWiretrusteeConfig().GetRelay()
+	if relayCfg == nil {
+		return nil, nil
+	}
+
+	token := &hmac.Token{
+		Payload:   relayCfg.GetTokenPayload(),
+		Signature: relayCfg.GetTokenSignature(),
+	}
+
+	return relayCfg.GetUrls(), token
+}
+
 func (c *ConnectClient) Engine() *Engine {
+	if c == nil {
+		return nil
+	}
 	var e *Engine
 	c.engineMutex.Lock()
 	e = c.engine
 	c.engineMutex.Unlock()
 	return e
+}
+
+func (c *ConnectClient) Stop() error {
+	if c == nil {
+		return nil
+	}
+	c.engineMutex.Lock()
+	defer c.engineMutex.Unlock()
+
+	if c.engine == nil {
+		return nil
+	}
+	return c.engine.Stop()
+}
+
+func (c *ConnectClient) isContextCancelled() bool {
+	select {
+	case <-c.ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
@@ -397,19 +460,43 @@ func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal
 	return notifier
 }
 
-func freePort(start int) (int, error) {
+// freePort attempts to determine if the provided port is available, if not it will ask the system for a free port.
+func freePort(initPort int) (int, error) {
 	addr := net.UDPAddr{}
-	if start == 0 {
-		start = iface.DefaultWgPort
+	if initPort == 0 {
+		initPort = iface.DefaultWgPort
 	}
-	for x := start; x <= 65535; x++ {
-		addr.Port = x
-		conn, err := net.ListenUDP("udp", &addr)
-		if err != nil {
-			continue
-		}
-		conn.Close()
-		return x, nil
+
+	addr.Port = initPort
+
+	conn, err := net.ListenUDP("udp", &addr)
+	if err == nil {
+		closeConnWithLog(conn)
+		return initPort, nil
 	}
-	return 0, errors.New("no free ports")
+
+	// if the port is already in use, ask the system for a free port
+	addr.Port = 0
+	conn, err = net.ListenUDP("udp", &addr)
+	if err != nil {
+		return 0, fmt.Errorf("unable to get a free port: %v", err)
+	}
+
+	udpAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return 0, errors.New("wrong address type when getting a free port")
+	}
+	closeConnWithLog(conn)
+	return udpAddr.Port, nil
+}
+
+func closeConnWithLog(conn *net.UDPConn) {
+	startClosing := time.Now()
+	err := conn.Close()
+	if err != nil {
+		log.Warnf("closing probe port %d failed: %v. NetBird will still attempt to use this port for connection.", conn.LocalAddr().(*net.UDPAddr).Port, err)
+	}
+	if time.Since(startClosing) > time.Second {
+		log.Warnf("closing the testing port %d took %s. Usually it is safe to ignore, but continuous warnings may indicate a problem.", conn.LocalAddr().(*net.UDPAddr).Port, time.Since(startClosing))
+	}
 }

@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -89,14 +88,7 @@ func getServerKey(client mgmtProto.ManagementServiceClient) (*wgtypes.Key, error
 
 func Test_SyncProtocol(t *testing.T) {
 	dir := t.TempDir()
-	err := util.CopyFileContents("testdata/store_with_expired_peers.json", filepath.Join(dir, "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		os.Remove(filepath.Join(dir, "store.json")) //nolint
-	}()
-	mgmtServer, _, mgmtAddr, err := startManagementForTest(t, &Config{
+	mgmtServer, _, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sqlite", &Config{
 		Stuns: []*Host{{
 			Proto: "udp",
 			URI:   "stun:stun.wiretrustee.com:3468",
@@ -117,6 +109,7 @@ func Test_SyncProtocol(t *testing.T) {
 		Datadir:    dir,
 		HttpConfig: nil,
 	})
+	defer cleanup()
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -412,18 +405,18 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 }
 
-func startManagementForTest(t TestingT, config *Config) (*grpc.Server, *DefaultAccountManager, string, error) {
+func startManagementForTest(t *testing.T, testFile string, config *Config) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", nil, err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, cleanUp, err := NewTestStoreFromJson(context.Background(), config.Datadir)
+
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), testFile)
 	if err != nil {
-		return nil, nil, "", err
+		t.Fatal(err)
 	}
-	t.Cleanup(cleanUp)
 
 	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
@@ -437,14 +430,16 @@ func startManagementForTest(t TestingT, config *Config) (*grpc.Server, *DefaultA
 		eventStore, nil, false, MocIntegratedValidator{}, metrics)
 
 	if err != nil {
-		return nil, nil, "", err
+		cleanup()
+		return nil, nil, "", cleanup, err
 	}
-	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+
+	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, ephemeralMgr)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", cleanup, err
 	}
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 
@@ -454,7 +449,7 @@ func startManagementForTest(t TestingT, config *Config) (*grpc.Server, *DefaultA
 		}
 	}()
 
-	return s, accountManager, lis.Addr().String(), nil
+	return s, accountManager, lis.Addr().String(), cleanup, nil
 }
 
 func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn, error) {
@@ -474,6 +469,7 @@ func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.Clie
 
 	return mgmtProto.NewManagementServiceClient(conn), conn, nil
 }
+
 func Test_SyncStatusRace(t *testing.T) {
 	if os.Getenv("CI") == "true" && os.Getenv("NETBIRD_STORE_ENGINE") == "postgres" {
 		t.Skip("Skipping on CI and Postgres store")
@@ -487,15 +483,8 @@ func Test_SyncStatusRace(t *testing.T) {
 func testSyncStatusRace(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	err := util.CopyFileContents("testdata/store_with_expired_peers.json", filepath.Join(dir, "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		os.Remove(filepath.Join(dir, "store.json")) //nolint
-	}()
 
-	mgmtServer, am, mgmtAddr, err := startManagementForTest(t, &Config{
+	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sqlite", &Config{
 		Stuns: []*Host{{
 			Proto: "udp",
 			URI:   "stun:stun.wiretrustee.com:3468",
@@ -516,6 +505,7 @@ func testSyncStatusRace(t *testing.T) {
 		Datadir:    dir,
 		HttpConfig: nil,
 	})
+	defer cleanup()
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -626,7 +616,7 @@ func testSyncStatusRace(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), peerWithInvalidStatus.PublicKey().String())
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, peerWithInvalidStatus.PublicKey().String())
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -637,8 +627,8 @@ func testSyncStatusRace(t *testing.T) {
 }
 
 func Test_LoginPerformance(t *testing.T) {
-	if os.Getenv("CI") == "true" {
-		t.Skip("Skipping on CI")
+	if os.Getenv("CI") == "true" || runtime.GOOS == "windows" {
+		t.Skip("Skipping test on CI or Windows")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
@@ -654,7 +644,7 @@ func Test_LoginPerformance(t *testing.T) {
 		// {"M", 250, 1},
 		// {"L", 500, 1},
 		// {"XL", 750, 1},
-		{"XXL", 1000, 5},
+		{"XXL", 5000, 1},
 	}
 
 	log.SetOutput(io.Discard)
@@ -664,15 +654,8 @@ func Test_LoginPerformance(t *testing.T) {
 		t.Run(bc.name, func(t *testing.T) {
 			t.Helper()
 			dir := t.TempDir()
-			err := util.CopyFileContents("testdata/store_with_expired_peers.json", filepath.Join(dir, "store.json"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() {
-				os.Remove(filepath.Join(dir, "store.json")) //nolint
-			}()
 
-			mgmtServer, am, _, err := startManagementForTest(t, &Config{
+			mgmtServer, am, _, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sqlite", &Config{
 				Stuns: []*Host{{
 					Proto: "udp",
 					URI:   "stun:stun.wiretrustee.com:3468",
@@ -693,21 +676,25 @@ func Test_LoginPerformance(t *testing.T) {
 				Datadir:    dir,
 				HttpConfig: nil,
 			})
+			defer cleanup()
 			if err != nil {
 				t.Fatal(err)
 				return
 			}
 			defer mgmtServer.GracefulStop()
 
+			t.Logf("management setup complete, start registering peers")
+
 			var counter int32
 			var counterStart int32
-			var wg sync.WaitGroup
+			var wgAccount sync.WaitGroup
 			var mu sync.Mutex
 			messageCalls := []func() error{}
 			for j := 0; j < bc.accounts; j++ {
-				wg.Add(1)
+				wgAccount.Add(1)
+				var wgPeer sync.WaitGroup
 				go func(j int, counter *int32, counterStart *int32) {
-					defer wg.Done()
+					defer wgAccount.Done()
 
 					account, err := createAccount(am, fmt.Sprintf("account-%d", j), fmt.Sprintf("user-%d", j), fmt.Sprintf("domain-%d", j))
 					if err != nil {
@@ -721,7 +708,9 @@ func Test_LoginPerformance(t *testing.T) {
 						return
 					}
 
+					startTime := time.Now()
 					for i := 0; i < bc.peers; i++ {
+						wgPeer.Add(1)
 						key, err := wgtypes.GeneratePrivateKey()
 						if err != nil {
 							t.Logf("failed to generate key: %v", err)
@@ -762,21 +751,29 @@ func Test_LoginPerformance(t *testing.T) {
 						mu.Lock()
 						messageCalls = append(messageCalls, login)
 						mu.Unlock()
-						_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
-						if err != nil {
-							t.Logf("failed to login peer: %v", err)
-							return
-						}
 
-						atomic.AddInt32(counterStart, 1)
-						if *counterStart%100 == 0 {
-							t.Logf("registered %d peers", *counterStart)
-						}
+						go func(peerLogin PeerLogin, counterStart *int32) {
+							defer wgPeer.Done()
+							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
+							if err != nil {
+								t.Logf("failed to login peer: %v", err)
+								return
+							}
+
+							atomic.AddInt32(counterStart, 1)
+							if *counterStart%100 == 0 {
+								t.Logf("registered %d peers", *counterStart)
+							}
+						}(peerLogin, counterStart)
+
 					}
+					wgPeer.Wait()
+
+					t.Logf("Time for registration: %s", time.Since(startTime))
 				}(j, &counter, &counterStart)
 			}
 
-			wg.Wait()
+			wgAccount.Wait()
 
 			t.Logf("prepared %d login calls", len(messageCalls))
 			testLoginPerformance(t, messageCalls)

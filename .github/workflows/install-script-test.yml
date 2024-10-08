@@ -13,6 +13,7 @@ concurrency:
 jobs:
   test-install-script:
     strategy:
+      fail-fast: false
       max-parallel: 2
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -21,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: run install script
         env:

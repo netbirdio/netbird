@@ -61,6 +61,8 @@ func (p *program) Start(svc service.Service) error {
 		}
 		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
 
+		p.serverInstance = serverInstance
+
 		log.Printf("started daemon server: %v", split[1])
 		if err := p.serv.Serve(listen); err != nil {
 			log.Errorf("failed to serve daemon requests: %v", err)
@@ -70,6 +72,14 @@ func (p *program) Start(svc service.Service) error {
 }
 
 func (p *program) Stop(srv service.Service) error {
+	if p.serverInstance != nil {
+		in := new(proto.DownRequest)
+		_, err := p.serverInstance.Down(p.ctx, in)
+		if err != nil {
+			log.Errorf("failed to stop daemon: %v", err)
+		}
+	}
+
 	p.cancel()
 
 	if p.serv != nil {

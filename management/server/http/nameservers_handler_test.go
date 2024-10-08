@@ -18,7 +18,6 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -28,14 +27,6 @@ const (
 	notFoundNSGroupID    = "notFoundNSGroupID"
 	testNSGroupAccountID = "test_id"
 )
-
-var testingNSAccount = &server.Account{
-	Id:     testNSGroupAccountID,
-	Domain: "hotmail.com",
-	Users: map[string]*server.User{
-		"test_user": server.NewAdminUser("test_user"),
-	},
-}
 
 var baseExistingNSGroup = &nbdns.NameServerGroup{
 	ID:          existingNSGroupID,
@@ -90,8 +81,8 @@ func initNameserversTestData() *NameserversHandler {
 				}
 				return status.Errorf(status.NotFound, "nameserver group with ID %s was not found", nsGroupToSave.ID)
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return testingNSAccount, testingAccount.Users["test_user"], nil
+			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, claims.UserId, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(

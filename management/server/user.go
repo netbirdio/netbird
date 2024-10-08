@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -89,13 +89,14 @@ func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
 	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
 }
 
-func (u *User) updateLastLogin(login time.Time) {
-	u.LastLogin = login
-}
-
 // HasAdminPower returns true if the user has admin or owner roles, false otherwise
 func (u *User) HasAdminPower() bool {
 	return u.Role == UserRoleAdmin || u.Role == UserRoleOwner
+}
+
+// IsAdminOrServiceUser checks if the user has admin power or is a service user.
+func (u *User) IsAdminOrServiceUser() bool {
+	return u.HasAdminPower() || u.IsServiceUser
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
@@ -361,39 +362,35 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	return newUser.ToUserInfo(idpUser, account.Settings)
 }
 
+func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*User, error) {
+	return am.Store.GetUserByUserID(ctx, LockingStrengthShare, id)
+}
+
 // GetUser looks up a user by provided authorization claims.
 // It will also create an account if didn't exist for this user before.
 func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error) {
-	account, _, err := am.GetAccountFromToken(ctx, claims)
+	accountID, userID, err := am.GetAccountIDFromToken(ctx, claims)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account with token claims %v", err)
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
-	defer unlock()
-
-	account, err = am.Store.GetAccount(ctx, account.Id)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get an account from store %v", err)
+		return nil, err
 	}
 
-	user, ok := account.Users[claims.UserId]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
-	}
-
-	// this code should be outside of the am.GetAccountFromToken(claims) because this method is called also by the gRPC
+	// this code should be outside of the am.GetAccountIDFromToken(claims) because this method is called also by the gRPC
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
 	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
 
-	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(ctx, accountID, userID, claims.LastLogin)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed saving user last login: %v", err)
 	}
 
 	if newLogin {
 		meta := map[string]any{"timestamp": claims.LastLogin}
-		am.StoreEvent(ctx, claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
+		am.StoreEvent(ctx, claims.UserId, claims.UserId, accountID, activity.DashboardLogin, meta)
 	}
 
 	return user, nil
@@ -646,63 +643,48 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 
 // GetPAT returns a specific PAT from a user
 func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: %s", err)
+		return nil, err
 	}
 
-	targetUser, ok := account.Users[targetUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
+	if err != nil {
+		return nil, err
 	}
 
-	executingUser, ok := account.Users[initiatorUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	if (initiatorUserID != targetUserID && !initiatorUser.IsAdminOrServiceUser()) || initiatorUser.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
-		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this userser")
+	for _, pat := range targetUser.PATsG {
+		if pat.ID == tokenID {
+			return pat.Copy(), nil
+		}
 	}
 
-	pat := targetUser.PATs[tokenID]
-	if pat == nil {
-		return nil, status.Errorf(status.NotFound, "PAT not found")
-	}
-
-	return pat, nil
+	return nil, status.Errorf(status.NotFound, "PAT not found")
 }
 
 // GetAllPATs returns all PATs for a user
 func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: %s", err)
+		return nil, err
 	}
 
-	targetUser, ok := account.Users[targetUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
+	if err != nil {
+		return nil, err
 	}
 
-	executingUser, ok := account.Users[initiatorUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
-	}
-
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
+	if (initiatorUserID != targetUserID && !initiatorUser.IsAdminOrServiceUser()) || initiatorUser.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
 	}
 
-	var pats []*PersonalAccessToken
-	for _, pat := range targetUser.PATs {
-		pats = append(pats, pat)
+	pats := make([]*PersonalAccessToken, 0, len(targetUser.PATsG))
+	for _, pat := range targetUser.PATsG {
+		pats = append(pats, pat.Copy())
 	}
 
 	return pats, nil
@@ -1270,6 +1252,74 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 	}
 
 	return map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}, nil
+}
+
+// updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
+func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[string]*nbgroup.Group, peers []*nbpeer.Peer, groupsToAdd,
+	groupsToRemove []string) (groupsToUpdate []*nbgroup.Group, err error) {
+
+	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
+		return
+	}
+
+	userPeerIDMap := make(map[string]struct{}, len(peers))
+	for _, peer := range peers {
+		userPeerIDMap[peer.ID] = struct{}{}
+	}
+
+	for _, gid := range groupsToAdd {
+		group, ok := accountGroups[gid]
+		if !ok {
+			return nil, errors.New("group not found")
+		}
+		addUserPeersToGroup(userPeerIDMap, group)
+		groupsToUpdate = append(groupsToUpdate, group)
+	}
+
+	for _, gid := range groupsToRemove {
+		group, ok := accountGroups[gid]
+		if !ok {
+			return nil, errors.New("group not found")
+		}
+		removeUserPeersFromGroup(userPeerIDMap, group)
+		groupsToUpdate = append(groupsToUpdate, group)
+	}
+
+	return groupsToUpdate, nil
+}
+
+// addUserPeersToGroup adds the user's peers to the group.
+func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) {
+	groupPeers := make(map[string]struct{}, len(group.Peers))
+	for _, pid := range group.Peers {
+		groupPeers[pid] = struct{}{}
+	}
+
+	for pid := range userPeerIDs {
+		groupPeers[pid] = struct{}{}
+	}
+
+	group.Peers = make([]string, 0, len(groupPeers))
+	for pid := range groupPeers {
+		group.Peers = append(group.Peers, pid)
+	}
+}
+
+// removeUserPeersFromGroup removes user's peers from the group.
+func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) {
+	// skip removing peers from group All
+	if group.Name == "All" {
+		return
+	}
+
+	updatedPeers := make([]string, 0, len(group.Peers))
+	for _, pid := range group.Peers {
+		if _, found := userPeerIDs[pid]; !found {
+			updatedPeers = append(updatedPeers, pid)
+		}
+	}
+
+	group.Peers = updatedPeers
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {

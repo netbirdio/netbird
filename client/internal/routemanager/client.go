@@ -10,19 +10,18 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
 
 type routerPeerStatus struct {
 	connected bool
 	relayed   bool
-	direct    bool
 	latency   time.Duration
 }
 
@@ -44,7 +43,7 @@ type clientNetwork struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	statusRecorder      *peer.Status
-	wgInterface         *iface.WGIface
+	wgInterface         iface.IWGIface
 	routes              map[route.ID]*route.Route
 	routeUpdate         chan routesUpdate
 	peerStateUpdate     chan struct{}
@@ -54,7 +53,7 @@ type clientNetwork struct {
 	updateSerial        uint64
 }
 
-func newClientNetworkWatcher(ctx context.Context, dnsRouteInterval time.Duration, wgInterface *iface.WGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *clientNetwork {
+func newClientNetworkWatcher(ctx context.Context, dnsRouteInterval time.Duration, wgInterface iface.IWGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 
 	client := &clientNetwork{
@@ -82,7 +81,6 @@ func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 		routePeerStatuses[r.ID] = routerPeerStatus{
 			connected: peerStatus.ConnStatus == peer.StatusConnected,
 			relayed:   peerStatus.Relayed,
-			direct:    peerStatus.Direct,
 			latency:   peerStatus.Latency,
 		}
 	}
@@ -97,8 +95,8 @@ func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 // * Connected peers: Only routes with connected peers are considered.
 // * Metric: Routes with lower metrics (better) are prioritized.
 // * Non-relayed: Routes without relays are preferred.
-// * Direct connections: Routes with direct peer connections are favored.
 // * Latency: Routes with lower latency are prioritized.
+// * we compare the current score + 10ms to the chosen score to avoid flapping between routes
 // * Stability: In case of equal scores, the currently active route (if any) is maintained.
 //
 // It returns the ID of the selected optimal route.
@@ -134,10 +132,6 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 		tempScore += 1 - latency.Seconds()
 
 		if !peerStatus.relayed {
-			tempScore++
-		}
-
-		if peerStatus.direct {
 			tempScore++
 		}
 
@@ -384,7 +378,7 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	}
 }
 
-func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, dnsRouterInteval time.Duration, statusRecorder *peer.Status, wgInterface *iface.WGIface) RouteHandler {
+func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, dnsRouterInteval time.Duration, statusRecorder *peer.Status, wgInterface iface.IWGIface) RouteHandler {
 	if rt.IsDynamic() {
 		dns := nbdns.NewServiceViaMemory(wgInterface)
 		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouterInteval, statusRecorder, wgInterface, fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()))

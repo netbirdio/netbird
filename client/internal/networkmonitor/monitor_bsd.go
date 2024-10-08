@@ -24,7 +24,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 	defer func() {
 		err := unix.Close(fd)
 		if err != nil && !errors.Is(err, unix.EBADF) {
-			log.Errorf("Network monitor: failed to close routing socket: %v", err)
+			log.Warnf("Network monitor: failed to close routing socket: %v", err)
 		}
 	}()
 
@@ -32,7 +32,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 		<-ctx.Done()
 		err := unix.Close(fd)
 		if err != nil && !errors.Is(err, unix.EBADF) {
-			log.Debugf("Network monitor: closed routing socket")
+			log.Debugf("Network monitor: closed routing socket: %v", err)
 		}
 	}()
 
@@ -45,12 +45,12 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			n, err := unix.Read(fd, buf)
 			if err != nil {
 				if !errors.Is(err, unix.EBADF) && !errors.Is(err, unix.EINVAL) {
-					log.Errorf("Network monitor: failed to read from routing socket: %v", err)
+					log.Warnf("Network monitor: failed to read from routing socket: %v", err)
 				}
 				continue
 			}
 			if n < unix.SizeofRtMsghdr {
-				log.Errorf("Network monitor: read from routing socket returned less than expected: %d bytes", n)
+				log.Debugf("Network monitor: read from routing socket returned less than expected: %d bytes", n)
 				continue
 			}
 
@@ -61,7 +61,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			case unix.RTM_ADD, syscall.RTM_DELETE:
 				route, err := parseRouteMessage(buf[:n])
 				if err != nil {
-					log.Errorf("Network monitor: error parsing routing message: %v", err)
+					log.Debugf("Network monitor: error parsing routing message: %v", err)
 					continue
 				}
 

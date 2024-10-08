@@ -11,9 +11,9 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -22,11 +22,11 @@ type defaultServerRouter struct {
 	ctx            context.Context
 	routes         map[route.ID]*route.Route
 	firewall       firewall.Manager
-	wgInterface    *iface.WGIface
+	wgInterface    iface.IWGIface
 	statusRecorder *peer.Status
 }
 
-func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall firewall.Manager, statusRecorder *peer.Status) (serverRouter, error) {
+func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall firewall.Manager, statusRecorder *peer.Status) (serverRouter, error) {
 	return &defaultServerRouter{
 		ctx:            ctx,
 		routes:         make(map[route.ID]*route.Route),
@@ -94,7 +94,7 @@ func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error 
 			return fmt.Errorf("parse prefix: %w", err)
 		}
 
-		err = m.firewall.RemoveRoutingRules(routerPair)
+		err = m.firewall.RemoveNatRule(routerPair)
 		if err != nil {
 			return fmt.Errorf("remove routing rules: %w", err)
 		}
@@ -123,7 +123,7 @@ func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 			return fmt.Errorf("parse prefix: %w", err)
 		}
 
-		err = m.firewall.InsertRoutingRules(routerPair)
+		err = m.firewall.AddNatRule(routerPair)
 		if err != nil {
 			return fmt.Errorf("insert routing rules: %w", err)
 		}
@@ -157,7 +157,7 @@ func (m *defaultServerRouter) cleanUp() {
 			continue
 		}
 
-		err = m.firewall.RemoveRoutingRules(routerPair)
+		err = m.firewall.RemoveNatRule(routerPair)
 		if err != nil {
 			log.Errorf("Failed to remove cleanup route: %v", err)
 		}
@@ -173,15 +173,15 @@ func routeToRouterPair(route *route.Route) (firewall.RouterPair, error) {
 	// TODO: add ipv6
 	source := getDefaultPrefix(route.Network)
 
-	destination := route.Network.Masked().String()
+	destination := route.Network.Masked()
 	if route.IsDynamic() {
-		// TODO: add ipv6
-		destination = "0.0.0.0/0"
+		// TODO: add ipv6 additionally
+		destination = getDefaultPrefix(destination)
 	}
 
 	return firewall.RouterPair{
-		ID:          string(route.ID),
-		Source:      source.String(),
+		ID:          route.ID,
+		Source:      source,
 		Destination: destination,
 		Masquerade:  route.Masquerade,
 	}, nil

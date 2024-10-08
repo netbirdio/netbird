@@ -20,6 +20,13 @@
     "Secret": "c29tZV9wYXNzd29yZA==",
     "TimeBasedCredentials": true
   },
+  "Relay": {
+    "Addresses": [
+      "localhost:0"
+    ],
+    "CredentialsTTL": "1h",
+    "Secret": "b29tZV9wYXNzd29yZA=="
+  },
   "Signal": {
     "Proto": "http",
     "URI": "signal.wiretrustee.com:10000",

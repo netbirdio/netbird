@@ -29,12 +29,9 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-const (
-	metricsPort = 9090
-)
-
 var (
 	signalPort              int
+	metricsPort             int
 	signalLetsencryptDomain string
 	signalSSLDir            string
 	defaultSignalSSLDir     string
@@ -105,7 +102,7 @@ var (
 				}
 			}()
 
-			srv, err := server.NewServer(metricsServer.Meter)
+			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter)
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}
@@ -288,6 +285,7 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 
 func init() {
 	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
+	runCmd.Flags().IntVar(&metricsPort, "metrics-port", 9090, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
 	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", defaultSignalSSLDir, "server ssl directory location. *Required only for Let's Encrypt certificates.")
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	runCmd.Flags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
