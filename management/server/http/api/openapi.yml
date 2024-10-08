@@ -88,8 +88,9 @@ components:
           $ref: '#/components/schemas/AccountExtraSettings'
       required:
         - peer_login_expiration_enabled
-        - peer_inactivity_expiration_enabled
         - peer_login_expiration
+        - peer_inactivity_expiration_enabled
+        - peer_inactivity_expiration
         - regular_users_view_blocked
     AccountExtraSettings:
       type: object
@@ -263,6 +264,7 @@ components:
         - name
         - ssh_enabled
         - login_expiration_enabled
+        - inactivity_expiration_enabled
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -339,6 +341,10 @@ components:
               type: string
               format: date-time
               example: "2023-05-05T09:00:35.477782Z"
+            inactivity_expiration_enabled:
+              description: Indicates whether peer inactivity expiration has been enabled or not
+              type: boolean
+              example: false
             approval_required:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
@@ -366,6 +372,7 @@ components:
             - last_seen
             - login_expiration_enabled
             - login_expired
+            - inactivity_expiration_enabled
             - os
             - ssh_enabled
             - user_id

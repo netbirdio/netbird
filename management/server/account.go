@@ -1243,7 +1243,7 @@ func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context
 // peerInactivityExpirationJob marks login expired for all inactive peers and returns the minimum duration in which the next peer of the account will expire by inactivity if found
 func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
-		unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 		defer unlock()
 
 		account, err := am.Store.GetAccount(ctx, accountID)
