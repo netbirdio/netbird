@@ -475,7 +475,7 @@ func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handle
 
 func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config, error) {
 	loadedConfig := &server.Config{}
-	_, err := util.ReadJson(mgmtConfigPath, loadedConfig)
+	_, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig)
 	if err != nil {
 		return nil, err
 	}
