@@ -354,11 +354,11 @@ func TestSetupKey_Copy(t *testing.T) {
 
 }
 
-func TestSetupKeyAccountPeerUpdate(t *testing.T) {
+func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "group-id",
+		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	})
@@ -370,14 +370,14 @@ func TestSetupKeyAccountPeerUpdate(t *testing.T) {
 		Rules: []*PolicyRule{
 			{
 				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"group"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -386,6 +386,8 @@ func TestSetupKeyAccountPeerUpdate(t *testing.T) {
 	})
 
 	var setupKey *SetupKey
+
+	// Creating setup key should not update account peers and not send peer update
 	t.Run("creating setup key", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
@@ -394,9 +396,7 @@ func TestSetupKeyAccountPeerUpdate(t *testing.T) {
 		}()
 
 		setupKey, err = manager.CreateSetupKey(context.Background(), account.Id, "key1", SetupKeyReusable, time.Hour, nil, 999, userID, false)
-		if err != nil {
-			t.Fatal("error creating setup key")
-		}
+		assert.NoError(t, err)
 
 		select {
 		case <-done:

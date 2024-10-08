@@ -1256,12 +1256,12 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 	}
 }
 
-func TestUserAccountPeerUpdate(t *testing.T) {
+func TestUserAccountPeersUpdate(t *testing.T) {
 	// account groups propagation is enabled
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "group-id",
+		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	})
@@ -1273,14 +1273,14 @@ func TestUserAccountPeerUpdate(t *testing.T) {
 		Rules: []*PolicyRule{
 			{
 				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -1394,14 +1394,12 @@ func TestUserAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	_ = peer4
-
 	peer4UpdMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer4.ID)
 	t.Cleanup(func() {
 		manager.peersUpdateManager.CloseChannel(context.Background(), peer4.ID)
 	})
 
-	// deleting user with linked peers should update account peers and no send peer update
+	// deleting user with linked peers should update account peers and send peer update
 	t.Run("deleting user with linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
