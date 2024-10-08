@@ -47,7 +47,6 @@ func (p *WGUserSpaceProxy) AddTurnConn(ctx context.Context, remoteConn net.Conn)
 	localConn, err := dialer.DialContext(ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
 	if err != nil {
 		log.Errorf("failed dialing to local Wireguard port %s", err)
-		p.cancel()
 		return err
 	}
 
