@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
@@ -190,7 +191,6 @@ func (r *router) AddRouteFiltering(
 	dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
-	log.Tracef("Adding route rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v", sources, destination, proto, sPort, dPort, action)
 
 	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
@@ -254,6 +254,7 @@ func (r *router) AddRouteFiltering(
 
 	rule = r.conn.AddRule(rule)
 
+	log.Tracef("Adding route rule %s", spew.Sdump(rule))
 	if err := r.conn.Flush(); err != nil {
 		return nil, fmt.Errorf(flushError, err)
 	}
