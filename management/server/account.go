@@ -51,7 +51,7 @@ const (
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration = 24 * time.Hour
 
-	DefaultPeerInactivityExpiration = 1 * time.Second
+	DefaultPeerInactivityExpiration = 10 * time.Minute
 )
 
 type userLoggedInOnce bool
