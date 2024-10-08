@@ -938,15 +938,23 @@ func TestValidateDomain(t *testing.T) {
 
 }
 
-func TestNameServerAccountPeerUpdate(t *testing.T) {
-	manager, account, peer1, _, _ := setupNetworkMapTest(t)
+func TestNameServerAccountPeersUpdate(t *testing.T) {
+	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
 
-	var newNameServerGroup *nbdns.NameServerGroup
+	var newNameServerGroupA *nbdns.NameServerGroup
+	var newNameServerGroupB *nbdns.NameServerGroup
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "group-id",
-		Name:  "GroupA",
-		Peers: []string{},
+	err := manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+		{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{},
+		},
+		{
+			ID:    "groupB",
+			Name:  "GroupB",
+			Peers: []string{peer1.ID, peer2.ID},
+		},
 	})
 	assert.NoError(t, err)
 
@@ -964,13 +972,13 @@ func TestNameServerAccountPeerUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		newNameServerGroup, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "ns-group-1", "ns-group-1", []nbdns.NameServer{{
-				IP:     netip.MustParseAddr(peer1.IP.String()),
+		newNameServerGroupA, err = manager.CreateNameServerGroup(
+			context.Background(), account.Id, "nsGroupA", "nsGroupA", []nbdns.NameServer{{
+				IP:     netip.MustParseAddr("1.1.1.1"),
 				NSType: nbdns.UDPNameServerType,
 				Port:   nbdns.DefaultDNSPort,
 			}},
-			[]string{"group-id"},
+			[]string{"groupA"},
 			true, []string{}, true, userID, false,
 		)
 		assert.NoError(t, err)
@@ -982,8 +990,50 @@ func TestNameServerAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	err = manager.GroupAddPeer(context.Background(), account.Id, "group-id", peer1.ID)
-	assert.NoError(t, err)
+	// saving a nameserver group with a distribution group with no peers should not update account peers
+	// and not send peer update
+	t.Run("saving nameserver group with distribution group no peers", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupA)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// Creating a nameserver group with a distribution group no peers should update account peers and send peer update
+	t.Run("creating nameserver group with distribution group has peers", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		newNameServerGroupB, err = manager.CreateNameServerGroup(
+			context.Background(), account.Id, "nsGroupB", "nsGroupB", []nbdns.NameServer{{
+				IP:     netip.MustParseAddr("1.1.1.1"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			}},
+			[]string{"groupB"},
+			true, []string{}, true, userID, false,
+		)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
 
 	// saving a nameserver group with a distribution group with peers should update account peers and send peer update
 	t.Run("saving nameserver group with distribution group has peers", func(t *testing.T) {
@@ -993,7 +1043,12 @@ func TestNameServerAccountPeerUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroup)
+		newNameServerGroupB.NameServers = []nbdns.NameServer{{
+			IP:     netip.MustParseAddr("1.1.1.2"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   nbdns.DefaultDNSPort,
+		}}
+		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupB)
 		assert.NoError(t, err)
 
 		select {
@@ -1003,4 +1058,26 @@ func TestNameServerAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
+	// saving unchanged nameserver group should update account peers and not send peer update
+	t.Run("saving unchanged nameserver group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		newNameServerGroupB.NameServers = []nbdns.NameServer{{
+			IP:     netip.MustParseAddr("1.1.1.2"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   nbdns.DefaultDNSPort,
+		}}
+		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupB)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
 }
