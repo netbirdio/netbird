@@ -261,6 +261,8 @@ func (r *router) AddRouteFiltering(
 
 	r.rules[string(ruleKey)] = rule
 
+	log.Debugf("nftables: added route rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v", sources, destination, proto, sPort, dPort, action)
+
 	return ruleKey, nil
 }
 
@@ -673,7 +675,7 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("nftables: received error while applying rule removal for %s: %v", pair.Destination, err)
 	}
 
-	log.Debugf("nftables: removed rules for %s", pair.Destination)
+	log.Debugf("nftables: removed nat rules for %s", pair.Destination)
 	return nil
 }
 
