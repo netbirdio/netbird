@@ -188,7 +188,7 @@ func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 	// Execute the template, substituting environment variables
 	err = t.Execute(&output, envVars)
 	if err != nil {
-		fmt.Println("Error executing template:", err)
+		return nil, fmt.Errorf("error executing template: %v", err)
 	}
 
 	err = json.Unmarshal(output.Bytes(), &res)
