@@ -269,12 +269,6 @@ func (c *ConnectClient) run(
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		if c.engine != nil && c.engine.ctx.Err() != nil {
-			log.Info("Stopping Netbird Engine")
-			if err := c.engine.Stop(); err != nil {
-				log.Errorf("Failed to stop engine: %v", err)
-			}
-		}
 		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
 
 		c.engineMutex.Unlock()
@@ -294,6 +288,15 @@ func (c *ConnectClient) run(
 		}
 
 		<-engineCtx.Done()
+		c.engineMutex.Lock()
+		if c.engine != nil && c.engine.wgInterface != nil {
+			log.Infof("ensuring %s is removed, Netbird engine context cancelled", c.engine.wgInterface.Name())
+			if err := c.engine.Stop(); err != nil {
+				log.Errorf("Failed to stop engine: %v", err)
+			}
+			c.engine = nil
+		}
+		c.engineMutex.Unlock()
 		c.statusRecorder.ClientTeardown()
 
 		backOff.Reset()

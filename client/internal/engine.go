@@ -249,6 +249,13 @@ func (e *Engine) Stop() error {
 	}
 	log.Info("Network monitor: stopped")
 
+	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
+	e.stopDNSServer()
+
+	if e.routeManager != nil {
+		e.routeManager.Stop()
+	}
+
 	err := e.removeAllPeers()
 	if err != nil {
 		return fmt.Errorf("failed to remove all peers: %s", err)
@@ -1105,18 +1112,12 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
-	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	e.stopDNSServer()
-
-	if e.routeManager != nil {
-		e.routeManager.Stop()
-	}
-
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
+		e.wgInterface = nil
 	}
 
 	if !isNil(e.sshServer) {
@@ -1384,7 +1385,7 @@ func (e *Engine) startNetworkMonitor() {
 			}
 
 			// Set a new timer to debounce rapid network changes
-			debounceTimer = time.AfterFunc(1*time.Second, func() {
+			debounceTimer = time.AfterFunc(2*time.Second, func() {
 				// This function is called after the debounce period
 				mu.Lock()
 				defer mu.Unlock()
@@ -1415,6 +1416,11 @@ func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 }
 
 func (e *Engine) stopDNSServer() {
+	if e.dnsServer == nil {
+		return
+	}
+	e.dnsServer.Stop()
+	e.dnsServer = nil
 	err := fmt.Errorf("DNS server stopped")
 	nsGroupStates := e.statusRecorder.GetDNSStates()
 	for i := range nsGroupStates {
@@ -1422,10 +1428,6 @@ func (e *Engine) stopDNSServer() {
 		nsGroupStates[i].Error = err
 	}
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
-	if e.dnsServer != nil {
-		e.dnsServer.Stop()
-		e.dnsServer = nil
-	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.

@@ -4,6 +4,7 @@ package ebpf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -62,6 +63,7 @@ func (p *ProxyWrapper) Pause() {
 		return
 	}
 
+	log.Tracef("pause proxy reading from: %s", p.remoteConn.RemoteAddr())
 	p.pausedMu.Lock()
 	p.paused = true
 	p.pausedMu.Unlock()
@@ -115,7 +117,7 @@ func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, err
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
-		if err != io.EOF {
+		if !errors.Is(err, io.EOF) {
 			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgEndpointAddr.Port, err)
 		}
 		return 0, err
