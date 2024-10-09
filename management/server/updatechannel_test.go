@@ -8,9 +8,12 @@ import (
 	"time"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	nbroute "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -368,121 +371,142 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 
 func createMockUpdateMessage(t *testing.T) *UpdateMessage {
 	t.Helper()
-	//_, ipNet, err := net.ParseCIDR("192.168.1.0/24")
-	//if err != nil {
-	//	t.Fatal(err)
-	//}
-	//domainList, err := domain.FromStringList([]string{"example.com"})
-	//if err != nil {
-	//	t.Fatal(err)
-	//}
-	//
-	//config := &Config{
-	//	Signal: &Host{
-	//		Proto:    "https",
-	//		URI:      "signal.uri",
-	//		Username: "",
-	//		Password: "",
-	//	},
-	//	Stuns: []*Host{{URI: "stun.uri", Proto: UDP}},
-	//	TURNConfig: &TURNConfig{
-	//		Turns: []*Host{{URI: "turn.uri", Proto: UDP, Username: "turn-user", Password: "turn-pass"}},
-	//	},
-	//}
-	//peer := &nbpeer.Peer{
-	//	IP:         net.ParseIP("192.168.1.1"),
-	//	SSHEnabled: true,
-	//	Key:        "peer-key",
-	//	DNSLabel:   "peer1",
-	//	SSHKey:     "peer1-ssh-key",
-	//}
-	//
-	////NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *Relay)
-	////turnCredentials := &TURNCredentials{
-	////	Username: "turn-user",
-	////	Password: "turn-pass",
-	////}
-	//
-	//networkMap := &NetworkMap{
-	//	Network:      &Network{Net: *ipNet, Serial: 1000},
-	//	Peers:        []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.2"), Key: "peer2-key", DNSLabel: "peer2", SSHEnabled: true, SSHKey: "peer2-ssh-key"}},
-	//	OfflinePeers: []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.3"), Key: "peer3-key", DNSLabel: "peer3", SSHEnabled: true, SSHKey: "peer3-ssh-key"}},
-	//	Routes: []*nbroute.Route{
-	//		{
-	//			ID:          "route1",
-	//			Network:     netip.MustParsePrefix("10.0.0.0/24"),
-	//			KeepRoute:   true,
-	//			NetID:       "route1",
-	//			Peer:        "peer1",
-	//			NetworkType: 1,
-	//			Masquerade:  true,
-	//			Metric:      9999,
-	//			Enabled:     true,
-	//			Groups:      []string{"test1", "test2"},
-	//		},
-	//		{
-	//			ID:          "route2",
-	//			Domains:     domainList,
-	//			KeepRoute:   true,
-	//			NetID:       "route2",
-	//			Peer:        "peer1",
-	//			NetworkType: 1,
-	//			Masquerade:  true,
-	//			Metric:      9999,
-	//			Enabled:     true,
-	//			Groups:      []string{"test1", "test2"},
-	//		},
-	//	},
-	//	DNSConfig: nbdns.Config{
-	//		ServiceEnable: true,
-	//		NameServerGroups: []*nbdns.NameServerGroup{
-	//			{
-	//				NameServers: []nbdns.NameServer{{
-	//					IP:     netip.MustParseAddr("8.8.8.8"),
-	//					NSType: nbdns.UDPNameServerType,
-	//					Port:   nbdns.DefaultDNSPort,
-	//				}},
-	//				Primary:              true,
-	//				Domains:              []string{"example.com"},
-	//				Enabled:              true,
-	//				SearchDomainsEnabled: true,
-	//			},
-	//			{
-	//				ID: "ns1",
-	//				NameServers: []nbdns.NameServer{{
-	//					IP:     netip.MustParseAddr("1.1.1.1"),
-	//					NSType: nbdns.UDPNameServerType,
-	//					Port:   nbdns.DefaultDNSPort,
-	//				}},
-	//				Groups:               []string{"group1"},
-	//				Primary:              true,
-	//				Domains:              []string{"example.com"},
-	//				Enabled:              true,
-	//				SearchDomainsEnabled: true,
-	//			},
-	//		},
-	//		CustomZones: []nbdns.CustomZone{{Domain: "example.com", Records: []nbdns.SimpleRecord{{Name: "example.com", Type: 1, Class: "IN", TTL: 60, RData: "100.64.0.1"}}}},
-	//	},
-	//	FirewallRules: []*FirewallRule{
-	//		{PeerIP: "192.168.1.2", Direction: firewallRuleDirectionIN, Action: string(PolicyTrafficActionAccept), Protocol: string(PolicyRuleProtocolTCP), Port: "80"},
-	//	},
-	//}
-	//dnsName := "example.com"
-	//checks := []*posture.Checks{
-	//	{
-	//		Checks: posture.ChecksDefinition{
-	//			ProcessCheck: &posture.ProcessCheck{
-	//				Processes: []posture.Process{{LinuxPath: "/usr/bin/netbird"}},
-	//			},
-	//		},
-	//	},
-	//}
-	//dnsCache := &DNSConfigCache{}
-	//
-	//return &UpdateMessage{
-	//	//Update:     toSyncResponse(context.Background(), config, peer, turnCredentials, networkMap, dnsName, checks, dnsCache),
-	//	NetworkMap: networkMap,
-	//	Checks:     checks,
-	//}
-	return nil
+
+	_, ipNet, err := net.ParseCIDR("192.168.1.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	domainList, err := domain.FromStringList([]string{"example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := &Config{
+		Signal: &Host{
+			Proto:    "https",
+			URI:      "signal.uri",
+			Username: "",
+			Password: "",
+		},
+		Stuns: []*Host{{URI: "stun.uri", Proto: UDP}},
+		TURNConfig: &TURNConfig{
+			Turns: []*Host{{URI: "turn.uri", Proto: UDP, Username: "turn-user", Password: "turn-pass"}},
+		},
+	}
+	peer := &nbpeer.Peer{
+		IP:         net.ParseIP("192.168.1.1"),
+		SSHEnabled: true,
+		Key:        "peer-key",
+		DNSLabel:   "peer1",
+		SSHKey:     "peer1-ssh-key",
+	}
+
+	secretManager := NewTimeBasedAuthSecretsManager(
+		NewPeersUpdateManager(nil),
+		&TURNConfig{
+			TimeBasedCredentials: false,
+			CredentialsTTL: util.Duration{
+				Duration: defaultDuration,
+			},
+			Secret: "secret",
+			Turns:  []*Host{TurnTestHost},
+		},
+		&Relay{
+			Addresses:      []string{"localhost:0"},
+			CredentialsTTL: util.Duration{Duration: time.Hour},
+			Secret:         "secret",
+		},
+	)
+
+	networkMap := &NetworkMap{
+		Network:      &Network{Net: *ipNet, Serial: 1000},
+		Peers:        []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.2"), Key: "peer2-key", DNSLabel: "peer2", SSHEnabled: true, SSHKey: "peer2-ssh-key"}},
+		OfflinePeers: []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.3"), Key: "peer3-key", DNSLabel: "peer3", SSHEnabled: true, SSHKey: "peer3-ssh-key"}},
+		Routes: []*nbroute.Route{
+			{
+				ID:          "route1",
+				Network:     netip.MustParsePrefix("10.0.0.0/24"),
+				KeepRoute:   true,
+				NetID:       "route1",
+				Peer:        "peer1",
+				NetworkType: 1,
+				Masquerade:  true,
+				Metric:      9999,
+				Enabled:     true,
+				Groups:      []string{"test1", "test2"},
+			},
+			{
+				ID:          "route2",
+				Domains:     domainList,
+				KeepRoute:   true,
+				NetID:       "route2",
+				Peer:        "peer1",
+				NetworkType: 1,
+				Masquerade:  true,
+				Metric:      9999,
+				Enabled:     true,
+				Groups:      []string{"test1", "test2"},
+			},
+		},
+		DNSConfig: nbdns.Config{
+			ServiceEnable: true,
+			NameServerGroups: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{{
+						IP:     netip.MustParseAddr("8.8.8.8"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					}},
+					Primary:              true,
+					Domains:              []string{"example.com"},
+					Enabled:              true,
+					SearchDomainsEnabled: true,
+				},
+				{
+					ID: "ns1",
+					NameServers: []nbdns.NameServer{{
+						IP:     netip.MustParseAddr("1.1.1.1"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					}},
+					Groups:               []string{"group1"},
+					Primary:              true,
+					Domains:              []string{"example.com"},
+					Enabled:              true,
+					SearchDomainsEnabled: true,
+				},
+			},
+			CustomZones: []nbdns.CustomZone{{Domain: "example.com", Records: []nbdns.SimpleRecord{{Name: "example.com", Type: 1, Class: "IN", TTL: 60, RData: "100.64.0.1"}}}},
+		},
+		FirewallRules: []*FirewallRule{
+			{PeerIP: "192.168.1.2", Direction: firewallRuleDirectionIN, Action: string(PolicyTrafficActionAccept), Protocol: string(PolicyRuleProtocolTCP), Port: "80"},
+		},
+	}
+	dnsName := "example.com"
+	checks := []*posture.Checks{
+		{
+			Checks: posture.ChecksDefinition{
+				ProcessCheck: &posture.ProcessCheck{
+					Processes: []posture.Process{{LinuxPath: "/usr/bin/netbird"}},
+				},
+			},
+		},
+	}
+	dnsCache := &DNSConfigCache{}
+
+	turnToken, err := secretManager.GenerateTurnToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	relayToken, err := secretManager.GenerateRelayToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return &UpdateMessage{
+		Update:     toSyncResponse(context.Background(), config, peer, turnToken, relayToken, networkMap, dnsName, checks, dnsCache),
+		NetworkMap: networkMap,
+		Checks:     checks,
+	}
 }
