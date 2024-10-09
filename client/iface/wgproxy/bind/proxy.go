@@ -123,8 +123,7 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 
 		msg := bind.RecvMessage{
 			Endpoint: p.wgEndpoint,
-			Buffer:   buf,
-			Len:      n,
+			Buffer:   buf[:n],
 		}
 		p.Bind.RecvChan <- msg
 		p.pausedMu.Unlock()

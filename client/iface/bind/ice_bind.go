@@ -17,7 +17,6 @@ import (
 type RecvMessage struct {
 	Endpoint *Endpoint
 	Buffer   []byte
-	Len      int
 }
 
 type receiverCreator struct {
@@ -36,11 +35,14 @@ type ICEBind struct {
 	filterFn     FilterFn
 	endpoints    map[string]net.Conn
 	endpointsMu  sync.Mutex
+	// every time when Close() is called (i.e. BindUpdate()) we need to close exit from the receiveRelayed and create a
+	// new closed channel. With the closedChanMu we can safely close the channel and create a new one
 	closedChan   chan struct{}
+	closedChanMu sync.RWMutex
+	closed       bool
 
 	muUDPMux sync.Mutex
 	udpMux   *UniversalUDPMuxDefault
-	closed   bool
 }
 
 func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
@@ -64,12 +66,13 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
 
 func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
 	s.closed = false
-	log.Infof("------ ICEBind: Open")
+	s.closedChanMu.Lock()
+	s.closedChan = make(chan struct{})
+	s.closedChanMu.Unlock()
 	fns, port, err := s.StdNetBind.Open(uport)
 	if err != nil {
 		return nil, 0, err
 	}
-
 	fns = append(fns, s.receiveRelayed)
 	return fns, port, nil
 }
@@ -79,12 +82,8 @@ func (s *ICEBind) Close() error {
 	if s.closed {
 		return nil
 	}
-	log.Infof("------ ICEBind: Close")
 	s.closed = true
-	select {
-	case s.closedChan <- struct{}{}:
-	default:
-	}
+	close(s.closedChan)
 	err := s.StdNetBind.Close()
 	return err
 
@@ -219,11 +218,11 @@ func (s *ICEBind) parseSTUNMessage(raw []byte) (*stun.Message, error) {
 	return msg, nil
 }
 
+// receiveRelayed is a receive function that is used to receive packets from the relayed connection and forward to the
+// WireGuard. Critical part is do not block if the Closed() has been called.
 func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpoint) (int, error) {
-	if c.closed {
-		log.Infof("receiver is closed, return with closed error")
-		return 0, net.ErrClosed
-	}
+	c.closedChanMu.RLock()
+	defer c.closedChanMu.RUnlock()
 
 	select {
 	case <-c.closedChan:
@@ -232,9 +231,8 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 		if !ok {
 			return 0, net.ErrClosed
 		}
-		// todo: do not copy the full buffer
 		copy(buffs[0], msg.Buffer)
-		sizes[0] = msg.Len
+		sizes[0] = len(msg.Buffer)
 		eps[0] = wgConn.Endpoint(msg.Endpoint)
 		return 1, nil
 	}
