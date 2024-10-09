@@ -71,6 +71,7 @@ require (
 	github.com/pion/turn/v3 v3.0.1
 	github.com/prometheus/client_golang v1.19.1
 	github.com/r3labs/diff v1.1.0
+	github.com/r3labs/diff/v3 v3.0.1
 	github.com/rs/xid v1.3.0
 	github.com/shirou/gopsutil/v3 v3.24.4
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
@@ -211,6 +212,8 @@ require (
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.8.0 // indirect
 	github.com/vishvananda/netns v0.0.4 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.3.5 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/yuin/goldmark v1.7.1 // indirect
 	github.com/zeebo/blake3 v0.2.3 // indirect
 	go.opencensus.io v0.24.0 // indirect
