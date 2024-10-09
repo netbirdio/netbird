@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -232,6 +233,23 @@ func (m *aclManager) cleanChains() error {
 		}
 	}
 
+	ok, err = m.iptablesClient.ChainExists("mangle", "PREROUTING")
+	if err != nil {
+		return fmt.Errorf("list chains: %w", err)
+	}
+	if ok {
+		for _, rule := range m.entries["PREROUTING"] {
+			err := m.iptablesClient.DeleteIfExists("mangle", "PREROUTING", rule...)
+			if err != nil {
+				log.Errorf("failed to delete rule: %v, %s", rule, err)
+			}
+		}
+		err = m.iptablesClient.ClearChain("mangle", "PREROUTING")
+		if err != nil {
+			return fmt.Errorf("clear chain: %w", err)
+		}
+	}
+
 	for _, ipsetName := range m.ipsetStore.ipsetNames() {
 		if err := ipset.Flush(ipsetName); err != nil {
 			log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
@@ -292,7 +310,10 @@ func (m *aclManager) seedInitialEntries() {
 
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName})
+	m.appendToEntries("FORWARD", []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark), "-j", chainNameInputRules})
 	m.appendToEntries("FORWARD", append([]string{"-o", m.wgIface.Name()}, established...))
+
+	m.appendToEntries("PREROUTING", []string{"-t", "nat", "-i", m.wgIface.Name(), "-m", "addrtype", "--dst-type", "LOCAL", "-j", "MARK", "--set-mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark)})
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {
