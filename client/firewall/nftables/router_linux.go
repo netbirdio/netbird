@@ -25,7 +25,7 @@ import (
 
 const (
 	chainNameRoutingFw  = "netbird-rt-fwd"
-	chainNameRoutingNat = "netbird-rt-nat"
+	chainNameRoutingNat = "netbird-rt-postrouting"
 	chainNameForward    = "FORWARD"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
@@ -150,7 +150,6 @@ func (r *router) loadFilterTable() (*nftables.Table, error) {
 }
 
 func (r *router) createContainers() error {
-
 	r.chains[chainNameRoutingFw] = r.conn.AddChain(&nftables.Chain{
 		Name:  chainNameRoutingFw,
 		Table: r.workTable,
@@ -170,15 +169,14 @@ func (r *router) createContainers() error {
 
 	r.acceptForwardRules()
 
-	err := r.refreshRulesMap()
-	if err != nil {
+	if err := r.refreshRulesMap(); err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
-	err = r.conn.Flush()
-	if err != nil {
+	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("nftables: unable to initialize table: %v", err)
 	}
+
 	return nil
 }
 

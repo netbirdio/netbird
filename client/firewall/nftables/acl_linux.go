@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -29,6 +31,7 @@ const (
 	chainNameInputFilter   = "netbird-acl-input-filter"
 	chainNameOutputFilter  = "netbird-acl-output-filter"
 	chainNameForwardFilter = "netbird-acl-forward-filter"
+	chainNamePrerouting    = "netbird-rt-prerouting"
 
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
@@ -40,15 +43,14 @@ var (
 )
 
 type AclManager struct {
-	rConn               *nftables.Conn
-	sConn               *nftables.Conn
-	wgIface             iFaceMapper
-	routeingFwChainName string
+	rConn              *nftables.Conn
+	sConn              *nftables.Conn
+	wgIface            iFaceMapper
+	routingFwChainName string
 
 	workTable        *nftables.Table
 	chainInputRules  *nftables.Chain
 	chainOutputRules *nftables.Chain
-	chainFwFilter    *nftables.Chain
 
 	ipsetStore *ipsetStore
 	rules      map[string]*Rule
@@ -61,7 +63,7 @@ type iFaceMapper interface {
 	IsUserspaceBind() bool
 }
 
-func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainName string) (*AclManager, error) {
+func newAclManager(table *nftables.Table, wgIface iFaceMapper, routingFwChainName string) (*AclManager, error) {
 	// sConn is used for creating sets and adding/removing elements from them
 	// it's differ then rConn (which does create new conn for each flush operation)
 	// and is permanent. Using same connection for both type of operations
@@ -72,11 +74,11 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainNa
 	}
 
 	m := &AclManager{
-		rConn:               &nftables.Conn{},
-		sConn:               sConn,
-		wgIface:             wgIface,
-		workTable:           table,
-		routeingFwChainName: routeingFwChainName,
+		rConn:              &nftables.Conn{},
+		sConn:              sConn,
+		wgIface:            wgIface,
+		workTable:          table,
+		routingFwChainName: routingFwChainName,
 
 		ipsetStore: newIpsetStore(),
 		rules:      make(map[string]*Rule),
@@ -462,9 +464,9 @@ func (m *AclManager) createDefaultChains() (err error) {
 	}
 
 	// netbird-acl-forward-filter
-	m.chainFwFilter = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
-	m.addJumpRulesToRtForward() // to netbird-rt-fwd
-	m.addDropExpressions(m.chainFwFilter, expr.MetaKeyIIFNAME)
+	chainFwFilter := m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
+	m.addJumpRulesToRtForward(chainFwFilter) // to netbird-rt-fwd
+	m.addDropExpressions(chainFwFilter, expr.MetaKeyIIFNAME)
 
 	err = m.rConn.Flush()
 	if err != nil {
@@ -472,10 +474,96 @@ func (m *AclManager) createDefaultChains() (err error) {
 		return fmt.Errorf(flushError, err)
 	}
 
+	if err := m.allowRedirectedTraffic(chainFwFilter); err != nil {
+		log.Errorf("failed to allow redirected traffic: %s", err)
+	}
+
 	return nil
 }
 
-func (m *AclManager) addJumpRulesToRtForward() {
+// Makes redirected traffic originally destined for the host itself (now subject to the forward filter)
+// go through the input filter as well. This will enable e.g. Docker services to keep working by accessing the
+// netbird peer IP.
+func (m *AclManager) allowRedirectedTraffic(chainFwFilter *nftables.Chain) error {
+	preroutingChain := m.rConn.AddChain(&nftables.Chain{
+		Name:     chainNamePrerouting,
+		Table:    m.workTable,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityMangle,
+	})
+
+	m.addPreroutingRule(preroutingChain)
+
+	m.addFwmarkToForward(chainFwFilter)
+
+	if err := m.rConn.Flush(); err != nil {
+		return fmt.Errorf(flushError, err)
+	}
+
+	return nil
+}
+
+func (m *AclManager) addPreroutingRule(preroutingChain *nftables.Chain) {
+	m.rConn.AddRule(&nftables.Rule{
+		Table: m.workTable,
+		Chain: preroutingChain,
+		Exprs: []expr.Any{
+			&expr.Meta{
+				Key:      expr.MetaKeyIIFNAME,
+				Register: 1,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(m.wgIface.Name()),
+			},
+			&expr.Fib{
+				Register:       1,
+				ResultADDRTYPE: true,
+				FlagDADDR:      true,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     binaryutil.NativeEndian.PutUint32(unix.RTN_LOCAL),
+			},
+			&expr.Immediate{
+				Register: 1,
+				Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmark),
+			},
+			&expr.Meta{
+				Key:            expr.MetaKeyMARK,
+				Register:       1,
+				SourceRegister: true,
+			},
+		},
+	})
+}
+
+func (m *AclManager) addFwmarkToForward(chainFwFilter *nftables.Chain) {
+	m.rConn.InsertRule(&nftables.Rule{
+		Table: m.workTable,
+		Chain: chainFwFilter,
+		Exprs: []expr.Any{
+			&expr.Meta{
+				Key:      expr.MetaKeyMARK,
+				Register: 1,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmark),
+			},
+			&expr.Verdict{
+				Kind:  expr.VerdictJump,
+				Chain: m.chainInputRules.Name,
+			},
+		},
+	})
+}
+
+func (m *AclManager) addJumpRulesToRtForward(chainFwFilter *nftables.Chain) {
 	expressions := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{
@@ -485,13 +573,13 @@ func (m *AclManager) addJumpRulesToRtForward() {
 		},
 		&expr.Verdict{
 			Kind:  expr.VerdictJump,
-			Chain: m.routeingFwChainName,
+			Chain: m.routingFwChainName,
 		},
 	}
 
 	_ = m.rConn.AddRule(&nftables.Rule{
 		Table: m.workTable,
-		Chain: m.chainFwFilter,
+		Chain: chainFwFilter,
 		Exprs: expressions,
 	})
 }
