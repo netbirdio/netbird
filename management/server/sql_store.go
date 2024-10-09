@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,8 +64,14 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metr
 	if err != nil {
 		return nil, err
 	}
-	conns := runtime.NumCPU()
-	sql.SetMaxOpenConns(conns) // TODO: make it configurable
+
+	conns, err := strconv.Atoi(os.Getenv("NB_SQL_MAX_OPEN_CONNS"))
+	if err != nil {
+		conns = runtime.NumCPU()
+	}
+	sql.SetMaxOpenConns(conns)
+
+	log.Infof("Set max open db connections to %d", conns)
 
 	if err := migrate(ctx, db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
