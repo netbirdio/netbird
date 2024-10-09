@@ -225,6 +225,7 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 		if !ok {
 			return 0, net.ErrClosed
 		}
+		// todo: do not copy the full buffer
 		copy(buffs[0], msg.Buffer)
 		sizes[0] = msg.Len
 		eps[0] = wgConn.Endpoint(msg.Endpoint)
