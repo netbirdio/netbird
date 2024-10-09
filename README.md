@@ -49,7 +49,7 @@
 
 ![netbird_2](https://github.com/netbirdio/netbird/assets/700848/46bc3b73-508d-4a0e-bb9a-f465d68646ab)
 
-### NetBird on Lawrence Systems
+### NetBird on Lawrence Systems (Video)
 [![Watch the video](https://img.youtube.com/vi/Kwrff6h0rEw/0.jpg)](https://www.youtube.com/watch?v=Kwrff6h0rEw)
 
 ### Key features
