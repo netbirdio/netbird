@@ -4,6 +4,7 @@ package wgproxy
 
 import (
 	"github.com/netbirdio/netbird/client/iface/bind"
+	proxyBind "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
 )
 
 type Factory struct {
