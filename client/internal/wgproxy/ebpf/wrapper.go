@@ -63,6 +63,7 @@ func (p *ProxyWrapper) Pause() {
 		return
 	}
 
+	log.Tracef("pause proxy reading from: %s", p.remoteConn.RemoteAddr())
 	p.pausedMu.Lock()
 	p.paused = true
 	p.pausedMu.Unlock()
