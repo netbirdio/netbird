@@ -70,7 +70,6 @@ require (
 	github.com/pion/transport/v3 v3.0.1
 	github.com/pion/turn/v3 v3.0.1
 	github.com/prometheus/client_golang v1.19.1
-	github.com/r3labs/diff v1.1.0
 	github.com/r3labs/diff/v3 v3.0.1
 	github.com/rs/xid v1.3.0
 	github.com/shirou/gopsutil/v3 v3.24.4
