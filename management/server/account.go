@@ -1553,8 +1553,8 @@ func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accoun
 	return am.cacheManager.Set(am.ctx, accountID, data, cacheStore.WithExpiration(cacheEntryExpiration()))
 }
 
-// updateAccountDomainAttributes updates the account domain attributes and then, saves the account
-func (am *DefaultAccountManager) updateAccountDomainAttributes(ctx context.Context, accountID string, claims jwtclaims.AuthorizationClaims,
+// updateAccountDomainAttributesIfNotUpToDate updates the account domain attributes if they are not up to date and then, saves the account changes
+func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx context.Context, accountID string, claims jwtclaims.AuthorizationClaims,
 	primaryDomain bool,
 ) error {
 	if claims.Domain == "" {
@@ -1597,6 +1597,11 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(ctx context.Conte
 }
 
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
+// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
+// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
+// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
+// was previously unclassified or classified as public so N users that logged int that time, has they own account
+// and peers that shouldn't be lost.
 func (am *DefaultAccountManager) handleExistingUserAccount(
 	ctx context.Context,
 	userAccountID string,
@@ -1604,7 +1609,7 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 	claims jwtclaims.AuthorizationClaims,
 ) error {
 	primaryDomain := domainAccountID == "" || userAccountID == domainAccountID
-	err := am.updateAccountDomainAttributes(ctx, userAccountID, claims, primaryDomain)
+	err := am.updateAccountDomainAttributesIfNotUpToDate(ctx, userAccountID, claims, primaryDomain)
 	if err != nil {
 		return err
 	}
@@ -2033,16 +2038,12 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	}
 
 	// We checked if the domain has a primary account already
-	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, claims.Domain)
-	if handleNotFound(err) != nil {
-		log.WithContext(ctx).Errorf("error getting account ID by private domain: %v", err)
-		return "", err
-	}
-
-	if domainAccountID == "" {
-		log.WithContext(ctx).Debugf("no primary account found for domain %s, acquiring global lock", claims.Domain)
-		cancel := am.Store.AcquireGlobalLock(ctx)
+	domainAccountID, cancel, err := am.getPrivateDomainWithGlobalLock(ctx, claims.Domain)
+	if cancel != nil {
 		defer cancel()
+	}
+	if err != nil {
+		return "", err
 	}
 
 	userAccountID, err := am.Store.GetAccountIDByUserID(claims.UserId)
@@ -2052,12 +2053,6 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	}
 
 	if userAccountID != "" {
-		// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
-		// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
-		// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
-		// was previously unclassified or classified as public so N users that logged int that time, has they own account
-		// and peers that shouldn't be lost.
-
 		if err = am.handleExistingUserAccount(ctx, userAccountID, domainAccountID, claims); err != nil {
 			return "", err
 		}
@@ -2070,6 +2065,30 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	}
 
 	return am.addNewPrivateAccount(ctx, domainAccountID, claims)
+}
+
+func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Context, domain string) (string, context.CancelFunc, error) {
+	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
+	if handleNotFound(err) != nil {
+		log.WithContext(ctx).Errorf("error getting account ID by private domain: %v", err)
+		return "", nil, err
+	}
+
+	if domainAccountID != "" {
+		return domainAccountID, nil, nil
+	}
+
+	log.WithContext(ctx).Debugf("no primary account found for domain %s, acquiring global lock", domain)
+	cancel := am.Store.AcquireGlobalLock(ctx)
+
+	// check again if the domain has a primary account because of simultaneous requests
+	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
+	if handleNotFound(err) != nil {
+		log.WithContext(ctx).Errorf("error getting account ID by private domain: %v", err)
+		return "", nil, err
+	}
+
+	return domainAccountID, cancel, nil
 }
 
 func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {
