@@ -1229,3 +1229,49 @@ func TestSqlite_GetAccoundUsers(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, users, len(account.Users))
 }
+
+func TestSqlStore_UpdateAccountDomainAttributes(t *testing.T) {
+	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	t.Run("Should update attributes with public domain", func(t *testing.T) {
+		require.NoError(t, err)
+		domain := "example.com"
+		category := "public"
+		IsDomainPrimaryAccount := false
+		err = store.UpdateAccountDomainAttributes(context.Background(), accountID, domain, category, IsDomainPrimaryAccount)
+		require.NoError(t, err)
+		account, err := store.GetAccount(context.Background(), accountID)
+		require.NoError(t, err)
+		require.Equal(t, domain, account.Domain)
+		require.Equal(t, category, account.DomainCategory)
+		require.Equal(t, IsDomainPrimaryAccount, account.IsDomainPrimaryAccount)
+	})
+
+	t.Run("Should update attributes with private domain", func(t *testing.T) {
+		require.NoError(t, err)
+		domain := "test.com"
+		category := "private"
+		IsDomainPrimaryAccount := true
+		err = store.UpdateAccountDomainAttributes(context.Background(), accountID, domain, category, IsDomainPrimaryAccount)
+		require.NoError(t, err)
+		account, err := store.GetAccount(context.Background(), accountID)
+		require.NoError(t, err)
+		require.Equal(t, domain, account.Domain)
+		require.Equal(t, category, account.DomainCategory)
+		require.Equal(t, IsDomainPrimaryAccount, account.IsDomainPrimaryAccount)
+	})
+
+	t.Run("Should fail when account does not exist", func(t *testing.T) {
+		require.NoError(t, err)
+		domain := "test.com"
+		category := "private"
+		IsDomainPrimaryAccount := true
+		err = store.UpdateAccountDomainAttributes(context.Background(), "non-existing-account-id", domain, category, IsDomainPrimaryAccount)
+		require.Error(t, err)
+	})
+
+}

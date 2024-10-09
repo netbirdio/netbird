@@ -1554,31 +1554,46 @@ func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accoun
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
-func (am *DefaultAccountManager) updateAccountDomainAttributes(ctx context.Context, account *Account, claims jwtclaims.AuthorizationClaims,
+func (am *DefaultAccountManager) updateAccountDomainAttributes(ctx context.Context, accountID string, claims jwtclaims.AuthorizationClaims,
 	primaryDomain bool,
 ) error {
-
-	if claims.Domain != "" {
-		account.IsDomainPrimaryAccount = primaryDomain
-
-		lowerDomain := strings.ToLower(claims.Domain)
-		userObj := account.Users[claims.UserId]
-		if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
-			account.Domain = lowerDomain
-		}
-		// prevent updating category for different domain until admin logs in
-		if account.Domain == lowerDomain {
-			account.DomainCategory = claims.DomainCategory
-		}
-	} else {
+	if claims.Domain == "" {
 		log.WithContext(ctx).Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
+		return nil
 	}
 
-	err := am.Store.SaveAccount(ctx, account)
+	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlockAccount()
+
+	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, accountID)
 	if err != nil {
+		log.WithContext(ctx).Errorf("error getting account domain and category: %v", err)
 		return err
 	}
-	return nil
+
+	if domainIsUpToDate(accountDomain, domainCategory, claims) {
+		return nil
+	}
+
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error getting user: %v", err)
+		return err
+	}
+
+	newDomain := accountDomain
+	newCategoty := domainCategory
+
+	lowerDomain := strings.ToLower(claims.Domain)
+	if accountDomain != lowerDomain && user.HasAdminPower() {
+		newDomain = lowerDomain
+	}
+
+	if accountDomain == lowerDomain {
+		newCategoty = claims.DomainCategory
+	}
+
+	return am.Store.UpdateAccountDomainAttributes(ctx, accountID, newDomain, newCategoty, primaryDomain)
 }
 
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
@@ -1588,22 +1603,14 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 	domainAccountID string,
 	claims jwtclaims.AuthorizationClaims,
 ) error {
-	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, userAccountID)
-	defer unlockAccount()
-
-	userAccount, err := am.Store.GetAccountByUser(ctx, claims.UserId)
-	if err != nil {
-		return err
-	}
-
 	primaryDomain := domainAccountID == "" || userAccountID == domainAccountID
-	err = am.updateAccountDomainAttributes(ctx, userAccount, claims, primaryDomain)
+	err := am.updateAccountDomainAttributes(ctx, userAccountID, claims, primaryDomain)
 	if err != nil {
 		return err
 	}
 
 	// we should register the account ID to this user's metadata in our IDP manager
-	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, userAccount.Id)
+	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, userAccountID)
 	if err != nil {
 		return err
 	}
@@ -1620,27 +1627,34 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 
 	lowerDomain := strings.ToLower(claims.Domain)
 
-	account, err := am.newAccount(ctx, claims.UserId, lowerDomain)
+	newAccount, err := am.newAccount(ctx, claims.UserId, lowerDomain)
 	if err != nil {
 		return "", err
 	}
 
-	err = am.updateAccountDomainAttributes(ctx, account, claims, true)
+	newAccount.Domain = lowerDomain
+	newAccount.DomainCategory = claims.DomainCategory
+	newAccount.IsDomainPrimaryAccount = true
+
+	err = am.Store.SaveAccount(ctx, newAccount)
 	if err != nil {
 		return "", err
 	}
 
-	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, account.Id)
+	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, newAccount.Id)
 	if err != nil {
 		return "", err
 	}
 
-	am.StoreEvent(ctx, claims.UserId, claims.UserId, account.Id, activity.UserJoined, nil)
+	am.StoreEvent(ctx, claims.UserId, claims.UserId, newAccount.Id, activity.UserJoined, nil)
 
-	return account.Id, nil
+	return newAccount.Id, nil
 }
 
 func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, claims jwtclaims.AuthorizationClaims) (string, error) {
+	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
+	defer unlockAccount()
+
 	usersMap := make(map[string]*User)
 	usersMap[claims.UserId] = NewRegularUser(claims.UserId)
 	err := am.Store.SaveUsers(domainAccountID, usersMap)
@@ -2052,18 +2066,10 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	}
 
 	if domainAccountID != "" {
-		account, err := am.addNewUserToDomainAccount(ctx, domainAccountID, claims)
-		if err != nil {
-			return "", err
-		}
-		return account, nil
+		return am.addNewUserToDomainAccount(ctx, domainAccountID, claims)
 	}
 
-	accountID, err := am.addNewPrivateAccount(ctx, domainAccountID, claims)
-	if err != nil {
-		return "", err
-	}
-	return accountID, nil
+	return am.addNewPrivateAccount(ctx, domainAccountID, claims)
 }
 
 func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {

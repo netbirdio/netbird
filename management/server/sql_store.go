@@ -316,6 +316,29 @@ func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.
 	return nil
 }
 
+func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error {
+	accountCopy := Account{
+		Domain:                 domain,
+		DomainCategory:         category,
+		IsDomainPrimaryAccount: isPrimaryDomain,
+	}
+
+	fieldsToUpdate := []string{"domain", "domain_category", "is_domain_primary_account"}
+	result := s.db.WithContext(ctx).Model(&Account{}).
+		Select(fieldsToUpdate).
+		Where(idQueryCondition, accountID).
+		Updates(&accountCopy)
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "account %s", accountID)
+	}
+
+	return nil
+}
+
 func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
