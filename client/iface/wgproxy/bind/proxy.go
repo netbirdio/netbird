@@ -2,8 +2,10 @@ package bind
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -16,6 +18,14 @@ type ProxyBind struct {
 	wgAddr     *net.UDPAddr
 	wgEndpoint *bind.Endpoint
 	remoteConn net.Conn
+	ctx        context.Context
+	cancel     context.CancelFunc
+	closeMu    sync.Mutex
+	closed     bool
+
+	pausedMu  sync.Mutex
+	paused    bool
+	isStarted bool
 }
 
 // AddTurnConn adds a new connection to the bind.
@@ -30,8 +40,7 @@ func (p *ProxyBind) AddTurnConn(ctx context.Context, nbAddr *net.UDPAddr, remote
 	p.wgAddr = addr
 	p.wgEndpoint = addrToEndpoint(addr)
 	p.remoteConn = remoteConn
-
-	go p.proxyToLocal(ctx)
+	p.ctx, p.cancel = context.WithCancel(ctx)
 	return err
 
 }
@@ -40,19 +49,61 @@ func (p *ProxyBind) EndpointAddr() *net.UDPAddr {
 }
 
 func (p *ProxyBind) Work() {
-	// todo implement me
+	if p.remoteConn == nil {
+		return
+	}
+
+	p.pausedMu.Lock()
+	p.paused = false
+	p.pausedMu.Unlock()
+
+	// Start the proxy only once
+	if !p.isStarted {
+		p.isStarted = true
+		go p.proxyToLocal(p.ctx)
+	}
 }
 
 func (p *ProxyBind) Pause() {
-	// todo implement me
+	if p.remoteConn == nil {
+		return
+	}
+
+	p.pausedMu.Lock()
+	p.paused = true
+	p.pausedMu.Unlock()
 }
 
 func (p *ProxyBind) CloseConn() error {
+	if p.cancel == nil {
+		return fmt.Errorf("proxy not started")
+	}
+	return p.close()
+}
+
+func (p *ProxyBind) close() error {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
+
+	if p.closed {
+		return nil
+	}
+	p.closed = true
+
+	p.cancel()
+
 	p.Bind.RemoveEndpoint(p.wgAddr)
-	return nil
+
+	return p.remoteConn.Close()
 }
 
 func (p *ProxyBind) proxyToLocal(ctx context.Context) {
+	defer func() {
+		if err := p.close(); err != nil {
+			log.Warnf("failed to close remote conn: %s", err)
+		}
+	}()
+
 	buf := make([]byte, 1500)
 	for {
 		n, err := p.remoteConn.Read(buf)
@@ -64,12 +115,19 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 			return
 		}
 
+		p.pausedMu.Lock()
+		if p.paused {
+			p.pausedMu.Unlock()
+			continue
+		}
+
 		msg := bind.RecvMessage{
 			Endpoint: p.wgEndpoint,
 			Buffer:   buf,
 			Len:      n,
 		}
 		p.Bind.RecvChan <- msg
+		p.pausedMu.Unlock()
 	}
 }
 

@@ -34,7 +34,8 @@ type ICEBind struct {
 
 	transportNet transport.Net
 	filterFn     FilterFn
-	endpoints    map[string]net.Conn // todo: is not thread safe
+	endpoints    map[string]net.Conn
+	endpointsMu  sync.Mutex
 	closedChan   chan struct{}
 
 	muUDPMux sync.Mutex
@@ -105,16 +106,22 @@ func (b *ICEBind) SetEndpoint(peerAddress *net.UDPAddr, conn net.Conn) (*net.UDP
 	if err != nil {
 		return nil, err
 	}
+	b.endpointsMu.Lock()
 	b.endpoints[fakeAddr.String()] = conn
+	b.endpointsMu.Unlock()
 	return fakeAddr, nil
 }
 
 func (b *ICEBind) RemoveEndpoint(fakeAddr *net.UDPAddr) {
+	b.endpointsMu.Lock()
+	defer b.endpointsMu.Unlock()
 	delete(b.endpoints, fakeAddr.String())
 }
 
 func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
+	b.endpointsMu.Lock()
 	conn, ok := b.endpoints[ep.DstToString()]
+	b.endpointsMu.Unlock()
 	if !ok {
 		return b.StdNetBind.Send(bufs, ep)
 	}
