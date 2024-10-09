@@ -23,6 +23,7 @@ const (
 	UserRoleAdmin   UserRole = "admin"
 	UserRoleUser    UserRole = "user"
 	UserRoleUnknown UserRole = "unknown"
+	UserRoleBilling UserRole = "billing"
 
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
@@ -41,6 +42,8 @@ func StrRoleToUserRole(strRole string) UserRole {
 		return UserRoleAdmin
 	case "user":
 		return UserRoleUser
+	case "billing":
+		return UserRoleBilling
 	default:
 		return UserRoleUnknown
 	}
