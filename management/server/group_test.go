@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -386,13 +388,25 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *A
 	return am, acc, nil
 }
 
-func TestGroupAccountPeerUpdate(t *testing.T) {
+func TestGroupAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID},
+	err := manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+		{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{peer1.ID, peer2.ID},
+		},
+		{
+			ID:    "groupB",
+			Name:  "GroupB",
+			Peers: []string{},
+		},
+		{
+			ID:    "groupC",
+			Name:  "GroupC",
+			Peers: []string{peer1.ID, peer3.ID},
+		},
 	})
 	assert.NoError(t, err)
 
@@ -401,8 +415,8 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
-	// Saving an unused group should not update account peers and not send peer update
-	t.Run("saving unused group", func(t *testing.T) {
+	// Saving a group that is not linked to any resource should not update account peers
+	t.Run("saving unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -423,8 +437,9 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	// adding peer to an unused group should not update account peers and not send peer update
-	t.Run("adding peer to unused group", func(t *testing.T) {
+	// Adding a peer to a group that is not linked to any resource should not update account peers
+	// and not send peer update
+	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -441,8 +456,9 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	// removing peer to an unused group should not update account peers and not send peer update
-	t.Run("removing peer to unused group", func(t *testing.T) {
+	// Removing a peer from a group that is not linked to any resource should not update account peers
+	// and not send peer update
+	t.Run("removing peer from unliked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -490,11 +506,11 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, false)
 	assert.NoError(t, err)
 
-	// Saving a used group in policy should update account peers and send peer update
-	t.Run("saving used group in policy", func(t *testing.T) {
+	// Saving a group linked to policy should update account peers and send peer update
+	t.Run("saving linked group to policy", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -539,7 +555,7 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 	})
 
 	// adding peer to a used group should update account peers and send peer update
-	t.Run("adding peer to used group", func(t *testing.T) {
+	t.Run("adding peer to linked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -556,8 +572,8 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	// removing peer from a used group should update account peers and send peer update
-	t.Run("removing peer from used group", func(t *testing.T) {
+	// removing peer from a linked group should update account peers and send peer update
+	t.Run("removing peer from linked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -565,6 +581,80 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 		}()
 
 		err := manager.GroupDeletePeer(context.Background(), account.Id, "groupA", peer3.ID)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Saving a group linked to name server group should update account peers and send peer update
+	t.Run("saving group linked to name server group", func(t *testing.T) {
+		_, err = manager.CreateNameServerGroup(
+			context.Background(), account.Id, "nsGroup", "nsGroup", []nbdns.NameServer{{
+				IP:     netip.MustParseAddr("1.1.1.1"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			}},
+			[]string{"groupC"},
+			true, nil, true, userID, false,
+		)
+		assert.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+			ID:    "groupC",
+			Name:  "GroupC",
+			Peers: []string{peer1.ID, peer3.ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Saving a group linked to route should update account peers and send peer update
+	t.Run("saving group linked to route", func(t *testing.T) {
+		newRoute := route.Route{
+			ID:          "route",
+			Network:     netip.MustParsePrefix("192.168.0.0/16"),
+			NetID:       "superNet",
+			NetworkType: route.IPv4Network,
+			PeerGroups:  []string{"groupA"},
+			Description: "super",
+			Masquerade:  false,
+			Metric:      9999,
+			Enabled:     true,
+			Groups:      []string{"groupC"},
+		}
+		_, err := manager.CreateRoute(
+			context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, newRoute.Peer,
+			newRoute.PeerGroups, newRoute.Description, newRoute.NetID, newRoute.Masquerade, newRoute.Metric,
+			newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute,
+		)
+		require.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		})
 		assert.NoError(t, err)
 
 		select {
