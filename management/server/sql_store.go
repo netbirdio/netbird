@@ -431,7 +431,7 @@ func (s *SqlStore) GetAccountIDByPrivateDomain(ctx context.Context, lockStrength
 			return "", status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
 		}
 		log.WithContext(ctx).Errorf("error when getting account from the store: %s", result.Error)
-		return "", status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	return accountID, nil
@@ -462,7 +462,7 @@ func (s *SqlStore) GetTokenIDByHashedToken(ctx context.Context, hashedToken stri
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
 		log.WithContext(ctx).Errorf("error when getting token from the store: %s", result.Error)
-		return "", status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	return token.ID, nil
@@ -476,7 +476,7 @@ func (s *SqlStore) GetUserByTokenID(ctx context.Context, tokenID string) (*User,
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
 		log.WithContext(ctx).Errorf("error when getting token from the store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	if token.UserID == "" {
@@ -560,7 +560,7 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, 
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewAccountNotFoundError(accountID)
 		}
-		return nil, status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	// we have to manually preload policy rules as it seems that gorm preloading doesn't do it for us
@@ -623,7 +623,7 @@ func (s *SqlStore) GetAccountByUser(ctx context.Context, userID string) (*Accoun
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		return nil, status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	if user.AccountID == "" {
@@ -640,7 +640,7 @@ func (s *SqlStore) GetAccountByPeerID(ctx context.Context, peerID string) (*Acco
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		return nil, status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	if peer.AccountID == "" {
@@ -658,7 +658,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		return nil, status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	if peer.AccountID == "" {
@@ -676,7 +676,7 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		return "", status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	return accountID, nil
@@ -689,7 +689,7 @@ func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		return "", status.Errorf(status.Internal, "issue getting account from store: %s", result.Error)
+		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
 
 	return accountID, nil

@@ -106,6 +106,10 @@ func NewSetupKeyNotFoundError(err error) error {
 	return Errorf(NotFound, "setup key not found: %s", err)
 }
 
+func NewGetAccountFromStoreError(err error) error {
+	return Errorf(Internal, "issue getting account from store: %s", err)
+}
+
 // NewGetUserFromStoreError creates a new Error with Internal type for an issue getting user from store
 func NewGetUserFromStoreError() error {
 	return Errorf(Internal, "issue getting user from store")
