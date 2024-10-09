@@ -82,7 +82,6 @@ type Conn struct {
 	config         ConnConfig
 	statusRecorder *Status
 	signaler       *Signaler
-	iFaceDiscover  stdnet.ExternalIFaceDiscover
 	relayManager   *relayClient.Manager
 	allowedIP      net.IP
 	allowedNet     string
