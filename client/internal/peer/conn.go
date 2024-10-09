@@ -440,7 +440,13 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		ep = wgProxy.EndpointAddr()
 		conn.wgProxyICE = wgProxy
 	} else {
-		ep, _ = net.ResolveUDPAddr("udp", iceConnInfo.RemoteConn.RemoteAddr().String())
+		directEp, err := net.ResolveUDPAddr("udp", iceConnInfo.RemoteConn.RemoteAddr().String())
+		if err != nil {
+			log.Errorf("failed to resolveUDPaddr")
+			conn.handleConfigurationFailure(err, nil)
+			return
+		}
+		ep = directEp
 	}
 
 	if err := conn.runBeforeAddPeerHooks(ep.IP); err != nil {
