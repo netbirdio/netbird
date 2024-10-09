@@ -49,6 +49,8 @@
 
 ![netbird_2](https://github.com/netbirdio/netbird/assets/700848/46bc3b73-508d-4a0e-bb9a-f465d68646ab)
 
+### NetBird on Lawrence Systems
+[![Watch the video](https://img.youtube.com/vi/Kwrff6h0rEw/0.jpg)](https://www.youtube.com/watch?v=Kwrff6h0rEw)
 
 ### Key features
 
@@ -62,8 +64,6 @@
 |                                                                                                                              |                                                                                                          | <ul><li> - \[x] [Quantum-resistance with Rosenpass](https://netbird.io/knowledge-hub/the-first-quantum-resistant-mesh-vpn) </ul></li> |                                                                                                                                          | <ul><li> - \[x] OpenWRT </ul></li>                                                      |
 |                                                                                                                              |                                                                                                          | <ui><li> - \[x] [Periodic re-authentication](https://docs.netbird.io/how-to/enforce-periodic-user-authentication)</ul></li>           |                                                                                                                                          | <ul><li> - \[x] [Serverless](https://docs.netbird.io/how-to/netbird-on-faas) </ul></li> |
 |                                                                                                                              |                                                                                                          |                                                                                                                                       |                                                                                                                                          | <ul><li> - \[x] Docker </ul></li>                                                       |
-### NetBird on Lawrence Systems
-[![Watch the video](https://img.youtube.com/vi/Kwrff6h0rEw/0.jpg)](https://www.youtube.com/watch?v=Kwrff6h0rEw)
 
 ### Quickstart with NetBird Cloud
 
