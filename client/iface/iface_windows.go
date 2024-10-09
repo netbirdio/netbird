@@ -8,6 +8,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
@@ -17,12 +18,15 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 		return nil, err
 	}
 
+	iceBind := bind.NewICEBind(transportNet, filterFn)
+
 	wgIFace := &WGIface{
-		userspaceBind: true,
+		userspaceBind:  true,
+		wgProxyFactory: wgproxy.NewFactory(wgPort, iceBind),
 	}
 
 	if netstack.IsEnabled() {
-		wgIFace.tun = device.NewNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet, netstack.ListenAddr(), filterFn)
+		wgIFace.tun = device.NewNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, iceBind, netstack.ListenAddr())
 		return wgIFace, nil
 	}
 
