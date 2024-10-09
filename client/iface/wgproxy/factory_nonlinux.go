@@ -4,7 +4,6 @@ package wgproxy
 
 import (
 	"github.com/netbirdio/netbird/client/iface/bind"
-	"github.com/netbirdio/netbird/client/iface/wgproxy/usp"
 )
 
 type Factory struct {
@@ -20,14 +19,9 @@ func NewFactory(port int, bind *bind.ICEBind) *Factory {
 }
 
 func (w *Factory) GetProxy() Proxy {
-	/*
-		p := &proxyBind.ProxyBind{
-			Bind: w.bind,
-		}
-
-	*/
-	p := usp.NewWGUserSpaceProxy(w.port)
-	return p
+	return &proxyBind.ProxyBind{
+		Bind: w.bind,
+	}
 }
 
 func (w *Factory) Free() error {

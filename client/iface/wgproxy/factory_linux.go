@@ -8,7 +8,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	proxyBind "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/ebpf"
-	"github.com/netbirdio/netbird/client/iface/wgproxy/usp"
+	udpProxy "github.com/netbirdio/netbird/client/iface/wgproxy/udp"
 )
 
 type proxyMode int
@@ -52,7 +52,7 @@ func NewFactory(wgPort int, iceBind *bind.ICEBind) *Factory {
 func (w *Factory) GetProxy() Proxy {
 	switch w.mode {
 	case proxyModeUDP:
-		return usp.NewWGUserSpaceProxy(w.wgPort)
+		return udpProxy.NewWGUDPProxy(w.wgPort)
 	case proxyModeEBPF:
 		p := &ebpf.ProxyWrapper{
 			WgeBPFProxy: w.ebpfProxy,
