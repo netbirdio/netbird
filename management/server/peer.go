@@ -557,8 +557,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		am.updateAccountPeers(ctx, account)
 	}
 
-	am.updateAccountPeers(ctx, account)
-
 	approvedPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
 		return nil, nil, nil, err

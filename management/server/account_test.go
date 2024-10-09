@@ -2479,6 +2479,10 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *Account, *nbpee
 		peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 			Key:  expectedPeerKey,
 			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+			Status: &nbpeer.PeerStatus{
+				Connected: true,
+				LastSeen:  time.Now().UTC(),
+			},
 		})
 		if err != nil {
 			t.Fatalf("expecting peer to be added, got failure %v", err)
