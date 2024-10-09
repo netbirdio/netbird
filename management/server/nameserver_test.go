@@ -939,7 +939,7 @@ func TestValidateDomain(t *testing.T) {
 }
 
 func TestNameServerAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
+	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	var newNameServerGroupA *nbdns.NameServerGroup
 	var newNameServerGroupB *nbdns.NameServerGroup
@@ -953,7 +953,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 		{
 			ID:    "groupB",
 			Name:  "GroupB",
-			Peers: []string{peer1.ID, peer2.ID},
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 		},
 	})
 	assert.NoError(t, err)
@@ -1043,11 +1043,18 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		newNameServerGroupB.NameServers = []nbdns.NameServer{{
-			IP:     netip.MustParseAddr("1.1.1.2"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   nbdns.DefaultDNSPort,
-		}}
+		newNameServerGroupB.NameServers = []nbdns.NameServer{
+			{
+				IP:     netip.MustParseAddr("1.1.1.2"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			},
+			{
+				IP:     netip.MustParseAddr("8.8.8.8"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			},
+		}
 		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupB)
 		assert.NoError(t, err)
 
@@ -1066,11 +1073,18 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		newNameServerGroupB.NameServers = []nbdns.NameServer{{
-			IP:     netip.MustParseAddr("1.1.1.2"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   nbdns.DefaultDNSPort,
-		}}
+		newNameServerGroupB.NameServers = []nbdns.NameServer{
+			{
+				IP:     netip.MustParseAddr("1.1.1.2"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			},
+			{
+				IP:     netip.MustParseAddr("8.8.8.8"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			},
+		}
 		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupB)
 		assert.NoError(t, err)
 
