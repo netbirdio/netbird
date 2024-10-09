@@ -14,6 +14,12 @@ import (
 	wgConn "golang.zx2c4.com/wireguard/conn"
 )
 
+type RecvMessage struct {
+	Endpoint *Endpoint
+	Buffer   []byte
+	Len      int
+}
+
 type receiverCreator struct {
 	iceBind *ICEBind
 }
@@ -24,21 +30,28 @@ func (rc receiverCreator) CreateIPv4ReceiverFn(msgPool *sync.Pool, pc *ipv4.Pack
 
 type ICEBind struct {
 	*wgConn.StdNetBind
-
-	muUDPMux sync.Mutex
+	RecvChan chan RecvMessage
 
 	transportNet transport.Net
 	filterFn     FilterFn
-	endpoints    map[string]net.Conn
+	endpoints    map[string]net.Conn // todo: is not thread safe
+	closedChan   chan struct{}
 
-	udpMux *UniversalUDPMuxDefault
+	muUDPMux sync.Mutex
+	udpMux   *UniversalUDPMuxDefault
+	closed   bool
 }
 
 func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
+	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
+		StdNetBind:   b,
+		RecvChan:     make(chan RecvMessage, 1),
 		transportNet: transportNet,
 		filterFn:     filterFn,
 		endpoints:    make(map[string]net.Conn),
+		closedChan:   make(chan struct{}),
+		closed:       true,
 	}
 
 	rc := receiverCreator{
@@ -46,6 +59,34 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
 	}
 	ib.StdNetBind = wgConn.NewStdNetBindWithReceiverCreator(rc)
 	return ib
+}
+
+func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
+	s.closed = false
+	log.Infof("------ ICEBind: Open")
+	fns, port, err := s.StdNetBind.Open(uport)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	fns = append(fns, s.receiveRelayed)
+	return fns, port, nil
+}
+
+func (s *ICEBind) Close() error {
+	// just a quick implementation to make the tests pass
+	if s.closed {
+		return nil
+	}
+	log.Infof("------ ICEBind: Close")
+	s.closed = true
+	select {
+	case s.closedChan <- struct{}{}:
+	default:
+	}
+	err := s.StdNetBind.Close()
+	return err
+
 }
 
 // GetICEMux returns the ICE UDPMux that was created and used by ICEBind
@@ -120,7 +161,6 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 		for i := 0; i < numMsgs; i++ {
 			msg := &(*msgs)[i]
 
-			log.Infof("---- read msg: %s", msg.Addr.String())
 			// todo: handle err
 			ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
 			if ok {
@@ -132,7 +172,6 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
 			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
 			wgConn.GetSrcFromControl(msg.OOB[:msg.NN], ep)
-			log.Infof("---- ep msg: %v", ep)
 			eps[i] = ep
 		}
 		return numMsgs, nil
@@ -171,6 +210,26 @@ func (s *ICEBind) parseSTUNMessage(raw []byte) (*stun.Message, error) {
 	}
 
 	return msg, nil
+}
+
+func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpoint) (int, error) {
+	if c.closed {
+		log.Infof("receiver is closed, return with closed error")
+		return 0, net.ErrClosed
+	}
+
+	select {
+	case <-c.closedChan:
+		return 0, net.ErrClosed
+	case msg, ok := <-c.RecvChan:
+		if !ok {
+			return 0, net.ErrClosed
+		}
+		copy(buffs[0], msg.Buffer)
+		sizes[0] = msg.Len
+		eps[0] = wgConn.Endpoint(msg.Endpoint)
+		return 1, nil
+	}
 }
 
 func fakeAddress(peerAddress *net.UDPAddr) (*net.UDPAddr, error) {
