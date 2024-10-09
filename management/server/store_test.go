@@ -14,12 +14,6 @@ type benchCase struct {
 	size    int
 }
 
-var newFs = func(b *testing.B) Store {
-	b.Helper()
-	store, _ := NewFileStore(context.Background(), b.TempDir(), nil)
-	return store
-}
-
 var newSqlite = func(b *testing.B) Store {
 	b.Helper()
 	store, _ := NewSqliteStore(context.Background(), b.TempDir(), nil)
@@ -28,13 +22,9 @@ var newSqlite = func(b *testing.B) Store {
 
 func BenchmarkTest_StoreWrite(b *testing.B) {
 	cases := []benchCase{
-		{name: "FileStore_Write", storeFn: newFs, size: 100},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 100},
-		{name: "FileStore_Write", storeFn: newFs, size: 500},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 500},
-		{name: "FileStore_Write", storeFn: newFs, size: 1000},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 1000},
-		{name: "FileStore_Write", storeFn: newFs, size: 2000},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 2000},
 	}
 
@@ -61,11 +51,8 @@ func BenchmarkTest_StoreWrite(b *testing.B) {
 
 func BenchmarkTest_StoreRead(b *testing.B) {
 	cases := []benchCase{
-		{name: "FileStore_Read", storeFn: newFs, size: 100},
 		{name: "SqliteStore_Read", storeFn: newSqlite, size: 100},
-		{name: "FileStore_Read", storeFn: newFs, size: 500},
 		{name: "SqliteStore_Read", storeFn: newSqlite, size: 500},
-		{name: "FileStore_Read", storeFn: newFs, size: 1000},
 		{name: "SqliteStore_Read", storeFn: newSqlite, size: 1000},
 	}
 
@@ -88,4 +75,12 @@ func BenchmarkTest_StoreRead(b *testing.B) {
 			})
 		})
 	}
+}
+
+func newStore(t *testing.T) Store {
+	t.Helper()
+
+	store := newSqliteStore(t)
+
+	return store
 }

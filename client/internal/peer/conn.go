@@ -32,6 +32,8 @@ const (
 	connPriorityRelay   ConnPriority = 1
 	connPriorityICETurn ConnPriority = 1
 	connPriorityICEP2P  ConnPriority = 2
+
+	reconnectMaxElapsedTime = 30 * time.Minute
 )
 
 type WgConfig struct {
@@ -81,6 +83,7 @@ type Conn struct {
 	statusRecorder *Status
 	wgProxyFactory *wgproxy.Factory
 	signaler       *Signaler
+	iFaceDiscover  stdnet.ExternalIFaceDiscover
 	relayManager   *relayClient.Manager
 	allowedIPsIP   string
 	handshaker     *Handshaker
@@ -107,6 +110,8 @@ type Conn struct {
 	// for reconnection operations
 	iCEDisconnected   chan bool
 	relayDisconnected chan bool
+	connMonitor       *ConnMonitor
+	reconnectCh       <-chan struct{}
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -122,20 +127,30 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	connLog := log.WithField("peer", config.Key)
 
 	var conn = &Conn{
-		log:               connLog,
-		ctx:               ctx,
-		ctxCancel:         ctxCancel,
-		config:            config,
-		statusRecorder:    statusRecorder,
-		wgProxyFactory:    wgProxyFactory,
-		signaler:          signaler,
-		relayManager:      relayManager,
-		allowedIPsIP:      allowedIPsIP.String(),
-		statusRelay:       NewAtomicConnStatus(),
-		statusICE:         NewAtomicConnStatus(),
+		log:            connLog,
+		ctx:            ctx,
+		ctxCancel:      ctxCancel,
+		config:         config,
+		statusRecorder: statusRecorder,
+		wgProxyFactory: wgProxyFactory,
+		signaler:       signaler,
+		iFaceDiscover:  iFaceDiscover,
+		relayManager:   relayManager,
+		allowedIPsIP:   allowedIPsIP.String(),
+		statusRelay:    NewAtomicConnStatus(),
+		statusICE:      NewAtomicConnStatus(),
+
 		iCEDisconnected:   make(chan bool, 1),
 		relayDisconnected: make(chan bool, 1),
 	}
+
+	conn.connMonitor, conn.reconnectCh = NewConnMonitor(
+		signaler,
+		iFaceDiscover,
+		config,
+		conn.relayDisconnected,
+		conn.iCEDisconnected,
+	)
 
 	rFns := WorkerRelayCallbacks{
 		OnConnReady:    conn.relayConnectionIsReady,
@@ -198,6 +213,8 @@ func (conn *Conn) startHandshakeAndReconnect() {
 	if err != nil {
 		conn.log.Errorf("failed to send initial offer: %v", err)
 	}
+
+	go conn.connMonitor.Start(conn.ctx)
 
 	if conn.workerRelay.IsController() {
 		conn.reconnectLoopWithRetry()
@@ -307,12 +324,14 @@ func (conn *Conn) reconnectLoopWithRetry() {
 	// With it, we can decrease to send necessary offer
 	select {
 	case <-conn.ctx.Done():
+		return
 	case <-time.After(3 * time.Second):
 	}
 
 	ticker := conn.prepareExponentTicker()
 	defer ticker.Stop()
 	time.Sleep(1 * time.Second)
+
 	for {
 		select {
 		case t := <-ticker.C:
@@ -340,20 +359,11 @@ func (conn *Conn) reconnectLoopWithRetry() {
 			if err != nil {
 				conn.log.Errorf("failed to do handshake: %v", err)
 			}
-		case changed := <-conn.relayDisconnected:
-			if !changed {
-				continue
-			}
-			conn.log.Debugf("Relay state changed, reset reconnect timer")
+
+		case <-conn.reconnectCh:
 			ticker.Stop()
 			ticker = conn.prepareExponentTicker()
-		case changed := <-conn.iCEDisconnected:
-			if !changed {
-				continue
-			}
-			conn.log.Debugf("ICE state changed, reset reconnect timer")
-			ticker.Stop()
-			ticker = conn.prepareExponentTicker()
+
 		case <-conn.ctx.Done():
 			conn.log.Debugf("context is done, stop reconnect loop")
 			return
@@ -364,10 +374,10 @@ func (conn *Conn) reconnectLoopWithRetry() {
 func (conn *Conn) prepareExponentTicker() *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 0.01,
+		RandomizationFactor: 0.1,
 		Multiplier:          2,
 		MaxInterval:         conn.config.Timeout,
-		MaxElapsedTime:      0,
+		MaxElapsedTime:      reconnectMaxElapsedTime,
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, conn.ctx)
