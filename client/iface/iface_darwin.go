@@ -25,8 +25,8 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 	iceBind := bind.NewICEBind(transportNet, filterFn)
 
 	wgIFace := &WGIface{
-		userspaceBind: true,
-		wgProxyMgr:    wgproxy.NewManager(wgPort, iceBind),
+		userspaceBind:  true,
+		wgProxyFactory: wgproxy.NewFactory(wgPort, iceBind),
 	}
 
 	if netstack.IsEnabled() {
