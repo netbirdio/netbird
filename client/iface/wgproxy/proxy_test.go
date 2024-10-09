@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/client/iface/wgproxy/ebpf"
+	udpProxy "github.com/netbirdio/netbird/client/iface/wgproxy/udp"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -83,7 +84,7 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 	}{
 		{
 			name:  "userspace proxy",
-			proxy: udpproxy.NewWGUserSpaceProxy(51830),
+			proxy: udpProxy.NewWGUDPProxy(51830),
 		},
 	}
 
