@@ -19,11 +19,11 @@ import (
 )
 
 const (
-	UserRoleOwner   UserRole = "owner"
-	UserRoleAdmin   UserRole = "admin"
-	UserRoleUser    UserRole = "user"
-	UserRoleUnknown UserRole = "unknown"
-	UserRoleBilling UserRole = "billing"
+	UserRoleOwner        UserRole = "owner"
+	UserRoleAdmin        UserRole = "admin"
+	UserRoleUser         UserRole = "user"
+	UserRoleUnknown      UserRole = "unknown"
+	UserRoleBillingAdmin UserRole = "billing_admin"
 
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
@@ -43,7 +43,7 @@ func StrRoleToUserRole(strRole string) UserRole {
 	case "user":
 		return UserRoleUser
 	case "billing":
-		return UserRoleBilling
+		return UserRoleBillingAdmin
 	default:
 		return UserRoleUnknown
 	}
