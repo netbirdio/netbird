@@ -230,7 +230,6 @@ func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bo
 	}
 
 	differ, err := diff.NewDiffer(
-		diff.DisableStructValues(),
 		diff.CustomValueDiffers(&differs.NetIPAddr{}),
 		diff.CustomValueDiffers(&differs.NetIPPrefix{}),
 	)

@@ -1001,6 +1001,74 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
+	// Disabling policy with destination and source groups containing peers should update account's peers
+	// and send peer update
+	t.Run("disabling policy with source and destination groups with peers", func(t *testing.T) {
+		policy := Policy{
+			ID:      "policy-source-destination-peers",
+			Enabled: false,
+			Rules: []*PolicyRule{
+				{
+					ID:            xid.New().String(),
+					Enabled:       true,
+					Sources:       []string{"groupA"},
+					Destinations:  []string{"groupD"},
+					Bidirectional: true,
+					Action:        PolicyTrafficActionAccept,
+				},
+			},
+		}
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg1)
+			close(done)
+		}()
+
+		err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Enabling policy with destination and source groups containing peers should update account's peers
+	// and send peer update
+	t.Run("enabling policy with source and destination groups with peers", func(t *testing.T) {
+		policy := Policy{
+			ID:      "policy-source-destination-peers",
+			Enabled: true,
+			Rules: []*PolicyRule{
+				{
+					ID:            xid.New().String(),
+					Enabled:       true,
+					Sources:       []string{"groupA"},
+					Destinations:  []string{"groupD"},
+					Bidirectional: true,
+					Action:        PolicyTrafficActionAccept,
+				},
+			},
+		}
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg1)
+			close(done)
+		}()
+
+		err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
 	// Saving unchanged policy should trigger account peers update but not send peer update
 	t.Run("saving unchanged policy", func(t *testing.T) {
 		policy := Policy{
