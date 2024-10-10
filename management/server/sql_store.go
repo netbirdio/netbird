@@ -911,28 +911,6 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 	return store, nil
 }
 
-// NewPostgresqlStoreFromFileStore restores a store from FileStore and stores Postgres DB.
-func NewPostgresqlStoreFromFileStore(ctx context.Context, fileStore *FileStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewPostgresqlStore(ctx, dsn, metrics)
-	if err != nil {
-		return nil, err
-	}
-
-	err = store.SaveInstallationID(ctx, fileStore.InstallationID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, account := range fileStore.GetAllAccounts(ctx) {
-		err := store.SaveAccount(ctx, account)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return store, nil
-}
-
 // NewPostgresqlStoreFromSqlStore restores a store from SqlStore and stores Postgres DB.
 func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	store, err := NewPostgresqlStore(ctx, dsn, metrics)
