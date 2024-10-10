@@ -1193,7 +1193,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 }
 
 func TestSqlite_GetAccoundUsers(t *testing.T) {
-	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1207,7 +1207,7 @@ func TestSqlite_GetAccoundUsers(t *testing.T) {
 }
 
 func TestSqlStore_UpdateAccountDomainAttributes(t *testing.T) {
-	store, cleanup, err := NewSqliteTestStore(context.Background(), t.TempDir(), "testdata/extended-store.sqlite")
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
