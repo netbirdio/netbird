@@ -3,6 +3,7 @@ package id
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/netip"
 
 	"github.com/netbirdio/netbird/client/firewall/manager"
@@ -56,6 +57,8 @@ func GenerateRouteRuleKey(
 	h.Write([]byte("action:"))
 	h.Write([]byte(string(action)))
 
-	hash := h.Sum(nil)
-	return RuleID(hex.EncodeToString(hash))
+	hash := hex.EncodeToString(h.Sum(nil))
+
+	// prepend destination prefix to be able to identify the rule
+	return RuleID(fmt.Sprintf("%s-%s", destination.String(), hash[:16]))
 }
