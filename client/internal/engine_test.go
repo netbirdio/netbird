@@ -242,13 +242,13 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		peer.NewRecorder("https://mgm"),
 		nil)
 
-	wgIface := &iface.MockWGIface{
+	wgIface := &MockWGIface{
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},
 	}
 	engine.wgInterface = wgIface
-	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, relayMgr, nil)
+	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface.(*iface.WGIface), engine.statusRecorder, relayMgr, nil)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
 	}
