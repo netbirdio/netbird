@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -1272,6 +1272,74 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 	}
 
 	return map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}, hadPeers, nil
+}
+
+// updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
+func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[string]*nbgroup.Group, peers []*nbpeer.Peer, groupsToAdd,
+	groupsToRemove []string) (groupsToUpdate []*nbgroup.Group, err error) {
+
+	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
+		return
+	}
+
+	userPeerIDMap := make(map[string]struct{}, len(peers))
+	for _, peer := range peers {
+		userPeerIDMap[peer.ID] = struct{}{}
+	}
+
+	for _, gid := range groupsToAdd {
+		group, ok := accountGroups[gid]
+		if !ok {
+			return nil, errors.New("group not found")
+		}
+		addUserPeersToGroup(userPeerIDMap, group)
+		groupsToUpdate = append(groupsToUpdate, group)
+	}
+
+	for _, gid := range groupsToRemove {
+		group, ok := accountGroups[gid]
+		if !ok {
+			return nil, errors.New("group not found")
+		}
+		removeUserPeersFromGroup(userPeerIDMap, group)
+		groupsToUpdate = append(groupsToUpdate, group)
+	}
+
+	return groupsToUpdate, nil
+}
+
+// addUserPeersToGroup adds the user's peers to the group.
+func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) {
+	groupPeers := make(map[string]struct{}, len(group.Peers))
+	for _, pid := range group.Peers {
+		groupPeers[pid] = struct{}{}
+	}
+
+	for pid := range userPeerIDs {
+		groupPeers[pid] = struct{}{}
+	}
+
+	group.Peers = make([]string, 0, len(groupPeers))
+	for pid := range groupPeers {
+		group.Peers = append(group.Peers, pid)
+	}
+}
+
+// removeUserPeersFromGroup removes user's peers from the group.
+func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) {
+	// skip removing peers from group All
+	if group.Name == "All" {
+		return
+	}
+
+	updatedPeers := make([]string, 0, len(group.Peers))
+	for _, pid := range group.Peers {
+		if _, found := userPeerIDs[pid]; !found {
+			updatedPeers = append(updatedPeers, pid)
+		}
+	}
+
+	group.Peers = updatedPeers
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {

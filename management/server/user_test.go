@@ -62,8 +62,10 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.CreatedBy, mockUserID)
 
-	fileStore := am.Store.(*FileStore)
-	tokenID := fileStore.HashedPAT2TokenID[pat.HashedToken]
+	tokenID, err := am.Store.GetTokenIDByHashedToken(context.Background(), pat.HashedToken)
+	if err != nil {
+		t.Fatalf("Error when getting token ID by hashed token: %s", err)
+	}
 
 	if tokenID == "" {
 		t.Fatal("GetTokenIDByHashedToken failed after adding PAT")
@@ -71,11 +73,12 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.ID, tokenID)
 
-	userID := fileStore.TokenID2UserID[tokenID]
-	if userID == "" {
-		t.Fatal("GetUserByTokenId failed after adding PAT")
+	user, err := am.Store.GetUserByTokenID(context.Background(), tokenID)
+	if err != nil {
+		t.Fatalf("Error when getting user by token ID: %s", err)
 	}
-	assert.Equal(t, mockUserID, userID)
+
+	assert.Equal(t, mockUserID, user.Id)
 }
 
 func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
@@ -192,9 +195,12 @@ func TestUser_DeletePAT(t *testing.T) {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
 
-	assert.Nil(t, store.Accounts[mockAccountID].Users[mockUserID].PATs[mockTokenID1])
-	assert.Empty(t, store.HashedPAT2TokenID[mockToken1])
-	assert.Empty(t, store.TokenID2UserID[mockTokenID1])
+	account, err = store.GetAccount(context.Background(), mockAccountID)
+	if err != nil {
+		t.Fatalf("Error when getting account: %s", err)
+	}
+
+	assert.Nil(t, account.Users[mockUserID].PATs[mockTokenID1])
 }
 
 func TestUser_GetPAT(t *testing.T) {
@@ -353,13 +359,16 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		t.Fatalf("Error when creating service user: %s", err)
 	}
 
-	assert.Equal(t, 2, len(store.Accounts[mockAccountID].Users))
-	assert.NotNil(t, store.Accounts[mockAccountID].Users[user.ID])
-	assert.True(t, store.Accounts[mockAccountID].Users[user.ID].IsServiceUser)
-	assert.Equal(t, mockServiceUserName, store.Accounts[mockAccountID].Users[user.ID].ServiceUserName)
-	assert.Equal(t, UserRole(mockRole), store.Accounts[mockAccountID].Users[user.ID].Role)
-	assert.Equal(t, []string{"group1", "group2"}, store.Accounts[mockAccountID].Users[user.ID].AutoGroups)
-	assert.Equal(t, map[string]*PersonalAccessToken{}, store.Accounts[mockAccountID].Users[user.ID].PATs)
+	account, err = store.GetAccount(context.Background(), mockAccountID)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 2, len(account.Users))
+	assert.NotNil(t, account.Users[user.ID])
+	assert.True(t, account.Users[user.ID].IsServiceUser)
+	assert.Equal(t, mockServiceUserName, account.Users[user.ID].ServiceUserName)
+	assert.Equal(t, UserRole(mockRole), account.Users[user.ID].Role)
+	assert.Equal(t, []string{"group1", "group2"}, account.Users[user.ID].AutoGroups)
+	assert.Equal(t, map[string]*PersonalAccessToken{}, account.Users[user.ID].PATs)
 
 	assert.Zero(t, user.Email)
 	assert.True(t, user.IsServiceUser)
@@ -397,12 +406,15 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 		t.Fatalf("Error when creating user: %s", err)
 	}
 
+	account, err = store.GetAccount(context.Background(), mockAccountID)
+	assert.NoError(t, err)
+
 	assert.True(t, user.IsServiceUser)
-	assert.Equal(t, 2, len(store.Accounts[mockAccountID].Users))
-	assert.True(t, store.Accounts[mockAccountID].Users[user.ID].IsServiceUser)
-	assert.Equal(t, mockServiceUserName, store.Accounts[mockAccountID].Users[user.ID].ServiceUserName)
-	assert.Equal(t, UserRole(mockRole), store.Accounts[mockAccountID].Users[user.ID].Role)
-	assert.Equal(t, []string{"group1", "group2"}, store.Accounts[mockAccountID].Users[user.ID].AutoGroups)
+	assert.Equal(t, 2, len(account.Users))
+	assert.True(t, account.Users[user.ID].IsServiceUser)
+	assert.Equal(t, mockServiceUserName, account.Users[user.ID].ServiceUserName)
+	assert.Equal(t, UserRole(mockRole), account.Users[user.ID].Role)
+	assert.Equal(t, []string{"group1", "group2"}, account.Users[user.ID].AutoGroups)
 
 	assert.Equal(t, mockServiceUserName, user.Name)
 	assert.Equal(t, mockRole, user.Role)
@@ -553,12 +565,15 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 			err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockServiceUserID)
 			tt.assertErrFunc(t, err, tt.assertErrMessage)
 
+			account, err2 := store.GetAccount(context.Background(), mockAccountID)
+			assert.NoError(t, err2)
+
 			if err != nil {
-				assert.Equal(t, 2, len(store.Accounts[mockAccountID].Users))
-				assert.NotNil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+				assert.Equal(t, 2, len(account.Users))
+				assert.NotNil(t, account.Users[mockServiceUserID])
 			} else {
-				assert.Equal(t, 1, len(store.Accounts[mockAccountID].Users))
-				assert.Nil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+				assert.Equal(t, 1, len(account.Users))
+				assert.Nil(t, account.Users[mockServiceUserID])
 			}
 		})
 	}
@@ -801,10 +816,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			accID, err := am.GetAccountIDByUserOrAccountID(context.Background(), "", account.Id, "")
-			assert.NoError(t, err)
-
-			acc, err := am.Store.GetAccount(context.Background(), accID)
+			acc, err := am.Store.GetAccount(context.Background(), account.Id)
 			assert.NoError(t, err)
 
 			for _, id := range tc.expectedDeleted {

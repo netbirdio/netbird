@@ -775,7 +775,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 func createNSStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)
+	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
