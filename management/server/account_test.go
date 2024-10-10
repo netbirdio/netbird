@@ -2426,7 +2426,7 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 func createStore(t TB) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", dataDir)
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
