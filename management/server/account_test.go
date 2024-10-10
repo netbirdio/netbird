@@ -1217,10 +1217,10 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		}
 	}()
 
-		if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
-			t.Errorf("delete default rule: %v", err)
-			return
-		}
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
 
 	wg.Wait()
 }
@@ -1281,7 +1281,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		return
 	}
 
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
 		t.Errorf("save policy: %v", err)
 		return
 	}
