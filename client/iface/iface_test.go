@@ -432,7 +432,12 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer1wgPort))
+	localIP, err := getLocalIP()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer1wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +463,7 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer2wgPort))
+	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", localIP, peer2wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,4 +531,29 @@ func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 		}
 	}
 	return wgtypes.Peer{}, fmt.Errorf("peer not found")
+}
+
+func getLocalIP() (string, error) {
+	// Get all interfaces
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ipNet.IP.IsLoopback() {
+			continue
+		}
+
+		if ipNet.IP.To4() == nil {
+			continue
+		}
+		return ipNet.IP.String(), nil
+	}
+
+	return "", fmt.Errorf("no local IP found")
 }
