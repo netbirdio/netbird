@@ -252,10 +252,6 @@ func (m *aclManager) cleanChains() error {
 				log.Errorf("failed to delete rule: %v, %s", rule, err)
 			}
 		}
-		err = m.iptablesClient.ClearChain("mangle", "PREROUTING")
-		if err != nil {
-			return fmt.Errorf("clear chain: %w", err)
-		}
 	}
 
 	for _, ipsetName := range m.ipsetStore.ipsetNames() {
