@@ -1,5 +1,3 @@
-//go:build !linux || android
-
 package wgproxy
 
 import (
@@ -7,24 +5,23 @@ import (
 	proxyBind "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
 )
 
-type Factory struct {
+type USPFactory struct {
 	bind *bind.ICEBind
-	port int
 }
 
-func NewFactory(port int, bind *bind.ICEBind) *Factory {
-	return &Factory{
-		port: port,
-		bind: bind,
+func NewUSPFactory(iceBind *bind.ICEBind) *USPFactory {
+	f := &USPFactory{
+		bind: iceBind,
 	}
+	return f
 }
 
-func (w *Factory) GetProxy() Proxy {
+func (w *USPFactory) GetProxy() Proxy {
 	return &proxyBind.ProxyBind{
 		Bind: w.bind,
 	}
 }
 
-func (w *Factory) Free() error {
+func (w *USPFactory) Free() error {
 	return nil
 }

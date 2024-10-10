@@ -1,3 +1,5 @@
+//go:build (linux && !android) || freebsd
+
 package iface
 
 import (
@@ -18,28 +20,28 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 		return nil, err
 	}
 
-	iceBind := bind.NewICEBind(transportNet, filterFn)
-
-	wgIFace := &WGIface{
-		userspaceBind:  true,
-		wgProxyFactory: wgproxy.NewFactory(wgPort, iceBind),
-	}
+	wgIFace := &WGIface{}
 
 	if netstack.IsEnabled() {
+		iceBind := bind.NewICEBind(transportNet, filterFn)
 		wgIFace.tun = device.NewNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, iceBind, netstack.ListenAddr())
+		wgIFace.userspaceBind = true
+		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind)
 		return wgIFace, nil
 	}
 
-	wgIFace.tun = device.NewTunDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet, filterFn)
-	return wgIFace, nil
-}
+	if device.WireGuardModuleIsLoaded() {
+		wgIFace.tun = device.NewKernelDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
+		wgIFace.wgProxyFactory = wgproxy.NewKernelFactory(wgPort)
+		return wgIFace, nil
+	}
+	if device.ModuleTunIsLoaded() {
+		iceBind := bind.NewICEBind(transportNet, filterFn)
+		wgIFace.tun = device.NewUSPDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, iceBind)
+		wgIFace.userspaceBind = true
+		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind)
+		return wgIFace, nil
+	}
 
-// CreateOnAndroid this function make sense on mobile only
-func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
-	return fmt.Errorf("this function has not implemented on non mobile")
-}
-
-// GetInterfaceGUIDString returns an interface GUID. This is useful on Windows only
-func (w *WGIface) GetInterfaceGUIDString() (string, error) {
-	return w.tun.(*device.TunDevice).GetInterfaceGUIDString()
+	return nil, fmt.Errorf("couldn't check or load tun module")
 }

@@ -25,6 +25,11 @@ const (
 
 type WGAddress = device.WGAddress
 
+type wgProxyFactory interface {
+	GetProxy() wgproxy.Proxy
+	Free() error
+}
+
 // WGIface represents an interface instance
 type WGIface struct {
 	tun           WGTunDevice
@@ -33,7 +38,7 @@ type WGIface struct {
 
 	configurer     device.WGConfigurer
 	filter         device.PacketFilter
-	wgProxyFactory *wgproxy.Factory
+	wgProxyFactory wgProxyFactory
 }
 
 func (w *WGIface) GetProxy() wgproxy.Proxy {
