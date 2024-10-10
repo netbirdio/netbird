@@ -69,6 +69,11 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metr
 	if err != nil {
 		conns = runtime.NumCPU()
 	}
+
+	if storeEngine == SqliteStoreEngine {
+		conns = 1
+	}
+
 	sql.SetMaxOpenConns(conns)
 
 	log.Infof("Set max open db connections to %d", conns)
