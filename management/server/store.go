@@ -9,10 +9,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
@@ -245,23 +247,31 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		kind = SqliteStoreEngine
 	}
 
-	var store *SqlStore
-	var err error
-	var cleanUp func()
-
-	store, err = NewSqliteStore(ctx, dataDir, nil)
-	cleanUp = func() {
-		store.Close(ctx)
+	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
+	if runtime.GOOS == "windows" {
+		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
+		storeStr = storeSqliteFileName
 	}
+
+	file := filepath.Join(dataDir, storeStr)
+	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create SQLite store: %v", err)
+		return nil, nil, err
 	}
 
 	if filename != "" {
-		err = loadSQL(store.db, filename)
+		err = loadSQL(db, filename)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
 		}
+	}
+
+	store, err := NewSqlStore(ctx, db, SqliteStoreEngine, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
+	}
+	cleanUp := func() {
+		store.Close(ctx)
 	}
 
 	if kind == PostgresStoreEngine {
