@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"math/rand"
@@ -1820,7 +1821,7 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 // GetAccountIDFromToken returns an account ID associated with this token.
 func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 	if claims.UserId == "" {
-		return "", "", fmt.Errorf(emptyUserID)
+		return "", "", errors.New(emptyUserID)
 	}
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
@@ -2028,7 +2029,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		claims.UserId, claims.AccountId, claims.Domain, claims.DomainCategory)
 
 	if claims.UserId == "" {
-		return "", fmt.Errorf(emptyUserID)
+		return "", errors.New(emptyUserID)
 	}
 
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
