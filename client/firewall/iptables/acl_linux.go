@@ -22,13 +22,19 @@ const (
 	chainNameOutputRules = "NETBIRD-ACL-OUTPUT"
 )
 
+type entry struct {
+	spec     []string
+	position int
+}
+
 type aclManager struct {
 	iptablesClient     *iptables.IPTables
 	wgIface            iFaceMapper
 	routingFwChainName string
 
-	entries    map[string][][]string
-	ipsetStore *ipsetStore
+	entries         map[string][][]string
+	optionalEntries map[string][]entry
+	ipsetStore      *ipsetStore
 }
 
 func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routingFwChainName string) (*aclManager, error) {
@@ -37,8 +43,9 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routi
 		wgIface:            wgIface,
 		routingFwChainName: routingFwChainName,
 
-		entries:    make(map[string][][]string),
-		ipsetStore: newIpsetStore(),
+		entries:         make(map[string][][]string),
+		optionalEntries: make(map[string][]entry),
+		ipsetStore:      newIpsetStore(),
 	}
 
 	err := ipset.Init()
@@ -47,6 +54,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routi
 	}
 
 	m.seedInitialEntries()
+	m.seedInitialOptionalEntries()
 
 	err = m.cleanChains()
 	if err != nil {
@@ -285,6 +293,17 @@ func (m *aclManager) createDefaultChains() error {
 		}
 	}
 
+	for chainName, entries := range m.optionalEntries {
+		for _, entry := range entries {
+			if err := m.iptablesClient.InsertUnique(tableName, chainName, entry.position, entry.spec...); err != nil {
+				log.Errorf("failed to insert optional entry %v: %v", entry.spec, err)
+				continue
+			}
+			m.entries[chainName] = append(m.entries[chainName], entry.spec)
+		}
+	}
+	clear(m.optionalEntries)
+
 	return nil
 }
 
@@ -314,6 +333,22 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("FORWARD", append([]string{"-o", m.wgIface.Name()}, established...))
 
 	m.appendToEntries("PREROUTING", []string{"-t", "mangle", "-i", m.wgIface.Name(), "-m", "addrtype", "--dst-type", "LOCAL", "-j", "MARK", "--set-mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark)})
+}
+
+func (m *aclManager) seedInitialOptionalEntries() {
+	m.optionalEntries["FORWARD"] = []entry{
+		{
+			spec:     []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName},
+			position: 2,
+		},
+	}
+
+	m.optionalEntries["PREROUTING"] = []entry{
+		{
+			spec:     []string{"-t", "mangle", "-i", m.wgIface.Name(), "-m", "addrtype", "--dst-type", "LOCAL", "-j", "MARK", "--set-mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark)},
+			position: 1,
+		},
+	}
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {
