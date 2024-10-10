@@ -16,8 +16,10 @@ const (
 type Metrics struct {
 	metric.Meter
 
-	TransferBytesSent metric.Int64Counter
-	TransferBytesRecv metric.Int64Counter
+	TransferBytesSent  metric.Int64Counter
+	TransferBytesRecv  metric.Int64Counter
+	AuthenticationTime metric.Float64Histogram
+	PeerStoreTime      metric.Float64Histogram
 
 	peers            metric.Int64UpDownCounter
 	peerActivityChan chan string
@@ -52,11 +54,23 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
+	authTime, err := meter.Float64Histogram("relay_peer_authentication_time_milliseconds", metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
+	if err != nil {
+		return nil, err
+	}
+
+	peerStoreTime, err := meter.Float64Histogram("relay_peer_store_time_milliseconds", metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
+	if err != nil {
+		return nil, err
+	}
+
 	m := &Metrics{
-		Meter:             meter,
-		TransferBytesSent: bytesSent,
-		TransferBytesRecv: bytesRecv,
-		peers:             peers,
+		Meter:              meter,
+		TransferBytesSent:  bytesSent,
+		TransferBytesRecv:  bytesRecv,
+		AuthenticationTime: authTime,
+		PeerStoreTime:      peerStoreTime,
+		peers:              peers,
 
 		ctx:              ctx,
 		peerActivityChan: make(chan string, 10),
@@ -87,6 +101,16 @@ func (m *Metrics) PeerConnected(id string) {
 	defer m.mutexActivity.Unlock()
 
 	m.peerLastActive[id] = time.Time{}
+}
+
+// RecordAuthenticationTime measures the time taken for peer authentication
+func (m *Metrics) RecordAuthenticationTime(duration time.Duration) {
+	m.AuthenticationTime.Record(m.ctx, float64(duration.Nanoseconds())/1e6)
+}
+
+// RecordPeerStoreTime measures the time to store the peer in map
+func (m *Metrics) RecordPeerStoreTime(duration time.Duration) {
+	m.PeerStoreTime.Record(m.ctx, float64(duration.Nanoseconds())/1e6)
 }
 
 // PeerDisconnected decrements the number of connected peers and decrements number of idle or active connections
@@ -132,5 +156,21 @@ func (m *Metrics) readPeerActivity() {
 		case <-m.ctx.Done():
 			return
 		}
+	}
+}
+
+func getStandardBucketBoundaries() []float64 {
+	return []float64{
+		0.1,
+		0.5,
+		1,
+		5,
+		10,
+		50,
+		100,
+		500,
+		1000,
+		5000,
+		10000,
 	}
 }
