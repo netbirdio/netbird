@@ -78,7 +78,7 @@ func (m *Manager) AddPeerFiltering(
 }
 
 func (m *Manager) AddRouteFiltering(
-	sources [] netip.Prefix,
+	sources []netip.Prefix,
 	destination netip.Prefix,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
