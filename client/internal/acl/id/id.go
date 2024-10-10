@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/netip"
+	"strconv"
 
 	"github.com/netbirdio/netbird/client/firewall/manager"
 )
@@ -55,8 +56,7 @@ func GenerateRouteRuleKey(
 	}
 
 	h.Write([]byte("action:"))
-	h.Write([]byte(string(action)))
-
+	h.Write([]byte(strconv.Itoa(int(action))))
 	hash := hex.EncodeToString(h.Sum(nil))
 
 	// prepend destination prefix to be able to identify the rule
