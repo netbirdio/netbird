@@ -20,6 +20,11 @@ import (
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
+
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -36,10 +41,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 )
 
 const (
@@ -76,7 +77,8 @@ type AccountManager interface {
 	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByID(ctx context.Context, accountID string, userID string) (*Account, error)
-	GetAccountIDByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (string, error)
+	AccountExists(ctx context.Context, accountID string) (bool, error)
+	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(ctx context.Context, pat string) (*Account, *User, *PersonalAccessToken, error)
@@ -478,12 +480,12 @@ func (a *Account) GetPeerNetworkMap(
 	}
 
 	nm := &NetworkMap{
-		Peers:         peersToConnect,
-		Network:       a.Network.Copy(),
-		Routes:        routesUpdate,
-		DNSConfig:     dnsUpdate,
-		OfflinePeers:  expiredPeers,
-		FirewallRules: firewallRules,
+		Peers:               peersToConnect,
+		Network:             a.Network.Copy(),
+		Routes:              routesUpdate,
+		DNSConfig:           dnsUpdate,
+		OfflinePeers:        expiredPeers,
+		FirewallRules:       firewallRules,
 		RoutesFirewallRules: routesFirewallRules,
 	}
 
@@ -843,55 +845,54 @@ func (a *Account) GetPeer(peerID string) *nbpeer.Peer {
 	return a.Peers[peerID]
 }
 
-// SetJWTGroups updates the user's auto groups by synchronizing JWT groups.
-// Returns true if there are changes in the JWT group membership.
-func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
-	user, ok := a.Users[userID]
-	if !ok {
-		return false
-	}
-
+// getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
+// Returns a bool indicating if there are changes in the JWT group membership, the updated user AutoGroups,
+// newly groups to create and an error if any occurred.
+func (am *DefaultAccountManager) getJWTGroupsChanges(user *User, groups []*nbgroup.Group, groupNames []string) (bool, []string, []*nbgroup.Group, error) {
 	existedGroupsByName := make(map[string]*nbgroup.Group)
-	for _, group := range a.Groups {
+	for _, group := range groups {
 		existedGroupsByName[group.Name] = group
 	}
 
-	newAutoGroups, jwtGroupsMap := separateGroups(user.AutoGroups, a.Groups)
-	groupsToAdd := difference(groupsNames, maps.Keys(jwtGroupsMap))
-	groupsToRemove := difference(maps.Keys(jwtGroupsMap), groupsNames)
+	newUserAutoGroups, jwtGroupsMap := separateGroups(user.AutoGroups, groups)
+
+	groupsToAdd := difference(groupNames, maps.Keys(jwtGroupsMap))
+	groupsToRemove := difference(maps.Keys(jwtGroupsMap), groupNames)
 
 	// If no groups are added or removed, we should not sync account
 	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
-		return false
+		return false, nil, nil, nil
 	}
+
+	newGroupsToCreate := make([]*nbgroup.Group, 0)
 
 	var modified bool
 	for _, name := range groupsToAdd {
 		group, exists := existedGroupsByName[name]
 		if !exists {
 			group = &nbgroup.Group{
-				ID:     xid.New().String(),
-				Name:   name,
-				Issued: nbgroup.GroupIssuedJWT,
+				ID:        xid.New().String(),
+				AccountID: user.AccountID,
+				Name:      name,
+				Issued:    nbgroup.GroupIssuedJWT,
 			}
-			a.Groups[group.ID] = group
+			newGroupsToCreate = append(newGroupsToCreate, group)
 		}
 		if group.Issued == nbgroup.GroupIssuedJWT {
-			newAutoGroups = append(newAutoGroups, group.ID)
+			newUserAutoGroups = append(newUserAutoGroups, group.ID)
 			modified = true
 		}
 	}
 
 	for name, id := range jwtGroupsMap {
 		if !slices.Contains(groupsToRemove, name) {
-			newAutoGroups = append(newAutoGroups, id)
+			newUserAutoGroups = append(newUserAutoGroups, id)
 			continue
 		}
 		modified = true
 	}
-	user.AutoGroups = newAutoGroups
 
-	return modified
+	return modified, newUserAutoGroups, newGroupsToCreate, nil
 }
 
 // UserGroupsAddToPeers adds groups to all peers of user
@@ -1262,37 +1263,36 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	return nil
 }
 
-// GetAccountIDByUserOrAccountID retrieves the account ID based on either the userID or accountID provided.
-// If an accountID is provided, it checks if the account exists and returns it.
-// If no accountID is provided, but a userID is given, it tries to retrieve the account by userID.
+// AccountExists checks if an account exists.
+func (am *DefaultAccountManager) AccountExists(ctx context.Context, accountID string) (bool, error) {
+	return am.Store.AccountExists(ctx, LockingStrengthShare, accountID)
+}
+
+// GetAccountIDByUserID retrieves the account ID based on the userID provided.
+// If user does have an account, it returns the user's account ID.
 // If the user doesn't have an account, it creates one using the provided domain.
 // Returns the account ID or an error if none is found or created.
-func (am *DefaultAccountManager) GetAccountIDByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (string, error) {
-	if accountID != "" {
-		exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, accountID)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return "", status.Errorf(status.NotFound, "account %s does not exist", accountID)
-		}
-		return accountID, nil
+func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error) {
+	if userID == "" {
+		return "", status.Errorf(status.NotFound, "no valid userID provided")
 	}
 
-	if userID != "" {
-		account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
-		if err != nil {
-			return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
-		}
+	accountID, err := am.Store.GetAccountIDByUserID(userID)
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
+			if err != nil {
+				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
+			}
 
-		if err = am.addAccountIDToIDPAppMeta(ctx, userID, account); err != nil {
-			return "", err
+			if err = am.addAccountIDToIDPAppMeta(ctx, userID, account); err != nil {
+				return "", err
+			}
+			return account.Id, nil
 		}
-
-		return account.Id, nil
+		return "", err
 	}
-
-	return "", status.Errorf(status.NotFound, "no valid userID or accountID provided")
+	return accountID, nil
 }
 
 func isNil(i idp.Manager) bool {
@@ -1765,7 +1765,7 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
+	if user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
 	}
 
@@ -1796,6 +1796,10 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 		return "", "", status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
+	if user.AccountID != accountID {
+		return "", "", status.Errorf(status.PermissionDenied, "user %s is not part of the account %s", claims.UserId, accountID)
+	}
+
 	if !user.IsServiceUser && claims.Invited {
 		err = am.redeemInvite(ctx, accountID, user.Id)
 		if err != nil {
@@ -1803,7 +1807,7 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 		}
 	}
 
-	if err = am.syncJWTGroups(ctx, accountID, user, claims); err != nil {
+	if err = am.syncJWTGroups(ctx, accountID, claims); err != nil {
 		return "", "", err
 	}
 
@@ -1812,7 +1816,7 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
 // and propagates changes to peers if group propagation is enabled.
-func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID string, user *User, claims jwtclaims.AuthorizationClaims) error {
+func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID string, claims jwtclaims.AuthorizationClaims) error {
 	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
@@ -1823,67 +1827,134 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	if settings.JWTGroupsClaimName == "" {
-		log.WithContext(ctx).Errorf("JWT groups are enabled but no claim name is set")
+		log.WithContext(ctx).Debugf("JWT groups are enabled but no claim name is set")
 		return nil
-	}
-
-	// TODO: Remove GetAccount after refactoring account peer's update
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
 	}
 
 	jwtGroupsNames := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
 
-	oldGroups := make([]string, len(user.AutoGroups))
-	copy(oldGroups, user.AutoGroups)
+	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer func() {
+		if unlockPeer != nil {
+			unlockPeer()
+		}
+	}()
 
-	// Update the account if group membership changes
-	if account.SetJWTGroups(claims.UserId, jwtGroupsNames) {
-		addNewGroups := difference(user.AutoGroups, oldGroups)
-		removeOldGroups := difference(oldGroups, user.AutoGroups)
-
-		if settings.GroupsPropagationEnabled {
-			account.UserGroupsAddToPeers(claims.UserId, addNewGroups...)
-			account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
-			account.Network.IncSerial()
+	var addNewGroups []string
+	var removeOldGroups []string
+	var hasChanges bool
+	var user *User
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		user, err = am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+		if err != nil {
+			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		if err := am.Store.SaveAccount(ctx, account); err != nil {
-			log.WithContext(ctx).Errorf("failed to save account: %v", err)
+		groups, err := am.Store.GetAccountGroups(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account groups: %w", err)
+		}
+
+		changed, updatedAutoGroups, newGroupsToCreate, err := am.getJWTGroupsChanges(user, groups, jwtGroupsNames)
+		if err != nil {
+			return fmt.Errorf("error getting JWT groups changes: %w", err)
+		}
+
+		hasChanges = changed
+		// skip update if no changes
+		if !changed {
 			return nil
+		}
+
+		if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, newGroupsToCreate); err != nil {
+			return fmt.Errorf("error saving groups: %w", err)
+		}
+
+		addNewGroups = difference(updatedAutoGroups, user.AutoGroups)
+		removeOldGroups = difference(user.AutoGroups, updatedAutoGroups)
+
+		user.AutoGroups = updatedAutoGroups
+		if err = transaction.SaveUser(ctx, LockingStrengthUpdate, user); err != nil {
+			return fmt.Errorf("error saving user: %w", err)
 		}
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			am.updateAccountPeers(ctx, account)
-		}
+			groups, err = transaction.GetAccountGroups(ctx, accountID)
+			if err != nil {
+				return fmt.Errorf("error getting account groups: %w", err)
+			}
 
-		for _, g := range addNewGroups {
-			if group := account.GetGroup(g); group != nil {
-				am.StoreEvent(ctx, user.Id, user.Id, account.Id, activity.GroupAddedToUser,
-					map[string]any{
-						"group":           group.Name,
-						"group_id":        group.ID,
-						"is_service_user": user.IsServiceUser,
-						"user_name":       user.ServiceUserName})
+			groupsMap := make(map[string]*nbgroup.Group, len(groups))
+			for _, group := range groups {
+				groupsMap[group.ID] = group
+			}
+
+			peers, err := transaction.GetUserPeers(ctx, LockingStrengthShare, accountID, claims.UserId)
+			if err != nil {
+				return fmt.Errorf("error getting user peers: %w", err)
+			}
+
+			updatedGroups, err := am.updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
+			if err != nil {
+				return fmt.Errorf("error modifying user peers in groups: %w", err)
+			}
+
+			if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, updatedGroups); err != nil {
+				return fmt.Errorf("error saving groups: %w", err)
+			}
+
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
+		unlockPeer()
+		unlockPeer = nil
 
-		for _, g := range removeOldGroups {
-			if group := account.GetGroup(g); group != nil {
-				am.StoreEvent(ctx, user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
-					map[string]any{
-						"group":           group.Name,
-						"group_id":        group.ID,
-						"is_service_user": user.IsServiceUser,
-						"user_name":       user.ServiceUserName})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if !hasChanges {
+		return nil
+	}
+
+	for _, g := range addNewGroups {
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		if err != nil {
+			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
+		} else {
+			meta := map[string]any{
+				"group": group.Name, "group_id": group.ID,
+				"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
 			}
+			am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupAddedToUser, meta)
 		}
+	}
+
+	for _, g := range removeOldGroups {
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		if err != nil {
+			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
+		} else {
+			meta := map[string]any{
+				"group": group.Name, "group_id": group.ID,
+				"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
+			}
+			am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupRemovedFromUser, meta)
+		}
+	}
+
+	if settings.GroupsPropagationEnabled {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
+
+		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
+		am.updateAccountPeers(ctx, account)
 	}
 
 	return nil
@@ -1916,7 +1987,17 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
-		return am.GetAccountIDByUserOrAccountID(ctx, claims.UserId, claims.AccountId, claims.Domain)
+		if claims.AccountId != "" {
+			exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, claims.AccountId)
+			if err != nil {
+				return "", err
+			}
+			if !exists {
+				return "", status.Errorf(status.NotFound, "account %s does not exist", claims.AccountId)
+			}
+			return claims.AccountId, nil
+		}
+		return am.GetAccountIDByUserID(ctx, claims.UserId, claims.Domain)
 	} else if claims.AccountId != "" {
 		userAccountID, err := am.Store.GetAccountIDByUserID(claims.UserId)
 		if err != nil {
@@ -2229,7 +2310,11 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Ac
 	routes := make(map[route.ID]*route.Route)
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
-	users[userID] = NewOwnerUser(userID)
+
+	owner := NewOwnerUser(userID)
+	owner.AccountID = accountID
+	users[userID] = owner
+
 	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}
@@ -2297,12 +2382,17 @@ func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
 // separateGroups separates user's auto groups into non-JWT and JWT groups.
 // Returns the list of standard auto groups and a map of JWT auto groups,
 // where the keys are the group names and the values are the group IDs.
-func separateGroups(autoGroups []string, allGroups map[string]*nbgroup.Group) ([]string, map[string]string) {
+func separateGroups(autoGroups []string, allGroups []*nbgroup.Group) ([]string, map[string]string) {
 	newAutoGroups := make([]string, 0)
 	jwtAutoGroups := make(map[string]string) // map of group name to group ID
 
+	allGroupsMap := make(map[string]*nbgroup.Group, len(allGroups))
+	for _, group := range allGroups {
+		allGroupsMap[group.ID] = group
+	}
+
 	for _, id := range autoGroups {
-		if group, ok := allGroups[id]; ok {
+		if group, ok := allGroupsMap[id]; ok {
 			if group.Issued == nbgroup.GroupIssuedJWT {
 				jwtAutoGroups[group.Name] = id
 			} else {
@@ -2310,5 +2400,6 @@ func separateGroups(autoGroups []string, allGroups map[string]*nbgroup.Group) ([
 			}
 		}
 	}
+
 	return newAutoGroups, jwtAutoGroups
 }
