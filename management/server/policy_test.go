@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/slices"
 
@@ -870,6 +871,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
+					ID:            xid.New().String(),
 					Enabled:       true,
 					Sources:       []string{"groupB"},
 					Destinations:  []string{"groupC"},
@@ -903,6 +905,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
+					ID:            xid.New().String(),
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupB"},
@@ -937,6 +940,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
+					ID:            xid.New().String(),
 					Enabled:       false,
 					Sources:       []string{"groupC"},
 					Destinations:  []string{"groupD"},
@@ -971,6 +975,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
+					ID:            xid.New().String(),
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupD"},
@@ -1003,6 +1008,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
+					ID:            xid.New().String(),
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupD"},

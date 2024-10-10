@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/group"
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -205,6 +206,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
+				ID:            xid.New().String(),
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupA"},
@@ -329,6 +331,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
+					ID:            xid.New().String(),
 					Enabled:       true,
 					Sources:       []string{"groupB"},
 					Destinations:  []string{"groupC"},
@@ -365,11 +368,16 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	// Updating linked posture check to policy where destination has peers but source does not
 	// should trigger account peers update and send peer update
 	t.Run("updating linked posture check to policy where destination has peers but source does not", func(t *testing.T) {
+		updMsg1 := manager.peersUpdateManager.CreateChannel(context.Background(), peer2.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer2.ID)
+		})
 		policy = Policy{
 			ID:      "policyB",
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
+					ID:            xid.New().String(),
 					Enabled:       true,
 					Sources:       []string{"groupB"},
 					Destinations:  []string{"groupA"},
@@ -379,12 +387,13 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 			},
 			SourcePostureChecks: []string{postureCheck.ID},
 		}
+
 		err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
 		assert.NoError(t, err)
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg1)
 			close(done)
 		}()
 
