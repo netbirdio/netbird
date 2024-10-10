@@ -215,6 +215,10 @@ var activityMap = map[Activity]Code{
 
 	PeerInactivityExpirationEnabled:  {"Peer inactivity expiration enabled", "peer.inactivity.expiration.enable"},
 	PeerInactivityExpirationDisabled: {"Peer inactivity expiration disabled", "peer.inactivity.expiration.disable"},
+
+	AccountPeerInactivityExpirationEnabled:         {"Account peer inactivity expiration enabled", "account.peer.inactivity.expiration.enable"},
+	AccountPeerInactivityExpirationDisabled:        {"Account peer inactivity expiration disabled", "account.peer.inactivity.expiration.disable"},
+	AccountPeerInactivityExpirationDurationUpdated: {"Account peer inactivity expiration duration updated", "account.peer.inactivity.expiration.update"},
 }
 
 // StringCode returns a string code of the activity
