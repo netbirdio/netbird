@@ -50,6 +50,8 @@ const (
 	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration = 24 * time.Hour
+	emptyUserID                = "empty user ID in claims"
+	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
 )
 
 type userLoggedInOnce bool
@@ -1818,7 +1820,7 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 // GetAccountIDFromToken returns an account ID associated with this token.
 func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 	if claims.UserId == "" {
-		return "", "", fmt.Errorf("user ID is empty")
+		return "", "", fmt.Errorf(emptyUserID)
 	}
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
@@ -2010,11 +2012,11 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 //
 // Use cases:
 //
-// New user + New account + New domain -> create account, user role = admin (if private domain, index domain)
+// New user + New account + New domain -> create account, user role = owner (if private domain, index domain)
 //
-// New user + New account + Existing Private Domain -> add user to the existing account, user role = regular (not admin)
+// New user + New account + Existing Private Domain -> add user to the existing account, user role = user (not admin)
 //
-// New user + New account + Existing Public Domain -> create account, user role = admin
+// New user + New account + Existing Public Domain -> create account, user role = owner
 //
 // Existing user + Existing account + Existing Domain -> Nothing changes (if private, index domain)
 //
@@ -2026,7 +2028,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		claims.UserId, claims.AccountId, claims.Domain, claims.DomainCategory)
 
 	if claims.UserId == "" {
-		return "", fmt.Errorf("user ID is empty")
+		return "", fmt.Errorf(emptyUserID)
 	}
 
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
@@ -2066,11 +2068,11 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 
 	return am.addNewPrivateAccount(ctx, domainAccountID, claims)
 }
-
 func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Context, domain string) (string, context.CancelFunc, error) {
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if handleNotFound(err) != nil {
-		log.WithContext(ctx).Errorf("error getting account ID by private domain: %v", err)
+
+		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
 		return "", nil, err
 	}
 
@@ -2084,7 +2086,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 	// check again if the domain has a primary account because of simultaneous requests
 	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if handleNotFound(err) != nil {
-		log.WithContext(ctx).Errorf("error getting account ID by private domain: %v", err)
+		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
 		return "", nil, err
 	}
 
@@ -2115,7 +2117,7 @@ func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context
 	// We checked if the domain has a primary account already
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, claims.Domain)
 	if handleNotFound(err) != nil {
-		log.WithContext(ctx).Errorf("error getting account ID by private domain: %v", err)
+		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
 		return "", err
 	}
 
