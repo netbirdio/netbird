@@ -270,6 +270,8 @@ func (am *DefaultAccountManager) deletePeers(ctx context.Context, account *Accou
 						FirewallRulesIsEmpty: true,
 					},
 				},
+				NetworkMap: &NetworkMap{},
+				Checks:     []*posture.Checks{},
 			})
 		am.peersUpdateManager.CloseChannel(ctx, peer.ID)
 		am.StoreEvent(ctx, userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
@@ -999,7 +1001,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 			postureChecks := am.getPeerPostureChecks(account, p)
 			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
 			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
-			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
+			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap, Checks: postureChecks})
 		}(peer)
 	}
 
