@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/pion/stun/v2"
@@ -12,6 +13,11 @@ import (
 	"golang.org/x/net/ipv4"
 	wgConn "golang.zx2c4.com/wireguard/conn"
 )
+
+type RecvMessage struct {
+	Endpoint *Endpoint
+	Buffer   []byte
+}
 
 type receiverCreator struct {
 	iceBind *ICEBind
@@ -23,19 +29,32 @@ func (rc receiverCreator) CreateIPv4ReceiverFn(msgPool *sync.Pool, pc *ipv4.Pack
 
 type ICEBind struct {
 	*wgConn.StdNetBind
-
-	muUDPMux sync.Mutex
+	RecvChan chan RecvMessage
 
 	transportNet transport.Net
-	udpMux       *UniversalUDPMuxDefault
+	filterFn     FilterFn
+	endpoints    map[string]net.Conn
+	endpointsMu  sync.Mutex
+	// every time when Close() is called (i.e. BindUpdate()) we need to close exit from the receiveRelayed and create a
+	// new closed channel. With the closedChanMu we can safely close the channel and create a new one
+	closedChan   chan struct{}
+	closedChanMu sync.RWMutex
+	closed       bool
 
-	filterFn FilterFn
+	muUDPMux sync.Mutex
+	udpMux   *UniversalUDPMuxDefault
 }
 
 func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
+	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
+		StdNetBind:   b,
+		RecvChan:     make(chan RecvMessage, 1),
 		transportNet: transportNet,
 		filterFn:     filterFn,
+		endpoints:    make(map[string]net.Conn),
+		closedChan:   make(chan struct{}),
+		closed:       true,
 	}
 
 	rc := receiverCreator{
@@ -43,6 +62,31 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
 	}
 	ib.StdNetBind = wgConn.NewStdNetBindWithReceiverCreator(rc)
 	return ib
+}
+
+func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
+	s.closed = false
+	s.closedChanMu.Lock()
+	s.closedChan = make(chan struct{})
+	s.closedChanMu.Unlock()
+	fns, port, err := s.StdNetBind.Open(uport)
+	if err != nil {
+		return nil, 0, err
+	}
+	fns = append(fns, s.receiveRelayed)
+	return fns, port, nil
+}
+
+func (s *ICEBind) Close() error {
+	// just a quick implementation to make the tests pass
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	close(s.closedChan)
+	err := s.StdNetBind.Close()
+	return err
+
 }
 
 // GetICEMux returns the ICE UDPMux that was created and used by ICEBind
@@ -54,6 +98,39 @@ func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 	}
 
 	return s.udpMux, nil
+}
+
+func (b *ICEBind) SetEndpoint(peerAddress *net.UDPAddr, conn net.Conn) (*net.UDPAddr, error) {
+	fakeAddr, err := fakeAddress(peerAddress)
+	if err != nil {
+		return nil, err
+	}
+	b.endpointsMu.Lock()
+	b.endpoints[fakeAddr.String()] = conn
+	b.endpointsMu.Unlock()
+	return fakeAddr, nil
+}
+
+func (b *ICEBind) RemoveEndpoint(fakeAddr *net.UDPAddr) {
+	b.endpointsMu.Lock()
+	defer b.endpointsMu.Unlock()
+	delete(b.endpoints, fakeAddr.String())
+}
+
+func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
+	b.endpointsMu.Lock()
+	conn, ok := b.endpoints[ep.DstToString()]
+	b.endpointsMu.Unlock()
+	if !ok {
+		return b.StdNetBind.Send(bufs, ep)
+	}
+
+	for _, buf := range bufs {
+		if _, err := conn.Write(buf); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketConn, conn *net.UDPConn) wgConn.ReceiveFunc {
@@ -139,4 +216,37 @@ func (s *ICEBind) parseSTUNMessage(raw []byte) (*stun.Message, error) {
 	}
 
 	return msg, nil
+}
+
+// receiveRelayed is a receive function that is used to receive packets from the relayed connection and forward to the
+// WireGuard. Critical part is do not block if the Closed() has been called.
+func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpoint) (int, error) {
+	c.closedChanMu.RLock()
+	defer c.closedChanMu.RUnlock()
+
+	select {
+	case <-c.closedChan:
+		return 0, net.ErrClosed
+	case msg, ok := <-c.RecvChan:
+		if !ok {
+			return 0, net.ErrClosed
+		}
+		copy(buffs[0], msg.Buffer)
+		sizes[0] = len(msg.Buffer)
+		eps[0] = wgConn.Endpoint(msg.Endpoint)
+		return 1, nil
+	}
+}
+
+func fakeAddress(peerAddress *net.UDPAddr) (*net.UDPAddr, error) {
+	octets := strings.Split(peerAddress.IP.String(), ".")
+	if len(octets) != 4 {
+		return nil, fmt.Errorf("invalid IP format")
+	}
+
+	newAddr := &net.UDPAddr{
+		IP:   net.ParseIP(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3])),
+		Port: peerAddress.Port,
+	}
+	return newAddr, nil
 }
