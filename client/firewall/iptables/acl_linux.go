@@ -337,7 +337,7 @@ func (m *aclManager) seedInitialEntries() {
 func (m *aclManager) seedInitialOptionalEntries() {
 	m.optionalEntries["FORWARD"] = []entry{
 		{
-			spec:     []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName},
+			spec:     []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark), "-j", chainNameInputRules},
 			position: 2,
 		},
 	}
