@@ -2469,7 +2469,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Ac
 			GroupsPropagationEnabled:   true,
 			RegularUsersViewBlocked:    true,
 
-			PeerInactivityExpirationEnabled: true,
+			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
 		},
 	}
