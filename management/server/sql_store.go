@@ -323,6 +323,29 @@ func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.
 	return nil
 }
 
+func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error {
+	accountCopy := Account{
+		Domain:                 domain,
+		DomainCategory:         category,
+		IsDomainPrimaryAccount: isPrimaryDomain,
+	}
+
+	fieldsToUpdate := []string{"domain", "domain_category", "is_domain_primary_account"}
+	result := s.db.WithContext(ctx).Model(&Account{}).
+		Select(fieldsToUpdate).
+		Where(idQueryCondition, accountID).
+		Updates(&accountCopy)
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "account %s", accountID)
+	}
+
+	return nil
+}
+
 func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
@@ -516,6 +539,20 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 	}
 
 	return &user, nil
+}
+
+func (s *SqlStore) GetAccountUsers(ctx context.Context, accountID string) ([]*User, error) {
+	var users []*User
+	result := s.db.Find(&users, accountIDCondition, accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
+		}
+		log.WithContext(ctx).Errorf("error when getting users from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting users from store")
+	}
+
+	return users, nil
 }
 
 func (s *SqlStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
