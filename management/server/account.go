@@ -634,7 +634,7 @@ func (a *Account) GetInactivePeers() []*nbpeer.Peer {
 
 // GetNextInactivePeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
 // If there is no peer that expires this function returns false and a duration of 0.
-// This function only considers peers that haven't been expired yet and that are connected.
+// This function only considers peers that haven't been expired yet and that are not connected.
 func (a *Account) GetNextInactivePeerExpiration() (time.Duration, bool) {
 	peersWithExpiry := a.GetPeersWithInactivity()
 	if len(peersWithExpiry) == 0 {
@@ -642,7 +642,6 @@ func (a *Account) GetNextInactivePeerExpiration() (time.Duration, bool) {
 	}
 	var nextExpiry *time.Duration
 	for _, peer := range peersWithExpiry {
-		// consider only connected peers because others will require login on connecting to the management server
 		if peer.Status.LoginExpired || peer.Status.Connected {
 			continue
 		}
