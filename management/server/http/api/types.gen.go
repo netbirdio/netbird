@@ -220,6 +220,12 @@ type AccountSettings struct {
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
 	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
 
+	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
+	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
+
+	// PeerInactivityExpirationEnabled Enables or disables peer inactivity expiration globally. After peer's session has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
+	PeerInactivityExpirationEnabled bool `json:"peer_inactivity_expiration_enabled"`
+
 	// PeerLoginExpiration Period of time after which peer login expires (seconds).
 	PeerLoginExpiration int `json:"peer_login_expiration"`
 
@@ -538,6 +544,9 @@ type Peer struct {
 	// Id Peer ID
 	Id string `json:"id"`
 
+	// InactivityExpirationEnabled Indicates whether peer inactivity expiration has been enabled or not
+	InactivityExpirationEnabled bool `json:"inactivity_expiration_enabled"`
+
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
@@ -613,6 +622,9 @@ type PeerBatch struct {
 	// Id Peer ID
 	Id string `json:"id"`
 
+	// InactivityExpirationEnabled Indicates whether peer inactivity expiration has been enabled or not
+	InactivityExpirationEnabled bool `json:"inactivity_expiration_enabled"`
+
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
@@ -677,10 +689,11 @@ type PeerNetworkRangeCheckAction string
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired       *bool  `json:"approval_required,omitempty"`
-	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
-	Name                   string `json:"name"`
-	SshEnabled             bool   `json:"ssh_enabled"`
+	ApprovalRequired            *bool  `json:"approval_required,omitempty"`
+	InactivityExpirationEnabled bool   `json:"inactivity_expiration_enabled"`
+	LoginExpirationEnabled      bool   `json:"login_expiration_enabled"`
+	Name                        string `json:"name"`
+	SshEnabled                  bool   `json:"ssh_enabled"`
 }
 
 // PersonalAccessToken defines model for PersonalAccessToken.

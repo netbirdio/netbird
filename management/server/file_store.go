@@ -95,6 +95,9 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 			account.Settings = &Settings{
 				PeerLoginExpirationEnabled: false,
 				PeerLoginExpiration:        DefaultPeerLoginExpiration,
+
+				PeerInactivityExpirationEnabled: false,
+				PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
 			}
 		}
 
