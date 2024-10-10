@@ -314,6 +314,10 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			ruleKey, err := r.AddRouteFiltering(tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.action)
 			require.NoError(t, err, "AddRouteFiltering failed")
 
+			t.Cleanup(func() {
+				require.NoError(t, r.DeleteRouteRule(ruleKey), "Failed to delete rule")
+			})
+
 			// Check if the rule is in the internal map
 			rule, ok := r.rules[ruleKey.GetRuleID()]
 			assert.True(t, ok, "Rule not found in internal map")
@@ -346,10 +350,6 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 			// Verify actual nftables rule content
 			verifyRule(t, nftRule, tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action, tt.expectSet)
-
-			// Clean up
-			err = r.DeleteRouteRule(ruleKey)
-			require.NoError(t, err, "Failed to delete rule")
 		})
 	}
 }

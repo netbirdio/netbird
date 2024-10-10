@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -21,13 +22,19 @@ const (
 	chainNameOutputRules = "NETBIRD-ACL-OUTPUT"
 )
 
+type entry struct {
+	spec     []string
+	position int
+}
+
 type aclManager struct {
 	iptablesClient     *iptables.IPTables
 	wgIface            iFaceMapper
 	routingFwChainName string
 
-	entries    map[string][][]string
-	ipsetStore *ipsetStore
+	entries         map[string][][]string
+	optionalEntries map[string][]entry
+	ipsetStore      *ipsetStore
 }
 
 func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routingFwChainName string) (*aclManager, error) {
@@ -36,8 +43,9 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routi
 		wgIface:            wgIface,
 		routingFwChainName: routingFwChainName,
 
-		entries:    make(map[string][][]string),
-		ipsetStore: newIpsetStore(),
+		entries:         make(map[string][][]string),
+		optionalEntries: make(map[string][]entry),
+		ipsetStore:      newIpsetStore(),
 	}
 
 	err := ipset.Init()
@@ -46,6 +54,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routi
 	}
 
 	m.seedInitialEntries()
+	m.seedInitialOptionalEntries()
 
 	err = m.cleanChains()
 	if err != nil {
@@ -232,6 +241,19 @@ func (m *aclManager) cleanChains() error {
 		}
 	}
 
+	ok, err = m.iptablesClient.ChainExists("mangle", "PREROUTING")
+	if err != nil {
+		return fmt.Errorf("list chains: %w", err)
+	}
+	if ok {
+		for _, rule := range m.entries["PREROUTING"] {
+			err := m.iptablesClient.DeleteIfExists("mangle", "PREROUTING", rule...)
+			if err != nil {
+				log.Errorf("failed to delete rule: %v, %s", rule, err)
+			}
+		}
+	}
+
 	for _, ipsetName := range m.ipsetStore.ipsetNames() {
 		if err := ipset.Flush(ipsetName); err != nil {
 			log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
@@ -267,6 +289,17 @@ func (m *aclManager) createDefaultChains() error {
 		}
 	}
 
+	for chainName, entries := range m.optionalEntries {
+		for _, entry := range entries {
+			if err := m.iptablesClient.InsertUnique(tableName, chainName, entry.position, entry.spec...); err != nil {
+				log.Errorf("failed to insert optional entry %v: %v", entry.spec, err)
+				continue
+			}
+			m.entries[chainName] = append(m.entries[chainName], entry.spec)
+		}
+	}
+	clear(m.optionalEntries)
+
 	return nil
 }
 
@@ -293,6 +326,22 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName})
 	m.appendToEntries("FORWARD", append([]string{"-o", m.wgIface.Name()}, established...))
+}
+
+func (m *aclManager) seedInitialOptionalEntries() {
+	m.optionalEntries["FORWARD"] = []entry{
+		{
+			spec:     []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark), "-j", chainNameInputRules},
+			position: 2,
+		},
+	}
+
+	m.optionalEntries["PREROUTING"] = []entry{
+		{
+			spec:     []string{"-t", "mangle", "-i", m.wgIface.Name(), "-m", "addrtype", "--dst-type", "LOCAL", "-j", "MARK", "--set-mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark)},
+			position: 1,
+		},
+	}
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {

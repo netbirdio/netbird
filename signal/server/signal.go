@@ -6,14 +6,13 @@ import (
 	"io"
 	"time"
 
+	"github.com/netbirdio/signal-dispatcher/dispatcher"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-
-	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
