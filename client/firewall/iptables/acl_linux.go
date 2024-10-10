@@ -313,7 +313,7 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("FORWARD", []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark), "-j", chainNameInputRules})
 	m.appendToEntries("FORWARD", append([]string{"-o", m.wgIface.Name()}, established...))
 
-	m.appendToEntries("PREROUTING", []string{"-t", "nat", "-i", m.wgIface.Name(), "-m", "addrtype", "--dst-type", "LOCAL", "-j", "MARK", "--set-mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark)})
+	m.appendToEntries("PREROUTING", []string{"-t", "mangle", "-i", m.wgIface.Name(), "-m", "addrtype", "--dst-type", "LOCAL", "-j", "MARK", "--set-mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmark)})
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {
