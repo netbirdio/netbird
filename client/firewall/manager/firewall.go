@@ -132,7 +132,7 @@ func SetLegacyManagement(router LegacyManager, isLegacy bool) error {
 // GenerateSetName generates a unique name for an ipset based on the given sources.
 func GenerateSetName(sources []netip.Prefix) string {
 	// sort for consistent naming
-	sortPrefixes(sources)
+	SortPrefixes(sources)
 
 	var sourcesStr strings.Builder
 	for _, src := range sources {
@@ -170,9 +170,9 @@ func MergeIPRanges(prefixes []netip.Prefix) []netip.Prefix {
 	return merged
 }
 
-// sortPrefixes sorts the given slice of netip.Prefix in place.
+// SortPrefixes sorts the given slice of netip.Prefix in place.
 // It sorts first by IP address, then by prefix length (most specific to least specific).
-func sortPrefixes(prefixes []netip.Prefix) {
+func SortPrefixes(prefixes []netip.Prefix) {
 	sort.Slice(prefixes, func(i, j int) bool {
 		addrCmp := prefixes[i].Addr().Compare(prefixes[j].Addr())
 		if addrCmp != 0 {

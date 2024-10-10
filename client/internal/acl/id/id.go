@@ -1,7 +1,8 @@
 package id
 
 import (
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/netip"
 
 	"github.com/netbirdio/netbird/client/firewall/manager"
@@ -21,5 +22,40 @@ func GenerateRouteRuleKey(
 	dPort *manager.Port,
 	action manager.Action,
 ) RuleID {
-	return RuleID(fmt.Sprintf("%s-%s-%s-%s-%s-%d", sources, destination, proto, sPort, dPort, action))
+	manager.SortPrefixes(sources)
+
+	h := sha256.New()
+
+	// Write all fields to the hasher, with delimiters
+	h.Write([]byte("sources:"))
+	for _, src := range sources {
+		h.Write([]byte(src.String()))
+		h.Write([]byte(","))
+	}
+
+	h.Write([]byte("destination:"))
+	h.Write([]byte(destination.String()))
+
+	h.Write([]byte("proto:"))
+	h.Write([]byte(proto))
+
+	h.Write([]byte("sPort:"))
+	if sPort != nil {
+		h.Write([]byte(sPort.String()))
+	} else {
+		h.Write([]byte("<nil>"))
+	}
+
+	h.Write([]byte("dPort:"))
+	if dPort != nil {
+		h.Write([]byte(dPort.String()))
+	} else {
+		h.Write([]byte("<nil>"))
+	}
+
+	h.Write([]byte("action:"))
+	h.Write([]byte(string(action)))
+
+	hash := h.Sum(nil)
+	return RuleID(hex.EncodeToString(hash))
 }
