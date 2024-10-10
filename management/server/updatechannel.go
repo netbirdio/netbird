@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/differs"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/r3labs/diff"
+	"github.com/r3labs/diff/v3"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
@@ -228,7 +229,15 @@ func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bo
 		return false, nil
 	}
 
-	changelog, err := diff.Diff(lastSentUpdate.Checks, currUpdateToSend.Checks)
+	differ, err := diff.NewDiffer(
+		diff.CustomValueDiffers(&differs.NetIPAddr{}),
+		diff.CustomValueDiffers(&differs.NetIPPrefix{}),
+	)
+	if err != nil {
+		return false, fmt.Errorf("failed to create differ: %v", err)
+	}
+
+	changelog, err := differ.Diff(lastSentUpdate.Checks, currUpdateToSend.Checks)
 	if err != nil {
 		return false, fmt.Errorf("failed to diff checks: %v", err)
 	}
@@ -236,13 +245,9 @@ func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bo
 		return true, nil
 	}
 
-	changelog, err = diff.Diff(lastSentUpdate.NetworkMap, currUpdateToSend.NetworkMap)
+	changelog, err = differ.Diff(lastSentUpdate.NetworkMap, currUpdateToSend.NetworkMap)
 	if err != nil {
 		return false, fmt.Errorf("failed to diff network map: %v", err)
 	}
-	if len(changelog) > 0 {
-		return true, nil
-	}
-
-	return false, nil
+	return len(changelog) > 0, nil
 }
