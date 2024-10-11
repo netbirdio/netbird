@@ -38,7 +38,7 @@ type ICEBind struct {
 	// every time when Close() is called (i.e. BindUpdate()) we need to close exit from the receiveRelayed and create a
 	// new closed channel. With the closedChanMu we can safely close the channel and create a new one
 	closedChan   chan struct{}
-	closedChanMu sync.RWMutex
+	closedChanMu sync.RWMutex // protect the closeChan recreation from reading from it.
 	closed       bool
 
 	muUDPMux sync.Mutex
@@ -78,15 +78,14 @@ func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
 }
 
 func (s *ICEBind) Close() error {
-	// just a quick implementation to make the tests pass
 	if s.closed {
 		return nil
 	}
 	s.closed = true
-	close(s.closedChan)
-	err := s.StdNetBind.Close()
-	return err
 
+	close(s.closedChan)
+
+	return s.StdNetBind.Close()
 }
 
 // GetICEMux returns the ICE UDPMux that was created and used by ICEBind
