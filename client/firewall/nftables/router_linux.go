@@ -102,6 +102,21 @@ func (r *router) Reset() error {
 	return r.removeAcceptForwardRules()
 }
 
+func (r *router) loadFilterTable() (*nftables.Table, error) {
+	tables, err := r.conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return nil, fmt.Errorf("nftables: unable to list tables: %v", err)
+	}
+
+	for _, table := range tables {
+		if table.Name == "filter" {
+			return table, nil
+		}
+	}
+
+	return nil, errFilterTableNotFound
+}
+
 func (r *router) createContainers() error {
 	r.chains[chainNameRoutingFw] = r.conn.AddChain(&nftables.Chain{
 		Name:  chainNameRoutingFw,
@@ -690,21 +705,6 @@ func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error 
 	}
 
 	return nberrors.FormatErrorOrNil(err)
-}
-
-func (r *router) loadFilterTable() (*nftables.Table, error) {
-	tables, err := r.conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
-	if err != nil {
-		return nil, fmt.Errorf("nftables: unable to list tables: %v", err)
-	}
-
-	for _, table := range tables {
-		if table.Name == "filter" {
-			return table, nil
-		}
-	}
-
-	return nil, errFilterTableNotFound
 }
 
 // RemoveNatRule removes a nftables rule pair from nat chains
