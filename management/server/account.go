@@ -1309,7 +1309,10 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, u
 		if err != nil {
 			return err
 		}
-		cachedAccount := &Account{Id: accountID}
+		cachedAccount := &Account{
+			Id: accountID,
+			Users: make(map[string]*User),
+		}
 		for _, user := range accountUsers {
 			cachedAccount.Users[user.Id] = user
 		}
