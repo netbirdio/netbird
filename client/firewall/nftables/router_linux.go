@@ -699,7 +699,7 @@ func (r *router) removeAcceptForwardRulesNftables() error {
 func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error {
 	var merr *multierror.Error
 	for _, rule := range r.getAcceptForwardRules() {
-		if err := ipt.Delete("filter", chainNameForward, rule...); err != nil {
+		if err := ipt.DeleteIfExists("filter", chainNameForward, rule...); err != nil {
 			merr = multierror.Append(err, fmt.Errorf("remove iptables rule: %v", err))
 		}
 	}
