@@ -114,7 +114,7 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			relayedConn := newMockConn()
-			err := tt.proxy.AddTurnConn(ctx, nil, relayedConn)
+			err := tt.proxy.AddTurnConn(ctx, relayedConn)
 			if err != nil {
 				t.Errorf("error: %v", err)
 			}
