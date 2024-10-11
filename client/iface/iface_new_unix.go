@@ -5,8 +5,6 @@ package iface
 import (
 	"fmt"
 
-	"github.com/pion/transport/v3"
-
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
@@ -14,8 +12,8 @@ import (
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, mtu int, transportNet transport.Net, args *device.MobileIFaceArguments, filterFn bind.FilterFn) (*WGIface, error) {
-	wgAddress, err := device.ParseWGAddress(address)
+func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
+	wgAddress, err := device.ParseWGAddress(opts.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -23,21 +21,21 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 	wgIFace := &WGIface{}
 
 	if netstack.IsEnabled() {
-		iceBind := bind.NewICEBind(transportNet, filterFn)
-		wgIFace.tun = device.NewNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, iceBind, netstack.ListenAddr())
+		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn)
+		wgIFace.tun = device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr())
 		wgIFace.userspaceBind = true
 		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind)
 		return wgIFace, nil
 	}
 
 	if device.WireGuardModuleIsLoaded() {
-		wgIFace.tun = device.NewKernelDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
-		wgIFace.wgProxyFactory = wgproxy.NewKernelFactory(wgPort)
+		wgIFace.tun = device.NewKernelDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, opts.TransportNet)
+		wgIFace.wgProxyFactory = wgproxy.NewKernelFactory(opts.WGPort)
 		return wgIFace, nil
 	}
 	if device.ModuleTunIsLoaded() {
-		iceBind := bind.NewICEBind(transportNet, filterFn)
-		wgIFace.tun = device.NewUSPDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, iceBind)
+		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn)
+		wgIFace.tun = device.NewUSPDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind)
 		wgIFace.userspaceBind = true
 		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind)
 		return wgIFace, nil

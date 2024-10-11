@@ -1156,21 +1156,29 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	var mArgs *device.MobileIFaceArguments
+	opts := iface.WGIFaceOpts{
+		IFaceName:    e.config.WgIfaceName,
+		Address:      e.config.WgAddr,
+		WGPort:       e.config.WgPort,
+		WGPrivKey:    e.config.WgPrivateKey.String(),
+		MTU:          iface.DefaultMTU,
+		TransportNet: transportNet,
+		FilterFn:     e.addrViaRoutes,
+	}
+
 	switch runtime.GOOS {
 	case "android":
-		mArgs = &device.MobileIFaceArguments{
+		opts.MobileArgs = &device.MobileIFaceArguments{
 			TunAdapter: e.mobileDep.TunAdapter,
 			TunFd:      int(e.mobileDep.FileDescriptor),
 		}
 	case "ios":
-		mArgs = &device.MobileIFaceArguments{
+		opts.MobileArgs = &device.MobileIFaceArguments{
 			TunFd: int(e.mobileDep.FileDescriptor),
 		}
-	default:
 	}
 
-	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs, e.addrViaRoutes)
+	return iface.NewWGIFace(opts)
 }
 
 func (e *Engine) wgInterfaceCreate() (err error) {

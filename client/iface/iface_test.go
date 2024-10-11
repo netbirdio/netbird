@@ -45,7 +45,16 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iface, err := NewWGIFace(ifaceName, addr, wgPort, key, DefaultMTU, newNet, nil, nil)
+	opts := WGIFaceOpts{
+		IFaceName:    ifaceName,
+		Address:      addr,
+		WGPort:       wgPort,
+		WGPrivKey:    key,
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+
+	iface, err := NewWGIFace(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +127,16 @@ func Test_CreateInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface, err := NewWGIFace(ifaceName, wgIP, 33100, key, DefaultMTU, newNet, nil, nil)
+	opts := WGIFaceOpts{
+		IFaceName:    ifaceName,
+		Address:      wgIP,
+		WGPort:       33100,
+		WGPrivKey:    key,
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+
+	iface, err := NewWGIFace(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +171,16 @@ func Test_Close(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iface, err := NewWGIFace(ifaceName, wgIP, wgPort, key, DefaultMTU, newNet, nil, nil)
+	opts := WGIFaceOpts{
+		IFaceName:    ifaceName,
+		Address:      wgIP,
+		WGPort:       wgPort,
+		WGPrivKey:    key,
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+
+	iface, err := NewWGIFace(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +216,16 @@ func TestRecreation(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			iface, err := NewWGIFace(ifaceName, wgIP, wgPort, key, DefaultMTU, newNet, nil, nil)
+			opts := WGIFaceOpts{
+				IFaceName:    ifaceName,
+				Address:      wgIP,
+				WGPort:       wgPort,
+				WGPrivKey:    key,
+				MTU:          DefaultMTU,
+				TransportNet: newNet,
+			}
+
+			iface, err := NewWGIFace(opts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -252,7 +288,15 @@ func Test_ConfigureInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface, err := NewWGIFace(ifaceName, wgIP, wgPort, key, DefaultMTU, newNet, nil, nil)
+	opts := WGIFaceOpts{
+		IFaceName:    ifaceName,
+		Address:      wgIP,
+		WGPort:       wgPort,
+		WGPrivKey:    key,
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+	iface, err := NewWGIFace(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +344,16 @@ func Test_UpdatePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iface, err := NewWGIFace(ifaceName, wgIP, 33100, key, DefaultMTU, newNet, nil, nil)
+	opts := WGIFaceOpts{
+		IFaceName:    ifaceName,
+		Address:      wgIP,
+		WGPort:       33100,
+		WGPrivKey:    key,
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+
+	iface, err := NewWGIFace(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +414,16 @@ func Test_RemovePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iface, err := NewWGIFace(ifaceName, wgIP, 33100, key, DefaultMTU, newNet, nil, nil)
+	opts := WGIFaceOpts{
+		IFaceName:    ifaceName,
+		Address:      wgIP,
+		WGPort:       33100,
+		WGPrivKey:    key,
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+
+	iface, err := NewWGIFace(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +480,15 @@ func Test_ConnectPeers(t *testing.T) {
 	guid := fmt.Sprintf("{%s}", uuid.New().String())
 	device.CustomWindowsGUIDString = strings.ToLower(guid)
 
-	iface1, err := NewWGIFace(peer1ifaceName, peer1wgIP, peer1wgPort, peer1Key.String(), DefaultMTU, newNet, nil, nil)
+	optsPeer1 := WGIFaceOpts{
+		IFaceName:    peer1ifaceName,
+		Address:      peer1wgIP,
+		WGPort:       peer1wgPort,
+		WGPrivKey:    peer1Key.String(),
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+	iface1, err := NewWGIFace(optsPeer1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +519,17 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface2, err := NewWGIFace(peer2ifaceName, peer2wgIP, peer2wgPort, peer2Key.String(), DefaultMTU, newNet, nil, nil)
+
+	optsPeer2 := WGIFaceOpts{
+		IFaceName:    peer2ifaceName,
+		Address:      peer2wgIP,
+		WGPort:       peer2wgPort,
+		WGPrivKey:    peer2Key.String(),
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+
+	iface2, err := NewWGIFace(optsPeer2)
 	if err != nil {
 		t.Fatal(err)
 	}

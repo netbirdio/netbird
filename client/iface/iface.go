@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -28,6 +29,17 @@ type WGAddress = device.WGAddress
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
 	Free() error
+}
+
+type WGIFaceOpts struct {
+	IFaceName    string
+	Address      string
+	WGPort       int
+	WGPrivKey    string
+	MTU          int
+	MobileArgs   *device.MobileIFaceArguments
+	TransportNet transport.Net
+	FilterFn     bind.FilterFn
 }
 
 // WGIface represents an interface instance
