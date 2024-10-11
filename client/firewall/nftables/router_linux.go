@@ -697,14 +697,14 @@ func (r *router) removeAcceptForwardRulesNftables() error {
 }
 
 func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error {
-	var err *multierror.Error
+	var merr *multierror.Error
 	for _, rule := range r.getAcceptForwardRules() {
 		if err := ipt.Delete("filter", chainNameForward, rule...); err != nil {
-			err = multierror.Append(err, fmt.Errorf("remove iptables rule: %v", err))
+			merr = multierror.Append(err, fmt.Errorf("remove iptables rule: %v", err))
 		}
 	}
 
-	return nberrors.FormatErrorOrNil(err)
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // RemoveNatRule removes a nftables rule pair from nat chains
