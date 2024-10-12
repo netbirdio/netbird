@@ -315,28 +315,33 @@ func insertReturnTrafficRule(conn *nftables.Conn, table *nftables.Table, chain *
 	rule := &nftables.Rule{
 		Table: table,
 		Chain: chain,
-		Exprs: []expr.Any{
-			&expr.Ct{
-				Key:      expr.CtKeySTATE,
-				Register: 1,
-			},
-			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
-				Len:            4,
-				Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
-				Xor:            binaryutil.NativeEndian.PutUint32(0),
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpNeq,
-				Register: 1,
-				Data:     []byte{0, 0, 0, 0},
-			},
-			&expr.Verdict{
-				Kind: expr.VerdictAccept,
-			},
-		},
+		Exprs: getEstablishedExprs(1),
 	}
 
 	conn.InsertRule(rule)
+}
+
+func getEstablishedExprs(register uint32) []expr.Any {
+	return []expr.Any{
+		&expr.Ct{
+			Key:      expr.CtKeySTATE,
+			Register: register,
+		},
+		&expr.Bitwise{
+			SourceRegister: register,
+			DestRegister:   register,
+			Len:            4,
+			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
+			Xor:            binaryutil.NativeEndian.PutUint32(0),
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: register,
+			Data:     []byte{0, 0, 0, 0},
+		},
+		&expr.Counter{},
+		&expr.Verdict{
+			Kind: expr.VerdictAccept,
+		},
+	}
 }
