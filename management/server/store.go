@@ -9,10 +9,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
@@ -56,9 +58,11 @@ type Store interface {
 	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error)
 	SaveAccount(ctx context.Context, account *Account) error
 	DeleteAccount(ctx context.Context, account *Account) error
+	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
+	GetAccountUsers(ctx context.Context, accountID string) ([]*User, error)
 	SaveUsers(accountID string, users map[string]*User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
@@ -240,28 +244,39 @@ func getMigrations(ctx context.Context) []migrationFunc {
 	}
 }
 
-// NewTestStoreFromSqlite is only used in tests
-func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
-	// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
+// NewTestStoreFromSQL is only used in tests. It will create a test database base of the store engine set in env.
+// Optionally it can load a SQL file to the database. If the filename is empty it will return an empty database
+func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
 		kind = SqliteStoreEngine
 	}
 
-	var store *SqlStore
-	var err error
-	var cleanUp func()
-
-	if filename == "" {
-		store, err = NewSqliteStore(ctx, dataDir, nil)
-		cleanUp = func() {
-			store.Close(ctx)
-		}
-	} else {
-		store, cleanUp, err = NewSqliteTestStore(ctx, dataDir, filename)
+	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
+	if runtime.GOOS == "windows" {
+		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
+		storeStr = storeSqliteFileName
 	}
+
+	file := filepath.Join(dataDir, storeStr)
+	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if filename != "" {
+		err = loadSQL(db, filename)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
+		}
+	}
+
+	store, err := NewSqlStore(ctx, db, SqliteStoreEngine, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
+	}
+	cleanUp := func() {
+		store.Close(ctx)
 	}
 
 	if kind == PostgresStoreEngine {
@@ -284,21 +299,25 @@ func NewTestStoreFromSqlite(ctx context.Context, filename string, dataDir string
 	return store, cleanUp, nil
 }
 
-func NewSqliteTestStore(ctx context.Context, dataDir string, testFile string) (*SqlStore, func(), error) {
-	err := util.CopyFileContents(testFile, filepath.Join(dataDir, "store.db"))
+func loadSQL(db *gorm.DB, filepath string) error {
+	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
-	store, err := NewSqliteStore(ctx, dataDir, nil)
-	if err != nil {
-		return nil, nil, err
+	queries := strings.Split(string(sqlContent), ";")
+
+	for _, query := range queries {
+		query = strings.TrimSpace(query)
+		if query != "" {
+			err := db.Exec(query).Error
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	return store, func() {
-		store.Close(ctx)
-		os.Remove(filepath.Join(dataDir, "store.db"))
-	}, nil
+	return nil
 }
 
 // MigrateFileStoreToSqlite migrates the file store to the SQLite store.

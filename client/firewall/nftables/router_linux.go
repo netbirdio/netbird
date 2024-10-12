@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
@@ -24,7 +25,7 @@ import (
 
 const (
 	chainNameRoutingFw  = "netbird-rt-fwd"
-	chainNameRoutingNat = "netbird-rt-nat"
+	chainNameRoutingNat = "netbird-rt-postrouting"
 	chainNameForward    = "FORWARD"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
@@ -149,7 +150,6 @@ func (r *router) loadFilterTable() (*nftables.Table, error) {
 }
 
 func (r *router) createContainers() error {
-
 	r.chains[chainNameRoutingFw] = r.conn.AddChain(&nftables.Chain{
 		Name:  chainNameRoutingFw,
 		Table: r.workTable,
@@ -157,25 +157,26 @@ func (r *router) createContainers() error {
 
 	insertReturnTrafficRule(r.conn, r.workTable, r.chains[chainNameRoutingFw])
 
+	prio := *nftables.ChainPriorityNATSource - 1
+
 	r.chains[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
 		Name:     chainNameRoutingNat,
 		Table:    r.workTable,
 		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: nftables.ChainPriorityNATSource - 1,
+		Priority: &prio,
 		Type:     nftables.ChainTypeNAT,
 	})
 
 	r.acceptForwardRules()
 
-	err := r.refreshRulesMap()
-	if err != nil {
+	if err := r.refreshRulesMap(); err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
-	err = r.conn.Flush()
-	if err != nil {
+	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("nftables: unable to initialize table: %v", err)
 	}
+
 	return nil
 }
 
@@ -188,6 +189,7 @@ func (r *router) AddRouteFiltering(
 	dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
+
 	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
@@ -248,9 +250,18 @@ func (r *router) AddRouteFiltering(
 		UserData: []byte(ruleKey),
 	}
 
-	r.rules[string(ruleKey)] = r.conn.AddRule(rule)
+	rule = r.conn.AddRule(rule)
 
-	return ruleKey, r.conn.Flush()
+	log.Tracef("Adding route rule %s", spew.Sdump(rule))
+	if err := r.conn.Flush(); err != nil {
+		return nil, fmt.Errorf(flushError, err)
+	}
+
+	r.rules[string(ruleKey)] = rule
+
+	log.Debugf("nftables: added route rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v", sources, destination, proto, sPort, dPort, action)
+
+	return ruleKey, nil
 }
 
 func (r *router) getIpSetExprs(sources []netip.Prefix, exprs []expr.Any) ([]expr.Any, error) {
@@ -286,6 +297,10 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	if !exists {
 		log.Debugf("route rule %s not found", ruleKey)
 		return nil
+	}
+
+	if nftRule.Handle == 0 {
+		return fmt.Errorf("route rule %s has no handle", ruleKey)
 	}
 
 	setName := r.findSetNameInRule(nftRule)
@@ -658,7 +673,7 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("nftables: received error while applying rule removal for %s: %v", pair.Destination, err)
 	}
 
-	log.Debugf("nftables: removed rules for %s", pair.Destination)
+	log.Debugf("nftables: removed nat rules for %s", pair.Destination)
 	return nil
 }
 

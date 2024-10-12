@@ -465,7 +465,26 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 	type initUserParams jwtclaims.AuthorizationClaims
 
-	type test struct {
+	var (
+		publicDomain  = "public.com"
+		privateDomain = "private.com"
+		unknownDomain = "unknown.com"
+	)
+
+	defaultInitAccount := initUserParams{
+		Domain: publicDomain,
+		UserId: "defaultUser",
+	}
+
+	initUnknown := defaultInitAccount
+	initUnknown.DomainCategory = UnknownCategory
+	initUnknown.Domain = unknownDomain
+
+	privateInitAccount := defaultInitAccount
+	privateInitAccount.Domain = privateDomain
+	privateInitAccount.DomainCategory = PrivateCategory
+
+	testCases := []struct {
 		name                        string
 		inputClaims                 jwtclaims.AuthorizationClaims
 		inputInitUserParams         initUserParams
@@ -479,156 +498,131 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		expectedPrimaryDomainStatus bool
 		expectedCreatedBy           string
 		expectedUsers               []string
-	}
-
-	var (
-		publicDomain  = "public.com"
-		privateDomain = "private.com"
-		unknownDomain = "unknown.com"
-	)
-
-	defaultInitAccount := initUserParams{
-		Domain: publicDomain,
-		UserId: "defaultUser",
-	}
-
-	testCase1 := test{
-		name: "New User With Public Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         publicDomain,
-			UserId:         "pub-domain-user",
-			DomainCategory: PublicCategory,
+	}{
+		{
+			name: "New User With Public Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         publicDomain,
+				UserId:         "pub-domain-user",
+				DomainCategory: PublicCategory,
+			},
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.NotEqual,
+			expectedMSG:                 "account IDs shouldn't match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomainCategory:      "",
+			expectedDomain:              publicDomain,
+			expectedPrimaryDomainStatus: false,
+			expectedCreatedBy:           "pub-domain-user",
+			expectedUsers:               []string{"pub-domain-user"},
 		},
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.NotEqual,
-		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomainCategory:      "",
-		expectedDomain:              publicDomain,
-		expectedPrimaryDomainStatus: false,
-		expectedCreatedBy:           "pub-domain-user",
-		expectedUsers:               []string{"pub-domain-user"},
-	}
-
-	initUnknown := defaultInitAccount
-	initUnknown.DomainCategory = UnknownCategory
-	initUnknown.Domain = unknownDomain
-
-	testCase2 := test{
-		name: "New User With Unknown Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         unknownDomain,
-			UserId:         "unknown-domain-user",
-			DomainCategory: UnknownCategory,
+		{
+			name: "New User With Unknown Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         unknownDomain,
+				UserId:         "unknown-domain-user",
+				DomainCategory: UnknownCategory,
+			},
+			inputInitUserParams:         initUnknown,
+			testingFunc:                 require.NotEqual,
+			expectedMSG:                 "account IDs shouldn't match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              unknownDomain,
+			expectedDomainCategory:      "",
+			expectedPrimaryDomainStatus: false,
+			expectedCreatedBy:           "unknown-domain-user",
+			expectedUsers:               []string{"unknown-domain-user"},
 		},
-		inputInitUserParams:         initUnknown,
-		testingFunc:                 require.NotEqual,
-		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              unknownDomain,
-		expectedDomainCategory:      "",
-		expectedPrimaryDomainStatus: false,
-		expectedCreatedBy:           "unknown-domain-user",
-		expectedUsers:               []string{"unknown-domain-user"},
-	}
-
-	testCase3 := test{
-		name: "New User With Private Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         privateDomain,
-			UserId:         "pvt-domain-user",
-			DomainCategory: PrivateCategory,
+		{
+			name: "New User With Private Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         privateDomain,
+				UserId:         "pvt-domain-user",
+				DomainCategory: PrivateCategory,
+			},
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.NotEqual,
+			expectedMSG:                 "account IDs shouldn't match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              privateDomain,
+			expectedDomainCategory:      PrivateCategory,
+			expectedPrimaryDomainStatus: true,
+			expectedCreatedBy:           "pvt-domain-user",
+			expectedUsers:               []string{"pvt-domain-user"},
 		},
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.NotEqual,
-		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              privateDomain,
-		expectedDomainCategory:      PrivateCategory,
-		expectedPrimaryDomainStatus: true,
-		expectedCreatedBy:           "pvt-domain-user",
-		expectedUsers:               []string{"pvt-domain-user"},
-	}
-
-	privateInitAccount := defaultInitAccount
-	privateInitAccount.Domain = privateDomain
-	privateInitAccount.DomainCategory = PrivateCategory
-
-	testCase4 := test{
-		name: "New Regular User With Existing Private Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         privateDomain,
-			UserId:         "new-pvt-domain-user",
-			DomainCategory: PrivateCategory,
+		{
+			name: "New Regular User With Existing Private Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         privateDomain,
+				UserId:         "new-pvt-domain-user",
+				DomainCategory: PrivateCategory,
+			},
+			inputUpdateAttrs:            true,
+			inputInitUserParams:         privateInitAccount,
+			testingFunc:                 require.Equal,
+			expectedMSG:                 "account IDs should match",
+			expectedUserRole:            UserRoleUser,
+			expectedDomain:              privateDomain,
+			expectedDomainCategory:      PrivateCategory,
+			expectedPrimaryDomainStatus: true,
+			expectedCreatedBy:           defaultInitAccount.UserId,
+			expectedUsers:               []string{defaultInitAccount.UserId, "new-pvt-domain-user"},
 		},
-		inputUpdateAttrs:            true,
-		inputInitUserParams:         privateInitAccount,
-		testingFunc:                 require.Equal,
-		expectedMSG:                 "account IDs should match",
-		expectedUserRole:            UserRoleUser,
-		expectedDomain:              privateDomain,
-		expectedDomainCategory:      PrivateCategory,
-		expectedPrimaryDomainStatus: true,
-		expectedCreatedBy:           defaultInitAccount.UserId,
-		expectedUsers:               []string{defaultInitAccount.UserId, "new-pvt-domain-user"},
-	}
-
-	testCase5 := test{
-		name: "Existing User With Existing Reclassified Private Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         defaultInitAccount.Domain,
-			UserId:         defaultInitAccount.UserId,
-			DomainCategory: PrivateCategory,
+		{
+			name: "Existing User With Existing Reclassified Private Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         defaultInitAccount.Domain,
+				UserId:         defaultInitAccount.UserId,
+				DomainCategory: PrivateCategory,
+			},
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.Equal,
+			expectedMSG:                 "account IDs should match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              defaultInitAccount.Domain,
+			expectedDomainCategory:      PrivateCategory,
+			expectedPrimaryDomainStatus: true,
+			expectedCreatedBy:           defaultInitAccount.UserId,
+			expectedUsers:               []string{defaultInitAccount.UserId},
 		},
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.Equal,
-		expectedMSG:                 "account IDs should match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              defaultInitAccount.Domain,
-		expectedDomainCategory:      PrivateCategory,
-		expectedPrimaryDomainStatus: true,
-		expectedCreatedBy:           defaultInitAccount.UserId,
-		expectedUsers:               []string{defaultInitAccount.UserId},
-	}
-
-	testCase6 := test{
-		name: "Existing Account Id With Existing Reclassified Private Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         defaultInitAccount.Domain,
-			UserId:         defaultInitAccount.UserId,
-			DomainCategory: PrivateCategory,
+		{
+			name: "Existing Account Id With Existing Reclassified Private Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         defaultInitAccount.Domain,
+				UserId:         defaultInitAccount.UserId,
+				DomainCategory: PrivateCategory,
+			},
+			inputUpdateClaimAccount:     true,
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.Equal,
+			expectedMSG:                 "account IDs should match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              defaultInitAccount.Domain,
+			expectedDomainCategory:      PrivateCategory,
+			expectedPrimaryDomainStatus: true,
+			expectedCreatedBy:           defaultInitAccount.UserId,
+			expectedUsers:               []string{defaultInitAccount.UserId},
 		},
-		inputUpdateClaimAccount:     true,
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.Equal,
-		expectedMSG:                 "account IDs should match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              defaultInitAccount.Domain,
-		expectedDomainCategory:      PrivateCategory,
-		expectedPrimaryDomainStatus: true,
-		expectedCreatedBy:           defaultInitAccount.UserId,
-		expectedUsers:               []string{defaultInitAccount.UserId},
-	}
-
-	testCase7 := test{
-		name: "User With Private Category And Empty Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         "",
-			UserId:         "pvt-domain-user",
-			DomainCategory: PrivateCategory,
+		{
+			name: "User With Private Category And Empty Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         "",
+				UserId:         "pvt-domain-user",
+				DomainCategory: PrivateCategory,
+			},
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.NotEqual,
+			expectedMSG:                 "account IDs shouldn't match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              "",
+			expectedDomainCategory:      "",
+			expectedPrimaryDomainStatus: false,
+			expectedCreatedBy:           "pvt-domain-user",
+			expectedUsers:               []string{"pvt-domain-user"},
 		},
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.NotEqual,
-		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              "",
-		expectedDomainCategory:      "",
-		expectedPrimaryDomainStatus: false,
-		expectedCreatedBy:           "pvt-domain-user",
-		expectedUsers:               []string{"pvt-domain-user"},
 	}
 
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6, testCase7} {
+	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			manager, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
@@ -640,7 +634,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			require.NoError(t, err, "get init account failed")
 
 			if testCase.inputUpdateAttrs {
-				err = manager.updateAccountDomainAttributes(context.Background(), initAccount, jwtclaims.AuthorizationClaims{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
+				err = manager.updateAccountDomainAttributesIfNotUpToDate(context.Background(), initAccount.Id, jwtclaims.AuthorizationClaims{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
 				require.NoError(t, err, "update init user failed")
 			}
 
@@ -2738,7 +2732,7 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 func createStore(t TB) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromSqlite(context.Background(), "", dataDir)
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
