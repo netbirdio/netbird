@@ -41,9 +41,9 @@ type Network struct {
 	Dns        string
 	// Serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.
-	Serial uint64
+	Serial uint64 `diff:"-"`
 
-	mu sync.Mutex `json:"-" gorm:"-"`
+	mu sync.Mutex `json:"-" gorm:"-" diff:"-"`
 }
 
 // NewNetwork creates a new Network initializing it with a Serial=0
