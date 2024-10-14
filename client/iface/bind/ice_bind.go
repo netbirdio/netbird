@@ -3,6 +3,7 @@ package bind
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"runtime"
 	"strings"
 	"sync"
@@ -27,13 +28,20 @@ func (rc receiverCreator) CreateIPv4ReceiverFn(msgPool *sync.Pool, pc *ipv4.Pack
 	return rc.iceBind.createIPv4ReceiverFn(msgPool, pc, conn)
 }
 
+// ICEBind is a bind implementation with two main features:
+// 1. filter out STUN messages and handle them
+// 2. forward the received packets to the WireGuard interface from the relayed connection
+//
+// ICEBind.endpoints var is a map that stores the connection for each relayed peer. Fake address is just an IP address
+// without port, in the format of 127.1.x.x where x.x is the last two octets of the peer address. We try to avoid to
+// use the port because in the Send function the wgConn.Endpoint the port info is not exported.
 type ICEBind struct {
 	*wgConn.StdNetBind
 	RecvChan chan RecvMessage
 
 	transportNet transport.Net
 	filterFn     FilterFn
-	endpoints    map[string]net.Conn
+	endpoints    map[netip.Addr]net.Conn
 	endpointsMu  sync.Mutex
 	// every time when Close() is called (i.e. BindUpdate()) we need to close exit from the receiveRelayed and create a
 	// new closed channel. With the closedChanMu we can safely close the channel and create a new one
@@ -52,7 +60,7 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
 		RecvChan:     make(chan RecvMessage, 1),
 		transportNet: transportNet,
 		filterFn:     filterFn,
-		endpoints:    make(map[string]net.Conn),
+		endpoints:    make(map[netip.Addr]net.Conn),
 		closedChan:   make(chan struct{}),
 		closed:       true,
 	}
@@ -100,27 +108,36 @@ func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 }
 
 func (b *ICEBind) SetEndpoint(peerAddress *net.UDPAddr, conn net.Conn) (*net.UDPAddr, error) {
-	fakeAddr, err := fakeAddress(peerAddress)
+	fakeUDPAddr, err := fakeAddress(peerAddress)
 	if err != nil {
 		return nil, err
 	}
+
+	// force IPv4
+	fakeAddr, ok := netip.AddrFromSlice(fakeUDPAddr.IP.To4())
+	if !ok {
+		return nil, fmt.Errorf("failed to convert IP to netip.Addr")
+	}
+
 	b.endpointsMu.Lock()
-	b.endpoints[fakeAddr.String()] = conn
+	b.endpoints[fakeAddr] = conn
 	b.endpointsMu.Unlock()
-	return fakeAddr, nil
+
+	return fakeUDPAddr, nil
 }
 
 func (b *ICEBind) RemoveEndpoint(fakeAddr *net.UDPAddr) {
 	b.endpointsMu.Lock()
 	defer b.endpointsMu.Unlock()
-	delete(b.endpoints, fakeAddr.String())
+	delete(b.endpoints, fakeAddr.AddrPort().Addr())
 }
 
 func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 	b.endpointsMu.Lock()
-	conn, ok := b.endpoints[ep.DstToString()]
+	conn, ok := b.endpoints[ep.DstIP()]
 	b.endpointsMu.Unlock()
 	if !ok {
+		log.Infof("failed to find endpoint for %s", ep.DstIP())
 		return b.StdNetBind.Send(bufs, ep)
 	}
 
@@ -237,6 +254,8 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 	}
 }
 
+// fakeAddress returns a fake address that is used to as an identifier for the peer.
+// The fake address is in the format of 127.1.x.x where x.x is the last two octets of the peer address.
 func fakeAddress(peerAddress *net.UDPAddr) (*net.UDPAddr, error) {
 	octets := strings.Split(peerAddress.IP.String(), ".")
 	if len(octets) != 4 {
