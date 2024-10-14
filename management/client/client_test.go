@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -47,15 +46,8 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
-	testDir := t.TempDir()
-
 	config := &mgmt.Config{}
 	_, err := util.ReadJson("../server/testdata/management.json", config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.Datadir = testDir
-	err = util.CopyFileContents("../server/testdata/store.json", filepath.Join(testDir, "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +57,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := mgmt.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := mgmt.NewTestStoreFromSQL(context.Background(), "../server/testdata/store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

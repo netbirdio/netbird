@@ -15,9 +15,9 @@ import (
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -233,41 +233,16 @@ func (w *WorkerICE) Close() {
 }
 
 func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
-	transportNet, err := w.newStdNet()
+	transportNet, err := newStdNet(w.iFaceDiscover, w.config.ICEConfig.InterfaceBlackList)
 	if err != nil {
 		w.log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	iceKeepAlive := iceKeepAlive()
-	iceDisconnectedTimeout := iceDisconnectedTimeout()
-	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
-
-	agentConfig := &ice.AgentConfig{
-		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
-		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                   w.config.ICEConfig.StunTurn.Load().([]*stun.URI),
-		CandidateTypes:         relaySupport,
-		InterfaceFilter:        stdnet.InterfaceFilter(w.config.ICEConfig.InterfaceBlackList),
-		UDPMux:                 w.config.ICEConfig.UDPMux,
-		UDPMuxSrflx:            w.config.ICEConfig.UDPMuxSrflx,
-		NAT1To1IPs:             w.config.ICEConfig.NATExternalIPs,
-		Net:                    transportNet,
-		FailedTimeout:          &failedTimeout,
-		DisconnectedTimeout:    &iceDisconnectedTimeout,
-		KeepaliveInterval:      &iceKeepAlive,
-		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
-		LocalUfrag:             w.localUfrag,
-		LocalPwd:               w.localPwd,
-	}
-
-	if w.config.ICEConfig.DisableIPv6Discovery {
-		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
-	}
-
 	w.sentExtraSrflx = false
-	agent, err := ice.NewAgent(agentConfig)
+
+	agent, err := newAgent(w.config, transportNet, relaySupport, w.localUfrag, w.localPwd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create agent: %w", err)
 	}
 
 	err = agent.OnCandidate(w.onICECandidate)
@@ -388,6 +363,36 @@ func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferA
 	} else {
 		return w.agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
+}
+
+func newAgent(config ConnConfig, transportNet *stdnet.Net, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ice.Agent, error) {
+	iceKeepAlive := iceKeepAlive()
+	iceDisconnectedTimeout := iceDisconnectedTimeout()
+	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
+
+	agentConfig := &ice.AgentConfig{
+		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
+		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
+		Urls:                   config.ICEConfig.StunTurn.Load().([]*stun.URI),
+		CandidateTypes:         candidateTypes,
+		InterfaceFilter:        stdnet.InterfaceFilter(config.ICEConfig.InterfaceBlackList),
+		UDPMux:                 config.ICEConfig.UDPMux,
+		UDPMuxSrflx:            config.ICEConfig.UDPMuxSrflx,
+		NAT1To1IPs:             config.ICEConfig.NATExternalIPs,
+		Net:                    transportNet,
+		FailedTimeout:          &failedTimeout,
+		DisconnectedTimeout:    &iceDisconnectedTimeout,
+		KeepaliveInterval:      &iceKeepAlive,
+		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
+		LocalUfrag:             ufrag,
+		LocalPwd:               pwd,
+	}
+
+	if config.ICEConfig.DisableIPv6Discovery {
+		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
+	}
+
+	return ice.NewAgent(agentConfig)
 }
 
 func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive, error) {

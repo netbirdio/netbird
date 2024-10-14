@@ -82,6 +82,68 @@ func TestPeer_LoginExpired(t *testing.T) {
 	}
 }
 
+func TestPeer_SessionExpired(t *testing.T) {
+	tt := []struct {
+		name              string
+		expirationEnabled bool
+		lastLogin         time.Time
+		connected         bool
+		expected          bool
+		accountSettings   *Settings
+	}{
+		{
+			name:              "Peer Inactivity Expiration Disabled. Peer Inactivity Should Not Expire",
+			expirationEnabled: false,
+			connected:         false,
+			lastLogin:         time.Now().UTC().Add(-1 * time.Second),
+			accountSettings: &Settings{
+				PeerInactivityExpirationEnabled: true,
+				PeerInactivityExpiration:        time.Hour,
+			},
+			expected: false,
+		},
+		{
+			name:              "Peer Inactivity Should Expire",
+			expirationEnabled: true,
+			connected:         false,
+			lastLogin:         time.Now().UTC().Add(-1 * time.Second),
+			accountSettings: &Settings{
+				PeerInactivityExpirationEnabled: true,
+				PeerInactivityExpiration:        time.Second,
+			},
+			expected: true,
+		},
+		{
+			name:              "Peer Inactivity Should Not Expire",
+			expirationEnabled: true,
+			connected:         true,
+			lastLogin:         time.Now().UTC(),
+			accountSettings: &Settings{
+				PeerInactivityExpirationEnabled: true,
+				PeerInactivityExpiration:        time.Second,
+			},
+			expected: false,
+		},
+	}
+
+	for _, c := range tt {
+		t.Run(c.name, func(t *testing.T) {
+			peerStatus := &nbpeer.PeerStatus{
+				Connected: c.connected,
+			}
+			peer := &nbpeer.Peer{
+				InactivityExpirationEnabled: c.expirationEnabled,
+				LastLogin:                   c.lastLogin,
+				Status:                      peerStatus,
+				UserID:                      userID,
+			}
+
+			expired, _ := peer.SessionExpired(c.accountSettings.PeerInactivityExpiration)
+			assert.Equal(t, expired, c.expected)
+		})
+	}
+}
+
 func TestAccountManager_GetNetworkMap(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -646,7 +708,6 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 		})
 	}
-
 }
 
 func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccountManager, string, string, error) {
@@ -991,9 +1052,9 @@ func TestToSyncResponse(t *testing.T) {
 	// assert network map Firewall
 	assert.Equal(t, 1, len(response.NetworkMap.FirewallRules))
 	assert.Equal(t, "192.168.1.2", response.NetworkMap.FirewallRules[0].PeerIP)
-	assert.Equal(t, proto.FirewallRule_IN, response.NetworkMap.FirewallRules[0].Direction)
-	assert.Equal(t, proto.FirewallRule_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
-	assert.Equal(t, proto.FirewallRule_TCP, response.NetworkMap.FirewallRules[0].Protocol)
+	assert.Equal(t, proto.RuleDirection_IN, response.NetworkMap.FirewallRules[0].Direction)
+	assert.Equal(t, proto.RuleAction_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
+	assert.Equal(t, proto.RuleProtocol_TCP, response.NetworkMap.FirewallRules[0].Protocol)
 	assert.Equal(t, "80", response.NetworkMap.FirewallRules[0].Port)
 	// assert posture checks
 	assert.Equal(t, 1, len(response.Checks))
@@ -1005,7 +1066,11 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
 
 	eventStore := &activity.InMemoryEventStore{}
 
@@ -1066,7 +1131,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
 
 	eventStore := &activity.InMemoryEventStore{}
 
@@ -1128,7 +1197,11 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
 
 	eventStore := &activity.InMemoryEventStore{}
 
@@ -1177,6 +1250,6 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
 	assert.NoError(t, err)
-	assert.Equal(t, lastUsed, account.SetupKeys[faultyKey].LastUsed)
+	assert.Equal(t, lastUsed, account.SetupKeys[faultyKey].LastUsed.UTC())
 	assert.Equal(t, 0, account.SetupKeys[faultyKey].UsedTimes)
 }

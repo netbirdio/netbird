@@ -793,6 +793,11 @@ services:
     volumes:
       - netbird_caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
   # UI dashboard
   dashboard:
     image: netbirdio/dashboard:latest

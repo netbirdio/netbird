@@ -4,14 +4,15 @@ import (
 	"net"
 	"os"
 
-	"github.com/netbirdio/netbird/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 
 	"github.com/google/uuid"
 )
 
 const (
 	// NetbirdFwmark is the fwmark value used by Netbird via wireguard
-	NetbirdFwmark = 0x1BD00
+	NetbirdFwmark    = 0x1BD00
+	PreroutingFwmark = 0x1BD01
 
 	envDisableCustomRouting = "NB_DISABLE_CUSTOM_ROUTING"
 )

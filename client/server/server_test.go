@@ -110,7 +110,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, cleanUp, err := server.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := server.NewTestStoreFromSQL(context.Background(), "", config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}
@@ -160,7 +160,7 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	srv, err := signalServer.NewServer(otel.Meter(""))
+	srv, err := signalServer.NewServer(context.Background(), otel.Meter(""))
 	require.NoError(t, err)
 	proto.RegisterSignalExchangeServer(s, srv)
 

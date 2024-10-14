@@ -10,12 +10,12 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
 

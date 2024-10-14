@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -25,14 +24,15 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/iface/bind"
 	mgmt "github.com/netbirdio/netbird/management/client"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
@@ -823,20 +823,6 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 func TestEngine_MultiplePeers(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 
-	dir := t.TempDir()
-
-	err := util.CopyFileContents("../testdata/store.json", filepath.Join(dir, "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		err = os.Remove(filepath.Join(dir, "store.json")) //nolint
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
-	}()
-
 	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
 
@@ -846,7 +832,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		return
 	}
 	defer sigServer.Stop()
-	mgmtServer, mgmtAddr, err := startManagement(t, dir)
+	mgmtServer, mgmtAddr, err := startManagement(t, t.TempDir(), "../testdata/store.sql")
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -874,7 +860,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			guid := fmt.Sprintf("{%s}", uuid.New().String())
-			iface.CustomWindowsGUIDString = strings.ToLower(guid)
+			device.CustomWindowsGUIDString = strings.ToLower(guid)
 			err = engine.Start()
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
@@ -1056,7 +1042,7 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	srv, err := signalServer.NewServer(otel.Meter(""))
+	srv, err := signalServer.NewServer(context.Background(), otel.Meter(""))
 	require.NoError(t, err)
 	proto.RegisterSignalExchangeServer(s, srv)
 
@@ -1069,7 +1055,7 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 	return s, lis.Addr().String(), nil
 }
 
-func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error) {
+func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, string, error) {
 	t.Helper()
 
 	config := &server.Config{
@@ -1094,7 +1080,7 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanUp, err := server.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := server.NewTestStoreFromSQL(context.Background(), testFile, config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}

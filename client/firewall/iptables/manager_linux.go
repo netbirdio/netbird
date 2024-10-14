@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/coreos/go-iptables/iptables"
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/client/iface"
 )
 
 // Manager of iptables firewall
@@ -21,7 +22,7 @@ type Manager struct {
 
 	ipv4Client *iptables.IPTables
 	aclMgr     *aclManager
-	router     *routerManager
+	router     *router
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -43,12 +44,12 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		ipv4Client: iptablesClient,
 	}
 
-	m.router, err = newRouterManager(context, iptablesClient)
+	m.router, err = newRouter(context, iptablesClient, wgIface)
 	if err != nil {
 		log.Debugf("failed to initialize route related chains: %s", err)
 		return nil, err
 	}
-	m.aclMgr, err = newAclManager(iptablesClient, wgIface, m.router.RouteingFwChainName())
+	m.aclMgr, err = newAclManager(iptablesClient, wgIface, chainRTFWD)
 	if err != nil {
 		log.Debugf("failed to initialize ACL manager: %s", err)
 		return nil, err
@@ -57,10 +58,10 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 	return m, nil
 }
 
-// AddFiltering rule to the firewall
+// AddPeerFiltering adds a rule to the firewall
 //
 // Comment will be ignored because some system this feature is not supported
-func (m *Manager) AddFiltering(
+func (m *Manager) AddPeerFiltering(
 	ip net.IP,
 	protocol firewall.Protocol,
 	sPort *firewall.Port,
@@ -73,33 +74,62 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.aclMgr.AddFiltering(ip, protocol, sPort, dPort, direction, action, ipsetName)
+	return m.aclMgr.AddPeerFiltering(ip, protocol, sPort, dPort, direction, action, ipsetName)
 }
 
-// DeleteRule from the firewall by rule definition
-func (m *Manager) DeleteRule(rule firewall.Rule) error {
+func (m *Manager) AddRouteFiltering(
+	sources []netip.Prefix,
+	destination netip.Prefix,
+	proto firewall.Protocol,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	action firewall.Action,
+) (firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.aclMgr.DeleteRule(rule)
+	if !destination.Addr().Is4() {
+		return nil, fmt.Errorf("unsupported IP version: %s", destination.Addr().String())
+	}
+
+	return m.router.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+}
+
+// DeletePeerRule from the firewall by rule definition
+func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.aclMgr.DeletePeerRule(rule)
+}
+
+func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.DeleteRouteRule(rule)
 }
 
 func (m *Manager) IsServerRouteSupported() bool {
 	return true
 }
 
-func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
+func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.router.InsertRoutingRules(pair)
+	return m.router.AddNatRule(pair)
 }
 
-func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
+func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.router.RemoveRoutingRules(pair)
+	return m.router.RemoveNatRule(pair)
+}
+
+func (m *Manager) SetLegacyManagement(isLegacy bool) error {
+	return firewall.SetLegacyManagement(m.router, isLegacy)
 }
 
 // Reset firewall to the default state
@@ -125,7 +155,7 @@ func (m *Manager) AllowNetbird() error {
 		return nil
 	}
 
-	_, err := m.AddFiltering(
+	_, err := m.AddPeerFiltering(
 		net.ParseIP("0.0.0.0"),
 		"all",
 		nil,
@@ -138,7 +168,7 @@ func (m *Manager) AllowNetbird() error {
 	if err != nil {
 		return fmt.Errorf("failed to allow netbird interface traffic: %w", err)
 	}
-	_, err = m.AddFiltering(
+	_, err = m.AddPeerFiltering(
 		net.ParseIP("0.0.0.0"),
 		"all",
 		nil,
@@ -153,3 +183,7 @@ func (m *Manager) AllowNetbird() error {
 
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
+
+func getConntrackEstablished() []string {
+	return []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
+}

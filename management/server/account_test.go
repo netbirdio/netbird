@@ -465,7 +465,26 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 	type initUserParams jwtclaims.AuthorizationClaims
 
-	type test struct {
+	var (
+		publicDomain  = "public.com"
+		privateDomain = "private.com"
+		unknownDomain = "unknown.com"
+	)
+
+	defaultInitAccount := initUserParams{
+		Domain: publicDomain,
+		UserId: "defaultUser",
+	}
+
+	initUnknown := defaultInitAccount
+	initUnknown.DomainCategory = UnknownCategory
+	initUnknown.Domain = unknownDomain
+
+	privateInitAccount := defaultInitAccount
+	privateInitAccount.Domain = privateDomain
+	privateInitAccount.DomainCategory = PrivateCategory
+
+	testCases := []struct {
 		name                        string
 		inputClaims                 jwtclaims.AuthorizationClaims
 		inputInitUserParams         initUserParams
@@ -479,168 +498,143 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		expectedPrimaryDomainStatus bool
 		expectedCreatedBy           string
 		expectedUsers               []string
-	}
-
-	var (
-		publicDomain  = "public.com"
-		privateDomain = "private.com"
-		unknownDomain = "unknown.com"
-	)
-
-	defaultInitAccount := initUserParams{
-		Domain: publicDomain,
-		UserId: "defaultUser",
-	}
-
-	testCase1 := test{
-		name: "New User With Public Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         publicDomain,
-			UserId:         "pub-domain-user",
-			DomainCategory: PublicCategory,
+	}{
+		{
+			name: "New User With Public Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         publicDomain,
+				UserId:         "pub-domain-user",
+				DomainCategory: PublicCategory,
+			},
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.NotEqual,
+			expectedMSG:                 "account IDs shouldn't match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomainCategory:      "",
+			expectedDomain:              publicDomain,
+			expectedPrimaryDomainStatus: false,
+			expectedCreatedBy:           "pub-domain-user",
+			expectedUsers:               []string{"pub-domain-user"},
 		},
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.NotEqual,
-		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomainCategory:      "",
-		expectedDomain:              publicDomain,
-		expectedPrimaryDomainStatus: false,
-		expectedCreatedBy:           "pub-domain-user",
-		expectedUsers:               []string{"pub-domain-user"},
-	}
-
-	initUnknown := defaultInitAccount
-	initUnknown.DomainCategory = UnknownCategory
-	initUnknown.Domain = unknownDomain
-
-	testCase2 := test{
-		name: "New User With Unknown Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         unknownDomain,
-			UserId:         "unknown-domain-user",
-			DomainCategory: UnknownCategory,
+		{
+			name: "New User With Unknown Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         unknownDomain,
+				UserId:         "unknown-domain-user",
+				DomainCategory: UnknownCategory,
+			},
+			inputInitUserParams:         initUnknown,
+			testingFunc:                 require.NotEqual,
+			expectedMSG:                 "account IDs shouldn't match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              unknownDomain,
+			expectedDomainCategory:      "",
+			expectedPrimaryDomainStatus: false,
+			expectedCreatedBy:           "unknown-domain-user",
+			expectedUsers:               []string{"unknown-domain-user"},
 		},
-		inputInitUserParams:         initUnknown,
-		testingFunc:                 require.NotEqual,
-		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              unknownDomain,
-		expectedDomainCategory:      "",
-		expectedPrimaryDomainStatus: false,
-		expectedCreatedBy:           "unknown-domain-user",
-		expectedUsers:               []string{"unknown-domain-user"},
-	}
-
-	testCase3 := test{
-		name: "New User With Private Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         privateDomain,
-			UserId:         "pvt-domain-user",
-			DomainCategory: PrivateCategory,
+		{
+			name: "New User With Private Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         privateDomain,
+				UserId:         "pvt-domain-user",
+				DomainCategory: PrivateCategory,
+			},
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.NotEqual,
+			expectedMSG:                 "account IDs shouldn't match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              privateDomain,
+			expectedDomainCategory:      PrivateCategory,
+			expectedPrimaryDomainStatus: true,
+			expectedCreatedBy:           "pvt-domain-user",
+			expectedUsers:               []string{"pvt-domain-user"},
 		},
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.NotEqual,
-		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              privateDomain,
-		expectedDomainCategory:      PrivateCategory,
-		expectedPrimaryDomainStatus: true,
-		expectedCreatedBy:           "pvt-domain-user",
-		expectedUsers:               []string{"pvt-domain-user"},
-	}
-
-	privateInitAccount := defaultInitAccount
-	privateInitAccount.Domain = privateDomain
-	privateInitAccount.DomainCategory = PrivateCategory
-
-	testCase4 := test{
-		name: "New Regular User With Existing Private Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         privateDomain,
-			UserId:         "new-pvt-domain-user",
-			DomainCategory: PrivateCategory,
+		{
+			name: "New Regular User With Existing Private Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         privateDomain,
+				UserId:         "new-pvt-domain-user",
+				DomainCategory: PrivateCategory,
+			},
+			inputUpdateAttrs:            true,
+			inputInitUserParams:         privateInitAccount,
+			testingFunc:                 require.Equal,
+			expectedMSG:                 "account IDs should match",
+			expectedUserRole:            UserRoleUser,
+			expectedDomain:              privateDomain,
+			expectedDomainCategory:      PrivateCategory,
+			expectedPrimaryDomainStatus: true,
+			expectedCreatedBy:           defaultInitAccount.UserId,
+			expectedUsers:               []string{defaultInitAccount.UserId, "new-pvt-domain-user"},
 		},
-		inputUpdateAttrs:            true,
-		inputInitUserParams:         privateInitAccount,
-		testingFunc:                 require.Equal,
-		expectedMSG:                 "account IDs should match",
-		expectedUserRole:            UserRoleUser,
-		expectedDomain:              privateDomain,
-		expectedDomainCategory:      PrivateCategory,
-		expectedPrimaryDomainStatus: true,
-		expectedCreatedBy:           defaultInitAccount.UserId,
-		expectedUsers:               []string{defaultInitAccount.UserId, "new-pvt-domain-user"},
-	}
-
-	testCase5 := test{
-		name: "Existing User With Existing Reclassified Private Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         defaultInitAccount.Domain,
-			UserId:         defaultInitAccount.UserId,
-			DomainCategory: PrivateCategory,
+		{
+			name: "Existing User With Existing Reclassified Private Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         defaultInitAccount.Domain,
+				UserId:         defaultInitAccount.UserId,
+				DomainCategory: PrivateCategory,
+			},
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.Equal,
+			expectedMSG:                 "account IDs should match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              defaultInitAccount.Domain,
+			expectedDomainCategory:      PrivateCategory,
+			expectedPrimaryDomainStatus: true,
+			expectedCreatedBy:           defaultInitAccount.UserId,
+			expectedUsers:               []string{defaultInitAccount.UserId},
 		},
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.Equal,
-		expectedMSG:                 "account IDs should match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              defaultInitAccount.Domain,
-		expectedDomainCategory:      PrivateCategory,
-		expectedPrimaryDomainStatus: true,
-		expectedCreatedBy:           defaultInitAccount.UserId,
-		expectedUsers:               []string{defaultInitAccount.UserId},
-	}
-
-	testCase6 := test{
-		name: "Existing Account Id With Existing Reclassified Private Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         defaultInitAccount.Domain,
-			UserId:         defaultInitAccount.UserId,
-			DomainCategory: PrivateCategory,
+		{
+			name: "Existing Account Id With Existing Reclassified Private Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         defaultInitAccount.Domain,
+				UserId:         defaultInitAccount.UserId,
+				DomainCategory: PrivateCategory,
+			},
+			inputUpdateClaimAccount:     true,
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.Equal,
+			expectedMSG:                 "account IDs should match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              defaultInitAccount.Domain,
+			expectedDomainCategory:      PrivateCategory,
+			expectedPrimaryDomainStatus: true,
+			expectedCreatedBy:           defaultInitAccount.UserId,
+			expectedUsers:               []string{defaultInitAccount.UserId},
 		},
-		inputUpdateClaimAccount:     true,
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.Equal,
-		expectedMSG:                 "account IDs should match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              defaultInitAccount.Domain,
-		expectedDomainCategory:      PrivateCategory,
-		expectedPrimaryDomainStatus: true,
-		expectedCreatedBy:           defaultInitAccount.UserId,
-		expectedUsers:               []string{defaultInitAccount.UserId},
-	}
-
-	testCase7 := test{
-		name: "User With Private Category And Empty Domain",
-		inputClaims: jwtclaims.AuthorizationClaims{
-			Domain:         "",
-			UserId:         "pvt-domain-user",
-			DomainCategory: PrivateCategory,
+		{
+			name: "User With Private Category And Empty Domain",
+			inputClaims: jwtclaims.AuthorizationClaims{
+				Domain:         "",
+				UserId:         "pvt-domain-user",
+				DomainCategory: PrivateCategory,
+			},
+			inputInitUserParams:         defaultInitAccount,
+			testingFunc:                 require.NotEqual,
+			expectedMSG:                 "account IDs shouldn't match",
+			expectedUserRole:            UserRoleOwner,
+			expectedDomain:              "",
+			expectedDomainCategory:      "",
+			expectedPrimaryDomainStatus: false,
+			expectedCreatedBy:           "pvt-domain-user",
+			expectedUsers:               []string{"pvt-domain-user"},
 		},
-		inputInitUserParams:         defaultInitAccount,
-		testingFunc:                 require.NotEqual,
-		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleOwner,
-		expectedDomain:              "",
-		expectedDomainCategory:      "",
-		expectedPrimaryDomainStatus: false,
-		expectedCreatedBy:           "pvt-domain-user",
-		expectedUsers:               []string{"pvt-domain-user"},
 	}
 
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6, testCase7} {
+	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			manager, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
 
-			accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.AccountId, testCase.inputInitUserParams.Domain)
+			accountID, err := manager.GetAccountIDByUserID(context.Background(), testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.Domain)
 			require.NoError(t, err, "create init user failed")
 
 			initAccount, err := manager.Store.GetAccount(context.Background(), accountID)
 			require.NoError(t, err, "get init account failed")
 
 			if testCase.inputUpdateAttrs {
-				err = manager.updateAccountDomainAttributes(context.Background(), initAccount, jwtclaims.AuthorizationClaims{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
+				err = manager.updateAccountDomainAttributesIfNotUpToDate(context.Background(), initAccount.Id, jwtclaims.AuthorizationClaims{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
 				require.NoError(t, err, "update init user failed")
 			}
 
@@ -671,17 +665,16 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	userId := "user-id"
 	domain := "test.domain"
 
-	initAccount := newAccountWithId(context.Background(), "", userId, domain)
+	_ = newAccountWithId(context.Background(), "", userId, domain)
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID := initAccount.Id
-	accountID, err = manager.GetAccountIDByUserOrAccountID(context.Background(), userId, accountID, domain)
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userId, domain)
 	require.NoError(t, err, "create init user failed")
 	// as initAccount was created without account id we have to take the id after account initialization
-	// that happens inside the GetAccountIDByUserOrAccountID where the id is getting generated
+	// that happens inside the GetAccountIDByUserID where the id is getting generated
 	// it is important to set the id as it help to avoid creating additional account with empty Id and re-pointing indices to it
-	initAccount, err = manager.Store.GetAccount(context.Background(), accountID)
+	initAccount, err := manager.Store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err, "get init account failed")
 
 	claims := jwtclaims.AuthorizationClaims{
@@ -885,7 +878,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 	}
 }
 
-func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
+func TestAccountManager_GetAccountByUserID(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -894,7 +887,7 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 
 	userId := "test_user"
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userId, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,14 +896,13 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 		return
 	}
 
-	_, err = manager.GetAccountIDByUserOrAccountID(context.Background(), "", accountID, "")
-	if err != nil {
-		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", accountID)
-	}
+	exists, err := manager.Store.AccountExists(context.Background(), LockingStrengthShare, accountID)
+	assert.NoError(t, err)
+	assert.True(t, exists, "expected to get existing account after creation using userid")
 
-	_, err = manager.GetAccountIDByUserOrAccountID(context.Background(), "", "", "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), "", "")
 	if err == nil {
-		t.Errorf("expected an error when user and account IDs are empty")
+		t.Errorf("expected an error when user ID is empty")
 	}
 }
 
@@ -1599,9 +1591,10 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Routes: map[route.ID]*route.Route{
 			"route1": {
-				ID:         "route1",
-				PeerGroups: []string{},
-				Groups:     []string{"group1"},
+				ID:                  "route1",
+				PeerGroups:          []string{},
+				Groups:              []string{"group1"},
+				AccessControlGroups: []string{},
 			},
 		},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
@@ -1668,7 +1661,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
@@ -1683,7 +1676,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	_, err = manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1695,7 +1688,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	})
 	require.NoError(t, err, "unable to add peer")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -1741,7 +1734,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1769,7 +1762,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 		},
 	}
 
-	accountID, err = manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -1789,7 +1782,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	_, err = manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1801,7 +1794,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	})
 	require.NoError(t, err, "unable to add peer")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -1849,7 +1842,7 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserOrAccountID(context.Background(), userID, "", "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
 	updatedSettings, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
@@ -1859,9 +1852,6 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 	assert.False(t, updatedSettings.PeerLoginExpirationEnabled)
 	assert.Equal(t, updatedSettings.PeerLoginExpiration, time.Hour)
-
-	accountID, err = manager.GetAccountIDByUserOrAccountID(context.Background(), "", accountID, "")
-	require.NoError(t, err, "unable to get account by ID")
 
 	settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
 	require.NoError(t, err, "unable to get account settings")
@@ -1967,6 +1957,90 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 	}
 }
 
+func TestAccount_GetInactivePeers(t *testing.T) {
+	type test struct {
+		name          string
+		peers         map[string]*nbpeer.Peer
+		expectedPeers map[string]struct{}
+	}
+	testCases := []test{
+		{
+			name: "Peers with inactivity expiration disabled, no expired peers",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					InactivityExpirationEnabled: false,
+				},
+				"peer-2": {
+					InactivityExpirationEnabled: false,
+				},
+			},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Two peers expired",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					ID:                          "peer-1",
+					InactivityExpirationEnabled: true,
+					Status: &nbpeer.PeerStatus{
+						LastSeen:     time.Now().UTC().Add(-45 * time.Second),
+						Connected:    false,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().UTC().Add(-30 * time.Minute),
+					UserID:    userID,
+				},
+				"peer-2": {
+					ID:                          "peer-2",
+					InactivityExpirationEnabled: true,
+					Status: &nbpeer.PeerStatus{
+						LastSeen:     time.Now().UTC().Add(-45 * time.Second),
+						Connected:    false,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().UTC().Add(-2 * time.Hour),
+					UserID:    userID,
+				},
+				"peer-3": {
+					ID:                          "peer-3",
+					InactivityExpirationEnabled: true,
+					Status: &nbpeer.PeerStatus{
+						LastSeen:     time.Now().UTC(),
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().UTC().Add(-1 * time.Hour),
+					UserID:    userID,
+				},
+			},
+			expectedPeers: map[string]struct{}{
+				"peer-1": {},
+				"peer-2": {},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers: testCase.peers,
+				Settings: &Settings{
+					PeerInactivityExpirationEnabled: true,
+					PeerInactivityExpiration:        time.Second,
+				},
+			}
+
+			expiredPeers := account.GetInactivePeers()
+			assert.Len(t, expiredPeers, len(testCase.expectedPeers))
+			for _, peer := range expiredPeers {
+				if _, ok := testCase.expectedPeers[peer.ID]; !ok {
+					t.Fatalf("expected to have peer %s expired", peer.ID)
+				}
+			}
+		})
+	}
+}
+
 func TestAccount_GetPeersWithExpiration(t *testing.T) {
 	type test struct {
 		name          string
@@ -2020,6 +2094,75 @@ func TestAccount_GetPeersWithExpiration(t *testing.T) {
 			}
 
 			actual := account.GetPeersWithExpiration()
+			assert.Len(t, actual, len(testCase.expectedPeers))
+			if len(testCase.expectedPeers) > 0 {
+				for k := range testCase.expectedPeers {
+					contains := false
+					for _, peer := range actual {
+						if k == peer.ID {
+							contains = true
+						}
+					}
+					assert.True(t, contains)
+				}
+			}
+		})
+	}
+}
+
+func TestAccount_GetPeersWithInactivity(t *testing.T) {
+	type test struct {
+		name          string
+		peers         map[string]*nbpeer.Peer
+		expectedPeers map[string]struct{}
+	}
+
+	testCases := []test{
+		{
+			name:          "No account peers, no peers with expiration",
+			peers:         map[string]*nbpeer.Peer{},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Peers with login expiration disabled, no peers with expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+			},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Peers with login expiration enabled, return peers with expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					ID:                          "peer-1",
+					InactivityExpirationEnabled: true,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+			},
+			expectedPeers: map[string]struct{}{
+				"peer-1": {},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers: testCase.peers,
+			}
+
+			actual := account.GetPeersWithInactivity()
 			assert.Len(t, actual, len(testCase.expectedPeers))
 			if len(testCase.expectedPeers) > 0 {
 				for k := range testCase.expectedPeers {
@@ -2197,9 +2340,175 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 	}
 }
 
+func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
+	type test struct {
+		name                   string
+		peers                  map[string]*nbpeer.Peer
+		expiration             time.Duration
+		expirationEnabled      bool
+		expectedNextRun        bool
+		expectedNextExpiration time.Duration
+	}
+
+	expectedNextExpiration := time.Minute
+	testCases := []test{
+		{
+			name:                   "No peers, no expiration",
+			peers:                  map[string]*nbpeer.Peer{},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "No connected peers, no expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected: false,
+					},
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected: false,
+					},
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "Connected peers with disabled expiration, no expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected: true,
+					},
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected: true,
+					},
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "Expired peers, no expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					InactivityExpirationEnabled: true,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					InactivityExpirationEnabled: true,
+					UserID:                      userID,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "To be expired peer, return expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    false,
+						LoginExpired: false,
+						LastSeen:     time.Now().Add(-1 * time.Second),
+					},
+					InactivityExpirationEnabled: true,
+					LastLogin:                   time.Now().UTC(),
+					UserID:                      userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					InactivityExpirationEnabled: true,
+					UserID:                      userID,
+				},
+			},
+			expiration:             time.Minute,
+			expirationEnabled:      false,
+			expectedNextRun:        true,
+			expectedNextExpiration: expectedNextExpiration,
+		},
+		{
+			name: "Peers added with setup keys, no expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: false,
+					},
+					InactivityExpirationEnabled: true,
+					SetupKey:                    "key",
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: false,
+					},
+					InactivityExpirationEnabled: true,
+					SetupKey:                    "key",
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers:    testCase.peers,
+				Settings: &Settings{PeerInactivityExpiration: testCase.expiration, PeerInactivityExpirationEnabled: testCase.expirationEnabled},
+			}
+
+			expiration, ok := account.GetNextInactivePeerExpiration()
+			assert.Equal(t, testCase.expectedNextRun, ok)
+			if testCase.expectedNextRun {
+				assert.True(t, expiration >= 0 && expiration <= testCase.expectedNextExpiration)
+			} else {
+				assert.Equal(t, expiration, testCase.expectedNextExpiration)
+			}
+		})
+	}
+}
+
 func TestAccount_SetJWTGroups(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
 	// create a new account
 	account := &Account{
+		Id: "accountID",
 		Peers: map[string]*nbpeer.Peer{
 			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
 			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
@@ -2210,62 +2519,120 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		Groups: map[string]*group.Group{
 			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
 		},
-		Settings: &Settings{GroupsPropagationEnabled: true},
+		Settings: &Settings{GroupsPropagationEnabled: true, JWTGroupsEnabled: true, JWTGroupsClaimName: "groups"},
 		Users: map[string]*User{
-			"user1": {Id: "user1"},
-			"user2": {Id: "user2"},
+			"user1": {Id: "user1", AccountID: "accountID"},
+			"user2": {Id: "user2", AccountID: "accountID"},
 		},
 	}
 
+	assert.NoError(t, manager.Store.SaveAccount(context.Background(), account), "unable to save account")
+
 	t.Run("empty jwt groups", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{})
-		assert.False(t, updated, "account should not be updated")
-		assert.Empty(t, account.Users["user1"].AutoGroups, "auto groups must be empty")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{}},
+		}
+		err := manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Empty(t, user.AutoGroups, "auto groups must be empty")
 	})
 
 	t.Run("jwt match existing api group", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{"group1"})
-		assert.False(t, updated, "account should not be updated")
-		assert.Equal(t, 0, len(account.Users["user1"].AutoGroups))
-		assert.Equal(t, account.Groups["group1"].Issued, group.GroupIssuedAPI, "group should be api issued")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group1"}},
+		}
+		err := manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 0)
+
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		assert.NoError(t, err, "unable to get group")
+		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("jwt match existing api group in user auto groups", func(t *testing.T) {
 		account.Users["user1"].AutoGroups = []string{"group1"}
+		assert.NoError(t, manager.Store.SaveUser(context.Background(), LockingStrengthUpdate, account.Users["user1"]))
 
-		updated := account.SetJWTGroups("user1", []string{"group1"})
-		assert.False(t, updated, "account should not be updated")
-		assert.Equal(t, 1, len(account.Users["user1"].AutoGroups))
-		assert.Equal(t, account.Groups["group1"].Issued, group.GroupIssuedAPI, "group should be api issued")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group1"}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 1)
+
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		assert.NoError(t, err, "unable to get group")
+		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{"group1", "group2"})
-		assert.True(t, updated, "account should be updated")
-		assert.Len(t, account.Groups, 2, "new group should be added")
-		assert.Len(t, account.Users["user1"].AutoGroups, 2, "new group should be added")
-		assert.Contains(t, account.Groups, account.Users["user1"].AutoGroups[0], "groups must contain group2 from user groups")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group1", "group2"}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 2, "groups count should not be change")
 	})
 
 	t.Run("existed group not update", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{"group2"})
-		assert.False(t, updated, "account should not be updated")
-		assert.Len(t, account.Groups, 2, "groups count should not be changed")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group2"}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 2, "groups count should not be change")
 	})
 
 	t.Run("add new group", func(t *testing.T) {
-		updated := account.SetJWTGroups("user2", []string{"group1", "group3"})
-		assert.True(t, updated, "account should be updated")
-		assert.Len(t, account.Groups, 3, "new group should be added")
-		assert.Len(t, account.Users["user2"].AutoGroups, 1, "new group should be added")
-		assert.Contains(t, account.Groups, account.Users["user2"].AutoGroups[0], "groups must contain group3 from user groups")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user2",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group1", "group3"}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		groups, err := manager.Store.GetAccountGroups(context.Background(), "accountID")
+		assert.NoError(t, err)
+		assert.Len(t, groups, 3, "new group3 should be added")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user2")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 1, "new group should be added")
 	})
 
 	t.Run("remove all JWT groups", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{})
-		assert.True(t, updated, "account should be updated")
-		assert.Len(t, account.Users["user1"].AutoGroups, 1, "only non-JWT groups should remain")
-		assert.Contains(t, account.Users["user1"].AutoGroups, "group1", " group1 should still be present")
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{}},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 1, "only non-JWT groups should remain")
+		assert.Contains(t, user.AutoGroups, "group1", " group1 should still be present")
 	})
 }
 
@@ -2365,7 +2732,7 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 func createStore(t TB) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}

@@ -23,9 +23,12 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/relay"
@@ -36,8 +39,6 @@ import (
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
@@ -249,6 +250,13 @@ func (e *Engine) Stop() error {
 		e.networkMonitor.Stop()
 	}
 	log.Info("Network monitor: stopped")
+
+	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
+	e.stopDNSServer()
+
+	if e.routeManager != nil {
+		e.routeManager.Stop()
+	}
 
 	err := e.removeAllPeers()
 	if err != nil {
@@ -619,7 +627,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	e.statusRecorder.UpdateLocalPeerState(peer.LocalPeerState{
 		IP:              e.config.WgAddr,
 		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
-		KernelInterface: iface.WireGuardModuleIsLoaded(),
+		KernelInterface: device.WireGuardModuleIsLoaded(),
 		FQDN:            conf.GetFqdn(),
 	})
 
@@ -704,6 +712,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
+	// Apply ACLs in the beginning to avoid security leaks
+	if e.acl != nil {
+		e.acl.ApplyFiltering(networkMap)
+	}
+
 	protoRoutes := networkMap.GetRoutes()
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
@@ -768,10 +781,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
 	if err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
-	}
-
-	if e.acl != nil {
-		e.acl.ApplyFiltering(networkMap)
 	}
 
 	e.networkSerial = serial
@@ -1114,18 +1123,12 @@ func (e *Engine) close() {
 		}
 	}
 
-	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	e.stopDNSServer()
-
-	if e.routeManager != nil {
-		e.routeManager.Stop()
-	}
-
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
+		e.wgInterface = nil
 	}
 
 	if !isNil(e.sshServer) {
@@ -1164,15 +1167,15 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	var mArgs *iface.MobileIFaceArguments
+	var mArgs *device.MobileIFaceArguments
 	switch runtime.GOOS {
 	case "android":
-		mArgs = &iface.MobileIFaceArguments{
+		mArgs = &device.MobileIFaceArguments{
 			TunAdapter: e.mobileDep.TunAdapter,
 			TunFd:      int(e.mobileDep.FileDescriptor),
 		}
 	case "ios":
-		mArgs = &iface.MobileIFaceArguments{
+		mArgs = &device.MobileIFaceArguments{
 			TunFd: int(e.mobileDep.FileDescriptor),
 		}
 	default:
@@ -1393,7 +1396,7 @@ func (e *Engine) startNetworkMonitor() {
 			}
 
 			// Set a new timer to debounce rapid network changes
-			debounceTimer = time.AfterFunc(1*time.Second, func() {
+			debounceTimer = time.AfterFunc(2*time.Second, func() {
 				// This function is called after the debounce period
 				mu.Lock()
 				defer mu.Unlock()
@@ -1424,6 +1427,11 @@ func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 }
 
 func (e *Engine) stopDNSServer() {
+	if e.dnsServer == nil {
+		return
+	}
+	e.dnsServer.Stop()
+	e.dnsServer = nil
 	err := fmt.Errorf("DNS server stopped")
 	nsGroupStates := e.statusRecorder.GetDNSStates()
 	for i := range nsGroupStates {
@@ -1431,10 +1439,6 @@ func (e *Engine) stopDNSServer() {
 		nsGroupStates[i].Error = err
 	}
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
-	if e.dnsServer != nil {
-		e.dnsServer.Stop()
-		e.dnsServer = nil
-	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.
