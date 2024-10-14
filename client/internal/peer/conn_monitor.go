@@ -19,27 +19,27 @@ const (
 )
 
 type ConnMonitor struct {
+	ReconnectCh chan struct{}
+
 	signaler          *Signaler
 	iFaceDiscover     stdnet.ExternalIFaceDiscover
 	config            ConnConfig
 	relayDisconnected chan bool
 	iCEDisconnected   chan bool
-	reconnectCh       chan struct{}
 	currentCandidates []ice.Candidate
 	candidatesMu      sync.Mutex
 }
 
-func NewConnMonitor(signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, config ConnConfig, relayDisconnected, iCEDisconnected chan bool) (*ConnMonitor, <-chan struct{}) {
-	reconnectCh := make(chan struct{}, 1)
+func NewConnMonitor(signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, config ConnConfig, relayDisconnected, iCEDisconnected chan bool) *ConnMonitor {
 	cm := &ConnMonitor{
+		ReconnectCh:       make(chan struct{}, 1),
 		signaler:          signaler,
 		iFaceDiscover:     iFaceDiscover,
 		config:            config,
 		relayDisconnected: relayDisconnected,
 		iCEDisconnected:   iCEDisconnected,
-		reconnectCh:       reconnectCh,
 	}
-	return cm, reconnectCh
+	return cm
 }
 
 func (cm *ConnMonitor) Start(ctx context.Context) {
@@ -206,7 +206,7 @@ func (cm *ConnMonitor) updateCandidates(newCandidates []ice.Candidate) bool {
 
 func (cm *ConnMonitor) triggerReconnect() {
 	select {
-	case cm.reconnectCh <- struct{}{}:
+	case cm.ReconnectCh <- struct{}{}:
 	default:
 	}
 }
