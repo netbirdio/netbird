@@ -126,10 +126,16 @@ func (b *ICEBind) SetEndpoint(peerAddress *net.UDPAddr, conn net.Conn) (*net.UDP
 	return fakeUDPAddr, nil
 }
 
-func (b *ICEBind) RemoveEndpoint(fakeAddr *net.UDPAddr) {
+func (b *ICEBind) RemoveEndpoint(fakeUDPAddr *net.UDPAddr) {
+	fakeAddr, ok := netip.AddrFromSlice(fakeUDPAddr.IP.To4())
+	if !ok {
+		log.Warnf("failed to convert IP to netip.Addr")
+		return
+	}
+
 	b.endpointsMu.Lock()
 	defer b.endpointsMu.Unlock()
-	delete(b.endpoints, fakeAddr.AddrPort().Addr())
+	delete(b.endpoints, fakeAddr)
 }
 
 func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
