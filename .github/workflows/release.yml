@@ -9,7 +9,7 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.0.14"
+  SIGN_PIPE_VER: "v0.0.15"
   GORELEASER_VER: "v2.3.2"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "Wiretrustee UG (haftungsbeschreankt)"
@@ -223,4 +223,4 @@ jobs:
           repo: netbirdio/sign-pipelines
           ref: ${{ env.SIGN_PIPE_VER }}
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}
-          inputs: '{ "tag": "${{ github.ref }}" }'
+          inputs: '{ "tag": "${{ github.ref }}", "skipRelease": false }'
