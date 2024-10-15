@@ -45,15 +45,15 @@ import (
 )
 
 const (
-	PublicCategory             = "public"
-	PrivateCategory            = "private"
-	UnknownCategory            = "unknown"
-	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
-	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
-	DefaultPeerLoginExpiration = 24 * time.Hour
+	PublicCategory                  = "public"
+	PrivateCategory                 = "private"
+	UnknownCategory                 = "unknown"
+	CacheExpirationMax              = 7 * 24 * 3600 * time.Second // 7 days
+	CacheExpirationMin              = 3 * 24 * 3600 * time.Second // 3 days
+	DefaultPeerLoginExpiration      = 24 * time.Hour
 	DefaultPeerInactivityExpiration = 10 * time.Minute
-	emptyUserID                = "empty user ID in claims"
-	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+	emptyUserID                     = "empty user ID in claims"
+	errorGettingDomainAccIDFmt      = "error getting account ID by private domain: %v"
 )
 
 type userLoggedInOnce bool
@@ -134,14 +134,14 @@ type AccountManager interface {
 	GetDNSSettings(ctx context.Context, accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Account, error)
+	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Settings, error)
 	LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
 	SyncPeer(ctx context.Context, sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
 	GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error
+	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, isUpdate bool) error
 	DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManager() idp.Manager
@@ -1122,7 +1122,16 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
 // Returns an updated Account
-func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Account, error) {
+func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Settings, error) {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.HasAdminPower() || user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	}
+
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -1132,78 +1141,89 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
+	var oldSettings *Settings
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		oldSettings, err = transaction.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to get account settings: %w", err)
+		}
+
+		if err = am.validateExtraSettings(ctx, newSettings, oldSettings, userID, accountID); err != nil {
+			return fmt.Errorf("failed to validate extra settings: %w", err)
+		}
+
+		if err = am.Store.SaveAccountSettings(ctx, LockingStrengthUpdate, accountID, newSettings); err != nil {
+			return fmt.Errorf("failed to update account settings: %w", err)
+		}
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
+
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting account: %w", err)
 	}
+	am.updateAccountPeers(ctx, account)
 
-	if !user.HasAdminPower() {
-		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
-	}
+	return newSettings, nil
+}
 
-	err = am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID)
+// validateExtraSettings validates the extra settings of the account.
+func (am *DefaultAccountManager) validateExtraSettings(ctx context.Context, newSettings, oldSettings *Settings, userID, accountID string) error {
+	peers, err := am.Store.GetAccountPeers(ctx, LockingStrengthShare, accountID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	oldSettings := account.Settings
+	peerMap := make(map[string]*nbpeer.Peer, len(peers))
+	for _, peer := range peers {
+		peerMap[peer.ID] = peer
+	}
+
+	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, peerMap, userID, accountID)
+}
+
+func (am *DefaultAccountManager) handlePeerLoginExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) {
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
 		if !newSettings.PeerLoginExpirationEnabled {
 			event = activity.AccountPeerLoginExpirationDisabled
 			am.peerLoginExpiry.Cancel(ctx, []string{accountID})
 		} else {
-			am.checkAndSchedulePeerLoginExpiration(ctx, account)
+			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 	}
 
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
-		am.checkAndSchedulePeerLoginExpiration(ctx, account)
+		am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 	}
-
-	err = am.handleInactivityExpirationSettings(ctx, account, oldSettings, newSettings, userID, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	updatedAccount := account.UpdateSettings(newSettings)
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return nil, err
-	}
-
-	return updatedAccount, nil
 }
 
-func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, account *Account, oldSettings, newSettings *Settings, userID, accountID string) error {
+func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) {
 	if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
 		event := activity.AccountPeerInactivityExpirationEnabled
 		if !newSettings.PeerInactivityExpirationEnabled {
 			event = activity.AccountPeerInactivityExpirationDisabled
 			am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
 		} else {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 	}
 
 	if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
-		am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 	}
-
-	return nil
 }
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
@@ -1234,10 +1254,10 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 	}
 }
 
-func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context.Context, account *Account) {
-	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
-	if nextRun, ok := account.GetNextPeerExpiration(); ok {
-		go am.peerLoginExpiry.Schedule(ctx, nextRun, account.Id, am.peerLoginExpirationJob(ctx, account.Id))
+func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context.Context, accountID string) {
+	am.peerLoginExpiry.Cancel(ctx, []string{accountID})
+	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
+		go am.peerLoginExpiry.Schedule(ctx, nextRun, accountID, am.peerLoginExpirationJob(ctx, accountID))
 	}
 }
 
@@ -1271,10 +1291,10 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 }
 
 // checkAndSchedulePeerInactivityExpiration periodically checks for inactive peers to end their sessions
-func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx context.Context, account *Account) {
-	am.peerInactivityExpiry.Cancel(ctx, []string{account.Id})
-	if nextRun, ok := account.GetNextInactivePeerExpiration(); ok {
-		go am.peerInactivityExpiry.Schedule(ctx, nextRun, account.Id, am.peerInactivityExpirationJob(ctx, account.Id))
+func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx context.Context, accountID string) {
+	am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+	if nextRun, ok := am.getNextInactivePeerExpiration(ctx, accountID); ok {
+		go am.peerInactivityExpiry.Schedule(ctx, nextRun, accountID, am.peerInactivityExpirationJob(ctx, accountID))
 	}
 }
 
@@ -1435,12 +1455,12 @@ func isNil(i idp.Manager) bool {
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
-		accountUsers, err := am.Store.GetAccountUsers(ctx, accountID)
+		accountUsers, err := am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			return err
 		}
 		cachedAccount := &Account{
-			Id: accountID,
+			Id:    accountID,
 			Users: make(map[string]*User),
 		}
 		for _, user := range accountUsers {
@@ -2083,7 +2103,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error saving groups: %w", err)
 			}
 
-			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
@@ -2101,7 +2121,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range addNewGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {
@@ -2114,7 +2134,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range removeOldGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {

@@ -335,7 +335,7 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
 	}
 
-	return am.Store.GetPolicyByID(ctx, LockingStrengthShare, policyID, accountID)
+	return am.Store.GetPolicyByID(ctx, LockingStrengthShare, accountID, policyID)
 }
 
 // SavePolicy in the store

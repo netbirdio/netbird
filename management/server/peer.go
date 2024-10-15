@@ -117,11 +117,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 
 	if peer.AddedWithSSOLogin() {
 		if peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
-			am.checkAndSchedulePeerLoginExpiration(ctx, account)
+			am.checkAndSchedulePeerLoginExpiration(ctx, account.Id)
 		}
 
 		if peer.InactivityExpirationEnabled && account.Settings.PeerInactivityExpirationEnabled {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+			am.checkAndSchedulePeerInactivityExpiration(ctx, account.Id)
 		}
 	}
 
@@ -230,7 +230,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 
 		if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
-			am.checkAndSchedulePeerLoginExpiration(ctx, account)
+			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 		}
 	}
 
@@ -249,7 +249,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 
 		if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled && account.Settings.PeerInactivityExpirationEnabled {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
 	}
 
@@ -537,7 +537,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			return fmt.Errorf("failed to add peer to account: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, accountID)
+		err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -1039,6 +1039,139 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	}
 
 	wg.Wait()
+}
+
+// getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
+// If there is no peer that expires this function returns false and a duration of 0.
+// This function only considers peers that haven't been expired yet and that are connected.
+func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
+	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with expiration: %v", err)
+		return 0, false
+	}
+
+	if len(peersWithExpiry) == 0 {
+		return 0, false
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
+		return 0, false
+	}
+
+	var nextExpiry *time.Duration
+	for _, peer := range peersWithExpiry {
+		// consider only connected peers because others will require login on connecting to the management server
+		if peer.Status.LoginExpired || !peer.Status.Connected {
+			continue
+		}
+		_, duration := peer.LoginExpired(settings.PeerLoginExpiration)
+		if nextExpiry == nil || duration < *nextExpiry {
+			// if expiration is below 1s return 1s duration
+			// this avoids issues with ticker that can't be set to < 0
+			if duration < time.Second {
+				return time.Second, true
+			}
+			nextExpiry = &duration
+		}
+	}
+
+	if nextExpiry == nil {
+		return 0, false
+	}
+
+	return *nextExpiry, true
+}
+
+// GetNextInactivePeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
+// If there is no peer that expires this function returns false and a duration of 0.
+// This function only considers peers that haven't been expired yet and that are not connected.
+func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
+	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with inactivity: %v", err)
+		return 0, false
+	}
+
+	if len(peersWithInactivity) == 0 {
+		return 0, false
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
+		return 0, false
+	}
+
+	var nextExpiry *time.Duration
+	for _, peer := range peersWithInactivity {
+		if peer.Status.LoginExpired || peer.Status.Connected {
+			continue
+		}
+		_, duration := peer.SessionExpired(settings.PeerInactivityExpiration)
+		if nextExpiry == nil || duration < *nextExpiry {
+			// if expiration is below 1s return 1s duration
+			// this avoids issues with ticker that can't be set to < 0
+			if duration < time.Second {
+				return time.Second, true
+			}
+			nextExpiry = &duration
+		}
+	}
+
+	if nextExpiry == nil {
+		return 0, false
+	}
+
+	return *nextExpiry, true
+}
+
+// getExpiredPeers returns peers that have been expired.
+func (am *DefaultAccountManager) getExpiredPeers(ctx context.Context, accountID string) ([]*nbpeer.Peer, error) {
+	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	var peers []*nbpeer.Peer
+	for _, peer := range peersWithExpiry {
+		expired, _ := peer.LoginExpired(settings.PeerLoginExpiration)
+		if expired {
+			peers = append(peers, peer)
+		}
+	}
+
+	return peers, nil
+}
+
+// getInactivePeers returns peers that have been expired by inactivity
+func (am *DefaultAccountManager) getInactivePeers(ctx context.Context, accountID string) ([]*nbpeer.Peer, error) {
+	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	var peers []*nbpeer.Peer
+	for _, inactivePeer := range peersWithInactivity {
+		inactive, _ := inactivePeer.SessionExpired(settings.PeerInactivityExpiration)
+		if inactive {
+			peers = append(peers, inactivePeer)
+		}
+	}
+
+	return peers, nil
 }
 
 func ConvertSliceToMap(existingLabels []string) map[string]struct{} {

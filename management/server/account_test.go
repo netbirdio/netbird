@@ -2553,7 +2553,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 0)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
 		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
@@ -2573,7 +2573,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
 		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})

@@ -30,7 +30,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view name server groups")
 	}
 
-	return am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, nsGroupID, accountID)
+	return am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupID)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
@@ -103,7 +103,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return status.Errorf(status.PermissionDenied, "no permission to delete nameserver for this account")
 	}
 
-	_, err = am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, nsGroupToSave.ID, accountID)
+	_, err = am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupToSave.ID)
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 		return status.Errorf(status.PermissionDenied, "no permission to delete nameserver for this account")
 	}
 
-	nsGroup, err := am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, nsGroupID, accountID)
+	nsGroup, err := am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupID)
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
-		if err = transaction.DeleteNameServerGroup(ctx, LockingStrengthUpdate, nsGroupID, accountID); err != nil {
+		if err = transaction.DeleteNameServerGroup(ctx, LockingStrengthUpdate, accountID, nsGroupID); err != nil {
 			return fmt.Errorf("failed to delete nameserver group: %w", err)
 		}
 

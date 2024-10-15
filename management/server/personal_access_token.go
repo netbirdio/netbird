@@ -8,9 +8,8 @@ import (
 	"time"
 
 	b "github.com/hashicorp/go-secure-stdlib/base62"
-	"github.com/rs/xid"
-
 	"github.com/netbirdio/netbird/base62"
+	"github.com/rs/xid"
 )
 
 const (

@@ -50,7 +50,7 @@ func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupI
 		return nil, err
 	}
 
-	return am.Store.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
+	return am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
 }
 
 // GetAllGroups returns all groups in an account
@@ -64,7 +64,7 @@ func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID, us
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
 func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error) {
-	return am.Store.GetGroupByName(ctx, LockingStrengthShare, groupName, accountID)
+	return am.Store.GetGroupByName(ctx, LockingStrengthShare, accountID, groupName)
 }
 
 // SaveGroup object of the peers
@@ -94,7 +94,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		}
 
 		if newGroup.ID == "" && newGroup.Issued == nbgroup.GroupIssuedAPI {
-			existingGroup, err := am.Store.GetGroupByName(ctx, LockingStrengthShare, newGroup.Name, accountID)
+			existingGroup, err := am.Store.GetGroupByName(ctx, LockingStrengthShare, accountID, newGroup.Name)
 			if err != nil {
 				s, ok := status.FromError(err)
 				if !ok || s.ErrorType != status.NotFound {
@@ -112,7 +112,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		}
 
 		for _, peerID := range newGroup.Peers {
-			if _, err = am.Store.GetPeerByID(ctx, LockingStrengthShare, peerID, accountID); err != nil {
+			if _, err = am.Store.GetPeerByID(ctx, LockingStrengthShare, accountID, peerID); err != nil {
 				return status.Errorf(status.InvalidArgument, "peer with ID \"%s\" not found", peerID)
 			}
 		}
@@ -158,7 +158,7 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, userID 
 	addedPeers := make([]string, 0)
 	removedPeers := make([]string, 0)
 
-	oldGroup, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, newGroup.ID, accountID)
+	oldGroup, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, newGroup.ID)
 	if err == nil && oldGroup != nil {
 		addedPeers = difference(newGroup.Peers, oldGroup.Peers)
 		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
@@ -170,7 +170,7 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, userID 
 	}
 
 	for _, peerID := range addedPeers {
-		peer, err := am.Store.GetPeerByID(ctx, LockingStrengthShare, peerID, accountID)
+		peer, err := am.Store.GetPeerByID(ctx, LockingStrengthShare, accountID, peerID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("peer %s not found under account %s while saving group", peerID, accountID)
 			continue
@@ -187,7 +187,7 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, userID 
 	}
 
 	for _, peerID := range removedPeers {
-		peer, err := am.Store.GetPeerByID(ctx, LockingStrengthShare, peerID, accountID)
+		peer, err := am.Store.GetPeerByID(ctx, LockingStrengthShare, accountID, peerID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("peer %s not found under account %s while saving group", peerID, accountID)
 			continue
@@ -232,7 +232,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 		return status.Errorf(status.PermissionDenied, "no permission to delete group")
 	}
 
-	group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
+	group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
 	if err != nil {
 		return err
 	}
@@ -288,7 +288,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	)
 
 	for _, groupID := range groupIDs {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
 		if err != nil {
 			continue
 		}
@@ -307,7 +307,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
-		if err = transaction.DeleteGroups(ctx, LockingStrengthUpdate, groupIDsToDelete, accountID); err != nil {
+		if err = transaction.DeleteGroups(ctx, LockingStrengthUpdate, accountID, groupIDsToDelete); err != nil {
 			return fmt.Errorf("failed to delete group: %w", err)
 		}
 		return nil

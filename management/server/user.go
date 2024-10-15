@@ -546,9 +546,6 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 
 // CreatePAT creates a new PAT for the given user
 func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if tokenName == "" {
 		return nil, status.Errorf(status.InvalidArgument, "token name can't be empty")
 	}
@@ -557,35 +554,28 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between 1 and 365")
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	executingUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetUser, ok := account.Users[targetUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
+	if err != nil {
+		return nil, err
 	}
 
-	executingUser, ok := account.Users[initiatorUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
-	}
-
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) ||
+		executingUser.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to create PAT for this user")
 	}
 
-	pat, err := CreateNewPAT(tokenName, expiresIn, executingUser.Id)
+	pat, err := CreateNewPAT(tokenName, expiresIn, targetUser.Id, executingUser.Id)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed to create PAT: %v", err)
 	}
 
-	targetUser.PATs[pat.ID] = &pat.PersonalAccessToken
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return nil, status.Errorf(status.Internal, "failed to save account: %v", err)
+	if err = am.Store.SavePAT(ctx, LockingStrengthUpdate, &pat.PersonalAccessToken); err != nil {
+		return nil, fmt.Errorf("failed to save PAT: %w", err)
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
@@ -596,51 +586,33 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 
 // DeletePAT deletes a specific PAT from a user
 func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	executingUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
-		return status.Errorf(status.NotFound, "account not found: %s", err)
+		return err
 	}
 
-	targetUser, ok := account.Users[targetUserID]
-	if !ok {
-		return status.Errorf(status.NotFound, "user not found")
+	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
+	if err != nil {
+		return err
 	}
 
-	executingUser, ok := account.Users[initiatorUserID]
-	if !ok {
-		return status.Errorf(status.NotFound, "user not found")
-	}
-
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) ||
+		executingUser.AccountID != accountID {
 		return status.Errorf(status.PermissionDenied, "no permission to delete PAT for this user")
 	}
 
-	pat := targetUser.PATs[tokenID]
-	if pat == nil {
-		return status.Errorf(status.NotFound, "PAT not found")
+	pat, err := am.Store.GetPATByID(ctx, LockingStrengthShare, tokenID, targetUserID)
+	if err != nil {
+		return err
 	}
 
-	err = am.Store.DeleteTokenID2UserIDIndex(pat.ID)
-	if err != nil {
-		return status.Errorf(status.Internal, "Failed to delete token id index: %s", err)
-	}
-	err = am.Store.DeleteHashedPAT2TokenIDIndex(pat.HashedToken)
-	if err != nil {
-		return status.Errorf(status.Internal, "Failed to delete hashed token index: %s", err)
+	if err = am.Store.DeletePAT(ctx, LockingStrengthUpdate, tokenID, targetUserID); err != nil {
+		return fmt.Errorf("failed to delete PAT: %w", err)
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
 
-	delete(targetUser.PATs, tokenID)
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return status.Errorf(status.Internal, "Failed to save account: %s", err)
-	}
 	return nil
 }
 
@@ -651,22 +623,11 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
-	if err != nil {
-		return nil, err
-	}
-
 	if (initiatorUserID != targetUserID && !initiatorUser.IsAdminOrServiceUser()) || initiatorUser.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
 	}
 
-	for _, pat := range targetUser.PATsG {
-		if pat.ID == tokenID {
-			return pat.Copy(), nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "PAT not found")
+	return am.Store.GetPATByID(ctx, LockingStrengthShare, targetUserID, tokenID)
 }
 
 // GetAllPATs returns all PATs for a user

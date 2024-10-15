@@ -56,13 +56,35 @@ func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string,
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 
-	return am.Store.GetRouteByID(ctx, LockingStrengthShare, string(routeID), accountID)
+	return am.Store.GetRouteByID(ctx, LockingStrengthShare, accountID, string(routeID))
+}
+
+// GetRoutesByPrefixOrDomains return list of routes by account and route prefix
+func (am *DefaultAccountManager) GetRoutesByPrefixOrDomains(accountID string, prefix netip.Prefix, domains domain.List) ([]*route.Route, error) {
+	accountRoutes, err := am.Store.GetAccountRoutes(context.Background(), LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	routes := make([]*route.Route, 0)
+	for _, r := range accountRoutes {
+		dynamic := r.IsDynamic()
+		if dynamic && r.Domains.PunycodeString() == domains.PunycodeString() ||
+			!dynamic && r.Network.String() == prefix.String() {
+			routes = append(routes, r)
+		}
+	}
+
+	return routes, nil
 }
 
 // checkRoutePrefixOrDomainsExistForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
 func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account *Account, peerID string, routeID route.ID, peerGroupIDs []string, prefix netip.Prefix, domains domain.List) error {
 	// routes can have both peer and peer_groups
-	routesWithPrefix := account.GetRoutesByPrefixOrDomains(prefix, domains)
+	routesWithPrefix, err := am.GetRoutesByPrefixOrDomains(account.Id, prefix, domains)
+	if err != nil {
+		return err
+	}
 
 	// lets remember all the peers and the peer groups from routesWithPrefix
 	seenPeers := make(map[string]bool)
@@ -81,8 +103,8 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 		for _, groupID := range prefixRoute.PeerGroups {
 			seenPeerGroups[groupID] = true
 
-			group := account.GetGroup(groupID)
-			if group == nil {
+			group, err := am.Store.GetGroupByID(context.Background(), LockingStrengthShare, account.Id, groupID)
+			if err != nil || group == nil {
 				return status.Errorf(
 					status.InvalidArgument, "failed to add route with %s - peer group %s doesn't exist",
 					getRouteDescriptor(prefix, domains), groupID,
@@ -97,10 +119,11 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 
 	if peerID != "" {
 		// check that peerID exists and is not in any route as single peer or part of the group
-		peer := account.GetPeer(peerID)
-		if peer == nil {
+		peer, err := am.Store.GetPeerByID(context.Background(), LockingStrengthShare, account.Id, peerID)
+		if err != nil || peer == nil {
 			return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 		}
+
 		if _, ok := seenPeers[peerID]; ok {
 			return status.Errorf(status.AlreadyExists,
 				"failed to add route with %s - peer %s already has this route", getRouteDescriptor(prefix, domains), peerID)
@@ -109,7 +132,11 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 
 	// check that peerGroupIDs are not in any route peerGroups list
 	for _, groupID := range peerGroupIDs {
-		group := account.GetGroup(groupID) // we validated the group existence before entering this function, no need to check again.
+		// we validated the group existence before entering this function, no need to check again.
+		group, err := am.Store.GetGroupByID(context.Background(), LockingStrengthShare, groupID, account.Id)
+		if err != nil || group == nil {
+			return status.Errorf(status.InvalidArgument, "group with ID %s not found", peerID)
+		}
 
 		if _, ok := seenPeerGroups[groupID]; ok {
 			return status.Errorf(
@@ -120,10 +147,11 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 		// check that the peers from peerGroupIDs groups are not the same peers we saw in routesWithPrefix
 		for _, id := range group.Peers {
 			if _, ok := seenPeers[id]; ok {
-				peer := account.GetPeer(id)
-				if peer == nil {
+				peer, err := am.Store.GetPeerByID(context.Background(), LockingStrengthShare, peerID, account.Id)
+				if err != nil {
 					return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
+
 				return status.Errorf(status.AlreadyExists,
 					"failed to add route with %s - peer %s from the group %s already has this route",
 					getRouteDescriptor(prefix, domains), peer.Name, group.Name)
@@ -145,6 +173,15 @@ func getRouteDescriptor(prefix netip.Prefix, domains domain.List) string {
 func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
+
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+	}
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -181,17 +218,17 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	newRoute.ID = route.ID(xid.New().String())
 
 	if len(peerGroupIDs) > 0 {
-		err = validateGroups(peerGroupIDs, account.Groups)
-		if err != nil {
-			return nil, err
-		}
+		//err = validateGroups(peerGroupIDs, account.Groups)
+		//if err != nil {
+		//	return nil, err
+		//}
 	}
 
 	if len(accessControlGroupIDs) > 0 {
-		err = validateGroups(accessControlGroupIDs, account.Groups)
-		if err != nil {
-			return nil, err
-		}
+		//err = validateGroups(accessControlGroupIDs, account.Groups)
+		//if err != nil {
+		//	return nil, err
+		//}
 	}
 
 	err = am.checkRoutePrefixOrDomainsExistForPeers(account, peerID, newRoute.ID, peerGroupIDs, prefix, domains)
@@ -207,10 +244,10 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		return nil, status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
-	err = validateGroups(groups, account.Groups)
-	if err != nil {
-		return nil, err
-	}
+	//err = validateGroups(groups, account.Groups)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	newRoute.Peer = peerID
 	newRoute.PeerGroups = peerGroupIDs
@@ -290,17 +327,17 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	}
 
 	if len(routeToSave.PeerGroups) > 0 {
-		err = validateGroups(routeToSave.PeerGroups, account.Groups)
-		if err != nil {
-			return err
-		}
+		//err = validateGroups(routeToSave.PeerGroups, account.Groups)
+		//if err != nil {
+		//	return err
+		//}
 	}
 
 	if len(routeToSave.AccessControlGroups) > 0 {
-		err = validateGroups(routeToSave.AccessControlGroups, account.Groups)
-		if err != nil {
-			return err
-		}
+		//err = validateGroups(routeToSave.AccessControlGroups, account.Groups)
+		//if err != nil {
+		//	return err
+		//}
 	}
 
 	err = am.checkRoutePrefixOrDomainsExistForPeers(account, routeToSave.Peer, routeToSave.ID, routeToSave.Copy().PeerGroups, routeToSave.Network, routeToSave.Domains)
@@ -308,10 +345,10 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return err
 	}
 
-	err = validateGroups(routeToSave.Groups, account.Groups)
-	if err != nil {
-		return err
-	}
+	//err = validateGroups(routeToSave.Groups, account.Groups)
+	//if err != nil {
+	//	return err
+	//}
 
 	account.Routes[routeToSave.ID] = routeToSave
 

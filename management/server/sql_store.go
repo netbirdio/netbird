@@ -541,9 +541,9 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 	return &user, nil
 }
 
-func (s *SqlStore) GetAccountUsers(ctx context.Context, accountID string) ([]*User, error) {
+func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*User, error) {
 	var users []*User
-	result := s.db.Find(&users, accountIDCondition, accountID)
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&users, accountIDCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
@@ -828,13 +828,30 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 
 func (s *SqlStore) GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error) {
 	var accountSettings AccountSettings
-	if err := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).Where(idQueryCondition, accountID).First(&accountSettings).Error; err != nil {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		First(&accountSettings, idQueryCondition, accountID)
+	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "settings not found")
 		}
 		return nil, status.Errorf(status.Internal, "issue getting settings from store: %s", err)
 	}
 	return accountSettings.Settings, nil
+}
+
+// SaveAccountSettings stores the account settings in DB.
+func (s *SqlStore) SaveAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *Settings) error {
+	result := s.db.WithContext(ctx).Debug().Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Select("*").Where(idQueryCondition, accountID).Updates(&AccountSettings{Settings: settings})
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "failed to save account settings to store: %v", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "account not found")
+	}
+
+	return nil
 }
 
 // SaveUserLastLogin stores the last login time for a user in DB.
@@ -1054,9 +1071,72 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId 
 	return nil
 }
 
+// GetAccountPeers retrieves peers for an account.
+func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&peers, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peers from store")
+	}
+
+	return peers, nil
+}
+
 // GetUserPeers retrieves peers for a user.
 func (s *SqlStore) GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error) {
-	return getRecords[*nbpeer.Peer](s.db.WithContext(ctx).Where("user_id = ?", userID), lockStrength, accountID)
+	var peers []*nbpeer.Peer
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&peers, "account_id = ? AND user_id = ?", accountID, userID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peers from store")
+	}
+
+	return peers, nil
+}
+
+// GetAccountPeersWithExpiration retrieves a list of peers that have login expiration enabled and added by a user.
+func (s *SqlStore) GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Where("login_expiration_enabled = ? AND user_id IS NOT NULL AND user_id != ''", true).
+		Find(&peers, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with expiration from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers with expiration from store")
+	}
+
+	return peers, nil
+}
+
+// GetAccountPeersWithInactivity retrieves a list of peers that have login expiration enabled and added by a user.
+func (s *SqlStore) GetAccountPeersWithInactivity(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Where("inactivity_expiration_enabled = ? AND user_id IS NOT NULL AND user_id != ''", true).
+		Find(&peers, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with inactivity from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers with inactivity from store")
+	}
+
+	return peers, nil
+}
+
+// GetPeerByID retrieves a peer by its ID and account ID.
+func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) (*nbpeer.Peer, error) {
+	var peer *nbpeer.Peer
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&peer, accountAndIDQueryCondition, accountID, peerID)
+	if err := result.Error; err != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "peer not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get peer from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peer from store")
+	}
+
+	return peer, nil
 }
 
 func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {
@@ -1067,8 +1147,9 @@ func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) erro
 	return nil
 }
 
-func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
-	result := s.db.WithContext(ctx).Model(&Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
+func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "issue incrementing network serial count: %s", result.Error)
 	}
@@ -1113,6 +1194,19 @@ func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength Locki
 	return &accountDNSSettings.DNSSettings, nil
 }
 
+// SaveDNSSettings saves the DNS settings to the store.
+func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *DNSSettings) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Where(idQueryCondition, accountID).Updates(&AccountDNSSettings{DNSSettings: *settings})
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "failed to save dns settings to store: %v", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "account not found")
+	}
+	return nil
+}
+
 // AccountExists checks whether an account exists by the given ID.
 func (s *SqlStore) AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error) {
 	var accountID string
@@ -1146,16 +1240,24 @@ func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, lockStrength
 }
 
 // GetGroupByID retrieves a group by ID and account ID.
-func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*nbgroup.Group, error) {
-	return getRecordByID[nbgroup.Group](s.db.WithContext(ctx).Preload(clause.Associations), lockStrength, groupID, accountID)
+func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*nbgroup.Group, error) {
+	var group *nbgroup.Group
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&group, accountAndIDQueryCondition, accountID, groupID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get group from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get group from store")
+	}
+
+	return group, nil
 }
 
 // GetGroupByName retrieves a group by name and account ID.
-func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error) {
+func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*nbgroup.Group, error) {
 	var group nbgroup.Group
 
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations).
-		Order("json_array_length(peers) DESC").First(&group, "name = ? and account_id = ?", groupName, accountID)
+		Order("json_array_length(peers) DESC").First(&group, "account_id = ? AND name = ?", accountID, groupName)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "group not found")
@@ -1174,69 +1276,335 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 	return nil
 }
 
+// DeleteGroup deletes a group from the database.
+func (s *SqlStore) DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&nbgroup.Group{}, accountAndIDQueryCondition, accountID, groupID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete group from the store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to delete group from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "group not found")
+	}
+
+	return nil
+}
+
+// DeleteGroups deletes groups from the database.
+func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(strength)}).
+		Delete(&nbgroup.Group{}, " account_id = ? AND id IN ?", accountID, groupIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete groups from the store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete groups from store: %v", result.Error)
+	}
+
+	return nil
+}
+
 // GetAccountPolicies retrieves policies for an account.
 func (s *SqlStore) GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error) {
-	return getRecords[*Policy](s.db.WithContext(ctx).Preload(clause.Associations), lockStrength, accountID)
+	var policies []*Policy
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Preload(clause.Associations).Find(&policies, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get policies from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get policies from store")
+	}
+
+	return policies, nil
 }
 
 // GetPolicyByID retrieves a policy by its ID and account ID.
-func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error) {
-	return getRecordByID[Policy](s.db.WithContext(ctx).Preload(clause.Associations), lockStrength, policyID, accountID)
+func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error) {
+	var policy *Policy
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Preload(clause.Associations).Find(&policy, accountAndIDQueryCondition, accountID, policyID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get policy from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get policy from store")
+	}
+
+	return policy, nil
+}
+
+// SavePolicy saves a policy to the database.
+func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error {
+	result := s.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(policy)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save policy to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save policy to store")
+	}
+	return nil
+}
+
+func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, policyID, accountID string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&Policy{}, accountAndIDQueryCondition, accountID, policyID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete policy from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete policy from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "policy not found")
+	}
+
+	return nil
 }
 
 // GetAccountPostureChecks retrieves posture checks for an account.
 func (s *SqlStore) GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error) {
-	return getRecords[*posture.Checks](s.db.WithContext(ctx), lockStrength, accountID)
+	var postureChecks []*posture.Checks
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&postureChecks, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get posture checks from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get posture checks from store")
+	}
+
+	return postureChecks, nil
 }
 
 // GetPostureChecksByID retrieves posture checks by their ID and account ID.
-func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, postureCheckID string, accountID string) (*posture.Checks, error) {
-	return getRecordByID[posture.Checks](s.db.WithContext(ctx), lockStrength, postureCheckID, accountID)
+func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, accountID, postureCheckID string) (*posture.Checks, error) {
+	var postureCheck *posture.Checks
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&postureCheck, accountAndIDQueryCondition, accountID, postureCheckID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "posture check not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get posture check from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get posture check from store")
+	}
+
+	return postureCheck, nil
+}
+
+// SavePostureChecks saves a posture checks to the database.
+func (s *SqlStore) SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(postureCheck)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return status.Errorf(status.InvalidArgument, "name should be unique")
+		}
+		log.WithContext(ctx).Errorf("failed to save posture checks to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save posture checks to store")
+	}
+
+	return nil
+}
+
+// DeletePostureChecks deletes a posture checks from the database.
+func (s *SqlStore) DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&posture.Checks{}, accountAndIDQueryCondition, accountID, postureChecksID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete posture checks from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete posture checks from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "posture checks not found")
+	}
+
+	return nil
 }
 
 // GetAccountRoutes retrieves network routes for an account.
 func (s *SqlStore) GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error) {
-	return getRecords[*route.Route](s.db.WithContext(ctx), lockStrength, accountID)
+	var routes []*route.Route
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&routes, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get routes from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get routes from store")
+	}
+
+	return routes, nil
 }
 
 // GetRouteByID retrieves a route by its ID and account ID.
-func (s *SqlStore) GetRouteByID(ctx context.Context, lockStrength LockingStrength, routeID string, accountID string) (*route.Route, error) {
-	return getRecordByID[route.Route](s.db.WithContext(ctx), lockStrength, routeID, accountID)
+func (s *SqlStore) GetRouteByID(ctx context.Context, lockStrength LockingStrength, accountID string, routeID string) (*route.Route, error) {
+	var route *route.Route
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&route, accountAndIDQueryCondition, accountID, routeID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "route not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get route from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get route from store")
+	}
+
+	return route, nil
+}
+
+// SaveRoute saves a route to the database.
+func (s *SqlStore) SaveRoute(ctx context.Context, lockStrength LockingStrength, route *route.Route) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(route)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save route to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save route to store")
+	}
+
+	return nil
+}
+
+// DeleteRoute deletes a route from the database.
+func (s *SqlStore) DeleteRoute(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&route.Route{}, accountAndIDQueryCondition, accountID, routeID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete route from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete route from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "route not found")
+	}
+
+	return nil
 }
 
 // GetAccountSetupKeys retrieves setup keys for an account.
 func (s *SqlStore) GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error) {
-	return getRecords[*SetupKey](s.db.WithContext(ctx), lockStrength, accountID)
+	var setupKeys []*SetupKey
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&setupKeys, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get setup keys from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get setup keys from store")
+	}
+
+	return setupKeys, nil
 }
 
 // GetSetupKeyByID retrieves a setup key by its ID and account ID.
-func (s *SqlStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, setupKeyID string, accountID string) (*SetupKey, error) {
-	return getRecordByID[SetupKey](s.db.WithContext(ctx), lockStrength, setupKeyID, accountID)
+func (s *SqlStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*SetupKey, error) {
+	var setupKey *SetupKey
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&setupKey, accountAndIDQueryCondition, accountID, setupKeyID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "setup key not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get setup key from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get setup key from store")
+	}
+
+	return setupKey, nil
+}
+
+// SaveSetupKey saves a setup key to the database.
+func (s *SqlStore) SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *SetupKey) error {
+	result := s.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(setupKey)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save name server group to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save name server group to store")
+	}
+
+	return nil
 }
 
 // GetAccountNameServerGroups retrieves name server groups for an account.
 func (s *SqlStore) GetAccountNameServerGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbdns.NameServerGroup, error) {
-	return getRecords[*nbdns.NameServerGroup](s.db.WithContext(ctx), lockStrength, accountID)
+	var nsGroups []*nbdns.NameServerGroup
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&nsGroups, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get name server groups from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get name server groups from store")
+	}
+
+	return nsGroups, nil
 }
 
 // GetNameServerGroupByID retrieves a name server group by its ID and account ID.
-func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, nsGroupID string, accountID string) (*nbdns.NameServerGroup, error) {
-	return getRecordByID[nbdns.NameServerGroup](s.db.WithContext(ctx), lockStrength, nsGroupID, accountID)
-}
-
-// getRecords retrieves records from the database based on the account ID.
-func getRecords[T any](db *gorm.DB, lockStrength LockingStrength, accountID string) ([]T, error) {
-	var record []T
-
-	result := db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&record, accountIDCondition, accountID)
+func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
+	var nsGroup *nbdns.NameServerGroup
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&nsGroup, accountAndIDQueryCondition, accountID, nsGroupID)
 	if err := result.Error; err != nil {
-		parts := strings.Split(fmt.Sprintf("%T", record), ".")
-		recordType := parts[len(parts)-1]
-
-		return nil, status.Errorf(status.Internal, "failed to get account %ss from store: %v", recordType, err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "name server group not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get name server group from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get name server group from store")
 	}
 
-	return record, nil
+	return nsGroup, nil
+}
+
+// SaveNameServerGroup saves a name server group to the database.
+func (s *SqlStore) SaveNameServerGroup(ctx context.Context, lockStrength LockingStrength, nameServerGroup *nbdns.NameServerGroup) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(nameServerGroup)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save name server group to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save name server group to store")
+	}
+	return nil
+}
+
+// DeleteNameServerGroup deletes a name server group from the database.
+func (s *SqlStore) DeleteNameServerGroup(ctx context.Context, lockStrength LockingStrength, accountID, nameServerGroupID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Delete(&nbdns.NameServerGroup{}, accountAndIDQueryCondition, accountID, nameServerGroupID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete name server group from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete name server group from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "name server group not found")
+	}
+
+	return nil
+}
+
+// GetPATByID retrieves a personal access token by its ID and user ID.
+func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, patID string, userID string) (*PersonalAccessToken, error) {
+	var pat PersonalAccessToken
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&pat, "id = ? AND user_id = ?", patID, userID)
+	if err := result.Error; err != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "PAT not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get PAT from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get PAT from store")
+	}
+
+	return &pat, nil
+}
+
+// SavePAT saves a personal access token to the database.
+func (s *SqlStore) SavePAT(ctx context.Context, lockStrength LockingStrength, pat *PersonalAccessToken) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(pat)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save PAT to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save PAT to store")
+	}
+
+	return nil
+}
+
+// DeletePAT deletes a personal access token from the database.
+func (s *SqlStore) DeletePAT(ctx context.Context, lockStrength LockingStrength, userID, patID string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&PersonalAccessToken{}, "user_id = ? AND id = ?", userID, patID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete PAT from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete PAT from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "PAT not found")
+	}
+
+	return nil
 }
 
 // getRecordByID retrieves a record by its ID and account ID from the database.

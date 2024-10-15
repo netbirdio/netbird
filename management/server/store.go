@@ -56,13 +56,15 @@ type Store interface {
 	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
 	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
 	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error)
+	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *DNSSettings) error
+	SaveAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *Settings) error
 	SaveAccount(ctx context.Context, account *Account) error
 	DeleteAccount(ctx context.Context, account *Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
-	GetAccountUsers(ctx context.Context, accountID string) ([]*User, error)
+	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*User, error)
 	SaveUsers(accountID string, users map[string]*User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
@@ -71,24 +73,34 @@ type Store interface {
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
 	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
-	GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*nbgroup.Group, error)
-	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error)
+	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*nbgroup.Group, error)
+	GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*nbgroup.Group, error)
 	SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*nbgroup.Group) error
 	SaveGroup(ctx context.Context, lockStrength LockingStrength, group *nbgroup.Group) error
+	DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error
+	DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error
 
 	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error)
-	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error)
+	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error)
+	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
+	DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error
 
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error)
-	GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, postureCheckID string, accountID string) (*posture.Checks, error)
+	GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, accountID, postureCheckID string) (*posture.Checks, error)
+	SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error
+	DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error
 
 	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string) ([]string, error)
 	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
 	AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
+	GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
+	GetAccountPeersWithInactivity(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
+	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
@@ -96,16 +108,25 @@ type Store interface {
 	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error)
 	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
 	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error)
-	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, setupKeyID string, accountID string) (*SetupKey, error)
+	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*SetupKey, error)
+	SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *SetupKey) error
 
 	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
-	GetRouteByID(ctx context.Context, lockStrength LockingStrength, routeID string, accountID string) (*route.Route, error)
+	GetRouteByID(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) (*route.Route, error)
+	SaveRoute(ctx context.Context, lockStrength LockingStrength, route *route.Route) error
+	DeleteRoute(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) error
 
 	GetAccountNameServerGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*dns.NameServerGroup, error)
-	GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, nameServerGroupID string, accountID string) (*dns.NameServerGroup, error)
+	GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, nameServerGroupID string) (*dns.NameServerGroup, error)
+	SaveNameServerGroup(ctx context.Context, lockStrength LockingStrength, nameServerGroup *dns.NameServerGroup) error
+	DeleteNameServerGroup(ctx context.Context, lockStrength LockingStrength, accountID, nameServerGroupID string) error
+
+	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*PersonalAccessToken, error)
+	SavePAT(ctx context.Context, strength LockingStrength, pat *PersonalAccessToken) error
+	DeletePAT(ctx context.Context, strength LockingStrength, userID, patID string) error
 
 	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
-	IncrementNetworkSerial(ctx context.Context, accountId string) error
+	IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error
 	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*Network, error)
 
 	GetInstallationID() string

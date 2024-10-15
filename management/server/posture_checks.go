@@ -25,7 +25,7 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
 	}
 
-	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, postureChecksID, accountID)
+	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
 }
 
 // SavePostureChecks saves a posture check.
@@ -49,7 +49,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		if isUpdate {
 			action = activity.PostureCheckUpdated
 
-			if _, err := transaction.GetPostureChecksByID(ctx, LockingStrengthShare, postureChecks.ID, accountID); err != nil {
+			if _, err := transaction.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecks.ID); err != nil {
 				return fmt.Errorf("failed to get posture checks: %w", err)
 			}
 
@@ -114,7 +114,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 		return err
 	}
 
-	postureChecks, err := am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, postureChecksID, accountID)
+	postureChecks, err := am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
-		if err = transaction.DeletePostureChecks(ctx, LockingStrengthUpdate, postureChecksID, accountID); err != nil {
+		if err = transaction.DeletePostureChecks(ctx, LockingStrengthUpdate, accountID, postureChecksID); err != nil {
 			return fmt.Errorf("failed to delete posture checks: %w", err)
 		}
 		return nil
