@@ -425,11 +425,15 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
 
 	dir := expr.MetaKeyIIFNAME
+	notDir := expr.MetaKeyOIFNAME
 	if pair.Inverse {
 		dir = expr.MetaKeyOIFNAME
+		notDir = expr.MetaKeyIIFNAME
 	}
 
+	lo := ifname("lo")
 	intf := ifname(r.wgIface.Name())
+
 	exprs := []expr.Any{
 		&expr.Meta{
 			Key:      dir,
@@ -439,6 +443,17 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 			Op:       expr.CmpOpEq,
 			Register: 1,
 			Data:     intf,
+		},
+
+		// We need to exclude the loopback interface as this changes the ebpf proxy port
+		&expr.Meta{
+			Key:      notDir,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     lo,
 		},
 	}
 
