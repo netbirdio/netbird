@@ -216,7 +216,7 @@ func (am *DefaultAccountManager) validateNameServerGroup(ctx context.Context, ac
 		return err
 	}
 
-	groups, err := am.Store.GetAccountGroups(ctx, accountID)
+	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}

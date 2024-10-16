@@ -37,8 +37,12 @@ func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, acco
 		return err
 	}
 
-	if (!user.IsAdminOrServiceUser() && settings.RegularUsersViewBlocked) || user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "groups are blocked for users")
+	if !user.IsAdminOrServiceUser() && settings.RegularUsersViewBlocked {
+		return status.Errorf(status.PermissionDenied, "access to groups is blocked for users")
+	}
+
+	if user.AccountID != accountID {
+		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	return nil
@@ -59,7 +63,7 @@ func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID, us
 		return nil, err
 	}
 
-	return am.Store.GetAccountGroups(ctx, accountID)
+	return am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 }
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
@@ -80,7 +84,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "no permission to create group")
+		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	var (
@@ -126,7 +130,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
 		}
 
 		if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, groupsToSave); err != nil {
@@ -144,7 +148,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
+		return fmt.Errorf(errGetAccountFmt, err)
 	}
 	am.updateAccountPeers(ctx, account)
 
@@ -229,7 +233,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "no permission to delete group")
+		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
@@ -247,7 +251,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
 		}
 
 		if err = transaction.DeleteGroup(ctx, LockingStrengthUpdate, groupID, accountID); err != nil {
@@ -263,7 +267,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
+		return fmt.Errorf(errGetAccountFmt, err)
 	}
 	am.updateAccountPeers(ctx, account)
 
@@ -278,7 +282,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "no permission to delete groups")
+		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	var (
@@ -304,7 +308,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
 		}
 
 		if err = transaction.DeleteGroups(ctx, LockingStrengthUpdate, accountID, groupIDsToDelete); err != nil {
@@ -322,44 +326,18 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
+		return fmt.Errorf(errGetAccountFmt, err)
 	}
 	am.updateAccountPeers(ctx, account)
 
 	return allErrors
 }
 
-// ListGroups objects of the peers
-func (am *DefaultAccountManager) ListGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	groups := make([]*nbgroup.Group, 0, len(account.Groups))
-	for _, item := range account.Groups {
-		groups = append(groups, item)
-	}
-
-	return groups, nil
-}
-
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
 	if err != nil {
 		return err
-	}
-
-	group, ok := account.Groups[groupID]
-	if !ok {
-		return status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 	}
 
 	add := true
@@ -373,11 +351,24 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		group.Peers = append(group.Peers, peerID)
 	}
 
-	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
+		}
+
+		if err = transaction.SaveGroup(ctx, LockingStrengthUpdate, group); err != nil {
+			return fmt.Errorf("failed to save group: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf(errGetAccountFmt, err)
+	}
 	am.updateAccountPeers(ctx, account)
 
 	return nil
@@ -385,29 +376,42 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
 	if err != nil {
 		return err
 	}
 
-	group, ok := account.Groups[groupID]
-	if !ok {
-		return status.Errorf(status.NotFound, "group with ID %s not found", groupID)
-	}
-
-	account.Network.IncSerial()
+	updated := false
 	for i, itemID := range group.Peers {
 		if itemID == peerID {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
-			if err := am.Store.SaveAccount(ctx, account); err != nil {
-				return err
-			}
+			updated = true
+			break
 		}
 	}
 
+	if !updated {
+		return nil
+	}
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
+		}
+
+		if err = transaction.SaveGroup(ctx, LockingStrengthUpdate, group); err != nil {
+			return fmt.Errorf("failed to save group: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf(errGetAccountFmt, err)
+	}
 	am.updateAccountPeers(ctx, account)
 
 	return nil

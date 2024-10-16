@@ -2612,7 +2612,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		groups, err := manager.Store.GetAccountGroups(context.Background(), "accountID")
+		groups, err := manager.Store.GetAccountGroups(context.Background(), LockingStrengthShare, "accountID")
 		assert.NoError(t, err)
 		assert.Len(t, groups, 3, "new group3 should be added")
 

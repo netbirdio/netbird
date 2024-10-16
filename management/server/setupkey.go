@@ -225,7 +225,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		keyDuration = expiresIn
 	}
 
-	groups, err := am.Store.GetAccountGroups(ctx, accountID)
+	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +278,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can update setup keys")
 	}
 
-	groups, err := am.Store.GetAccountGroups(ctx, accountID)
+	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}

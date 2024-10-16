@@ -31,6 +31,8 @@ const (
 
 	UserIssuedAPI         = "api"
 	UserIssuedIntegration = "integration"
+
+	errUserNotPartOfAccountMsg = "user is not part of this account"
 )
 
 // StrRoleToUserRole returns UserRole for a given strRole or UserRoleUnknown if the specified role is unknown

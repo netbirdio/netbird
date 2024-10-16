@@ -113,7 +113,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		return err
 	}
 
-	groups, err := am.Store.GetAccountGroups(ctx, accountID)
+	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}

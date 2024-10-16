@@ -53,7 +53,10 @@ const (
 	DefaultPeerLoginExpiration      = 24 * time.Hour
 	DefaultPeerInactivityExpiration = 10 * time.Minute
 	emptyUserID                     = "empty user ID in claims"
-	errorGettingDomainAccIDFmt      = "error getting account ID by private domain: %v"
+
+	errGettingDomainAccIDFmt     = "error getting account ID by private domain: %v"
+	errGetAccountFmt             = "failed to get account: %w"
+	errNetworkSerialIncrementFmt = "failed to increment network serial: %w"
 )
 
 type userLoggedInOnce bool
@@ -111,7 +114,6 @@ type AccountManager interface {
 	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
-	ListGroups(ctx context.Context, accountId string) ([]*nbgroup.Group, error)
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error)
@@ -1144,7 +1146,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	var oldSettings *Settings
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		oldSettings, err = transaction.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+		oldSettings, err = transaction.GetAccountSettings(ctx, LockingStrengthUpdate, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account settings: %w", err)
 		}
@@ -1153,7 +1155,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			return fmt.Errorf("failed to validate extra settings: %w", err)
 		}
 
-		if err = am.Store.SaveAccountSettings(ctx, LockingStrengthUpdate, accountID, newSettings); err != nil {
+		if err = transaction.SaveAccountSettings(ctx, LockingStrengthUpdate, accountID, newSettings); err != nil {
 			return fmt.Errorf("failed to update account settings: %w", err)
 		}
 
@@ -2049,7 +2051,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		groups, err := am.Store.GetAccountGroups(ctx, accountID)
+		groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			return fmt.Errorf("error getting account groups: %w", err)
 		}
@@ -2079,7 +2081,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			groups, err = transaction.GetAccountGroups(ctx, accountID)
+			groups, err = transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 			if err != nil {
 				return fmt.Errorf("error getting account groups: %w", err)
 			}
@@ -2226,7 +2228,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if handleNotFound(err) != nil {
 
-		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
+		log.WithContext(ctx).Errorf(errGettingDomainAccIDFmt, err)
 		return "", nil, err
 	}
 
@@ -2240,7 +2242,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 	// check again if the domain has a primary account because of simultaneous requests
 	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if handleNotFound(err) != nil {
-		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
+		log.WithContext(ctx).Errorf(errGettingDomainAccIDFmt, err)
 		return "", nil, err
 	}
 
@@ -2271,7 +2273,7 @@ func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context
 	// We checked if the domain has a primary account already
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, claims.Domain)
 	if handleNotFound(err) != nil {
-		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
+		log.WithContext(ctx).Errorf(errGettingDomainAccIDFmt, err)
 		return "", err
 	}
 

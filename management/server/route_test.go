@@ -1090,7 +1090,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, peer4Routes.Routes, 1, "HA route should have 1 server route")
 
-	groups, err := am.ListGroups(context.Background(), account.Id)
+	groups, err := am.Store.GetAccountGroups(context.Background(), LockingStrengthShare, account.Id)
 	require.NoError(t, err)
 	var groupHA1, groupHA2 *nbgroup.Group
 	for _, group := range groups {
