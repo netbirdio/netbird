@@ -13,11 +13,12 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func (r *SysOps) SetupRouting(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
-	return r.setupRefCounter(initAddresses)
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+	return r.setupRefCounter(initAddresses, stateManager)
 }
 
 func (r *SysOps) CleanupRouting() error {

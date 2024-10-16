@@ -8,6 +8,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/util/net"
 )
@@ -20,7 +21,7 @@ type MockManager struct {
 	StopFunc             func()
 }
 
-func (m *MockManager) Init() (net.AddHookFunc, net.RemoveHookFunc, error) {
+func (m *MockManager) Init(*statemanager.Manager) (net.AddHookFunc, net.RemoveHookFunc, error) {
 	return nil, nil, nil
 }
 

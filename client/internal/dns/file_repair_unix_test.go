@@ -111,7 +111,7 @@ nameserver 8.8.8.8`,
 			}
 
 			r := newRepair(operationFile, updateFn)
-			r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1")
+			r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1", nil)
 
 			err = os.WriteFile(operationFile, []byte(tt.touchedConfContent), 0755)
 			if err != nil {
@@ -158,7 +158,7 @@ searchdomain netbird.cloud something`
 	}
 
 	r := newRepair(tmpLink, updateFn)
-	r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1")
+	r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1", nil)
 
 	err = os.WriteFile(tmpLink, []byte(modifyContent), 0755)
 	if err != nil {

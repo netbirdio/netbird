@@ -4,9 +4,9 @@ package dns
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"strings"
 
@@ -21,26 +21,7 @@ const (
 	resolvConfManager
 )
 
-var ErrUnknownOsManagerType = errors.New("unknown os manager type")
-
 type osManagerType int
-
-func newOsManagerType(osManager string) (osManagerType, error) {
-	switch osManager {
-	case "netbird":
-		return fileManager, nil
-	case "file":
-		return netbirdManager, nil
-	case "networkManager":
-		return networkManager, nil
-	case "systemd":
-		return systemdManager, nil
-	case "resolvconf":
-		return resolvConfManager, nil
-	default:
-		return 0, ErrUnknownOsManagerType
-	}
-}
 
 func (t osManagerType) String() string {
 	switch t {
@@ -59,6 +40,11 @@ func (t osManagerType) String() string {
 	}
 }
 
+type restoreHostManager interface {
+	hostManager
+	restoreUncleanShutdownDNS(*netip.Addr) error
+}
+
 func newHostManager(wgInterface string) (hostManager, error) {
 	osManager, err := getOSDNSManagerType()
 	if err != nil {
@@ -69,7 +55,7 @@ func newHostManager(wgInterface string) (hostManager, error) {
 	return newHostManagerFromType(wgInterface, osManager)
 }
 
-func newHostManagerFromType(wgInterface string, osManager osManagerType) (hostManager, error) {
+func newHostManagerFromType(wgInterface string, osManager osManagerType) (restoreHostManager, error) {
 	switch osManager {
 	case networkManager:
 		return newNetworkManagerDbusConfigurator(wgInterface)

@@ -18,6 +18,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/routemanager/sysctl"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -85,10 +86,10 @@ func getSetupRules() []ruleParams {
 // Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
-func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
 	if isLegacy() {
 		log.Infof("Using legacy routing setup")
-		return r.setupRefCounter(initAddresses)
+		return r.setupRefCounter(initAddresses, stateManager)
 	}
 
 	if err = addRoutingTableName(); err != nil {
@@ -116,7 +117,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nb
 			if errors.Is(err, syscall.EOPNOTSUPP) {
 				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
 				setIsLegacy(true)
-				return r.setupRefCounter(initAddresses)
+				return r.setupRefCounter(initAddresses, stateManager)
 			}
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}

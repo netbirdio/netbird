@@ -281,7 +281,7 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{})
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -382,7 +382,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{})
+	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{}, nil)
 	if err != nil {
 		t.Errorf("create DNS server: %v", err)
 		return
@@ -477,7 +477,7 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer, err := NewDefaultServer(context.Background(), &mocWGIface{}, testCase.addrPort, &peer.Status{})
+			dnsServer, err := NewDefaultServer(context.Background(), &mocWGIface{}, testCase.addrPort, &peer.Status{}, nil)
 			if err != nil {
 				t.Fatalf("%v", err)
 			}

@@ -62,10 +62,7 @@ func (c *ConnectClient) Run() error {
 }
 
 // RunWithProbes runs the client's main logic with probes attached
-func (c *ConnectClient) RunWithProbes(
-	probes *ProbeHolder,
-	runningChan chan error,
-) error {
+func (c *ConnectClient) RunWithProbes(probes *ProbeHolder, runningChan chan error) error {
 	return c.run(MobileDependency{}, probes, runningChan)
 }
 
@@ -104,24 +101,15 @@ func (c *ConnectClient) RunOniOS(
 	return c.run(mobileDependency, nil, nil)
 }
 
-func (c *ConnectClient) run(
-	mobileDependency MobileDependency,
-	probes *ProbeHolder,
-	runningChan chan error,
-) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHolder, runningChan chan error) error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+			return
 		}
 	}()
 
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
-
-	// Check if client was not shut down in a clean way and restore DNS config if required.
-	// Otherwise, we might not be able to connect to the management server to retrieve new config.
-	if err := dns.CheckUncleanShutdown(c.config.WgIface); err != nil {
-		log.Errorf("checking unclean shutdown error: %s", err)
-	}
 
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
@@ -358,7 +346,11 @@ func (c *ConnectClient) Stop() error {
 	if c.engine == nil {
 		return nil
 	}
-	return c.engine.Stop()
+	if err := c.engine.Stop(); err != nil {
+		return fmt.Errorf("stop engine: %w", err)
+	}
+
+	return nil
 }
 
 func (c *ConnectClient) isContextCancelled() bool {

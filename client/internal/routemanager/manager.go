@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -31,7 +32,7 @@ import (
 
 // Manager is a route manager interface
 type Manager interface {
-	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
+	Init(*statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
@@ -120,7 +121,7 @@ func NewManager(
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (m *DefaultManager) Init(stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	if nbnet.CustomRoutingDisabled() {
 		return nil, nil, nil
 	}
@@ -136,7 +137,7 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 
 	ips := resolveURLsToIPs(initialAddresses)
 
-	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips)
+	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips, stateManager)
 	if err != nil {
 		return nil, nil, fmt.Errorf("setup routing: %w", err)
 	}

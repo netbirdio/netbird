@@ -70,7 +70,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 
 			r := NewSysOps(wgInterface, nil)
 
-			_, _, err = r.SetupRouting(nil)
+			_, _, err = r.SetupRouting(nil, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				assert.NoError(t, r.CleanupRouting())
@@ -380,7 +380,7 @@ func setupTestEnv(t *testing.T) {
 	})
 
 	r := NewSysOps(wgInterface, nil)
-	_, _, err := r.SetupRouting(nil)
+	_, _, err := r.SetupRouting(nil, nil)
 	require.NoError(t, err, "setupRouting should not return err")
 	t.Cleanup(func() {
 		assert.NoError(t, r.CleanupRouting())
