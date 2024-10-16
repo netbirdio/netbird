@@ -1154,6 +1154,8 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error) {
 	var group nbgroup.Group
 
+	// TODO: This fix is accepted for now, but if we need to handle this more frequently
+	// we may need to reconsider changing the types.
 	query := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations)
 	if s.storeEngine == PostgresStoreEngine {
 		query = query.Order("json_array_length(peers::json) DESC")
