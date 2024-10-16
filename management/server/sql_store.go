@@ -1154,8 +1154,14 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error) {
 	var group nbgroup.Group
 
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations).
-		Order("json_array_length(peers) DESC").First(&group, "name = ? and account_id = ?", groupName, accountID)
+	query := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations)
+	if s.storeEngine == PostgresStoreEngine {
+		query = query.Order("json_array_length(peers::json) DESC")
+	} else {
+		query = query.Order("json_array_length(peers) DESC")
+	}
+
+	result := query.First(&group, "name = ? and account_id = ?", groupName, accountID)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "group not found")
