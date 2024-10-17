@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/pion/ice/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -18,6 +17,8 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/client/internal/peer/guard"
+	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
@@ -32,8 +33,6 @@ const (
 	connPriorityRelay   ConnPriority = 1
 	connPriorityICETurn ConnPriority = 1
 	connPriorityICEP2P  ConnPriority = 2
-
-	reconnectMaxElapsedTime = 30 * time.Minute
 )
 
 type WgConfig struct {
@@ -63,7 +62,7 @@ type ConnConfig struct {
 	RosenpassAddr string
 
 	// ICEConfig ICE protocol configuration
-	ICEConfig ICEConfig
+	ICEConfig icemaker.Config
 }
 
 type WorkerCallbacks struct {
@@ -109,12 +108,12 @@ type Conn struct {
 	// for reconnection operations
 	iCEDisconnected   chan bool
 	relayDisconnected chan bool
-	connMonitor       *ConnMonitor
+	guard             *guard.Guard
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Status, signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, relayManager *relayClient.Manager) (*Conn, error) {
+func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Status, signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, relayManager *relayClient.Manager, srWatcher *guard.SRWatcher) (*Conn, error) {
 	allowedIP, allowedNet, err := net.ParseCIDR(config.WgConfig.AllowedIps)
 	if err != nil {
 		log.Errorf("failed to parse allowedIPS: %v", err)
@@ -140,7 +139,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		statusICE:         NewAtomicConnStatus(),
 		iCEDisconnected:   iCEDisconnected,
 		relayDisconnected: relayDisconnected,
-		connMonitor:       NewConnMonitor(signaler, iFaceDiscover, config, iCEDisconnected, relayDisconnected),
 	}
 
 	rFns := WorkerRelayCallbacks{
@@ -167,6 +165,8 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	if os.Getenv("NB_FORCE_RELAY") != "true" {
 		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
 	}
+
+	conn.guard = guard.NewGuard(connLog, true, conn.isConnected, conn.handshaker, config.Timeout, srWatcher, relayDisconnected, iCEDisconnected)
 
 	go conn.handshaker.Listen()
 
@@ -205,13 +205,7 @@ func (conn *Conn) startHandshakeAndReconnect(ctx context.Context) {
 		conn.log.Errorf("failed to send initial offer: %v", err)
 	}
 
-	go conn.connMonitor.Start(ctx)
-
-	if conn.workerRelay.IsController() {
-		conn.reconnectLoopWithRetry(ctx)
-	} else {
-		conn.listenForDisconnectEvents(ctx)
-	}
+	conn.guard.Start(ctx)
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
@@ -308,87 +302,6 @@ func (conn *Conn) Status() ConnStatus {
 
 func (conn *Conn) GetKey() string {
 	return conn.config.Key
-}
-
-func (conn *Conn) reconnectLoopWithRetry(ctx context.Context) {
-	// Give chance to the peer to establish the initial connection.
-	// With it, we can decrease to send necessary offer
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(3 * time.Second):
-	}
-
-	ticker := conn.prepareExponentTicker(nil)
-	defer ticker.Stop()
-	time.Sleep(1 * time.Second)
-
-	for {
-		select {
-		case t := <-ticker.C:
-			if t.IsZero() {
-				// in case if the ticker has been canceled by context then avoid the temporary loop
-				return
-			}
-
-			conn.logTraceConnState()
-
-			// checks if there is peer connection is established via relay or ice
-			if conn.isConnected() {
-				continue
-			}
-
-			err := conn.handshaker.sendOffer()
-			if err != nil {
-				conn.log.Errorf("failed to do handshake: %v", err)
-			}
-
-		case <-conn.connMonitor.ReconnectCh:
-			ticker.Stop()
-			ticker = conn.prepareExponentTicker(ctx)
-
-		case <-ctx.Done():
-			conn.log.Debugf("context is done, stop reconnect loop")
-			return
-		}
-	}
-}
-
-func (conn *Conn) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
-	bo := backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 0.1,
-		Multiplier:          2,
-		MaxInterval:         conn.config.Timeout,
-		MaxElapsedTime:      reconnectMaxElapsedTime,
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
-
-	ticker := backoff.NewTicker(bo)
-	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
-
-	return ticker
-}
-
-// reconnectLoopForOnDisconnectedEvent is used when the peer is not a controller and it should reconnect to the peer
-// when the connection is lost. It will try to establish a connection only once time if before the connection was established
-// It track separately the ice and relay connection status. Just because a lower priority connection reestablished it does not
-// mean that to switch to it. We always force to use the higher priority connection.
-func (conn *Conn) listenForDisconnectEvents(ctx context.Context) {
-	for {
-		select {
-		case <-conn.connMonitor.ReconnectCh:
-			err := conn.handshaker.SendOffer()
-			if err != nil {
-				conn.log.Errorf("failed to do handshake: %v", err)
-			}
-		case <-ctx.Done():
-			conn.log.Debugf("context is done, stop reconnect loop")
-			return
-		}
-
-	}
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
