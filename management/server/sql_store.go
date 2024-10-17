@@ -1243,7 +1243,7 @@ func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, lockStrength
 func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*nbgroup.Group, error) {
 	var group *nbgroup.Group
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Find(&group, accountAndIDQueryCondition, accountID, groupID)
+		First(&group, accountAndIDQueryCondition, accountID, groupID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get group from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get group from store")
@@ -1321,8 +1321,11 @@ func (s *SqlStore) GetAccountPolicies(ctx context.Context, lockStrength LockingS
 func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error) {
 	var policy *Policy
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Preload(clause.Associations).Find(&policy, accountAndIDQueryCondition, accountID, policyID)
+		Preload(clause.Associations).First(&policy, accountAndIDQueryCondition, accountID, policyID)
 	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "policy not found")
+		}
 		log.WithContext(ctx).Errorf("failed to get policy from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get policy from store")
 	}
@@ -1341,7 +1344,7 @@ func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength,
 	return nil
 }
 
-func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, policyID, accountID string) error {
+func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error {
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Delete(&Policy{}, accountAndIDQueryCondition, accountID, policyID)
 	if err := result.Error; err != nil {
@@ -1605,22 +1608,4 @@ func (s *SqlStore) DeletePAT(ctx context.Context, lockStrength LockingStrength, 
 	}
 
 	return nil
-}
-
-// getRecordByID retrieves a record by its ID and account ID from the database.
-func getRecordByID[T any](db *gorm.DB, lockStrength LockingStrength, recordID, accountID string) (*T, error) {
-	var record T
-
-	result := db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		First(&record, accountAndIDQueryCondition, accountID, recordID)
-	if err := result.Error; err != nil {
-		parts := strings.Split(fmt.Sprintf("%T", record), ".")
-		recordType := parts[len(parts)-1]
-
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "%s not found", recordType)
-		}
-		return nil, status.Errorf(status.Internal, "failed to get %s from store: %v", recordType, err)
-	}
-	return &record, nil
 }
