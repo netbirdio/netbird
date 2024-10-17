@@ -1181,7 +1181,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 			t.Fatal("failed to save group")
 			return err
 		}
-		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthUpdate, group.ID, group.AccountID)
+		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthUpdate, group.AccountID, group.ID)
 		if err != nil {
 			t.Fatal("failed to get group")
 			return err
@@ -1201,7 +1201,7 @@ func TestSqlite_GetAccoundUsers(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	account, err := store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err)
-	users, err := store.GetAccountUsers(context.Background(), accountID)
+	users, err := store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
 	require.NoError(t, err)
 	require.Len(t, users, len(account.Users))
 }

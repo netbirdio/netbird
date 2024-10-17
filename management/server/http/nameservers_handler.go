@@ -120,6 +120,7 @@ func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *htt
 
 	updatedNSGroup := &nbdns.NameServerGroup{
 		ID:                   nsGroupID,
+		AccountID:            accountID,
 		Name:                 req.Name,
 		Description:          req.Description,
 		Primary:              req.Primary,

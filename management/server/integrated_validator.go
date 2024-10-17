@@ -56,13 +56,15 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountId 
 	if len(groups) == 0 {
 		return true, nil
 	}
-	accountsGroups, err := am.ListGroups(ctx, accountId)
+
+	accountGroups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountId)
 	if err != nil {
 		return false, err
 	}
+
 	for _, group := range groups {
 		var found bool
-		for _, accountGroup := range accountsGroups {
+		for _, accountGroup := range accountGroups {
 			if accountGroup.ID == group {
 				found = true
 				break

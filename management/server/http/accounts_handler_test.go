@@ -29,7 +29,7 @@ func initAccountsTestData(account *server.Account, admin *server.User) *Accounts
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*server.Settings, error) {
 				return account.Settings, nil
 			},
-			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
+			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Settings, error) {
 				halfYearLimit := 180 * 24 * time.Hour
 				if newSettings.PeerLoginExpiration > halfYearLimit {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -39,9 +39,7 @@ func initAccountsTestData(account *server.Account, admin *server.User) *Accounts
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 				}
 
-				accCopy := account.Copy()
-				accCopy.UpdateSettings(newSettings)
-				return accCopy, nil
+				return newSettings.Copy(), nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
