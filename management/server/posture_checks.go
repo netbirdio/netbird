@@ -6,13 +6,14 @@ import (
 	"slices"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 )
 
 const (
-	errMsgPostureAdminOnly = "only users with admin power are allowed to view posture checks"
+	errPostureAdminOnlyMsg = "only users with admin power are allowed to view posture checks"
 )
 
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
@@ -21,8 +22,12 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 		return nil, err
 	}
 
-	if !user.HasAdminPower() || user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
+	if !user.HasAdminPower() {
+		return nil, status.Errorf(status.PermissionDenied, errPostureAdminOnlyMsg)
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
@@ -35,8 +40,12 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		return err
 	}
 
-	if !user.HasAdminPower() || user.AccountID != accountID {
+	if !user.HasAdminPower() {
 		return status.Errorf(status.PermissionDenied, "only admin users are allowed to update posture checks")
+	}
+
+	if user.AccountID != accountID {
+		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	if err = am.validatePostureChecks(ctx, accountID, postureChecks); err != nil {
@@ -54,7 +63,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 			}
 
 			if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-				return fmt.Errorf("failed to increment network serial: %w", err)
+				return fmt.Errorf(errNetworkSerialIncrementFmt, err)
 			}
 		}
 
@@ -72,7 +81,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	if isUpdate {
 		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
-			return fmt.Errorf("error getting account: %w", err)
+			return fmt.Errorf("failed to get account: %w", err)
 		}
 		am.updateAccountPeers(ctx, account)
 	}
@@ -106,8 +115,12 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 		return err
 	}
 
-	if !user.HasAdminPower() || user.AccountID != accountID {
+	if !user.HasAdminPower() {
 		return status.Errorf(status.PermissionDenied, "only admin users are allowed to delete posture checks")
+	}
+
+	if user.AccountID != accountID {
+		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	if err = am.isPostureCheckLinkedToPolicy(ctx, postureChecksID, accountID); err != nil {
@@ -121,7 +134,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
 		}
 
 		if err = transaction.DeletePostureChecks(ctx, LockingStrengthUpdate, accountID, postureChecksID); err != nil {
@@ -151,8 +164,12 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 		return nil, err
 	}
 
-	if !user.HasAdminPower() || user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
+	if !user.HasAdminPower() {
+		return nil, status.Errorf(status.PermissionDenied, errPostureAdminOnlyMsg)
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	return am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
@@ -175,56 +192,61 @@ func (am *DefaultAccountManager) isPostureCheckLinkedToPolicy(ctx context.Contex
 }
 
 // getPeerPostureChecks returns the posture checks applied for a given peer.
-func (am *DefaultAccountManager) getPeerPostureChecks(account *Account, peer *nbpeer.Peer) []*posture.Checks {
-	peerPostureChecks := make(map[string]posture.Checks)
-
-	if len(account.PostureChecks) == 0 {
-		return nil
+func (am *DefaultAccountManager) getPeerPostureChecks(ctx context.Context, accountID string, peerID string) ([]*posture.Checks, error) {
+	postureChecks, err := am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
+	if err != nil || len(postureChecks) == 0 {
+		return nil, err
 	}
 
-	for _, policy := range account.Policies {
+	policies, err := am.Store.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	peerPostureChecks := make(map[string]*posture.Checks)
+
+	for _, policy := range policies {
 		if !policy.Enabled {
 			continue
 		}
 
-		if isPeerInPolicySourceGroups(peer.ID, account, policy) {
-			addPolicyPostureChecks(account, policy, peerPostureChecks)
+		isInGroup, err := am.isPeerInPolicySourceGroups(ctx, accountID, peerID, policy)
+		if err != nil {
+			return nil, err
+		}
+
+		if isInGroup {
+			for _, sourcePostureCheckID := range policy.SourcePostureChecks {
+				postureCheck, err := am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, sourcePostureCheckID)
+				if err == nil {
+					peerPostureChecks[sourcePostureCheckID] = postureCheck
+				}
+			}
 		}
 	}
 
-	postureChecksList := make([]*posture.Checks, 0, len(peerPostureChecks))
-	for _, check := range peerPostureChecks {
-		checkCopy := check
-		postureChecksList = append(postureChecksList, &checkCopy)
-	}
-
-	return postureChecksList
+	return maps.Values(peerPostureChecks), nil
 }
 
 // isPeerInPolicySourceGroups checks if a peer is present in any of the policy rule source groups.
-func isPeerInPolicySourceGroups(peerID string, account *Account, policy *Policy) bool {
+func (am *DefaultAccountManager) isPeerInPolicySourceGroups(ctx context.Context, accountID, peerID string, policy *Policy) (bool, error) {
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
 			continue
 		}
 
 		for _, sourceGroup := range rule.Sources {
-			group, ok := account.Groups[sourceGroup]
-			if ok && slices.Contains(group.Peers, peerID) {
-				return true
+			group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, sourceGroup)
+			if err != nil {
+				log.WithContext(ctx).Debugf("failed to check peer in policy source group: %v", err)
+				return false, fmt.Errorf("failed to check peer in policy source group: %w", err)
+			}
+
+			if slices.Contains(group.Peers, peerID) {
+				return true, nil
 			}
 		}
 	}
 
-	return false
-}
-
-func addPolicyPostureChecks(account *Account, policy *Policy, peerPostureChecks map[string]posture.Checks) {
-	for _, sourcePostureCheckID := range policy.SourcePostureChecks {
-		for _, postureCheck := range account.PostureChecks {
-			if postureCheck.ID == sourcePostureCheckID {
-				peerPostureChecks[sourcePostureCheckID] = *postureCheck
-			}
-		}
-	}
+	return false, nil
 }
