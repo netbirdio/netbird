@@ -433,10 +433,12 @@ func (r *router) removeNatRule(pair firewall.RouterPair) error {
 
 func genRuleSpec(jump string, source, destination netip.Prefix, intf string, inverse bool) []string {
 	intdir := "-i"
+	lointdir := "-o"
 	if inverse {
 		intdir = "-o"
+		lointdir = "-i"
 	}
-	return []string{intdir, intf, "-s", source.String(), "-d", destination.String(), "-j", jump}
+	return []string{intdir, intf, "!", lointdir, "lo", "-s", source.String(), "-d", destination.String(), "-j", jump}
 }
 
 func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {

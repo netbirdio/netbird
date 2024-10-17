@@ -1256,8 +1256,16 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*nbgroup.Group, error) {
 	var group nbgroup.Group
 
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations).
-		Order("json_array_length(peers) DESC").First(&group, "account_id = ? AND name = ?", accountID, groupName)
+	// TODO: This fix is accepted for now, but if we need to handle this more frequently
+	// we may need to reconsider changing the types.
+	query := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations)
+	if s.storeEngine == PostgresStoreEngine {
+		query = query.Order("json_array_length(peers::json) DESC")
+	} else {
+		query = query.Order("json_array_length(peers) DESC")
+	}
+
+	result := query.First(&group, "account_id = ? AND name = ?", accountID, groupName)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "group not found")

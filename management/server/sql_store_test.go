@@ -1251,3 +1251,16 @@ func TestSqlStore_UpdateAccountDomainAttributes(t *testing.T) {
 	})
 
 }
+
+func TestSqlite_GetGroupByName(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	group, err := store.GetGroupByName(context.Background(), LockingStrengthShare, "All", accountID)
+	require.NoError(t, err)
+	require.Equal(t, "All", group.Name)
+}
