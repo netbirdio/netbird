@@ -217,7 +217,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 	}
 
 	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can update setup keys")
+		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	keyDuration := DefaultSetupKeyDuration
@@ -275,7 +275,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 	}
 
 	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can update setup keys")
+		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
@@ -348,8 +348,12 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+	if !user.IsAdminOrServiceUser() {
 		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	setupKeys, err := am.Store.GetAccountSetupKeys(ctx, LockingStrengthShare, accountID)
@@ -378,8 +382,12 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+	if !user.IsAdminOrServiceUser() {
 		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
 	}
 
 	setupKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, accountID, keyID)
