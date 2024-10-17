@@ -43,7 +43,7 @@ type clientNetwork struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	statusRecorder      *peer.Status
-	wgInterface         iface.IWGIface
+	wgInterface         *iface.WGIface
 	routes              map[route.ID]*route.Route
 	routeUpdate         chan routesUpdate
 	peerStateUpdate     chan struct{}
@@ -53,7 +53,7 @@ type clientNetwork struct {
 	updateSerial        uint64
 }
 
-func newClientNetworkWatcher(ctx context.Context, dnsRouteInterval time.Duration, wgInterface iface.IWGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *clientNetwork {
+func newClientNetworkWatcher(ctx context.Context, dnsRouteInterval time.Duration, wgInterface *iface.WGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 
 	client := &clientNetwork{
@@ -378,7 +378,7 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	}
 }
 
-func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, dnsRouterInteval time.Duration, statusRecorder *peer.Status, wgInterface iface.IWGIface) RouteHandler {
+func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, dnsRouterInteval time.Duration, statusRecorder *peer.Status, wgInterface *iface.WGIface) RouteHandler {
 	if rt.IsDynamic() {
 		dns := nbdns.NewServiceViaMemory(wgInterface)
 		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouterInteval, statusRecorder, wgInterface, fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()))
