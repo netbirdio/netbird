@@ -6,7 +6,6 @@ package device
 import (
 	"fmt"
 
-	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 
@@ -31,7 +30,7 @@ type TunNetstackDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string, filterFn bind.FilterFn) *TunNetstackDevice {
+func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
 	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -39,7 +38,7 @@ func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, m
 		key:           key,
 		mtu:           mtu,
 		listenAddress: listenAddress,
-		iceBind:       bind.NewICEBind(transportNet, filterFn),
+		iceBind:       iceBind,
 	}
 }
 
