@@ -45,15 +45,15 @@ import (
 )
 
 const (
-	PublicCategory             = "public"
-	PrivateCategory            = "private"
-	UnknownCategory            = "unknown"
-	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
-	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
-	DefaultPeerLoginExpiration = 24 * time.Hour
+	PublicCategory                  = "public"
+	PrivateCategory                 = "private"
+	UnknownCategory                 = "unknown"
+	CacheExpirationMax              = 7 * 24 * 3600 * time.Second // 7 days
+	CacheExpirationMin              = 3 * 24 * 3600 * time.Second // 3 days
+	DefaultPeerLoginExpiration      = 24 * time.Hour
 	DefaultPeerInactivityExpiration = 10 * time.Minute
-	emptyUserID                = "empty user ID in claims"
-	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+	emptyUserID                     = "empty user ID in claims"
+	errorGettingDomainAccIDFmt      = "error getting account ID by private domain: %v"
 )
 
 type userLoggedInOnce bool
@@ -1440,7 +1440,7 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, u
 			return err
 		}
 		cachedAccount := &Account{
-			Id: accountID,
+			Id:    accountID,
 			Users: make(map[string]*User),
 		}
 		for _, user := range accountUsers {
@@ -2276,7 +2276,7 @@ func handleNotFound(err error) error {
 }
 
 func domainIsUpToDate(domain string, domainCategory string, claims jwtclaims.AuthorizationClaims) bool {
-	return claims.Domain != "" && claims.Domain != domain && claims.DomainCategory == PrivateCategory && domainCategory != PrivateCategory
+	return domainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory || domain != claims.Domain
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
