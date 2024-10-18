@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	pfmock "github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
@@ -552,7 +553,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 
 	var domainsUpdate string
-	hostManager.applyDNSConfigFunc = func(config HostDNSConfig) error {
+	hostManager.applyDNSConfigFunc = func(config HostDNSConfig, statemanager *statemanager.Manager) error {
 		domains := []string{}
 		for _, item := range config.Domains {
 			if item.Disabled {
