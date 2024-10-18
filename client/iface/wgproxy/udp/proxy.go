@@ -3,6 +3,7 @@ package udp
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 
@@ -160,7 +161,9 @@ func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 	defer func() {
 		if err := p.close(); err != nil {
-			log.Warnf("error in proxy to local loop: %s", err)
+			if err != io.EOF {
+				log.Warnf("error in proxy to local loop: %s", err)
+			}
 		}
 	}()
 
@@ -171,7 +174,7 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.RemoteAddr(), err)
+			log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.LocalAddr(), err)
 			return
 		}
 
