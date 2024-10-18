@@ -7,14 +7,19 @@ import (
 )
 
 type MockClient struct {
-	CloseFunc               func() error
-	GetStatusFunc           func() Status
-	StreamConnectedFunc     func() bool
-	ReadyFunc               func() bool
-	WaitStreamConnectedFunc func()
-	ReceiveFunc             func(ctx context.Context, msgHandler func(msg *proto.Message) error) error
-	SendToStreamFunc        func(msg *proto.EncryptedMessage) error
-	SendFunc                func(msg *proto.Message) error
+	CloseFunc                    func() error
+	GetStatusFunc                func() Status
+	StreamConnectedFunc          func() bool
+	ReadyFunc                    func() bool
+	WaitStreamConnectedFunc      func()
+	ReceiveFunc                  func(ctx context.Context, msgHandler func(msg *proto.Message) error) error
+	SendToStreamFunc             func(msg *proto.EncryptedMessage) error
+	SendFunc                     func(msg *proto.Message) error
+	SetOnReconnectedListenerFunc func(f func())
+}
+
+func (sm *MockClient) SetOnReconnectedListener(_ func()) {
+
 }
 
 func (sm *MockClient) IsHealthy() bool {
