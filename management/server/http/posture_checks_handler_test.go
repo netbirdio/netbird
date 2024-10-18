@@ -40,7 +40,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 				}
 				return p, nil
 			},
-			SavePostureChecksFunc: func(_ context.Context, accountID, userID string, postureChecks *posture.Checks) error {
+			SavePostureChecksFunc: func(_ context.Context, accountID, userID string, postureChecks *posture.Checks, _ bool) error {
 				postureChecks.ID = "postureCheck"
 				testPostureChecks[postureChecks.ID] = postureChecks
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -1187,9 +1188,12 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 	}
 
 	policy := Policy{
-		Enabled: true,
+		ID:        xid.New().String(),
+		AccountID: account.Id,
+		Enabled:   true,
 		Rules: []*PolicyRule{
 			{
+				ID:            xid.New().String(),
 				Enabled:       true,
 				Sources:       []string{"group-id"},
 				Destinations:  []string{"group-id"},
@@ -1294,7 +1298,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		// clean policy is pre requirement for delete group
 		_ = manager.DeletePolicy(context.Background(), account.Id, policy.ID, userID)
 
-		if err := manager.DeleteGroup(context.Background(), account.Id, "", group.ID); err != nil {
+		if err := manager.DeleteGroup(context.Background(), account.Id, userID, group.ID); err != nil {
 			t.Errorf("delete group: %v", err)
 			return
 		}
@@ -1697,7 +1701,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 
-	account, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1814,7 +1818,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		},
 	}
 	// enabling PeerLoginExpirationEnabled should trigger the expiration job
-	account, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1845,13 +1849,13 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
-	updated, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	updatedSettings, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
-	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
-	assert.Equal(t, updated.Settings.PeerLoginExpiration, time.Hour)
+	assert.False(t, updatedSettings.PeerLoginExpirationEnabled)
+	assert.Equal(t, updatedSettings.PeerLoginExpiration, time.Hour)
 
 	settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
 	require.NoError(t, err, "unable to get account settings")
@@ -2553,7 +2557,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 0)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
 		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
@@ -2573,7 +2577,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
 		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
@@ -2612,7 +2616,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		groups, err := manager.Store.GetAccountGroups(context.Background(), "accountID")
+		groups, err := manager.Store.GetAccountGroups(context.Background(), LockingStrengthShare, "accountID")
 		assert.NoError(t, err)
 		assert.Len(t, groups, 3, "new group3 should be added")
 
