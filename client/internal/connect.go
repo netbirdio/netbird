@@ -105,7 +105,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 	defer func() {
 		if r := recover(); r != nil {
 			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
-			return
 		}
 	}()
 
