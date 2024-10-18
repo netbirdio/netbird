@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	reconnectMaxElapsedTime = 30 * time.Minute
+	reconnectMaxElapsedTime = 3 * time.Second
 )
 
 type isConnectedFunc func() bool
@@ -70,6 +70,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 		select {
 		case t := <-tickerChannel:
 			if t.IsZero() {
+				g.log.Infof("stop periodic retry to connection")
 				tickerChannel = make(<-chan time.Time) // after the timeout, we should stop the ticker
 				continue
 			}
@@ -87,6 +88,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 			g.log.Debugf("Relay connection changed, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.prepareExponentTicker(ctx)
+			tickerChannel = ticker.C
 
 		case changed := <-g.iCEConnDisconnected:
 			if !changed {
