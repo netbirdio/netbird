@@ -166,7 +166,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
 	}
 
-	conn.guard = guard.NewGuard(connLog, true, conn.isConnected, conn.handshaker, config.Timeout, srWatcher, relayDisconnected, iCEDisconnected)
+	conn.guard = guard.NewGuard(connLog, true, conn.isConnected, config.Timeout, srWatcher, relayDisconnected, iCEDisconnected)
 
 	go conn.handshaker.Listen()
 
@@ -206,6 +206,7 @@ func (conn *Conn) startHandshakeAndReconnect(ctx context.Context) {
 	}
 
 	conn.guard.Start(ctx)
+	go conn.listenForReconnectedEvents(ctx)
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
@@ -504,6 +505,19 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 	}
 	if err := conn.statusRecorder.UpdatePeerRelayedStateToDisconnected(peerState); err != nil {
 		conn.log.Warnf("unable to save peer's state to Relay disconnected, got error: %v", err)
+	}
+}
+
+func (conn *Conn) listenForReconnectedEvents(ctx context.Context) {
+	for {
+		select {
+		case <-conn.guard.Reconnect:
+			if err := conn.handshaker.SendOffer(); err != nil {
+				conn.log.Errorf("failed to send offer: %v", err)
+			}
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 

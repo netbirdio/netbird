@@ -19,24 +19,24 @@ type handshake interface {
 type isConnectedFunc func() bool
 
 type Guard struct {
+	Reconnect               chan struct{}
 	log                     *log.Entry
 	isController            bool
 	isConnectedFn           isConnectedFunc
 	timeout                 time.Duration
-	handshaker              handshake
 	srWatcher               *SRWatcher
 	relayedConnDisconnected chan bool
 	iCEConnDisconnected     chan bool
 	iceMonitor              *ICEMonitor
 }
 
-func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, handshaker handshake, timeout time.Duration, srWatcher *SRWatcher, relayedConnDisconnected, iCEDisconnected chan bool) *Guard {
+func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher, relayedConnDisconnected, iCEDisconnected chan bool) *Guard {
 	return &Guard{
+		Reconnect:               make(chan struct{}, 1),
 		log:                     log,
 		isController:            isController,
 		isConnectedFn:           isConnectedFn,
 		timeout:                 timeout,
-		handshaker:              handshaker,
 		srWatcher:               srWatcher,
 		relayedConnDisconnected: relayedConnDisconnected,
 		iCEConnDisconnected:     iCEDisconnected,
@@ -81,10 +81,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 			if g.isConnectedFn() {
 				continue
 			}
-
-			if err := g.handshaker.SendOffer(); err != nil {
-				g.log.Errorf("failed to do handshake: %v", err)
-			}
+			g.triggerOfferSending()
 
 		case changed := <-g.relayedConnDisconnected:
 			if !changed {
@@ -128,20 +125,18 @@ func (g *Guard) listenForDisconnectEvents(ctx context.Context) {
 				continue
 			}
 			g.log.Debugf("Relay connection changed, triggering reconnect")
+			g.triggerOfferSending()
 		case changed := <-g.iCEConnDisconnected:
 			if !changed {
 				continue
 			}
 			g.log.Debugf("ICE state changed, try to send new offer")
+			g.triggerOfferSending()
 		case <-srReconnectedChan:
+			g.triggerOfferSending()
 		case <-ctx.Done():
 			g.log.Debugf("context is done, stop reconnect loop")
 			return
-		}
-
-		err := g.handshaker.SendOffer()
-		if err != nil {
-			g.log.Errorf("failed to do handshake: %v", err)
 		}
 	}
 }
@@ -174,6 +169,13 @@ func (g *Guard) waitInitialRandomSleepTime(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 	case <-timeout.C:
+	}
+}
+
+func (g *Guard) triggerOfferSending() {
+	select {
+	case g.Reconnect <- struct{}{}:
+	default:
 	}
 }
 
