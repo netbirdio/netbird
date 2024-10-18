@@ -1245,6 +1245,9 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&group, accountAndIDQueryCondition, accountID, groupID)
 	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "group not found")
+		}
 		log.WithContext(ctx).Errorf("failed to get group from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get group from store")
 	}

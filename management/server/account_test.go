@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -1187,9 +1188,12 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 	}
 
 	policy := Policy{
-		Enabled: true,
+		ID:        xid.New().String(),
+		AccountID: account.Id,
+		Enabled:   true,
 		Rules: []*PolicyRule{
 			{
+				ID:            xid.New().String(),
 				Enabled:       true,
 				Sources:       []string{"group-id"},
 				Destinations:  []string{"group-id"},
@@ -1294,7 +1298,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		// clean policy is pre requirement for delete group
 		_ = manager.DeletePolicy(context.Background(), account.Id, policy.ID, userID)
 
-		if err := manager.DeleteGroup(context.Background(), account.Id, "", group.ID); err != nil {
+		if err := manager.DeleteGroup(context.Background(), account.Id, userID, group.ID); err != nil {
 			t.Errorf("delete group: %v", err)
 			return
 		}

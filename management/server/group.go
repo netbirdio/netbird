@@ -254,7 +254,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
 		}
 
-		if err = transaction.DeleteGroup(ctx, LockingStrengthUpdate, groupID, accountID); err != nil {
+		if err = transaction.DeleteGroup(ctx, LockingStrengthUpdate, accountID, groupID); err != nil {
 			return fmt.Errorf("failed to delete group: %w", err)
 		}
 		return nil
