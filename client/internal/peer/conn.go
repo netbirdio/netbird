@@ -206,7 +206,7 @@ func (conn *Conn) startHandshakeAndReconnect(ctx context.Context) {
 	}
 
 	conn.guard.Start(ctx)
-	go conn.listenForReconnectedEvents(ctx)
+	go conn.listenGuardEvent(ctx)
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
@@ -508,7 +508,7 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 	}
 }
 
-func (conn *Conn) listenForReconnectedEvents(ctx context.Context) {
+func (conn *Conn) listenGuardEvent(ctx context.Context) {
 	for {
 		select {
 		case <-conn.guard.Reconnect:
