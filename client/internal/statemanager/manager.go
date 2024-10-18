@@ -231,6 +231,11 @@ func (m *Manager) loadState() error {
 
 	var rawStates map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawStates); err != nil {
+		log.Warn("State file appears to be corrupted, attempting to delete it")
+		if err := os.Remove(m.filePath); err != nil {
+			log.Errorf("Failed to delete corrupted state file: %v", err)
+		}
+		log.Info("State file deleted")
 		return fmt.Errorf("unmarshal states: %w", err)
 	}
 
