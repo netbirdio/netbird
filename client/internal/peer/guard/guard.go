@@ -2,7 +2,6 @@ package guard
 
 import (
 	"context"
-	"math/rand"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -24,7 +23,6 @@ type Guard struct {
 	srWatcher               *SRWatcher
 	relayedConnDisconnected chan bool
 	iCEConnDisconnected     chan bool
-	iceMonitor              *ICEMonitor
 }
 
 func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher, relayedConnDisconnected, iCEDisconnected chan bool) *Guard {
@@ -153,20 +151,6 @@ func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
 	return ticker
-}
-
-func (g *Guard) waitInitialRandomSleepTime(ctx context.Context) {
-	minWait := 100
-	maxWait := 800
-	duration := time.Duration(rand.Intn(maxWait-minWait)+minWait) * time.Millisecond
-
-	timeout := time.NewTimer(duration)
-	defer timeout.Stop()
-
-	select {
-	case <-ctx.Done():
-	case <-timeout.C:
-	}
 }
 
 func (g *Guard) triggerOfferSending() {
