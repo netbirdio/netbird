@@ -529,7 +529,9 @@ func (s *DefaultServer) upstreamCallbacks(
 		// persist dns state right away
 		ctx, cancel := context.WithTimeout(s.ctx, 3*time.Second)
 		defer cancel()
-		s.stateManager.PersistState(ctx)
+		if err := s.stateManager.PersistState(ctx); err != nil {
+			l.Errorf("Failed to persist dns state: %v", err)
+		}
 
 		if runtime.GOOS == "android" && nsGroup.Primary && len(s.hostsDNSHolder.get()) > 0 {
 			s.addHostRootZone()

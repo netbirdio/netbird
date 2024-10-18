@@ -62,13 +62,6 @@ func (m *mockHostConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (m *mockHostConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error {
-	if m.restoreUncleanShutdownDNSFunc != nil {
-		return m.restoreUncleanShutdownDNSFunc(storedDNSAddress)
-	}
-	return fmt.Errorf("method restoreUncleanShutdownDNS is not implemented")
-}
-
 func newNoopHostMocker() hostManager {
 	return &mockHostConfigurator{
 		applyDNSConfigFunc:            func(config HostDNSConfig, stateManager *statemanager.Manager) error { return nil },
