@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	reconnectMaxElapsedTime = 3 * time.Second
+	reconnectMaxElapsedTime = 30 * time.Minute
 )
 
 type isConnectedFunc func() bool
