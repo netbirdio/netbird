@@ -138,12 +138,12 @@ func (c *Client) Stop() {
 	c.ctxCancel()
 }
 
-// ÏSetTraceLogLevel configure the logger to trace level
+// SetTraceLogLevel configure the logger to trace level
 func (c *Client) SetTraceLogLevel() {
 	log.SetLevel(log.TraceLevel)
 }
 
-// getStatusDetails return with the list of the PeerInfos
+// GetStatusDetails return with the list of the PeerInfos
 func (c *Client) GetStatusDetails() *StatusDetails {
 
 	fullStatus := c.recorder.GetFullStatus()

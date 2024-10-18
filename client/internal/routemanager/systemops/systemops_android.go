@@ -9,14 +9,15 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func (r *SysOps) SetupRouting([]net.IP) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) SetupRouting([]net.IP, *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	return nil, nil, nil
 }
 
-func (r *SysOps) CleanupRouting() error {
+func (r *SysOps) CleanupRouting(*statemanager.Manager) error {
 	return nil
 }
 
@@ -25,6 +26,10 @@ func (r *SysOps) AddVPNRoute(netip.Prefix, *net.Interface) error {
 }
 
 func (r *SysOps) RemoveVPNRoute(netip.Prefix, *net.Interface) error {
+	return nil
+}
+
+func (r *SysOps) removeFromRouteTable(netip.Prefix, Nexthop) error {
 	return nil
 }
 

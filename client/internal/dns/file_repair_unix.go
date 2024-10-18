@@ -9,6 +9,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 var (
@@ -20,7 +22,7 @@ var (
 	}
 )
 
-type repairConfFn func([]string, string, *resolvConf) error
+type repairConfFn func([]string, string, *resolvConf, *statemanager.Manager) error
 
 type repair struct {
 	operationFile string
@@ -40,7 +42,7 @@ func newRepair(operationFile string, updateFn repairConfFn) *repair {
 	}
 }
 
-func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP string) {
+func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP string, stateManager *statemanager.Manager) {
 	if f.inotify != nil {
 		return
 	}
@@ -81,7 +83,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
 			}
 
-			err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf)
+			err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf, stateManager)
 			if err != nil {
 				log.Errorf("failed to repair resolv.conf: %v", err)
 			}

@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -38,6 +39,7 @@ const (
 type systemdDbusConfigurator struct {
 	dbusLinkObject dbus.ObjectPath
 	routingAll     bool
+	ifaceName      string
 }
 
 // the types below are based on dbus specification, each field is mapped to a dbus type
@@ -55,7 +57,7 @@ type systemdDbusLinkDomainsInput struct {
 	MatchOnly bool
 }
 
-func newSystemdDbusConfigurator(wgInterface string) (hostManager, error) {
+func newSystemdDbusConfigurator(wgInterface string) (*systemdDbusConfigurator, error) {
 	iface, err := net.InterfaceByName(wgInterface)
 	if err != nil {
 		return nil, fmt.Errorf("get interface: %w", err)
@@ -77,6 +79,7 @@ func newSystemdDbusConfigurator(wgInterface string) (hostManager, error) {
 
 	return &systemdDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
+		ifaceName:      wgInterface,
 	}, nil
 }
 
@@ -84,7 +87,7 @@ func (s *systemdDbusConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	parsedIP, err := netip.ParseAddr(config.ServerIP)
 	if err != nil {
 		return fmt.Errorf("unable to parse ip address, error: %w", err)
@@ -135,10 +138,12 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 	}
 
-	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
-	// The file content itself is not important for systemd restoration
-	if err := createUncleanShutdownIndicator(defaultResolvConfPath, systemdManager, parsedIP.String()); err != nil {
-		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	state := &ShutdownState{
+		ManagerType: systemdManager,
+		WgIface:     s.ifaceName,
+	}
+	if err := stateManager.UpdateState(state); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
 	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
@@ -172,10 +177,6 @@ func (s *systemdDbusConfigurator) restoreHostDNS() error {
 			return nil
 		}
 		return fmt.Errorf("unable to revert link configuration, got error: %w", err)
-	}
-
-	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	return s.flushCaches()

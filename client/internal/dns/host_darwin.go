@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
 	"os/exec"
 	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const (
@@ -37,7 +38,7 @@ type systemConfigurator struct {
 	systemDNSSettings SystemDNSSettings
 }
 
-func newHostManager() (hostManager, error) {
+func newHostManager() (*systemConfigurator, error) {
 	return &systemConfigurator{
 		createdKeys: make(map[string]struct{}),
 	}, nil
@@ -47,12 +48,11 @@ func (s *systemConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	var err error
 
-	// create a file for unclean shutdown detection
-	if err := createUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to create unclean shutdown file: %s", err)
+	if err := stateManager.UpdateState(&ShutdownState{}); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
 	var (
@@ -121,10 +121,6 @@ func (s *systemConfigurator) restoreHostDNS() error {
 		if err != nil {
 			log.Errorf("failed to remove %s domains from system: %s", keyType, err)
 		}
-	}
-
-	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown file: %s", err)
 	}
 
 	return nil
@@ -320,7 +316,7 @@ func (s *systemConfigurator) getPrimaryService() (string, string, error) {
 	return primaryService, router, nil
 }
 
-func (s *systemConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
+func (s *systemConfigurator) restoreUncleanShutdownDNS() error {
 	if err := s.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via scutil: %w", err)
 	}

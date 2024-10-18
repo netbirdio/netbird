@@ -11,6 +11,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const (
@@ -36,7 +38,7 @@ type fileConfigurator struct {
 	nbNameserverIP string
 }
 
-func newFileConfigurator() (hostManager, error) {
+func newFileConfigurator() (*fileConfigurator, error) {
 	fc := &fileConfigurator{}
 	fc.repair = newRepair(defaultResolvConfPath, fc.updateConfig)
 	return fc, nil
@@ -46,7 +48,7 @@ func (f *fileConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	backupFileExist := f.isBackupFileExist()
 	if !config.RouteAll {
 		if backupFileExist {
@@ -76,15 +78,15 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 
 	f.repair.stopWatchFileChanges()
 
-	err = f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf)
+	err = f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf, stateManager)
 	if err != nil {
 		return err
 	}
-	f.repair.watchFileChanges(nbSearchDomains, f.nbNameserverIP)
+	f.repair.watchFileChanges(nbSearchDomains, f.nbNameserverIP, stateManager)
 	return nil
 }
 
-func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf) error {
+func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf, stateManager *statemanager.Manager) error {
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
 	nameServers := generateNsList(nbNameserverIP, cfg)
 
@@ -107,7 +109,7 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 	log.Infof("created a NetBird managed %s file with the DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
 
 	// create another backup for unclean shutdown detection right after overwriting the original resolv.conf
-	if err := createUncleanShutdownIndicator(fileDefaultResolvConfBackupLocation, fileManager, nbNameserverIP); err != nil {
+	if err := createUncleanShutdownIndicator(fileDefaultResolvConfBackupLocation, nbNameserverIP, stateManager); err != nil {
 		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
@@ -145,10 +147,6 @@ func (f *fileConfigurator) restore() error {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileDefaultResolvConfBackupLocation, err)
 	}
 
-	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
-	}
-
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
 }
 
@@ -176,7 +174,7 @@ func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Add
 		return restoreResolvConfFile()
 	}
 
-	log.Info("restoring unclean shutdown: first current nameserver differs from saved nameserver pre-netbird: not restoring")
+	log.Infof("restoring unclean shutdown: first current nameserver differs from saved nameserver pre-netbird: %s (current) vs %s (stored): not restoring", currentDNSAddress, storedDNSAddress)
 	return nil
 }
 
@@ -190,10 +188,6 @@ func restoreResolvConfFile() error {
 
 	if err := copyFile(fileUncleanShutdownResolvConfLocation, defaultResolvConfPath); err != nil {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation, err)
-	}
-
-	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf file: %s", err)
 	}
 
 	return nil

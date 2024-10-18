@@ -3,11 +3,12 @@ package dns
 import (
 	"fmt"
 	"io"
-	"net/netip"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const (
@@ -31,7 +32,7 @@ type registryConfigurator struct {
 	routingAll bool
 }
 
-func newHostManager(wgInterface WGIface) (hostManager, error) {
+func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 	guid, err := wgInterface.GetInterfaceGUIDString()
 	if err != nil {
 		return nil, err
@@ -39,7 +40,7 @@ func newHostManager(wgInterface WGIface) (hostManager, error) {
 	return newHostManagerWithGuid(guid)
 }
 
-func newHostManagerWithGuid(guid string) (hostManager, error) {
+func newHostManagerWithGuid(guid string) (*registryConfigurator, error) {
 	return &registryConfigurator{
 		guid: guid,
 	}, nil
@@ -49,7 +50,7 @@ func (r *registryConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	var err error
 	if config.RouteAll {
 		err = r.addDNSSetupForAll(config.ServerIP)
@@ -65,9 +66,8 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
-	// create a file for unclean shutdown detection
-	if err := createUncleanShutdownIndicator(r.guid); err != nil {
-		log.Errorf("failed to create unclean shutdown file: %s", err)
+	if err := stateManager.UpdateState(&ShutdownState{Guid: r.guid}); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
 	var (
@@ -160,10 +160,6 @@ func (r *registryConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("remove interface registry key: %w", err)
 	}
 
-	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown file: %s", err)
-	}
-
 	return nil
 }
 
@@ -221,7 +217,7 @@ func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 	return regKey, nil
 }
 
-func (r *registryConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
+func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 	if err := r.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via registry: %w", err)
 	}
