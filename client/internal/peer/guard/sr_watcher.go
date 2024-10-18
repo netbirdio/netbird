@@ -99,7 +99,7 @@ func (w *SRWatcher) onReconnected() {
 	if !w.signalClient.Ready() {
 		return
 	}
-	if w.relayManager.Ready() {
+	if !w.relayManager.Ready() {
 		return
 	}
 
