@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
@@ -23,10 +21,12 @@ type SRWatcher struct {
 	mu            sync.Mutex
 	iFaceDiscover stdnet.ExternalIFaceDiscover
 	iceConfig     ice.Config
+
+	cancelIceMonitor context.CancelFunc
 }
 
-// NewSRWatcher todo: implement cancel function in thread safe way. The context cancle is dangerous because during an
-// engine restart maybe we overwrite the new listeners in signal and relayManager
+// NewSRWatcher creates a new SRWatcher. This watcher will notify the listeners when the ICE candidates change or the
+// Relay connection is reconnected or the Signal client reconnected.
 func NewSRWatcher(signalClient chNotifier, relayManager chNotifier, iFaceDiscover stdnet.ExternalIFaceDiscover, iceConfig ice.Config) *SRWatcher {
 	srw := &SRWatcher{
 		signalClient:  signalClient,
@@ -37,23 +37,34 @@ func NewSRWatcher(signalClient chNotifier, relayManager chNotifier, iFaceDiscove
 	return srw
 }
 
-func (w *SRWatcher) Start(ctx context.Context) {
-	iceMonitor := NewICEMonitor(w.iFaceDiscover, w.iceConfig)
-	go iceMonitor.Start(ctx)
-	// todo read iceMonitor.ReconnectCh
+func (w *SRWatcher) Start() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
+	if w.cancelIceMonitor != nil {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	w.cancelIceMonitor = cancel
+
+	iceMonitor := NewICEMonitor(w.iFaceDiscover, w.iceConfig)
+	go iceMonitor.Start(ctx, w.onICEChanged)
 	w.signalClient.SetOnReconnectedListener(w.onReconnected)
 	w.relayManager.SetOnReconnectedListener(w.onReconnected)
+
 }
 
-func (w *SRWatcher) onReconnected() {
-	if !w.signalClient.Ready() {
+func (w *SRWatcher) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.cancelIceMonitor == nil {
 		return
 	}
-	if w.relayManager.Ready() {
-		return
-	}
-	w.notify()
+	w.cancelIceMonitor()
+	w.signalClient.SetOnReconnectedListener(nil)
+	w.relayManager.SetOnReconnectedListener(nil)
 }
 
 func (w *SRWatcher) NewListener() chan struct{} {
@@ -72,13 +83,31 @@ func (w *SRWatcher) RemoveListener(listenerChan chan struct{}) {
 	close(listenerChan)
 }
 
+func (w *SRWatcher) onICEChanged() {
+	if !w.signalClient.Ready() {
+		return
+	}
+
+	w.notify()
+}
+
+func (w *SRWatcher) onReconnected() {
+	if !w.signalClient.Ready() {
+		return
+	}
+	if w.relayManager.Ready() {
+		return
+	}
+	w.notify()
+}
+
 func (w *SRWatcher) notify() {
-	log.Infof("------ Siganl or relay reconnected!")
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for listener := range w.listeners {
 		select {
 		case listener <- struct{}{}:
+		default:
 		}
 	}
 }

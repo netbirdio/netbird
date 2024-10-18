@@ -37,11 +37,7 @@ func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.C
 	return cm
 }
 
-func (cm *ICEMonitor) Start(ctx context.Context) {
-	go cm.monitorLocalCandidatesChanged(ctx)
-}
-
-func (cm *ICEMonitor) monitorLocalCandidatesChanged(ctx context.Context) {
+func (cm *ICEMonitor) Start(ctx context.Context, onChanged func()) {
 	ufrag, pwd, err := icemaker.GenerateICECredentials()
 	if err != nil {
 		log.Warnf("Failed to generate ICE credentials: %v", err)
@@ -61,7 +57,7 @@ func (cm *ICEMonitor) monitorLocalCandidatesChanged(ctx context.Context) {
 			}
 
 			if changed {
-				cm.triggerReconnect()
+				onChanged()
 			}
 		case <-ctx.Done():
 			return
@@ -132,13 +128,6 @@ func (cm *ICEMonitor) updateCandidates(newCandidates []ice.Candidate) bool {
 	}
 
 	return false
-}
-
-func (cm *ICEMonitor) triggerReconnect() {
-	select {
-	case cm.ReconnectCh <- struct{}{}:
-	default:
-	}
 }
 
 func candidateTypesP2P() []ice.CandidateType {

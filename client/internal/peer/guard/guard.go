@@ -176,8 +176,8 @@ func (g *Guard) triggerOfferSending() {
 	}
 }
 
+// logTraceConnState todo: implement me
 func (g *Guard) logTraceConnState() {
-	//todo: implement me
 	/*
 		if g.workerRelay.IsRelayConnectionSupportedWithPeer() {
 			if g.statusRelay.Get() == StatusDisconnected || g.statusICE.Get() == StatusDisconnected {

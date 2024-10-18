@@ -259,6 +259,10 @@ func (e *Engine) Stop() error {
 		e.routeManager.Stop()
 	}
 
+	if e.srWatcher != nil {
+		e.srWatcher.Close()
+	}
+
 	err := e.removeAllPeers()
 	if err != nil {
 		return fmt.Errorf("failed to remove all peers: %s", err)
@@ -380,9 +384,9 @@ func (e *Engine) Start() error {
 		UDPMuxSrflx:          e.udpMux,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
-	// todo: review the cancel event handling
+
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
-	e.srWatcher.Start(e.ctx)
+	e.srWatcher.Start()
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
