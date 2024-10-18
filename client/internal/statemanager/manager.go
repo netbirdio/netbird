@@ -190,6 +190,7 @@ func (m *Manager) PersistState(ctx context.Context) error {
 			return
 		}
 
+		// nolint:gosec
 		if err := os.WriteFile(m.filePath, data, 0640); err != nil {
 			done <- fmt.Errorf("write state file: %w", err)
 			return
