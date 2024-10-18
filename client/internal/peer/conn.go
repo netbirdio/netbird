@@ -151,7 +151,8 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		OnStatusChanged: conn.onWorkerICEStateDisconnected,
 	}
 
-	conn.workerRelay = NewWorkerRelay(connLog, config, relayManager, rFns)
+	ctrl := isController(config)
+	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, relayManager, rFns)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally, wFns)
@@ -166,7 +167,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
 	}
 
-	conn.guard = guard.NewGuard(connLog, true, conn.isConnected, config.Timeout, srWatcher, relayDisconnected, iCEDisconnected)
+	conn.guard = guard.NewGuard(connLog, ctrl, conn.isConnected, config.Timeout, srWatcher, relayDisconnected, iCEDisconnected)
 
 	go conn.handshaker.Listen()
 
@@ -746,6 +747,10 @@ func (conn *Conn) logTraceConnState() {
 			conn.log.Tracef("connectivity guard timedout, ice state: %s", conn.statusICE)
 		}
 	}
+}
+
+func isController(config ConnConfig) bool {
+	return config.LocalKey > config.Key
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
