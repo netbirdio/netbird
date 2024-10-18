@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
@@ -89,6 +91,7 @@ func (w *SRWatcher) onICEChanged() {
 		return
 	}
 
+	log.Infof("network changes detected by ICE agent")
 	w.notify()
 }
 
@@ -99,6 +102,8 @@ func (w *SRWatcher) onReconnected() {
 	if w.relayManager.Ready() {
 		return
 	}
+
+	log.Infof("reconnected to Signal or Relay server")
 	w.notify()
 }
 
