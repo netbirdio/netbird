@@ -119,7 +119,7 @@ func (p *WGEBPFProxy) Free() error {
 	p.ctxCancel()
 
 	var result *multierror.Error
-	if p.conn != nil { // p.conn will be nil if we have failed to listen
+	if p.conn != nil {
 		if err := p.conn.Close(); err != nil {
 			result = multierror.Append(result, err)
 		}

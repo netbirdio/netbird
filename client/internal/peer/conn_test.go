@@ -11,7 +11,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -44,11 +43,7 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 }
 
 func TestConn_GetKey(t *testing.T) {
-	wgProxyFactory := wgproxy.NewFactory(false, connConf.LocalWgPort)
-	defer func() {
-		_ = wgProxyFactory.Free()
-	}()
-	conn, err := NewConn(context.Background(), connConf, nil, wgProxyFactory, nil, nil, nil)
+	conn, err := NewConn(context.Background(), connConf, nil, nil, nil, nil)
 	if err != nil {
 		return
 	}
@@ -59,11 +54,7 @@ func TestConn_GetKey(t *testing.T) {
 }
 
 func TestConn_OnRemoteOffer(t *testing.T) {
-	wgProxyFactory := wgproxy.NewFactory(false, connConf.LocalWgPort)
-	defer func() {
-		_ = wgProxyFactory.Free()
-	}()
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), wgProxyFactory, nil, nil, nil)
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil)
 	if err != nil {
 		return
 	}
@@ -96,11 +87,7 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 }
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
-	wgProxyFactory := wgproxy.NewFactory(false, connConf.LocalWgPort)
-	defer func() {
-		_ = wgProxyFactory.Free()
-	}()
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), wgProxyFactory, nil, nil, nil)
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil)
 	if err != nil {
 		return
 	}
@@ -132,11 +119,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 	wg.Wait()
 }
 func TestConn_Status(t *testing.T) {
-	wgProxyFactory := wgproxy.NewFactory(false, connConf.LocalWgPort)
-	defer func() {
-		_ = wgProxyFactory.Free()
-	}()
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), wgProxyFactory, nil, nil, nil)
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil)
 	if err != nil {
 		return
 	}

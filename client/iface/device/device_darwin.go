@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
@@ -29,14 +28,14 @@ type TunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) *TunDevice {
+func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
 		port:    port,
 		key:     key,
 		mtu:     mtu,
-		iceBind: bind.NewICEBind(transportNet, filterFn),
+		iceBind: iceBind,
 	}
 }
 
