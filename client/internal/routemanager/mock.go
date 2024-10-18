@@ -18,7 +18,7 @@ type MockManager struct {
 	UpdateRoutesFunc     func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
 	TriggerSelectionFunc func(haMap route.HAMap)
 	GetRouteSelectorFunc func() *routeselector.RouteSelector
-	StopFunc             func()
+	StopFunc             func(manager *statemanager.Manager)
 }
 
 func (m *MockManager) Init(*statemanager.Manager) (net.AddHookFunc, net.RemoveHookFunc, error) {
@@ -66,8 +66,8 @@ func (m *MockManager) EnableServerRouter(firewall firewall.Manager) error {
 }
 
 // Stop mock implementation of Stop from Manager interface
-func (m *MockManager) Stop() {
+func (m *MockManager) Stop(stateManager *statemanager.Manager) {
 	if m.StopFunc != nil {
-		m.StopFunc()
+		m.StopFunc(stateManager)
 	}
 }

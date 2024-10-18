@@ -93,7 +93,7 @@ func (r *SysOps) removeFromState(stateManager *statemanager.Manager, prefix neti
 	}
 }
 
-func (r *SysOps) cleanupRefCounter() error {
+func (r *SysOps) cleanupRefCounter(stateManager *statemanager.Manager) error {
 	if r.refCounter == nil {
 		return nil
 	}
@@ -104,6 +104,10 @@ func (r *SysOps) cleanupRefCounter() error {
 
 	if err := r.refCounter.Flush(); err != nil {
 		return fmt.Errorf("flush route manager: %w", err)
+	}
+
+	if err := stateManager.DeleteState(&ShutdownState{}); err != nil {
+		log.Errorf("failed to delete state: %v", err)
 	}
 
 	return nil

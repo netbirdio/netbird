@@ -105,7 +105,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 
 	defer func() {
 		if err != nil {
-			if cleanErr := r.CleanupRouting(); cleanErr != nil {
+			if cleanErr := r.CleanupRouting(stateManager); cleanErr != nil {
 				log.Errorf("Error cleaning up routing: %v", cleanErr)
 			}
 		}
@@ -129,9 +129,9 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 // CleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
-func (r *SysOps) CleanupRouting() error {
+func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
 	if isLegacy() {
-		return r.cleanupRefCounter()
+		return r.cleanupRefCounter(stateManager)
 	}
 
 	var result *multierror.Error

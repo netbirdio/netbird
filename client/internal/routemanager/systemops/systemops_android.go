@@ -17,7 +17,7 @@ func (r *SysOps) SetupRouting([]net.IP, *statemanager.Manager) (nbnet.AddHookFun
 	return nil, nil, nil
 }
 
-func (r *SysOps) CleanupRouting() error {
+func (r *SysOps) CleanupRouting(*statemanager.Manager) error {
 	return nil
 }
 

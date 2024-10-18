@@ -39,7 +39,7 @@ type Manager interface {
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
 	EnableServerRouter(firewall firewall.Manager) error
-	Stop()
+	Stop(stateManager *statemanager.Manager)
 }
 
 // DefaultManager is the default instance of a route manager
@@ -126,7 +126,7 @@ func (m *DefaultManager) Init(stateManager *statemanager.Manager) (nbnet.AddHook
 		return nil, nil, nil
 	}
 
-	if err := m.sysOps.CleanupRouting(); err != nil {
+	if err := m.sysOps.CleanupRouting(nil); err != nil {
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
 
@@ -155,7 +155,7 @@ func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 }
 
 // Stop stops the manager watchers and clean firewall rules
-func (m *DefaultManager) Stop() {
+func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	m.stop()
 	if m.serverRouter != nil {
 		m.serverRouter.cleanUp()
@@ -173,7 +173,7 @@ func (m *DefaultManager) Stop() {
 	}
 
 	if !nbnet.CustomRoutingDisabled() {
-		if err := m.sysOps.CleanupRouting(); err != nil {
+		if err := m.sysOps.CleanupRouting(stateManager); err != nil {
 			log.Errorf("Error cleaning up routing: %v", err)
 		} else {
 			log.Info("Routing cleanup complete")

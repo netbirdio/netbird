@@ -21,8 +21,8 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 
-func (r *SysOps) CleanupRouting() error {
-	return r.cleanupRefCounter()
+func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
+	return r.cleanupRefCounter(stateManager)
 }
 
 func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {

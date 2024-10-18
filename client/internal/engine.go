@@ -261,7 +261,7 @@ func (e *Engine) Stop() error {
 	e.stopDNSServer()
 
 	if e.routeManager != nil {
-		e.routeManager.Stop()
+		e.routeManager.Stop(e.stateManager)
 	}
 
 	err := e.removeAllPeers()
