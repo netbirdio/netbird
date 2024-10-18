@@ -1,4 +1,4 @@
-package peer
+package guard
 
 import "github.com/netbirdio/netbird/client/internal/stdnet"
 
