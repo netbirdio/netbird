@@ -100,8 +100,6 @@ func (m *Manager) RegisterState(state State) {
 	name := state.Name()
 	m.states[name] = nil
 	m.stateTypes[name] = reflect.TypeOf(state).Elem()
-
-	return
 }
 
 // GetState returns the state for the given type
