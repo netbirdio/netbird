@@ -1,6 +1,6 @@
 //go:build !android
 
-package ice
+package peer
 
 import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"maps"
 	"math/rand"
 	"net"
@@ -24,14 +23,14 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
+
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -167,8 +166,6 @@ type Engine struct {
 	checks []*mgmProto.Checks
 
 	relayManager *relayClient.Manager
-
-	srWatcher *guard.SRWatcher
 }
 
 // Peer is an instance of the Connection Peer
@@ -371,18 +368,6 @@ func (e *Engine) Start() error {
 		e.close()
 		return fmt.Errorf("initialize dns server: %w", err)
 	}
-
-	iceCfg := icemaker.Config{
-		StunTurn:             &e.stunTurn,
-		InterfaceBlackList:   e.config.IFaceBlackList,
-		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-		UDPMux:               e.udpMux.UDPMuxDefault,
-		UDPMuxSrflx:          e.udpMux,
-		NATExternalIPs:       e.parseNATExternalIPMappings(),
-	}
-	// todo: review the cancel event handling
-	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
-	e.srWatcher.Start(e.ctx)
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -966,7 +951,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		LocalWgPort:     e.config.WgPort,
 		RosenpassPubKey: e.getRosenpassPubKey(),
 		RosenpassAddr:   e.getRosenpassAddr(),
-		ICEConfig: icemaker.Config{
+		ICEConfig: peer.ICEConfig{
 			StunTurn:             &e.stunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,
 			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
@@ -976,7 +961,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		},
 	}
 
-	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher)
+	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager)
 	if err != nil {
 		return nil, err
 	}

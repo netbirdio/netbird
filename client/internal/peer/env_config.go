@@ -1,4 +1,4 @@
-package ice
+package peer
 
 import (
 	"os"
@@ -10,16 +10,11 @@ import (
 )
 
 const (
-	envICEForceRelayConn            = "NB_ICE_FORCE_RELAY_CONN"
 	envICEKeepAliveIntervalSec      = "NB_ICE_KEEP_ALIVE_INTERVAL_SEC"
 	envICEDisconnectedTimeoutSec    = "NB_ICE_DISCONNECTED_TIMEOUT_SEC"
 	envICERelayAcceptanceMinWaitSec = "NB_ICE_RELAY_ACCEPTANCE_MIN_WAIT_SEC"
+	envICEForceRelayConn            = "NB_ICE_FORCE_RELAY_CONN"
 )
-
-func hasICEForceRelayConn() bool {
-	disconnectedTimeoutEnv := os.Getenv(envICEForceRelayConn)
-	return strings.ToLower(disconnectedTimeoutEnv) == "true"
-}
 
 func iceKeepAlive() time.Duration {
 	keepAliveEnv := os.Getenv(envICEKeepAliveIntervalSec)
@@ -67,4 +62,9 @@ func iceRelayAcceptanceMinWait() time.Duration {
 	}
 
 	return time.Duration(disconnectedTimeoutSec) * time.Second
+}
+
+func hasICEForceRelayConn() bool {
+	disconnectedTimeoutEnv := os.Getenv(envICEForceRelayConn)
+	return strings.ToLower(disconnectedTimeoutEnv) == "true"
 }

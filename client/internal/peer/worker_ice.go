@@ -5,19 +5,51 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/ice/v3"
+	"github.com/pion/randutil"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
-	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 )
+
+const (
+	iceKeepAliveDefault           = 4 * time.Second
+	iceDisconnectedTimeoutDefault = 6 * time.Second
+	// iceRelayAcceptanceMinWaitDefault is the same as in the Pion ICE package
+	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
+
+	lenUFrag   = 16
+	lenPwd     = 32
+	runesAlpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
+
+var (
+	failedTimeout = 6 * time.Second
+)
+
+type ICEConfig struct {
+	// StunTurn is a list of STUN and TURN URLs
+	StunTurn *atomic.Value // []*stun.URI
+
+	// InterfaceBlackList is a list of machine interfaces that should be filtered out by ICE Candidate gathering
+	// (e.g. if eth0 is in the list, host candidate of this interface won't be used)
+	InterfaceBlackList   []string
+	DisableIPv6Discovery bool
+
+	UDPMux      ice.UDPMux
+	UDPMuxSrflx ice.UniversalUDPMux
+
+	NATExternalIPs []string
+}
 
 type ICEConnInfo struct {
 	RemoteConn                 net.Conn
@@ -71,7 +103,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signal
 		conn:              callBacks,
 	}
 
-	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
+	localUfrag, localPwd, err := generateICECredentials()
 	if err != nil {
 		return nil, err
 	}
@@ -93,10 +125,10 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	var preferredCandidateTypes []ice.CandidateType
 	if w.hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
 		w.selectedPriority = connPriorityICEP2P
-		preferredCandidateTypes = icemaker.CandidateTypesP2P()
+		preferredCandidateTypes = candidateTypesP2P()
 	} else {
 		w.selectedPriority = connPriorityICETurn
-		preferredCandidateTypes = icemaker.CandidateTypes()
+		preferredCandidateTypes = candidateTypes()
 	}
 
 	w.log.Debugf("recreate ICE agent")
@@ -200,10 +232,15 @@ func (w *WorkerICE) Close() {
 	}
 }
 
-func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []ice.CandidateType) (*ice.Agent, error) {
+func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
+	transportNet, err := newStdNet(w.iFaceDiscover, w.config.ICEConfig.InterfaceBlackList)
+	if err != nil {
+		w.log.Errorf("failed to create pion's stdnet: %s", err)
+	}
+
 	w.sentExtraSrflx = false
 
-	agent, err := icemaker.NewAgent(w.iFaceDiscover, w.config.ICEConfig, candidates, w.localUfrag, w.localPwd)
+	agent, err := newAgent(w.config, transportNet, relaySupport, w.localUfrag, w.localPwd)
 	if err != nil {
 		return nil, fmt.Errorf("create agent: %w", err)
 	}
@@ -328,6 +365,36 @@ func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferA
 	}
 }
 
+func newAgent(config ConnConfig, transportNet *stdnet.Net, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ice.Agent, error) {
+	iceKeepAlive := iceKeepAlive()
+	iceDisconnectedTimeout := iceDisconnectedTimeout()
+	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
+
+	agentConfig := &ice.AgentConfig{
+		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
+		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
+		Urls:                   config.ICEConfig.StunTurn.Load().([]*stun.URI),
+		CandidateTypes:         candidateTypes,
+		InterfaceFilter:        stdnet.InterfaceFilter(config.ICEConfig.InterfaceBlackList),
+		UDPMux:                 config.ICEConfig.UDPMux,
+		UDPMuxSrflx:            config.ICEConfig.UDPMuxSrflx,
+		NAT1To1IPs:             config.ICEConfig.NATExternalIPs,
+		Net:                    transportNet,
+		FailedTimeout:          &failedTimeout,
+		DisconnectedTimeout:    &iceDisconnectedTimeout,
+		KeepaliveInterval:      &iceKeepAlive,
+		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
+		LocalUfrag:             ufrag,
+		LocalPwd:               pwd,
+	}
+
+	if config.ICEConfig.DisableIPv6Discovery {
+		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
+	}
+
+	return ice.NewAgent(agentConfig)
+}
+
 func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive, error) {
 	relatedAdd := candidate.RelatedAddress()
 	return ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
@@ -368,6 +435,21 @@ func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool 
 	return false
 }
 
+func candidateTypes() []ice.CandidateType {
+	if hasICEForceRelayConn() {
+		return []ice.CandidateType{ice.CandidateTypeRelay}
+	}
+	// TODO: remove this once we have refactored userspace proxy into the bind package
+	if runtime.GOOS == "ios" {
+		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
+	}
+	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
+}
+
+func candidateTypesP2P() []ice.CandidateType {
+	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
+}
+
 func isRelayCandidate(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeRelay
 }
@@ -377,4 +459,17 @@ func isRelayed(pair *ice.CandidatePair) bool {
 		return true
 	}
 	return false
+}
+
+func generateICECredentials() (string, string, error) {
+	ufrag, err := randutil.GenerateCryptoRandomString(lenUFrag, runesAlpha)
+	if err != nil {
+		return "", "", err
+	}
+
+	pwd, err := randutil.GenerateCryptoRandomString(lenPwd, runesAlpha)
+	if err != nil {
+		return "", "", err
+	}
+	return ufrag, pwd, nil
 }

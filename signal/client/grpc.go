@@ -43,8 +43,6 @@ type GrpcClient struct {
 
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
-
-	onReconnectedListenerFn func()
 }
 
 func (c *GrpcClient) StreamConnected() bool {
@@ -183,16 +181,11 @@ func (c *GrpcClient) notifyStreamDisconnected() {
 func (c *GrpcClient) notifyStreamConnected() {
 	c.mux.Lock()
 	defer c.mux.Unlock()
-
 	c.status = StreamConnected
 	if c.connectedCh != nil {
 		// there are goroutines waiting on this channel -> release them
 		close(c.connectedCh)
 		c.connectedCh = nil
-	}
-
-	if c.onReconnectedListenerFn != nil {
-		c.onReconnectedListenerFn()
 	}
 }
 
@@ -276,13 +269,6 @@ func (c *GrpcClient) WaitStreamConnected() {
 	case <-c.ctx.Done():
 	case <-ch:
 	}
-}
-
-func (c *GrpcClient) SetOnReconnectedListener(fn func()) {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-
-	c.onReconnectedListenerFn = fn
 }
 
 // SendToStream sends a message to the remote Peer through the Signal Exchange using established stream connection to the Signal Server
