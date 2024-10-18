@@ -61,16 +61,17 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
 	ticker := g.prepareExponentTicker(ctx)
+	tickerChannel := ticker.C
 	defer ticker.Stop()
 	time.Sleep(1 * time.Second)
 
 	g.log.Infof("start reconnect loop...")
 	for {
 		select {
-		case t := <-ticker.C:
+		case t := <-tickerChannel:
 			if t.IsZero() {
-				// in case if the ticker has been canceled by context then avoid the temporary loop
-				return
+				tickerChannel = make(<-chan time.Time) // after the timeout, we should stop the ticker
+				continue
 			}
 			g.logTraceConnState()
 
@@ -94,11 +95,13 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 			g.log.Debugf("ICE connection changed, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.prepareExponentTicker(ctx)
+			tickerChannel = ticker.C
 
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.prepareExponentTicker(ctx)
+			tickerChannel = ticker.C
 
 		case <-ctx.Done():
 			g.log.Debugf("context is done, stop reconnect loop")
