@@ -28,6 +28,10 @@ func (r *SysOps) RemoveVPNRoute(netip.Prefix, *net.Interface) error {
 	return nil
 }
 
+func (r *SysOps) removeFromRouteTable(netip.Prefix, Nexthop) error {
+	return nil
+}
+
 func EnableIPForwarding() error {
 	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
