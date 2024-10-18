@@ -64,6 +64,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 	defer ticker.Stop()
 	time.Sleep(1 * time.Second)
 
+	g.log.Infof("start reconnect loop...")
 	for {
 		select {
 		case t := <-ticker.C:
@@ -82,7 +83,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 			if !changed {
 				continue
 			}
-			g.log.Debugf("Relay connection changed, triggering reconnect")
+			g.log.Debugf("Relay connection changed, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.prepareExponentTicker(ctx)
 
@@ -90,11 +91,12 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 			if !changed {
 				continue
 			}
-			g.log.Debugf("ICE connection changed, triggering reconnect")
+			g.log.Debugf("ICE connection changed, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.prepareExponentTicker(ctx)
 
 		case <-srReconnectedChan:
+			g.log.Debugf("has network changes, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.prepareExponentTicker(ctx)
 
@@ -113,6 +115,7 @@ func (g *Guard) listenForDisconnectEvents(ctx context.Context) {
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
+	g.log.Infof("start listen for reconnect events...")
 	for {
 		select {
 		case changed := <-g.relayedConnDisconnected:

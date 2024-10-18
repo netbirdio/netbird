@@ -205,7 +205,7 @@ func (conn *Conn) startHandshakeAndReconnect(ctx context.Context) {
 		conn.log.Errorf("failed to send initial offer: %v", err)
 	}
 
-	conn.guard.Start(ctx)
+	go conn.guard.Start(ctx)
 	go conn.listenGuardEvent(ctx)
 }
 
@@ -512,6 +512,7 @@ func (conn *Conn) listenGuardEvent(ctx context.Context) {
 	for {
 		select {
 		case <-conn.guard.Reconnect:
+			conn.log.Debugf("send offer to peer")
 			if err := conn.handshaker.SendOffer(); err != nil {
 				conn.log.Errorf("failed to send offer: %v", err)
 			}
