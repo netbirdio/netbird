@@ -33,6 +33,7 @@ func NewSRWatcher(signalClient chNotifier, relayManager chNotifier, iFaceDiscove
 		relayManager:  relayManager,
 		iFaceDiscover: iFaceDiscover,
 		iceConfig:     iceConfig,
+		listeners:     make(map[chan struct{}]struct{}),
 	}
 	return srw
 }
