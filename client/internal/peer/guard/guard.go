@@ -13,9 +13,6 @@ const (
 	reconnectMaxElapsedTime = 30 * time.Minute
 )
 
-type handshake interface {
-	SendOffer() error // todo review to call sendOffer or SendOffer
-}
 type isConnectedFunc func() bool
 
 type Guard struct {
