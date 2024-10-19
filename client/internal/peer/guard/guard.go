@@ -18,7 +18,7 @@ type Guard struct {
 	Reconnect               chan struct{}
 	log                     *log.Entry
 	isController            bool
-	isConnectedFn           isConnectedFunc
+	isConnectedOnAllWay     isConnectedFunc
 	timeout                 time.Duration
 	srWatcher               *SRWatcher
 	relayedConnDisconnected chan bool
@@ -30,7 +30,7 @@ func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, 
 		Reconnect:               make(chan struct{}, 1),
 		log:                     log,
 		isController:            isController,
-		isConnectedFn:           isConnectedFn,
+		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
 		relayedConnDisconnected: relayedConnDisconnected,
@@ -46,40 +46,33 @@ func (g *Guard) Start(ctx context.Context) {
 	}
 }
 
-// reconnectLoopWithRetry periodically check (max 30 min) the connection status with peer and try to reconnect if necessary
-// If the Relay is connected but the ICE P2P not then it will trigger ICE connection offer
+// reconnectLoopWithRetry periodically check (max 30 min) the connection status.
+// Try to send offer while the P2P is not established or while the Relay is not connected if is it supported
 func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
-	// Give chance to the peer to establish the initial connection.
-	// With it, we can decrease to send necessary offer
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(3 * time.Second):
-	}
+	waitForInitialConnectionTry(ctx)
 
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
 	ticker := g.prepareExponentTicker(ctx)
-	tickerChannel := ticker.C
 	defer ticker.Stop()
-	time.Sleep(1 * time.Second)
+
+	tickerChannel := ticker.C
 
 	g.log.Infof("start reconnect loop...")
 	for {
 		select {
 		case t := <-tickerChannel:
 			if t.IsZero() {
-				g.log.Infof("stop periodic retry to connection")
-				tickerChannel = make(<-chan time.Time) // after the timeout, we should stop the ticker
+				g.log.Infof("retry timed out, stop periodic offer sending")
+				// after backoff timeout the ticker.C will be closed. We need to a dummy channel to avoid loop
+				tickerChannel = make(<-chan time.Time)
 				continue
 			}
-			g.logTraceConnState()
 
-			if g.isConnectedFn() {
-				continue
+			if !g.isConnectedOnAllWay() {
+				g.triggerOfferSending()
 			}
-			g.triggerOfferSending()
 
 		case changed := <-g.relayedConnDisconnected:
 			if !changed {
@@ -112,7 +105,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 	}
 }
 
-// reconnectLoopForOnDisconnectedEvent is used when the peer is not a controller and it should reconnect to the peer
+// listenForDisconnectEvents is used when the peer is not a controller and it should reconnect to the peer
 // when the connection is lost. It will try to establish a connection only once time if before the connection was established
 // It track separately the ice and relay connection status. Just because a lower priority connection reestablished it does not
 // mean that to switch to it. We always force to use the higher priority connection.
@@ -168,18 +161,12 @@ func (g *Guard) triggerOfferSending() {
 	}
 }
 
-// logTraceConnState todo: implement me
-func (g *Guard) logTraceConnState() {
-	/*
-		if g.workerRelay.IsRelayConnectionSupportedWithPeer() {
-			if g.statusRelay.Get() == StatusDisconnected || g.statusICE.Get() == StatusDisconnected {
-				g.log.Tracef("connectivity guard timedout, relay state: %s, ice state: %s", g.statusRelay, g.statusICE)
-			}
-		} else {
-			if g.statusICE.Get() == StatusDisconnected {
-				g.log.Tracef("connectivity guard timedout, ice state: %s", g.statusICE)
-			}
-		}
-
-	*/
+// Give chance to the peer to establish the initial connection.
+// With it, we can decrease to send necessary offer
+func waitForInitialConnectionTry(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(3 * time.Second):
+	}
 }

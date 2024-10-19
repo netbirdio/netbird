@@ -167,7 +167,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
 	}
 
-	conn.guard = guard.NewGuard(connLog, ctrl, conn.isConnected, config.Timeout, srWatcher, relayDisconnected, iCEDisconnected)
+	conn.guard = guard.NewGuard(connLog, ctrl, conn.isConnectedOnAllWay, config.Timeout, srWatcher, relayDisconnected, iCEDisconnected)
 
 	go conn.handshaker.Listen()
 
@@ -179,6 +179,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 // be used.
 func (conn *Conn) Open() {
 	conn.log.Debugf("open connection to peer")
+
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 	conn.opened = true
@@ -637,11 +638,23 @@ func (conn *Conn) evalStatus() ConnStatus {
 	return StatusDisconnected
 }
 
-func (conn *Conn) isConnected() bool {
+func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.statusICE.Get() != StatusConnected && conn.statusICE.Get() != StatusConnecting {
+	defer func() {
+		if connected {
+			return
+		}
+
+		if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
+			conn.log.Tracef("connectivity guard check, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
+		} else {
+			conn.log.Tracef("connectivity guard check, ice state: %s", conn.statusICE)
+		}
+	}()
+
+	if conn.statusICE.Get() == StatusDisconnected {
 		return false
 	}
 
