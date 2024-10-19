@@ -978,6 +978,67 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 	}
 }
 
+func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
+	claims := jwtclaims.AuthorizationClaims{
+		Domain:         "google.com",
+		UserId:         "pvt-domain-user",
+		DomainCategory: PrivateCategory,
+	}
+
+	publicClaims := jwtclaims.AuthorizationClaims{
+		Domain:         "google2.com",
+		UserId:         "public-domain-user",
+		DomainCategory: PublicCategory,
+	}
+
+	am, err := createManager(b)
+	if err != nil {
+		b.Fatal(err)
+		return
+	}
+	id, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	_, err = am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.Run("public without account ID", func(b *testing.B) {
+		//b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("private without account ID", func(b *testing.B) {
+		//b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("private with account ID", func(b *testing.B) {
+		claims.AccountId = id
+		//b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+}
+
 func TestAccountManager_AddPeer(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
