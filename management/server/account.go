@@ -2220,6 +2220,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 	// check again if the domain has a primary account because of simultaneous requests
 	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if handleNotFound(err) != nil {
+		cancel()
 		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
 		return "", nil, err
 	}
