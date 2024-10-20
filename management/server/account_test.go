@@ -979,14 +979,15 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 }
 
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
+	b.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	claims := jwtclaims.AuthorizationClaims{
-		Domain:         "google.com",
+		Domain:         "example.com",
 		UserId:         "pvt-domain-user",
 		DomainCategory: PrivateCategory,
 	}
 
 	publicClaims := jwtclaims.AuthorizationClaims{
-		Domain:         "google2.com",
+		Domain:         "test.com",
 		UserId:         "public-domain-user",
 		DomainCategory: PublicCategory,
 	}
@@ -1001,7 +1002,34 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	_, err = am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
+	pid, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	users := genUsers("priv", 100)
+
+	acc, err := am.Store.GetAccount(context.Background(), id)
+	if err != nil {
+		b.Fatal(err)
+	}
+	acc.Users = users
+
+	err = am.Store.SaveAccount(context.Background(), acc)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	userP := genUsers("pub", 100)
+
+	pacc, err := am.Store.GetAccount(context.Background(), pid)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	pacc.Users = userP
+
+	err = am.Store.SaveAccount(context.Background(), pacc)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1037,6 +1065,22 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 		}
 	})
 
+}
+
+func genUsers(p string, n int) map[string]*User {
+	users := map[string]*User{}
+	now := time.Now()
+	for i := 0; i < n; i++ {
+		users[fmt.Sprintf("%s-%d", p, i)] = &User{
+			Id:         fmt.Sprintf("%s-%d", p, i),
+			Role:       UserRoleAdmin,
+			LastLogin:  now,
+			CreatedAt:  now,
+			Issued:     "api",
+			AutoGroups: []string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"},
+		}
+	}
+	return users
 }
 
 func TestAccountManager_AddPeer(t *testing.T) {
