@@ -18,8 +18,9 @@ type MockClient struct {
 	SetOnReconnectedListenerFunc func(f func())
 }
 
+// SetOnReconnectedListener sets the function to be called when the client reconnects.
 func (sm *MockClient) SetOnReconnectedListener(_ func()) {
-
+	// Do nothing
 }
 
 func (sm *MockClient) IsHealthy() bool {
