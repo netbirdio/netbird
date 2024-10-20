@@ -14,6 +14,14 @@ const (
 
 type isConnectedFunc func() bool
 
+// Guard is responsible for the reconnection logic.
+// It will trigger to send an offer to the peer then has connection issues.
+// Watch these events:
+// - Relay client reconnected to home server
+// - Signal server connection state changed
+// - ICE connection disconnected
+// - Relayed connection disconnected
+// - ICE candidate changes
 type Guard struct {
 	Reconnect               chan struct{}
 	log                     *log.Entry
