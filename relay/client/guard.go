@@ -60,7 +60,6 @@ func (g *Guard) quickReconnect() bool {
 		return false
 	}
 
-	log.Infof("trying to quick reconnect to relay server....")
 	if err := g.relayClient.Connect(); err != nil {
 		log.Errorf("failed to reconnect to relay server: %s", err)
 		return false
