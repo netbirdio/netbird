@@ -14,6 +14,8 @@ const (
 	envICEKeepAliveIntervalSec      = "NB_ICE_KEEP_ALIVE_INTERVAL_SEC"
 	envICEDisconnectedTimeoutSec    = "NB_ICE_DISCONNECTED_TIMEOUT_SEC"
 	envICERelayAcceptanceMinWaitSec = "NB_ICE_RELAY_ACCEPTANCE_MIN_WAIT_SEC"
+
+	msgWarnInvalidValue = "invalid value %s set for %s, using default %v"
 )
 
 func hasICEForceRelayConn() bool {
@@ -30,7 +32,7 @@ func iceKeepAlive() time.Duration {
 	log.Infof("setting ICE keep alive interval to %s seconds", keepAliveEnv)
 	keepAliveEnvSec, err := strconv.Atoi(keepAliveEnv)
 	if err != nil {
-		log.Warnf("invalid value %s set for %s, using default %v", keepAliveEnv, envICEKeepAliveIntervalSec, iceKeepAliveDefault)
+		log.Warnf(msgWarnInvalidValue, keepAliveEnv, envICEKeepAliveIntervalSec, iceKeepAliveDefault)
 		return iceKeepAliveDefault
 	}
 
@@ -46,7 +48,7 @@ func iceDisconnectedTimeout() time.Duration {
 	log.Infof("setting ICE disconnected timeout to %s seconds", disconnectedTimeoutEnv)
 	disconnectedTimeoutSec, err := strconv.Atoi(disconnectedTimeoutEnv)
 	if err != nil {
-		log.Warnf("invalid value %s set for %s, using default %v", disconnectedTimeoutEnv, envICEDisconnectedTimeoutSec, iceDisconnectedTimeoutDefault)
+		log.Warnf(msgWarnInvalidValue, disconnectedTimeoutEnv, envICEDisconnectedTimeoutSec, iceDisconnectedTimeoutDefault)
 		return iceDisconnectedTimeoutDefault
 	}
 
@@ -62,7 +64,7 @@ func iceRelayAcceptanceMinWait() time.Duration {
 	log.Infof("setting ICE relay acceptance min wait to %s seconds", iceRelayAcceptanceMinWaitEnv)
 	disconnectedTimeoutSec, err := strconv.Atoi(iceRelayAcceptanceMinWaitEnv)
 	if err != nil {
-		log.Warnf("invalid value %s set for %s, using default %v", iceRelayAcceptanceMinWaitEnv, envICERelayAcceptanceMinWaitSec, iceRelayAcceptanceMinWaitDefault)
+		log.Warnf(msgWarnInvalidValue, iceRelayAcceptanceMinWaitEnv, envICERelayAcceptanceMinWaitSec, iceRelayAcceptanceMinWaitDefault)
 		return iceRelayAcceptanceMinWaitDefault
 	}
 
