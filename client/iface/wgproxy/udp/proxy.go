@@ -169,12 +169,8 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 
 	buf := make([]byte, 1500)
 	for {
-		n, err := p.remoteConn.Read(buf)
+		n, err := p.remoteConnRead(ctx, buf)
 		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.LocalAddr(), err)
 			return
 		}
 
@@ -195,4 +191,16 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 			continue
 		}
 	}
+}
+
+func (p *WGUDPProxy) remoteConnRead(ctx context.Context, buf []byte) (n int, err error) {
+	n, err = p.remoteConn.Read(buf)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.LocalAddr(), err)
+		return
+	}
+	return
 }
