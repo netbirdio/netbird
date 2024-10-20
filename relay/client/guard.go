@@ -29,6 +29,10 @@ func NewGuard(context context.Context, relayClient *Client) *Guard {
 // OnDisconnected is called when the relay client is disconnected from the relay server. It will trigger the reconnection
 // todo prevent multiple reconnection instances. In the current usage it should not happen, but it is better to prevent
 func (g *Guard) OnDisconnected() {
+	if g.quickReconnect() {
+		return
+	}
+
 	ticker := time.NewTicker(reconnectingTimeout)
 	defer ticker.Stop()
 
@@ -45,4 +49,21 @@ func (g *Guard) OnDisconnected() {
 			return
 		}
 	}
+}
+
+func (g *Guard) quickReconnect() bool {
+	ctx, cancel := context.WithTimeout(g.ctx, 1500*time.Millisecond)
+	defer cancel()
+	<-ctx.Done()
+
+	if g.ctx.Err() != nil {
+		return false
+	}
+
+	log.Infof("trying to quick reconnect to relay server....")
+	if err := g.relayClient.Connect(); err != nil {
+		log.Errorf("failed to reconnect to relay server: %s", err)
+		return false
+	}
+	return true
 }
