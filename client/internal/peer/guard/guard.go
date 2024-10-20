@@ -25,7 +25,7 @@ type Guard struct {
 	iCEConnDisconnected     chan bool
 }
 
-func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher, relayedConnDisconnected, iCEDisconnected chan bool) *Guard {
+func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
 	return &Guard{
 		Reconnect:               make(chan struct{}, 1),
 		log:                     log,
@@ -33,8 +33,8 @@ func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, 
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
-		relayedConnDisconnected: relayedConnDisconnected,
-		iCEConnDisconnected:     iCEDisconnected,
+		relayedConnDisconnected: make(chan bool, 1),
+		iCEConnDisconnected:     make(chan bool, 1),
 	}
 }
 
@@ -43,6 +43,20 @@ func (g *Guard) Start(ctx context.Context) {
 		g.reconnectLoopWithRetry(ctx)
 	} else {
 		g.listenForDisconnectEvents(ctx)
+	}
+}
+
+func (g *Guard) SetRelayedConnDisconnected(changed bool) {
+	select {
+	case g.relayedConnDisconnected <- changed:
+	default:
+	}
+}
+
+func (g *Guard) SetICEConnDisconnected(changed bool) {
+	select {
+	case g.iCEConnDisconnected <- changed:
+	default:
 	}
 }
 

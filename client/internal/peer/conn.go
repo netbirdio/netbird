@@ -105,10 +105,7 @@ type Conn struct {
 	wgProxyICE   wgproxy.Proxy
 	wgProxyRelay wgproxy.Proxy
 
-	// for reconnection operations
-	iCEDisconnected   chan bool
-	relayDisconnected chan bool
-	guard             *guard.Guard
+	guard *guard.Guard
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -122,23 +119,19 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 
 	ctx, ctxCancel := context.WithCancel(engineCtx)
 	connLog := log.WithField("peer", config.Key)
-	iCEDisconnected := make(chan bool, 1)
-	relayDisconnected := make(chan bool, 1)
 
 	var conn = &Conn{
-		log:               connLog,
-		ctx:               ctx,
-		ctxCancel:         ctxCancel,
-		config:            config,
-		statusRecorder:    statusRecorder,
-		signaler:          signaler,
-		relayManager:      relayManager,
-		allowedIP:         allowedIP,
-		allowedNet:        allowedNet.String(),
-		statusRelay:       NewAtomicConnStatus(),
-		statusICE:         NewAtomicConnStatus(),
-		iCEDisconnected:   iCEDisconnected,
-		relayDisconnected: relayDisconnected,
+		log:            connLog,
+		ctx:            ctx,
+		ctxCancel:      ctxCancel,
+		config:         config,
+		statusRecorder: statusRecorder,
+		signaler:       signaler,
+		relayManager:   relayManager,
+		allowedIP:      allowedIP,
+		allowedNet:     allowedNet.String(),
+		statusRelay:    NewAtomicConnStatus(),
+		statusICE:      NewAtomicConnStatus(),
 	}
 
 	rFns := WorkerRelayCallbacks{
@@ -167,7 +160,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
 	}
 
-	conn.guard = guard.NewGuard(connLog, ctrl, conn.isConnectedOnAllWay, config.Timeout, srWatcher, relayDisconnected, iCEDisconnected)
+	conn.guard = guard.NewGuard(connLog, ctrl, conn.isConnectedOnAllWay, config.Timeout, srWatcher)
 
 	go conn.handshaker.Listen()
 
@@ -406,7 +399,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	changed := conn.statusICE.Get() != newState && newState != StatusConnecting
 	conn.statusICE.Set(newState)
 
-	conn.notifyReconnectLoopICEDisconnected(changed)
+	conn.guard.SetICEConnDisconnected(changed)
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -497,7 +490,7 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 
 	changed := conn.statusRelay.Get() != StatusDisconnected
 	conn.statusRelay.Set(StatusDisconnected)
-	conn.notifyReconnectLoopRelayDisconnected(changed)
+	conn.guard.SetRelayedConnDisconnected(changed)
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -722,20 +715,6 @@ func (conn *Conn) iceP2PIsActive() bool {
 
 func (conn *Conn) removeWgPeer() error {
 	return conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
-}
-
-func (conn *Conn) notifyReconnectLoopRelayDisconnected(changed bool) {
-	select {
-	case conn.relayDisconnected <- changed:
-	default:
-	}
-}
-
-func (conn *Conn) notifyReconnectLoopICEDisconnected(changed bool) {
-	select {
-	case conn.iCEDisconnected <- changed:
-	default:
-	}
 }
 
 func (conn *Conn) handleConfigurationFailure(err error, wgProxy wgproxy.Proxy) {
