@@ -38,7 +38,6 @@ func TestConfigJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			defer os.RemoveAll(tmpDir)
 
 			err := WriteJson(tmpDir+"/testconfig.json", tt.config)
 			require.NoError(t, err)
@@ -70,7 +69,6 @@ func TestCopyFileContents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			defer os.RemoveAll(tmpDir)
 
 			src := tmpDir + "/copytest_src"
 			dst := tmpDir + "/copytest_dst"
@@ -86,11 +84,15 @@ func TestCopyFileContents(t *testing.T) {
 
 			srcFile, err := os.Open(src)
 			require.NoError(t, err)
-			defer srcFile.Close()
+			defer func() {
+				_ = srcFile.Close()
+			}()
 
 			dstFile, err := os.Open(dst)
 			require.NoError(t, err)
-			defer dstFile.Close()
+			defer func() {
+				_ = dstFile.Close()
+			}()
 
 			_, err = io.Copy(hashSrc, srcFile)
 			require.NoError(t, err)
@@ -121,7 +123,9 @@ func TestHandleConfigFileWithoutFullPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfgFile := "test_cfg.json"
-			defer os.Remove(cfgFile)
+			defer func() {
+				_ = os.Remove(cfgFile)
+			}()
 
 			err := WriteJson(cfgFile, tt.config)
 			require.NoError(t, err)
