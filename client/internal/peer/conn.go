@@ -636,14 +636,8 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 	defer conn.mu.Unlock()
 
 	defer func() {
-		if connected {
-			return
-		}
-
-		if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
-			conn.log.Tracef("connectivity guard check, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
-		} else {
-			conn.log.Tracef("connectivity guard check, ice state: %s", conn.statusICE)
+		if !connected {
+			conn.logTraceConnState()
 		}
 	}()
 
@@ -731,13 +725,9 @@ func (conn *Conn) handleConfigurationFailure(err error, wgProxy wgproxy.Proxy) {
 
 func (conn *Conn) logTraceConnState() {
 	if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
-		if conn.statusRelay.Get() == StatusDisconnected || conn.statusICE.Get() == StatusDisconnected {
-			conn.log.Tracef("connectivity guard timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
-		}
+		conn.log.Tracef("connectivity guard check, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
 	} else {
-		if conn.statusICE.Get() == StatusDisconnected {
-			conn.log.Tracef("connectivity guard timedout, ice state: %s", conn.statusICE)
-		}
+		conn.log.Tracef("connectivity guard check, ice state: %s", conn.statusICE)
 	}
 }
 
