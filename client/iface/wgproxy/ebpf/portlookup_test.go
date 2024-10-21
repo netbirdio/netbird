@@ -17,6 +17,9 @@ func Test_portLookup_searchFreePort(t *testing.T) {
 func Test_portLookup_on_allocated(t *testing.T) {
 	pl := portLookup{}
 
+	portRangeStart = 4128
+	portRangeEnd = portRangeStart + 100
+
 	allocatedPort, err := allocatePort(portRangeStart)
 	if err != nil {
 		t.Fatal(err)

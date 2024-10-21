@@ -5,9 +5,9 @@ import (
 	"net"
 )
 
-const (
+var (
 	portRangeStart = 3128
-	portRangeEnd   = 3228
+	portRangeEnd   = portRangeStart + 100
 )
 
 type portLookup struct {

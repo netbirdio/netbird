@@ -7,14 +7,20 @@ import (
 )
 
 type MockClient struct {
-	CloseFunc               func() error
-	GetStatusFunc           func() Status
-	StreamConnectedFunc     func() bool
-	ReadyFunc               func() bool
-	WaitStreamConnectedFunc func()
-	ReceiveFunc             func(ctx context.Context, msgHandler func(msg *proto.Message) error) error
-	SendToStreamFunc        func(msg *proto.EncryptedMessage) error
-	SendFunc                func(msg *proto.Message) error
+	CloseFunc                    func() error
+	GetStatusFunc                func() Status
+	StreamConnectedFunc          func() bool
+	ReadyFunc                    func() bool
+	WaitStreamConnectedFunc      func()
+	ReceiveFunc                  func(ctx context.Context, msgHandler func(msg *proto.Message) error) error
+	SendToStreamFunc             func(msg *proto.EncryptedMessage) error
+	SendFunc                     func(msg *proto.Message) error
+	SetOnReconnectedListenerFunc func(f func())
+}
+
+// SetOnReconnectedListener sets the function to be called when the client reconnects.
+func (sm *MockClient) SetOnReconnectedListener(_ func()) {
+	// Do nothing
 }
 
 func (sm *MockClient) IsHealthy() bool {
