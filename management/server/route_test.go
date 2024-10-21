@@ -1836,7 +1836,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	})
 
-	// Creating route no routing peer and has peers in groups should update account peers and send peer update
+	// Creating a route with no routing peer and having peers in groups should update account peers and send peer update
 	t.Run("creating route no routing peer and has peers in groups", func(t *testing.T) {
 		route := route.Route{
 			ID:          "testingRoute2",
