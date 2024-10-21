@@ -1094,4 +1094,22 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
+
+	// Deleting a nameserver group should update account peers and send peer update
+	t.Run("deleting nameserver group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.DeleteNameServerGroup(context.Background(), account.Id, newNameServerGroupB.ID, userID)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 }

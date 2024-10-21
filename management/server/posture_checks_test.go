@@ -453,3 +453,81 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		}
 	})
 }
+
+func TestArePostureCheckChangesAffectingPeers(t *testing.T) {
+	account := &Account{
+		Policies: []*Policy{
+			{
+				ID: "policyA",
+				Rules: []*PolicyRule{
+					{
+						Enabled:      true,
+						Sources:      []string{"groupA"},
+						Destinations: []string{"groupA"},
+					},
+				},
+				SourcePostureChecks: []string{"checkA"},
+			},
+		},
+		Groups: map[string]*group.Group{
+			"groupA": {
+				ID:    "groupA",
+				Peers: []string{"peer1"},
+			},
+			"groupB": {
+				ID:    "groupB",
+				Peers: []string{},
+			},
+		},
+		PostureChecks: []*posture.Checks{
+			{
+				ID: "checkA",
+			},
+			{
+				ID: "checkB",
+			},
+		},
+	}
+
+	t.Run("posture check exists and is linked to policy with peers", func(t *testing.T) {
+		result := arePostureCheckChangesAffectingPeers(account, "checkA", true)
+		assert.True(t, result)
+	})
+
+	t.Run("posture check exists but is not linked to any policy", func(t *testing.T) {
+		result := arePostureCheckChangesAffectingPeers(account, "checkB", true)
+		assert.False(t, result)
+	})
+
+	t.Run("posture check does not exist", func(t *testing.T) {
+		result := arePostureCheckChangesAffectingPeers(account, "unknown", false)
+		assert.False(t, result)
+	})
+
+	t.Run("posture check is linked to policy with no peers in source groups", func(t *testing.T) {
+		account.Policies[0].Rules[0].Sources = []string{"groupB"}
+		account.Policies[0].Rules[0].Destinations = []string{"groupA"}
+		result := arePostureCheckChangesAffectingPeers(account, "checkA", true)
+		assert.True(t, result)
+	})
+
+	t.Run("posture check is linked to policy with no peers in destination groups", func(t *testing.T) {
+		account.Policies[0].Rules[0].Sources = []string{"groupA"}
+		account.Policies[0].Rules[0].Destinations = []string{"groupB"}
+		result := arePostureCheckChangesAffectingPeers(account, "checkA", true)
+		assert.True(t, result)
+	})
+
+	t.Run("posture check is linked to policy with non-existent group", func(t *testing.T) {
+		account.Policies[0].Rules[0].Sources = []string{"nonExistentGroup"}
+		account.Policies[0].Rules[0].Destinations = []string{"nonExistentGroup"}
+		result := arePostureCheckChangesAffectingPeers(account, "checkA", true)
+		assert.False(t, result)
+	})
+
+	t.Run("posture check is linked to policy but no peers in groups", func(t *testing.T) {
+		account.Groups["groupA"].Peers = []string{}
+		result := arePostureCheckChangesAffectingPeers(account, "checkA", true)
+		assert.False(t, result)
+	})
+}

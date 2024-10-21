@@ -1035,6 +1035,41 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
+	// Updating disabled policy with destination and source groups containing peers should not update account's peers
+	// or send peer update
+	t.Run("updating disabled policy with source and destination groups with peers", func(t *testing.T) {
+		policy := Policy{
+			ID:          "policy-source-destination-peers",
+			Description: "updated description",
+			Enabled:     false,
+			Rules: []*PolicyRule{
+				{
+					ID:            xid.New().String(),
+					Enabled:       true,
+					Sources:       []string{"groupA"},
+					Destinations:  []string{"groupA"},
+					Bidirectional: true,
+					Action:        PolicyTrafficActionAccept,
+				},
+			},
+		}
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg1)
+			close(done)
+		}()
+
+		err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
 	// Enabling policy with destination and source groups containing peers should update account's peers
 	// and send peer update
 	t.Run("enabling policy with source and destination groups with peers", func(t *testing.T) {

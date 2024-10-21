@@ -1792,6 +1792,16 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupA",
 			Peers: []string{},
 		},
+		{
+			ID:    "groupB",
+			Name:  "GroupB",
+			Peers: []string{},
+		},
+		{
+			ID:    "groupC",
+			Name:  "GroupC",
+			Peers: []string{},
+		},
 	})
 	assert.NoError(t, err)
 
@@ -1800,8 +1810,8 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 		manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
 	})
 
-	// Creating route no routing peer and no peers groups should not update account peers and not send peer update
-	t.Run("creating route no routing peer and no peers groups", func(t *testing.T) {
+	// Creating a route with no routing peer and no peers in PeerGroups or Groups should not update account peers and not send peer update
+	t.Run("creating route no routing peer and no peers in groups", func(t *testing.T) {
 		route := route.Route{
 			ID:          "testingRoute1",
 			Network:     netip.MustParsePrefix("100.65.250.202/32"),
@@ -1836,8 +1846,8 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	})
 
-	// Creating route no routing peer and has peers in groups should update account peers and send peer update
-	t.Run("creating route no routing peer and has peers in groups", func(t *testing.T) {
+	// Creating a route with no routing peer and having peers in groups should update account peers and send peer update
+	t.Run("creating a route with peers in  PeerGroups and Groups", func(t *testing.T) {
 		route := route.Route{
 			ID:          "testingRoute2",
 			Network:     netip.MustParsePrefix("192.0.2.0/32"),
@@ -1908,7 +1918,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// Updating the route should update account peers and send peer update
+	// Updating the route should update account peers and send peer update when there is peers in group
 	t.Run("updating route", func(t *testing.T) {
 		baseRoute.Groups = []string{routeGroup1, routeGroup2}
 
@@ -1966,4 +1976,83 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
+	// Adding peer to route peer groups that do not have any peers should update account peers and send peer update
+	t.Run("adding peer to route peer groups that do not have any peers", func(t *testing.T) {
+		newRoute := route.Route{
+			Network:     netip.MustParsePrefix("192.168.12.0/16"),
+			NetID:       "superNet",
+			NetworkType: route.IPv4Network,
+			PeerGroups:  []string{"groupB"},
+			Description: "super",
+			Masquerade:  false,
+			Metric:      9999,
+			Enabled:     true,
+			Groups:      []string{routeGroup1},
+		}
+		_, err := manager.CreateRoute(
+			context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, newRoute.Peer,
+			newRoute.PeerGroups, newRoute.Description, newRoute.NetID, newRoute.Masquerade, newRoute.Metric,
+			newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute,
+		)
+		require.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+			ID:    "groupB",
+			Name:  "GroupB",
+			Peers: []string{peer1ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Adding peer to route groups that do not have any peers should update account peers and send peer update
+	t.Run("adding peer to route groups that do not have any peers", func(t *testing.T) {
+		newRoute := route.Route{
+			Network:     netip.MustParsePrefix("192.168.13.0/16"),
+			NetID:       "superNet",
+			NetworkType: route.IPv4Network,
+			PeerGroups:  []string{"groupB"},
+			Description: "super",
+			Masquerade:  false,
+			Metric:      9999,
+			Enabled:     true,
+			Groups:      []string{"groupC"},
+		}
+		_, err := manager.CreateRoute(
+			context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, newRoute.Peer,
+			newRoute.PeerGroups, newRoute.Description, newRoute.NetID, newRoute.Masquerade, newRoute.Metric,
+			newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute,
+		)
+		require.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+			ID:    "groupC",
+			Name:  "GroupC",
+			Peers: []string{peer1ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 }
