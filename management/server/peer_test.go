@@ -1435,31 +1435,6 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// Updating expired peer and peer expiration is enabled should update account peers and send peer update
-	t.Run("updating expired peer and peer expiration is enabled", func(t *testing.T) {
-		err = manager.Store.SavePeerStatus(account.Id, peer4.ID, nbpeer.PeerStatus{
-			Connected:    false,
-			LastSeen:     time.Now().Add(-48 * time.Hour),
-			LoginExpired: true,
-		})
-		require.NoError(t, err)
-
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err = manager.UpdatePeer(context.Background(), account.Id, userID, peer4)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
 	// Deleting peer with linked group to policy should update account peers and send peer update
 	t.Run("deleting peer with linked group to policy", func(t *testing.T) {
 		done := make(chan struct{})

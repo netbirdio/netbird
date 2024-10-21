@@ -1301,7 +1301,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	})
 
 	// Creating a new regular user should not update account peers and not send peer update
-	t.Run("creating new regular user", func(t *testing.T) {
+	t.Run("creating new regular user with no groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)

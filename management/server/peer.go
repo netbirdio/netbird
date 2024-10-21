@@ -263,8 +263,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
-	if peerLabelUpdated || (expired && peer.LoginExpirationEnabled) {
+	if peerLabelUpdated {
 		am.updateAccountPeers(ctx, account)
 	}
 
