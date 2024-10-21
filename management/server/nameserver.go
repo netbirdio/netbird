@@ -8,6 +8,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -72,6 +73,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 	if anyGroupHasPeers(account, newNSGroup.Groups) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for ns group: %s", newNSGroup.ID)
 	}
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
@@ -107,6 +110,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 	if anyGroupHasPeers(account, nsGroupToSave.Groups) || anyGroupHasPeers(account, oldNSGroup.Groups) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for ns group: %s", nsGroupToSave.ID)
 	}
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
@@ -137,6 +142,8 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 	if anyGroupHasPeers(account, nsGroup.Groups) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for peer: %s", nsGroupID)
 	}
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 

@@ -147,6 +147,8 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 
 	if anyGroupHasPeers(account, addedGroups) || anyGroupHasPeers(account, removedGroups) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for account dns settings: %s", accountID)
 	}
 
 	return nil

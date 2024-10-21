@@ -133,6 +133,8 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 
 	if areGroupChangesAffectPeers(account, newGroupIDs) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for group: %v", newGroupIDs)
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -341,6 +343,8 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 
 	if areGroupChangesAffectPeers(account, []string{group.ID}) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for group: %s", groupID)
 	}
 
 	return nil
@@ -373,6 +377,8 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 
 	if areGroupChangesAffectPeers(account, []string{group.ID}) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for group: %s", groupID)
 	}
 
 	return nil

@@ -485,6 +485,8 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 	if updateAccountPeers {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for user: %s", targetUserID)
 	}
 
 	return nil
@@ -826,6 +828,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 
 	if areUsersLinkedToPeers(account, userIDs) && account.Settings.GroupsPropagationEnabled {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for user: %v", userIDs)
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -1225,6 +1229,8 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 
 	if updateAccountPeers {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for user: %v", targetUserIDs)
 	}
 
 	for targetUserID, meta := range deletedUsersMeta {

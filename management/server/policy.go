@@ -378,6 +378,8 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 	if updateAccountPeers {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for policy: %s", policy.ID)
 	}
 
 	return nil

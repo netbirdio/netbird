@@ -8,6 +8,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -71,6 +72,8 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	isLinked, linkedPolicy := isPostureCheckLinkedToPolicy(account, postureChecks.ID)
 	if exists && isLinked && anyGroupHasPeers(account, linkedPolicy.ruleGroups()) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for posture checks: %s", postureChecks.ID)
 	}
 
 	return nil

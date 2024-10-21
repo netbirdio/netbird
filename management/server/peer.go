@@ -232,6 +232,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
 	if peerLabelUpdated || (expired && peer.LoginExpirationEnabled) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for peer: %s", update.ID)
 	}
 
 	return peer, nil
@@ -310,6 +312,8 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 
 	if updateAccountPeers {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for peer: %s", peerID)
 	}
 
 	return nil
@@ -555,6 +559,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	if areGroupChangesAffectPeers(account, groupsToAdd) {
 		am.updateAccountPeers(ctx, account)
+	} else {
+		log.WithContext(ctx).Tracef("Skipping account peers update for peer: %s", newPeer.ID)
 	}
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)

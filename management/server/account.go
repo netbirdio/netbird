@@ -1955,6 +1955,8 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		if areGroupChangesAffectPeers(account, addNewGroups) || areGroupChangesAffectPeers(account, removeOldGroups) {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
 			am.updateAccountPeers(ctx, account)
+		} else {
+			log.WithContext(ctx).Tracef("Skipping account peers update for account: %s", accountID)
 		}
 	}
 

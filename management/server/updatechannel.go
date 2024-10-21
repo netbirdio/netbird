@@ -226,6 +226,11 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 // isNewPeerUpdateMessage checks if the given current update message is a new update that should be sent.
 func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bool, error) {
 	if lastSentUpdate.Update.NetworkMap.GetSerial() > currUpdateToSend.Update.NetworkMap.GetSerial() {
+		log.Tracef("new network map serial: %d not greater than last sent: %d, skip sending update",
+			lastSentUpdate.Update.NetworkMap.GetSerial(),
+			currUpdateToSend.Update.NetworkMap.GetSerial(),
+		)
+
 		return false, nil
 	}
 
