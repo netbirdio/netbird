@@ -141,7 +141,7 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	wgInterface    iface.IWGIface
+	wgInterface    IWGIface
 	wgProxyFactory *wgproxy.Factory
 
 	udpMux *bind.UniversalUDPMuxDefault
@@ -326,7 +326,7 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, e.relayManager, initialRoutes)
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface.(*iface.WGIface), e.statusRecorder, e.relayManager, initialRoutes)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -921,7 +921,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 	wgConfig := peer.WgConfig{
 		RemoteKey:    pubKey,
 		WgListenPort: e.config.WgPort,
-		WgInterface:  e.wgInterface,
+		WgInterface:  e.wgInterface.(*iface.WGIface),
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
 	}
