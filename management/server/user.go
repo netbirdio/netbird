@@ -829,7 +829,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	if areUsersLinkedToPeers(account, userIDs) && account.Settings.GroupsPropagationEnabled {
+	if account.Settings.GroupsPropagationEnabled && areUsersLinkedToPeers(account, userIDs) {
 		am.updateAccountPeers(ctx, account)
 	} else {
 		log.WithContext(ctx).Tracef("Skipping account peers update for user: %v", userIDs)
@@ -1217,7 +1217,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 			continue
 		}
 
-		if hadPeers && !updateAccountPeers {
+		if hadPeers {
 			updateAccountPeers = true
 		}
 
