@@ -479,13 +479,20 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 }
 
-func TestDNSAccountPeerUpdate(t *testing.T) {
+func TestDNSAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
-		ID:    "group-id",
-		Name:  "GroupA",
-		Peers: []string{},
+	err := manager.SaveGroups(context.Background(), account.Id, userID, []*group.Group{
+		{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{},
+		},
+		{
+			ID:    "groupB",
+			Name:  "GroupB",
+			Peers: []string{},
+		},
 	})
 	assert.NoError(t, err)
 
@@ -503,7 +510,7 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 		}()
 
 		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
-			DisabledManagementGroups: []string{"group-id"},
+			DisabledManagementGroups: []string{"groupA"},
 		})
 		assert.NoError(t, err)
 
@@ -515,7 +522,7 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 	})
 
 	err = manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
-		ID:    "group-id",
+		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	})
@@ -527,7 +534,7 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 			NSType: dns.UDPNameServerType,
 			Port:   dns.DefaultDNSPort,
 		}},
-		[]string{"group-id"},
+		[]string{"groupA"},
 		true, []string{}, true, userID, false,
 	)
 	assert.NoError(t, err)
@@ -541,7 +548,7 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 		}()
 
 		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
-			DisabledManagementGroups: []string{"group-id"},
+			DisabledManagementGroups: []string{"groupA", "groupB"},
 		})
 		assert.NoError(t, err)
 
@@ -562,7 +569,7 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 		}()
 
 		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
-			DisabledManagementGroups: []string{"group-id"},
+			DisabledManagementGroups: []string{"groupA", "groupB"},
 		})
 		assert.NoError(t, err)
 
@@ -573,4 +580,43 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
+	// Removing group with no peers from DNS settings  should not trigger updates to account peers or send peer updates
+	t.Run("removing group with no peers from dns settings", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+			DisabledManagementGroups: []string{"groupA"},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// Removing group with peers from DNS settings should trigger updates to account peers and send peer updates
+	t.Run("removing group with peers from dns settings", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+			DisabledManagementGroups: []string{},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 }
