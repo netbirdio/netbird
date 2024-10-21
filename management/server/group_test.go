@@ -407,6 +407,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{peer1.ID, peer3.ID},
 		},
+		{
+			ID:    "groupD",
+			Name:  "GroupD",
+			Peers: []string{},
+		},
 	})
 	assert.NoError(t, err)
 
@@ -654,6 +659,33 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Saving a group linked to dns settings should update account peers and send peer update
+	t.Run("saving group linked to dns settings", func(t *testing.T) {
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+			DisabledManagementGroups: []string{"groupD"},
+		})
+		assert.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+			ID:    "groupD",
+			Name:  "GroupD",
+			Peers: []string{peer1.ID},
 		})
 		assert.NoError(t, err)
 
