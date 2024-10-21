@@ -79,9 +79,6 @@ jobs:
       - name: check git status
         run: git --no-pager diff --exit-code
 
-      - name: Generate Iface Test bin
-        run: CGO_ENABLED=0 go test -c -o iface-testing.bin ./client/iface/
-
       - name: Generate Shared Sock Test bin
         run: CGO_ENABLED=0 go test -c -o sharedsock-testing.bin ./sharedsock
 
@@ -106,7 +103,7 @@ jobs:
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/sharedsock --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/sharedsock-testing.bin -test.timeout 5m -test.parallel 1
 
       - name: Run Iface tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/iface --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/iface-testing.bin -test.timeout 5m -test.parallel 1
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/netbird -v /tmp/cache:/tmp/cache -v /tmp/modcache:/tmp/modcache -w /netbird -ti -e GOCACHE=/tmp/cache -e GOMODCACHE=/tmp/modcache -e CGO_ENABLED=0 golang:1.23-alpine go test  -test.timeout 5m -test.parallel 1 ./client/iface/...
 
       - name: Run RouteManager tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/routemanager-testing.bin  -test.timeout 5m -test.parallel 1
