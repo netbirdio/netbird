@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/hashicorp/go-multierror"
 	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -20,7 +21,11 @@ import (
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/system"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -94,6 +99,10 @@ func (s *Server) Start() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	state := internal.CtxGetState(s.rootCtx)
+
+	if err := restoreResidualState(s.rootCtx); err != nil {
+		log.Warnf("failed to restore residual state: %v", err)
+	}
 
 	// if current state contains any error, return it
 	// in all other cases we can continue execution only if status is idle and up command was
@@ -291,6 +300,10 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 	s.actCancel = cancel
 	s.mutex.Unlock()
+
+	if err := restoreResidualState(ctx); err != nil {
+		log.Warnf("failed to restore residual state: %v", err)
+	}
 
 	state := internal.CtxGetState(ctx)
 	defer func() {
@@ -548,6 +561,10 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if err := restoreResidualState(callerCtx); err != nil {
+		log.Warnf("failed to restore residual state: %v", err)
+	}
 
 	state := internal.CtxGetState(s.rootCtx)
 
@@ -828,4 +845,32 @@ func sendTerminalNotification() error {
 	}
 
 	return wallCmd.Wait()
+}
+
+// restoreResidulaConfig check if the client was not shut down in a clean way and restores residual if required.
+// Otherwise, we might not be able to connect to the management server to retrieve new config.
+func restoreResidualState(ctx context.Context) error {
+	path := statemanager.GetDefaultStatePath()
+	if path == "" {
+		return nil
+	}
+
+	mgr := statemanager.New(path)
+
+	var merr *multierror.Error
+
+	// register the states we are interested in restoring
+	// this will also allow each subsystem to record its own state
+	mgr.RegisterState(&dns.ShutdownState{})
+	mgr.RegisterState(&systemops.ShutdownState{})
+
+	if err := mgr.PerformCleanup(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("perform cleanup: %w", err))
+	}
+
+	if err := mgr.PersistState(ctx); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("persist state: %w", err))
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }

@@ -3,57 +3,25 @@
 package dns
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-
-	log "github.com/sirupsen/logrus"
 )
 
-const fileUncleanShutdownFileLocation = "/var/lib/netbird/unclean_shutdown_dns"
+type ShutdownState struct {
+}
 
-func CheckUncleanShutdown(string) error {
-	if _, err := os.Stat(fileUncleanShutdownFileLocation); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			// no file -> clean shutdown
-			return nil
-		} else {
-			return fmt.Errorf("state: %w", err)
-		}
-	}
+func (s *ShutdownState) Name() string {
+	return "dns_state"
+}
 
-	log.Warnf("detected unclean shutdown, file %s exists. Restoring unclean shutdown dns settings.", fileUncleanShutdownFileLocation)
-
+func (s *ShutdownState) Cleanup() error {
 	manager, err := newHostManager()
 	if err != nil {
 		return fmt.Errorf("create host manager: %w", err)
 	}
 
-	if err := manager.restoreUncleanShutdownDNS(nil); err != nil {
-		return fmt.Errorf("restore unclean shutdown backup: %w", err)
+	if err := manager.restoreUncleanShutdownDNS(); err != nil {
+		return fmt.Errorf("restore unclean shutdown dns: %w", err)
 	}
 
-	return nil
-}
-
-func createUncleanShutdownIndicator() error {
-	dir := filepath.Dir(fileUncleanShutdownFileLocation)
-	if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-		return fmt.Errorf("create dir %s: %w", dir, err)
-	}
-
-	if err := os.WriteFile(fileUncleanShutdownFileLocation, nil, 0644); err != nil { //nolint:gosec
-		return fmt.Errorf("create %s: %w", fileUncleanShutdownFileLocation, err)
-	}
-
-	return nil
-}
-
-func removeUncleanShutdownIndicator() error {
-	if err := os.Remove(fileUncleanShutdownFileLocation); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove %s: %w", fileUncleanShutdownFileLocation, err)
-	}
 	return nil
 }

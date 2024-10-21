@@ -1,5 +1,5 @@
 package dns
 
-func (s *DefaultServer) initialize() (manager hostManager, err error) {
+func (s *DefaultServer) initialize() (hostManager, error) {
 	return newHostManager(s.wgInterface)
 }
