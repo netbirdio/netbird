@@ -54,6 +54,14 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        peer_inactivity_expiration_enabled:
+          description: Enables or disables peer inactivity expiration globally. After peer's session has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
+          type: boolean
+          example: true
+        peer_inactivity_expiration:
+          description: Period of time of inactivity after which peer session expires (seconds).
+          type: integer
+          example: 43200
         regular_users_view_blocked:
           description: Allows blocking regular users from viewing parts of the system.
           type: boolean
@@ -81,6 +89,8 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+        - peer_inactivity_expiration_enabled
+        - peer_inactivity_expiration
         - regular_users_view_blocked
     AccountExtraSettings:
       type: object
@@ -243,6 +253,9 @@ components:
         login_expiration_enabled:
           type: boolean
           example: false
+        inactivity_expiration_enabled:
+          type: boolean
+          example: false
         approval_required:
           description: (Cloud only) Indicates whether peer needs approval
           type: boolean
@@ -251,6 +264,7 @@ components:
         - name
         - ssh_enabled
         - login_expiration_enabled
+        - inactivity_expiration_enabled
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -327,6 +341,10 @@ components:
               type: string
               format: date-time
               example: "2023-05-05T09:00:35.477782Z"
+            inactivity_expiration_enabled:
+              description: Indicates whether peer inactivity expiration has been enabled or not
+              type: boolean
+              example: false
             approval_required:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
@@ -354,6 +372,7 @@ components:
             - last_seen
             - login_expiration_enabled
             - login_expired
+            - inactivity_expiration_enabled
             - os
             - ssh_enabled
             - user_id

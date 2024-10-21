@@ -305,10 +305,7 @@ func (r *router) cleanUpDefaultForwardRules() error {
 
 	log.Debug("flushing routing related tables")
 	for _, chain := range []string{chainRTFWD, chainRTNAT} {
-		table := tableFilter
-		if chain == chainRTNAT {
-			table = tableNat
-		}
+		table := r.getTableForChain(chain)
 
 		ok, err := r.iptablesClient.ChainExists(table, chain)
 		if err != nil {
@@ -329,15 +326,19 @@ func (r *router) cleanUpDefaultForwardRules() error {
 func (r *router) createContainers() error {
 	for _, chain := range []string{chainRTFWD, chainRTNAT} {
 		if err := r.createAndSetupChain(chain); err != nil {
-			return fmt.Errorf("create chain %s: %v", chain, err)
+			return fmt.Errorf("create chain %s: %w", chain, err)
 		}
 	}
 
 	if err := r.insertEstablishedRule(chainRTFWD); err != nil {
-		return fmt.Errorf("insert established rule: %v", err)
+		return fmt.Errorf("insert established rule: %w", err)
 	}
 
-	return r.addJumpRules()
+	if err := r.addJumpRules(); err != nil {
+		return fmt.Errorf("add jump rules: %w", err)
+	}
+
+	return nil
 }
 
 func (r *router) createAndSetupChain(chain string) error {
@@ -432,10 +433,12 @@ func (r *router) removeNatRule(pair firewall.RouterPair) error {
 
 func genRuleSpec(jump string, source, destination netip.Prefix, intf string, inverse bool) []string {
 	intdir := "-i"
+	lointdir := "-o"
 	if inverse {
 		intdir = "-o"
+		lointdir = "-i"
 	}
-	return []string{intdir, intf, "-s", source.String(), "-d", destination.String(), "-j", jump}
+	return []string{intdir, intf, "!", lointdir, "lo", "-s", source.String(), "-d", destination.String(), "-j", jump}
 }
 
 func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {
