@@ -125,26 +125,29 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	oldSettings := account.DNSSettings.Copy()
 	account.DNSSettings = dnsSettingsToSave.Copy()
 
+	addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
+	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
+
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
 	for _, id := range addedGroups {
 		group := account.GetGroup(id)
 		meta := map[string]any{"group": group.Name, "group_id": group.ID}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
 	}
 
-	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
 	for _, id := range removedGroups {
 		group := account.GetGroup(id)
 		meta := map[string]any{"group": group.Name, "group_id": group.ID}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if anyGroupHasPeers(account, addedGroups) || anyGroupHasPeers(account, removedGroups) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }

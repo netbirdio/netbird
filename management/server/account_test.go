@@ -1125,14 +1125,34 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
+	group := group.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{},
+	}
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+		t.Errorf("save group: %v", err)
+		return
+	}
+
+	policy := Policy{
+		ID:      "policy",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	}
+	err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	require.NoError(t, err)
+
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-
-	group := group.Group{
-		ID:    "group-id",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	}
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -1146,6 +1166,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		}
 	}()
 
+	group.Peers = []string{peer1.ID, peer2.ID, peer3.ID}
 	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
 		t.Errorf("save group: %v", err)
 		return
@@ -1181,7 +1202,17 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 }
 
 func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
-	manager, account, peer1, _, _ := setupNetworkMapTest(t)
+	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
+
+	group := group.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer2.ID},
+	}
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+		t.Errorf("save group: %v", err)
+		return
+	}
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
@@ -1191,8 +1222,8 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		Rules: []*PolicyRule{
 			{
 				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},
@@ -1221,6 +1252,34 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 
 func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	manager, account, peer1, _, peer3 := setupNetworkMapTest(t)
+
+	group := group.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer3.ID},
+	}
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+		t.Errorf("save group: %v", err)
+		return
+	}
+
+	policy := Policy{
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	}
+
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+		t.Errorf("save policy: %v", err)
+		return
+	}
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
@@ -1252,7 +1311,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
 	group := group.Group{
-		ID:    "group-id",
+		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	}
@@ -1262,8 +1321,8 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		Rules: []*PolicyRule{
 			{
 				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},
@@ -2786,6 +2845,10 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *Account, *nbpee
 		peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 			Key:  expectedPeerKey,
 			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+			Status: &nbpeer.PeerStatus{
+				Connected: true,
+				LastSeen:  time.Now().UTC(),
+			},
 		})
 		if err != nil {
 			t.Fatalf("expecting peer to be added, got failure %v", err)
@@ -2799,4 +2862,27 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *Account, *nbpee
 	peer3 := getPeer(manager, setupKey)
 
 	return manager, account, peer1, peer2, peer3
+}
+
+func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) {
+	t.Helper()
+	select {
+	case msg := <-updateMessage:
+		t.Errorf("Unexpected message received: %+v", msg)
+	case <-time.After(500 * time.Millisecond):
+		return
+	}
+}
+
+func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) {
+	t.Helper()
+
+	select {
+	case msg := <-updateMessage:
+		if msg == nil {
+			t.Errorf("Received nil update message, expected valid message")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Timed out waiting for update message")
+	}
 }
