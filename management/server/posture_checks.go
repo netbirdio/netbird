@@ -69,8 +69,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
-	isLinked, linkedPolicy := isPostureCheckLinkedToPolicy(account, postureChecks.ID)
-	if exists && isLinked && anyGroupHasPeers(account, linkedPolicy.ruleGroups()) {
+	if arePostureCheckChangesAffectingPeers(account, postureChecks.ID, exists) {
 		am.updateAccountPeers(ctx, account)
 	} else {
 		log.WithContext(ctx).Tracef("Skipping account peers update for posture checks: %s", postureChecks.ID)
@@ -226,4 +225,17 @@ func isPostureCheckLinkedToPolicy(account *Account, postureChecksID string) (boo
 		}
 	}
 	return false, nil
+}
+
+// arePostureCheckChangesAffectingPeers checks if the changes in posture checks are affecting peers.
+func arePostureCheckChangesAffectingPeers(account *Account, postureCheckID string, exists bool) bool {
+	if !exists {
+		return false
+	}
+
+	isLinked, linkedPolicy := isPostureCheckLinkedToPolicy(account, postureCheckID)
+	if !isLinked {
+		return false
+	}
+	return anyGroupHasPeers(account, linkedPolicy.ruleGroups())
 }
