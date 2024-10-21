@@ -105,7 +105,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return err
 	}
 
-	if anyGroupHasPeers(account, nsGroupToSave.Groups) || anyGroupHasPeers(account, oldNSGroup.Groups) {
+	if areNameServerGroupChangesAffectPeers(account, nsGroupToSave, oldNSGroup) {
 		am.updateAccountPeers(ctx, account)
 	}
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
@@ -276,4 +276,12 @@ func validateDomain(domain string) error {
 	}
 
 	return nil
+}
+
+// areNameServerGroupChangesAffectPeers checks if the changes in the nameserver group affect the peers.
+func areNameServerGroupChangesAffectPeers(account *Account, newNSGroup, oldNSGroup *nbdns.NameServerGroup) bool {
+	if !newNSGroup.Enabled && !oldNSGroup.Enabled {
+		return false
+	}
+	return anyGroupHasPeers(account, newNSGroup.Groups) || anyGroupHasPeers(account, oldNSGroup.Groups)
 }

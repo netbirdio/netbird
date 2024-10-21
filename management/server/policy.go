@@ -461,6 +461,10 @@ func (am *DefaultAccountManager) savePolicy(account *Account, policyToSave *Poli
 		}
 
 		oldPolicy := account.Policies[policyIdx]
+		if !policyToSave.Enabled && !oldPolicy.Enabled {
+			return false, nil
+		}
+
 		updateAccountPeers := anyGroupHasPeers(account, oldPolicy.ruleGroups()) || anyGroupHasPeers(account, policyToSave.ruleGroups())
 
 		// Update the existing policy

@@ -489,6 +489,9 @@ func anyGroupHasPeers(account *Account, groupIDs []string) bool {
 
 func areGroupChangesAffectPeers(account *Account, groupIDs []string) bool {
 	for _, groupID := range groupIDs {
+		if slices.Contains(account.DNSSettings.DisabledManagementGroups, groupID) {
+			return true
+		}
 		if linked, _ := isGroupLinkedToDns(account.NameServerGroups, groupID); linked {
 			return true
 		}
