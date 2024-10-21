@@ -1801,7 +1801,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	})
 
 	// Creating route no routing peer and no peers groups should not update account peers and not send peer update
-	t.Run("creating route no routing peer and no peers groups", func(t *testing.T) {
+	t.Run("creating route no routing peer and no peers in groups", func(t *testing.T) {
 		route := route.Route{
 			ID:          "testingRoute1",
 			Network:     netip.MustParsePrefix("100.65.250.202/32"),
