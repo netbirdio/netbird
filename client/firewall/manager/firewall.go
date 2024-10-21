@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const (
@@ -52,6 +54,8 @@ const (
 // It declares methods which handle actions required by the
 // Netbird client for ACL and routing functionality
 type Manager interface {
+	Init(stateManager *statemanager.Manager) error
+
 	// AllowNetbird allows netbird interface traffic
 	AllowNetbird() error
 
@@ -91,7 +95,7 @@ type Manager interface {
 	SetLegacyManagement(legacy bool) error
 
 	// Reset firewall to the default state
-	Reset() error
+	Reset(stateManager *statemanager.Manager) error
 
 	// Flush the changes to firewall controller
 	Flush() error

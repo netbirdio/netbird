@@ -15,6 +15,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	nbnftables "github.com/netbirdio/netbird/client/firewall/nftables"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const (
@@ -32,7 +33,7 @@ const SKIP_NFTABLES_ENV = "NB_SKIP_NFTABLES_CHECK"
 // FWType is the type for the firewall type
 type FWType int
 
-func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, error) {
+func NewFirewall(context context.Context, iface IFaceMapper, stateManager *statemanager.Manager) (firewall.Manager, error) {
 	// on the linux system we try to user nftables or iptables
 	// in any case, because we need to allow netbird interface traffic
 	// so we use AllowNetbird traffic from these firewall managers
@@ -56,6 +57,12 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 	default:
 		errFw = fmt.Errorf("no firewall manager found")
 		log.Info("no firewall manager found, trying to use userspace packet filtering firewall")
+	}
+
+	if fm != nil {
+		if err := fm.Init(stateManager); err != nil {
+			log.Errorf("failed to init nftables manager: %s", err)
+		}
 	}
 
 	if iface.IsUserspaceBind() {

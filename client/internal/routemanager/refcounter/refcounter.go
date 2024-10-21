@@ -1,6 +1,7 @@
 package refcounter
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
@@ -17,12 +18,6 @@ const logLevel = log.TraceLevel
 
 // ErrIgnore can be returned by AddFunc to indicate that the counter should not be incremented for the given key.
 var ErrIgnore = errors.New("ignore")
-
-// Ref holds the reference count and associated data for a key.
-type Ref[O any] struct {
-	Count int
-	Out   O
-}
 
 // AddFunc is the function type for adding a new key.
 // Key is the type of the key (e.g., netip.Prefix).
@@ -68,6 +63,25 @@ func New[Key comparable, I, O any](add AddFunc[Key, I, O], remove RemoveFunc[Key
 		add:         add,
 		remove:      remove,
 	}
+}
+
+// LoadData loads the data from the existing counter
+func (rm *Counter[Key, I, O]) LoadData(
+	existingCounter *Counter[Key, I, O],
+) {
+	rm.refCountMu.Lock()
+	defer rm.refCountMu.Unlock()
+	rm.idMu.Lock()
+	defer rm.idMu.Unlock()
+
+	rm.refCountMap = existingCounter.refCountMap
+	rm.idMap = existingCounter.idMap
+}
+
+// SetFunctions sets the add and remove functions for the Counter.
+func (rm *Counter[Key, I, O]) SetFunctions(add AddFunc[Key, I, O], remove RemoveFunc[Key, O]) {
+	rm.add = add
+	rm.remove = remove
 }
 
 // Get retrieves the current reference count and associated data for a key.
@@ -199,6 +213,32 @@ func (rm *Counter[Key, I, O]) Clear() {
 
 	clear(rm.refCountMap)
 	clear(rm.idMap)
+}
+
+// MarshalJSON implements the json.Marshaler interface for Counter.
+func (rm *Counter[Key, I, O]) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		RefCountMap map[Key]Ref[O]   `json:"refCountMap"`
+		IDMap       map[string][]Key `json:"idMap"`
+	}{
+		RefCountMap: rm.refCountMap,
+		IDMap:       rm.idMap,
+	})
+}
+
+// UnmarshalJSON implements the json.Unmarshaler interface for Counter.
+func (rm *Counter[Key, I, O]) UnmarshalJSON(data []byte) error {
+	var temp struct {
+		RefCountMap map[Key]Ref[O]   `json:"refCountMap"`
+		IDMap       map[string][]Key `json:"idMap"`
+	}
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+	rm.refCountMap = temp.RefCountMap
+	rm.idMap = temp.IDMap
+
+	return nil
 }
 
 func getCallerInfo(depth int, maxDepth int) (string, bool) {

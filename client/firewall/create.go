@@ -11,10 +11,11 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 // NewFirewall creates a firewall manager instance
-func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, error) {
+func NewFirewall(_ context.Context, iface IFaceMapper, _ *statemanager.Manager) (firewall.Manager, error) {
 	if !iface.IsUserspaceBind() {
 		return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
 	}

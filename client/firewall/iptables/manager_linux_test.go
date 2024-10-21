@@ -58,11 +58,12 @@ func TestIptablesManager(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create(context.Background(), ifaceMock)
 	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
 
 	time.Sleep(time.Second)
 
 	defer func() {
-		err := manager.Reset()
+		err := manager.Reset(nil)
 		require.NoError(t, err, "clear the manager state")
 
 		time.Sleep(time.Second)
@@ -122,7 +123,7 @@ func TestIptablesManager(t *testing.T) {
 		_, err = manager.AddPeerFiltering(ip, "udp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept Fake DNS traffic")
 		require.NoError(t, err, "failed to add rule")
 
-		err = manager.Reset()
+		err = manager.Reset(nil)
 		require.NoError(t, err, "failed to reset")
 
 		ok, err := ipv4Client.ChainExists("filter", chainNameInputRules)
@@ -156,11 +157,12 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create(context.Background(), mock)
 	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
 
 	time.Sleep(time.Second)
 
 	defer func() {
-		err := manager.Reset()
+		err := manager.Reset(nil)
 		require.NoError(t, err, "clear the manager state")
 
 		time.Sleep(time.Second)
@@ -219,7 +221,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	})
 
 	t.Run("reset check", func(t *testing.T) {
-		err = manager.Reset()
+		err = manager.Reset(nil)
 		require.NoError(t, err, "failed to reset")
 	})
 }
@@ -253,10 +255,11 @@ func TestIptablesCreatePerformance(t *testing.T) {
 			// just check on the local interface
 			manager, err := Create(context.Background(), mock)
 			require.NoError(t, err)
+			require.NoError(t, manager.Init(nil))
 			time.Sleep(time.Second)
 
 			defer func() {
-				err := manager.Reset()
+				err := manager.Reset(nil)
 				require.NoError(t, err, "clear the manager state")
 
 				time.Sleep(time.Second)

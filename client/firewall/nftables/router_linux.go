@@ -78,20 +78,25 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFa
 		if errors.Is(err, errFilterTableNotFound) {
 			log.Warnf("table 'filter' not found for forward rules")
 		} else {
-			return nil, err
+			return nil, fmt.Errorf("load filter table: %w", err)
 		}
 	}
 
-	err = r.removeAcceptForwardRules()
-	if err != nil {
+	return r, nil
+}
+
+func (r *router) init(workTable *nftables.Table) error {
+	r.workTable = workTable
+
+	if err := r.removeAcceptForwardRules(); err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
-	err = r.createContainers()
-	if err != nil {
-		log.Errorf("failed to create containers for route: %s", err)
+	if err := r.createContainers(); err != nil {
+		return fmt.Errorf("create containers: %w", err)
 	}
-	return r, err
+
+	return nil
 }
 
 // Reset cleans existing nftables default forward rules from the system

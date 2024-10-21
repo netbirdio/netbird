@@ -32,6 +32,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 
 	manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
 	require.NoError(t, err, "should return a valid iptables manager")
+	require.NoError(t, manager.init(nil))
 
 	defer func() {
 		_ = manager.Reset()
@@ -76,6 +77,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 
 			manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
 			require.NoError(t, err, "shouldn't return error")
+			require.NoError(t, manager.init(nil))
 
 			defer func() {
 				err := manager.Reset()
@@ -134,6 +136,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 
 			manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
 			require.NoError(t, err, "shouldn't return error")
+			require.NoError(t, manager.init(nil))
 			defer func() {
 				_ = manager.Reset()
 			}()
@@ -185,6 +188,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	r, err := newRouter(context.Background(), iptablesClient, ifaceMock)
 	require.NoError(t, err, "Failed to create router manager")
+	require.NoError(t, r.init(nil))
 
 	defer func() {
 		err := r.Reset()

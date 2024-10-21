@@ -107,7 +107,7 @@ func (r *SysOps) cleanupRefCounter(stateManager *statemanager.Manager) error {
 	}
 
 	if err := stateManager.DeleteState(&ShutdownState{}); err != nil {
-		log.Errorf("failed to delete state: %v", err)
+		return fmt.Errorf("delete state: %w", err)
 	}
 
 	return nil

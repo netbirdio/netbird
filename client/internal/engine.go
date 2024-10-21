@@ -363,7 +363,7 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("create wg interface: %w", err)
 	}
 
-	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface)
+	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface, e.stateManager)
 	if err != nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 	}
@@ -1158,7 +1158,7 @@ func (e *Engine) close() {
 	}
 
 	if e.firewall != nil {
-		err := e.firewall.Reset()
+		err := e.firewall.Reset(e.stateManager)
 		if err != nil {
 			log.Warnf("failed to reset firewall: %s", err)
 		}

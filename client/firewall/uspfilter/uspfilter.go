@@ -14,6 +14,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const layerTypeAll = 0
@@ -95,6 +96,10 @@ func create(iface IFaceMapper) (*Manager, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (m *Manager) Init(*statemanager.Manager) error {
+	return nil
 }
 
 func (m *Manager) IsServerRouteSupported() bool {
@@ -190,7 +195,7 @@ func (m *Manager) AddPeerFiltering(
 	return []firewall.Rule{&r}, nil
 }
 
-func (m *Manager) AddRouteFiltering(sources [] netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action ) (firewall.Rule, error) {
+func (m *Manager) AddRouteFiltering(sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action) (firewall.Rule, error) {
 	if m.nativeFirewall == nil {
 		return nil, errRouteNotSupported
 	}

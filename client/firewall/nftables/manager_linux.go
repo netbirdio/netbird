@@ -14,6 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const (
@@ -23,6 +25,13 @@ const (
 	tableNameFilter = "filter"
 	chainNameInput  = "INPUT"
 )
+
+// iFaceMapper defines subset methods of interface required for manager
+type iFaceMapper interface {
+	Name() string
+	Address() iface.WGAddress
+	IsUserspaceBind() bool
+}
 
 // Manager of iptables firewall
 type Manager struct {
@@ -41,22 +50,55 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		wgIface: wgIface,
 	}
 
-	workTable, err := m.createWorkTable()
-	if err != nil {
-		return nil, err
-	}
+	workTable := &nftables.Table{Name: tableNameNetbird, Family: nftables.TableFamilyIPv4}
 
+	var err error
 	m.router, err = newRouter(context, workTable, wgIface)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create router: %w", err)
 	}
 
 	m.aclManager, err = newAclManager(workTable, wgIface, chainNameRoutingFw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create acl manager: %w", err)
 	}
 
 	return m, nil
+}
+
+// Init nftables firewall manager
+func (m *Manager) Init(stateManager *statemanager.Manager) error {
+	workTable, err := m.createWorkTable()
+	if err != nil {
+		return fmt.Errorf("create work table: %w", err)
+	}
+
+	if err := m.router.init(workTable); err != nil {
+		return fmt.Errorf("router init: %w", err)
+	}
+
+	if err := m.aclManager.init(workTable); err != nil {
+		// TODO: cleanup router
+		return fmt.Errorf("acl manager init: %w", err)
+	}
+
+	stateManager.RegisterState(&ShutdownState{})
+
+	// We only need to record minimal interface state for potential recreation.
+	// Unlike iptables, which requires tracking individual rules, nftables maintains
+	// a known state (our netbird table plus a few static rules). This allows for easy
+	// cleanup using Reset() without needing to store specific rules.
+	if err := stateManager.UpdateState(&ShutdownState{
+		InterfaceState: &InterfaceState{
+			NameStr:       m.wgIface.Name(),
+			WGAddress:     m.wgIface.Address(),
+			UserspaceBind: m.wgIface.IsUserspaceBind(),
+		},
+	}); err != nil {
+		log.Errorf("failed to update state: %v", err)
+	}
+
+	return nil
 }
 
 // AddPeerFiltering rule to the firewall
@@ -203,7 +245,7 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 }
 
 // Reset firewall to the default state
-func (m *Manager) Reset() error {
+func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -231,12 +273,12 @@ func (m *Manager) Reset() error {
 	}
 
 	if err := m.router.Reset(); err != nil {
-		return fmt.Errorf("reset forward rules: %v", err)
+		return fmt.Errorf("reset router: %v", err)
 	}
 
 	tables, err := m.rConn.ListTables()
 	if err != nil {
-		return fmt.Errorf("list of tables: %w", err)
+		return fmt.Errorf("list tables: %w", err)
 	}
 	for _, t := range tables {
 		if t.Name == tableNameNetbird {
@@ -244,7 +286,15 @@ func (m *Manager) Reset() error {
 		}
 	}
 
-	return m.rConn.Flush()
+	if err := m.rConn.Flush(); err != nil {
+		return fmt.Errorf(flushError, err)
+	}
+
+	if err := stateManager.DeleteState(&ShutdownState{}); err != nil {
+		return fmt.Errorf("delete state: %v", err)
+	}
+
+	return nil
 }
 
 // Flush rule/chain/set operations from the buffer

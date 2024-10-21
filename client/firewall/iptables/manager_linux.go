@@ -8,10 +8,13 @@ import (
 	"sync"
 
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 // Manager of iptables firewall
@@ -36,7 +39,7 @@ type iFaceMapper interface {
 func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
-		return nil, fmt.Errorf("iptables is not installed in the system or not supported")
+		return nil, fmt.Errorf("init iptables: %w", err)
 	}
 
 	m := &Manager{
@@ -46,16 +49,45 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 
 	m.router, err = newRouter(context, iptablesClient, wgIface)
 	if err != nil {
-		log.Debugf("failed to initialize route related chains: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("create router: %w", err)
 	}
+
 	m.aclMgr, err = newAclManager(iptablesClient, wgIface, chainRTFWD)
 	if err != nil {
-		log.Debugf("failed to initialize ACL manager: %s", err)
-		return nil, err
+		return nil, fmt.Errorf("create acl manager: %w", err)
 	}
 
 	return m, nil
+}
+
+func (m *Manager) Init(stateManager *statemanager.Manager) error {
+	state := &ShutdownState{
+		InterfaceState: &InterfaceState{
+			NameStr:       m.wgIface.Name(),
+			WGAddress:     m.wgIface.Address(),
+			UserspaceBind: m.wgIface.IsUserspaceBind(),
+		},
+	}
+	stateManager.RegisterState(state)
+	if err := stateManager.UpdateState(state); err != nil {
+		log.Errorf("failed to update state: %v", err)
+	}
+
+	if err := m.router.init(stateManager); err != nil {
+		return fmt.Errorf("router init: %w", err)
+	}
+
+	if err := m.aclMgr.init(stateManager); err != nil {
+		// TODO: cleanup router
+		return fmt.Errorf("acl manager init: %w", err)
+	}
+
+	// persist early to ensure cleanup of chains
+	if err := stateManager.PersistState(context.Background()); err != nil {
+		log.Errorf("failed to persist state: %v", err)
+	}
+
+	return nil
 }
 
 // AddPeerFiltering adds a rule to the firewall
@@ -133,20 +165,27 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 }
 
 // Reset firewall to the default state
-func (m *Manager) Reset() error {
+func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	errAcl := m.aclMgr.Reset()
-	if errAcl != nil {
-		log.Errorf("failed to clean up ACL rules from firewall: %s", errAcl)
+	var merr *multierror.Error
+
+	if err := m.aclMgr.Reset(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("reset acl manager: %w", err))
 	}
-	errMgr := m.router.Reset()
-	if errMgr != nil {
-		log.Errorf("failed to clean up router rules from firewall: %s", errMgr)
-		return errMgr
+	if err := m.router.Reset(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("reset router: %w", err))
 	}
-	return errAcl
+
+	// attempt to delete state only if all other operations succeeded
+	if merr == nil {
+		if err := stateManager.DeleteState(&ShutdownState{}); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete state: %w", err))
+		}
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // AllowNetbird allows netbird interface traffic
