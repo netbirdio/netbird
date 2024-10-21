@@ -22,9 +22,11 @@ func NewKernelFactory(wgPort int) *KernelFactory {
 
 	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort)
 	if err := ebpfProxy.Listen(); err != nil {
+		log.Infof("WireGuard Proxy Factory will produce UDP proxy")
 		log.Warnf("failed to initialize ebpf proxy, fallback to user space proxy: %s", err)
 		return f
 	}
+	log.Infof("WireGuard Proxy Factory will produce eBPF proxy")
 	f.ebpfProxy = ebpfProxy
 	return f
 }

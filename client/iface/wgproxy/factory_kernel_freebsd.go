@@ -10,6 +10,7 @@ type KernelFactory struct {
 }
 
 func NewKernelFactory(wgPort int) *KernelFactory {
+	log.Infof("WireGuard Proxy Factory will produce UDP proxy")
 	f := &KernelFactory{
 		wgPort: wgPort,
 	}
