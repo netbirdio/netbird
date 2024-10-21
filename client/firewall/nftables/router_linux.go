@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/coreos/go-iptables/iptables"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
@@ -24,7 +26,7 @@ import (
 
 const (
 	chainNameRoutingFw  = "netbird-rt-fwd"
-	chainNameRoutingNat = "netbird-rt-nat"
+	chainNameRoutingNat = "netbird-rt-postrouting"
 	chainNameForward    = "FORWARD"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
@@ -80,7 +82,7 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFa
 		}
 	}
 
-	err = r.cleanUpDefaultForwardRules()
+	err = r.removeAcceptForwardRules()
 	if err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
@@ -97,40 +99,7 @@ func (r *router) Reset() error {
 	// clear without deleting the ipsets, the nf table will be deleted by the caller
 	r.ipsetCounter.Clear()
 
-	return r.cleanUpDefaultForwardRules()
-}
-
-func (r *router) cleanUpDefaultForwardRules() error {
-	if r.filterTable == nil {
-		return nil
-	}
-
-	chains, err := r.conn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
-	if err != nil {
-		return fmt.Errorf("list chains: %v", err)
-	}
-
-	for _, chain := range chains {
-		if chain.Table.Name != r.filterTable.Name || chain.Name != chainNameForward {
-			continue
-		}
-
-		rules, err := r.conn.GetRules(r.filterTable, chain)
-		if err != nil {
-			return fmt.Errorf("get rules: %v", err)
-		}
-
-		for _, rule := range rules {
-			if bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleIif)) ||
-				bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleOif)) {
-				if err := r.conn.DelRule(rule); err != nil {
-					return fmt.Errorf("delete rule: %v", err)
-				}
-			}
-		}
-	}
-
-	return r.conn.Flush()
+	return r.removeAcceptForwardRules()
 }
 
 func (r *router) loadFilterTable() (*nftables.Table, error) {
@@ -149,7 +118,6 @@ func (r *router) loadFilterTable() (*nftables.Table, error) {
 }
 
 func (r *router) createContainers() error {
-
 	r.chains[chainNameRoutingFw] = r.conn.AddChain(&nftables.Chain{
 		Name:  chainNameRoutingFw,
 		Table: r.workTable,
@@ -157,25 +125,28 @@ func (r *router) createContainers() error {
 
 	insertReturnTrafficRule(r.conn, r.workTable, r.chains[chainNameRoutingFw])
 
+	prio := *nftables.ChainPriorityNATSource - 1
+
 	r.chains[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
 		Name:     chainNameRoutingNat,
 		Table:    r.workTable,
 		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: nftables.ChainPriorityNATSource - 1,
+		Priority: &prio,
 		Type:     nftables.ChainTypeNAT,
 	})
 
-	r.acceptForwardRules()
+	if err := r.acceptForwardRules(); err != nil {
+		log.Errorf("failed to add accept rules for the forward chain: %s", err)
+	}
 
-	err := r.refreshRulesMap()
-	if err != nil {
+	if err := r.refreshRulesMap(); err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
-	err = r.conn.Flush()
-	if err != nil {
+	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("nftables: unable to initialize table: %v", err)
 	}
+
 	return nil
 }
 
@@ -188,6 +159,7 @@ func (r *router) AddRouteFiltering(
 	dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
+
 	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
@@ -248,9 +220,18 @@ func (r *router) AddRouteFiltering(
 		UserData: []byte(ruleKey),
 	}
 
-	r.rules[string(ruleKey)] = r.conn.AddRule(rule)
+	rule = r.conn.AddRule(rule)
 
-	return ruleKey, r.conn.Flush()
+	log.Tracef("Adding route rule %s", spew.Sdump(rule))
+	if err := r.conn.Flush(); err != nil {
+		return nil, fmt.Errorf(flushError, err)
+	}
+
+	r.rules[string(ruleKey)] = rule
+
+	log.Debugf("nftables: added route rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v", sources, destination, proto, sPort, dPort, action)
+
+	return ruleKey, nil
 }
 
 func (r *router) getIpSetExprs(sources []netip.Prefix, exprs []expr.Any) ([]expr.Any, error) {
@@ -286,6 +267,10 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	if !exists {
 		log.Debugf("route rule %s not found", ruleKey)
 		return nil
+	}
+
+	if nftRule.Handle == 0 {
+		return fmt.Errorf("route rule %s has no handle", ruleKey)
 	}
 
 	setName := r.findSetNameInRule(nftRule)
@@ -440,11 +425,15 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
 
 	dir := expr.MetaKeyIIFNAME
+	notDir := expr.MetaKeyOIFNAME
 	if pair.Inverse {
 		dir = expr.MetaKeyOIFNAME
+		notDir = expr.MetaKeyIIFNAME
 	}
 
+	lo := ifname("lo")
 	intf := ifname(r.wgIface.Name())
+
 	exprs := []expr.Any{
 		&expr.Meta{
 			Key:      dir,
@@ -454,6 +443,17 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 			Op:       expr.CmpOpEq,
 			Register: 1,
 			Data:     intf,
+		},
+
+		// We need to exclude the loopback interface as this changes the ebpf proxy port
+		&expr.Meta{
+			Key:      notDir,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     lo,
 		},
 	}
 
@@ -562,19 +562,60 @@ func (r *router) RemoveAllLegacyRouteRules() error {
 // that our traffic is not dropped by existing rules there.
 // The existing FORWARD rules/policies decide outbound traffic towards our interface.
 // In case the FORWARD policy is set to "drop", we add an established/related rule to allow return traffic for the inbound rule.
-func (r *router) acceptForwardRules() {
+func (r *router) acceptForwardRules() error {
 	if r.filterTable == nil {
 		log.Debugf("table 'filter' not found for forward rules, skipping accept rules")
-		return
+		return nil
 	}
 
+	fw := "iptables"
+
+	defer func() {
+		log.Debugf("Used %s to add accept forward rules", fw)
+	}()
+
+	// Try iptables first and fallback to nftables if iptables is not available
+	ipt, err := iptables.New()
+	if err != nil {
+		// filter table exists but iptables is not
+		log.Warnf("Will use nftables to manipulate the filter table because iptables is not available: %v", err)
+
+		fw = "nftables"
+		return r.acceptForwardRulesNftables()
+	}
+
+	return r.acceptForwardRulesIptables(ipt)
+}
+
+func (r *router) acceptForwardRulesIptables(ipt *iptables.IPTables) error {
+	var merr *multierror.Error
+	for _, rule := range r.getAcceptForwardRules() {
+		if err := ipt.Insert("filter", chainNameForward, 1, rule...); err != nil {
+			merr = multierror.Append(err, fmt.Errorf("add iptables rule: %v", err))
+		} else {
+			log.Debugf("added iptables rule: %v", rule)
+		}
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *router) getAcceptForwardRules() [][]string {
+	intf := r.wgIface.Name()
+	return [][]string{
+		{"-i", intf, "-j", "ACCEPT"},
+		{"-o", intf, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
+	}
+}
+
+func (r *router) acceptForwardRulesNftables() error {
 	intf := ifname(r.wgIface.Name())
 
 	// Rule for incoming interface (iif) with counter
 	iifRule := &nftables.Rule{
 		Table: r.filterTable,
 		Chain: &nftables.Chain{
-			Name:     "FORWARD",
+			Name:     chainNameForward,
 			Table:    r.filterTable,
 			Type:     nftables.ChainTypeFilter,
 			Hooknum:  nftables.ChainHookForward,
@@ -594,6 +635,15 @@ func (r *router) acceptForwardRules() {
 	}
 	r.conn.InsertRule(iifRule)
 
+	oifExprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     intf,
+		},
+	}
+
 	// Rule for outgoing interface (oif) with counter
 	oifRule := &nftables.Rule{
 		Table: r.filterTable,
@@ -604,36 +654,72 @@ func (r *router) acceptForwardRules() {
 			Hooknum:  nftables.ChainHookForward,
 			Priority: nftables.ChainPriorityFilter,
 		},
-		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     intf,
-			},
-			&expr.Ct{
-				Key:      expr.CtKeySTATE,
-				Register: 2,
-			},
-			&expr.Bitwise{
-				SourceRegister: 2,
-				DestRegister:   2,
-				Len:            4,
-				Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
-				Xor:            binaryutil.NativeEndian.PutUint32(0),
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpNeq,
-				Register: 2,
-				Data:     []byte{0, 0, 0, 0},
-			},
-			&expr.Counter{},
-			&expr.Verdict{Kind: expr.VerdictAccept},
-		},
+		Exprs:    append(oifExprs, getEstablishedExprs(2)...),
 		UserData: []byte(userDataAcceptForwardRuleOif),
 	}
 
 	r.conn.InsertRule(oifRule)
+
+	return nil
+}
+
+func (r *router) removeAcceptForwardRules() error {
+	if r.filterTable == nil {
+		return nil
+	}
+
+	// Try iptables first and fallback to nftables if iptables is not available
+	ipt, err := iptables.New()
+	if err != nil {
+		log.Warnf("Will use nftables to manipulate the filter table because iptables is not available: %v", err)
+		return r.removeAcceptForwardRulesNftables()
+	}
+
+	return r.removeAcceptForwardRulesIptables(ipt)
+}
+
+func (r *router) removeAcceptForwardRulesNftables() error {
+	chains, err := r.conn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return fmt.Errorf("list chains: %v", err)
+	}
+
+	for _, chain := range chains {
+		if chain.Table.Name != r.filterTable.Name || chain.Name != chainNameForward {
+			continue
+		}
+
+		rules, err := r.conn.GetRules(r.filterTable, chain)
+		if err != nil {
+			return fmt.Errorf("get rules: %v", err)
+		}
+
+		for _, rule := range rules {
+			if bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleIif)) ||
+				bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleOif)) {
+				if err := r.conn.DelRule(rule); err != nil {
+					return fmt.Errorf("delete rule: %v", err)
+				}
+			}
+		}
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf(flushError, err)
+	}
+
+	return nil
+}
+
+func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error {
+	var merr *multierror.Error
+	for _, rule := range r.getAcceptForwardRules() {
+		if err := ipt.DeleteIfExists("filter", chainNameForward, rule...); err != nil {
+			merr = multierror.Append(err, fmt.Errorf("remove iptables rule: %v", err))
+		}
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // RemoveNatRule removes a nftables rule pair from nat chains
@@ -658,7 +744,7 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("nftables: received error while applying rule removal for %s: %v", pair.Destination, err)
 	}
 
-	log.Debugf("nftables: removed rules for %s", pair.Destination)
+	log.Debugf("nftables: removed nat rules for %s", pair.Destination)
 	return nil
 }
 
