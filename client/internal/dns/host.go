@@ -88,13 +88,14 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 		if len(nsConfig.NameServers) == 0 {
 			continue
 		}
-		if nsConfig.Primary {
+		if nsConfig.Primary && nsConfig.Enabled {
 			config.RouteAll = true
 		}
 
 		for _, domain := range nsConfig.Domains {
 			config.Domains = append(config.Domains, DomainConfig{
 				Domain:    strings.TrimSuffix(domain, "."),
+				Disabled:  !nsConfig.Enabled,
 				MatchOnly: !nsConfig.SearchDomainsEnabled,
 			})
 		}
