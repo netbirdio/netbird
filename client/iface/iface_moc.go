@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
 type MockWGIface struct {
@@ -30,6 +31,7 @@ type MockWGIface struct {
 	GetDeviceFunc              func() *device.FilteredDevice
 	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
+	GetProxyFunc               func() wgproxy.Proxy
 }
 
 func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
@@ -102,4 +104,9 @@ func (m *MockWGIface) GetDevice() *device.FilteredDevice {
 
 func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 	return m.GetStatsFunc(peerKey)
+}
+
+func (m *MockWGIface) GetProxy() wgproxy.Proxy {
+	//TODO implement me
+	panic("implement me")
 }
