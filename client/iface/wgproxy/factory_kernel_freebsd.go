@@ -1,6 +1,8 @@
 package wgproxy
 
 import (
+	log "github.com/sirupsen/logrus"
+
 	udpProxy "github.com/netbirdio/netbird/client/iface/wgproxy/udp"
 )
 
