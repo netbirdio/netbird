@@ -69,7 +69,7 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 
 	if update.NetworkMap != nil {
 		lastSentUpdate := p.peerUpdateMessage[peerID]
-		if lastSentUpdate != nil && lastSentUpdate.Update.NetworkMap.GetSerial() >= update.Update.NetworkMap.GetSerial() {
+		if lastSentUpdate != nil && lastSentUpdate.Update.NetworkMap.GetSerial() > update.Update.NetworkMap.GetSerial() {
 			log.WithContext(ctx).Debugf("peer %s new network map serial: %d not greater than last sent: %d, skip sending update",
 				peerID, update.Update.NetworkMap.GetSerial(), lastSentUpdate.Update.NetworkMap.GetSerial())
 			return
@@ -225,7 +225,7 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 
 // isNewPeerUpdateMessage checks if the given current update message is a new update that should be sent.
 func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bool, error) {
-	if lastSentUpdate.Update.NetworkMap.GetSerial() >= currUpdateToSend.Update.NetworkMap.GetSerial() {
+	if lastSentUpdate.Update.NetworkMap.GetSerial() > currUpdateToSend.Update.NetworkMap.GetSerial() {
 		return false, nil
 	}
 
