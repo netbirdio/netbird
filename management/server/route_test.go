@@ -1800,7 +1800,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 		manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
 	})
 
-	// Creating route no routing peer and no peers groups should not update account peers and not send peer update
+	// Creating a route with no routing peer and no peers in PeerGroups or Groups should not update account peers and not send peer update
 	t.Run("creating route no routing peer and no peers in groups", func(t *testing.T) {
 		route := route.Route{
 			ID:          "testingRoute1",
