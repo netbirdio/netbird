@@ -1908,7 +1908,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// Updating the route should update account peers and send peer update
+	// Updating the route should update account peers and send peer update when there is peers in group
 	t.Run("updating route", func(t *testing.T) {
 		baseRoute.Groups = []string{routeGroup1, routeGroup2}
 
