@@ -323,6 +323,29 @@ func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.
 	return nil
 }
 
+func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error {
+	accountCopy := Account{
+		Domain:                 domain,
+		DomainCategory:         category,
+		IsDomainPrimaryAccount: isPrimaryDomain,
+	}
+
+	fieldsToUpdate := []string{"domain", "domain_category", "is_domain_primary_account"}
+	result := s.db.WithContext(ctx).Model(&Account{}).
+		Select(fieldsToUpdate).
+		Where(idQueryCondition, accountID).
+		Updates(&accountCopy)
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "account %s", accountID)
+	}
+
+	return nil
+}
+
 func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
@@ -516,6 +539,20 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 	}
 
 	return &user, nil
+}
+
+func (s *SqlStore) GetAccountUsers(ctx context.Context, accountID string) ([]*User, error) {
+	var users []*User
+	result := s.db.Find(&users, accountIDCondition, accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
+		}
+		log.WithContext(ctx).Errorf("error when getting users from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting users from store")
+	}
+
+	return users, nil
 }
 
 func (s *SqlStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
@@ -1117,8 +1154,16 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error) {
 	var group nbgroup.Group
 
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations).
-		Order("json_array_length(peers) DESC").First(&group, "name = ? and account_id = ?", groupName, accountID)
+	// TODO: This fix is accepted for now, but if we need to handle this more frequently
+	// we may need to reconsider changing the types.
+	query := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations)
+	if s.storeEngine == PostgresStoreEngine {
+		query = query.Order("json_array_length(peers::json) DESC")
+	} else {
+		query = query.Order("json_array_length(peers) DESC")
+	}
+
+	result := query.First(&group, "name = ? and account_id = ?", groupName, accountID)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "group not found")

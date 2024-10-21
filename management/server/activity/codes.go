@@ -139,6 +139,13 @@ const (
 	PostureCheckUpdated Activity = 61
 	// PostureCheckDeleted indicates that the user deleted a posture check
 	PostureCheckDeleted Activity = 62
+
+	PeerInactivityExpirationEnabled  Activity = 63
+	PeerInactivityExpirationDisabled Activity = 64
+
+	AccountPeerInactivityExpirationEnabled         Activity = 65
+	AccountPeerInactivityExpirationDisabled        Activity = 66
+	AccountPeerInactivityExpirationDurationUpdated Activity = 67
 )
 
 var activityMap = map[Activity]Code{
@@ -205,6 +212,13 @@ var activityMap = map[Activity]Code{
 	PostureCheckCreated:                       {"Posture check created", "posture.check.created"},
 	PostureCheckUpdated:                       {"Posture check updated", "posture.check.updated"},
 	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.deleted"},
+
+	PeerInactivityExpirationEnabled:  {"Peer inactivity expiration enabled", "peer.inactivity.expiration.enable"},
+	PeerInactivityExpirationDisabled: {"Peer inactivity expiration disabled", "peer.inactivity.expiration.disable"},
+
+	AccountPeerInactivityExpirationEnabled:         {"Account peer inactivity expiration enabled", "account.peer.inactivity.expiration.enable"},
+	AccountPeerInactivityExpirationDisabled:        {"Account peer inactivity expiration disabled", "account.peer.inactivity.expiration.disable"},
+	AccountPeerInactivityExpirationDurationUpdated: {"Account peer inactivity expiration duration updated", "account.peer.inactivity.expiration.update"},
 }
 
 // StringCode returns a string code of the activity
