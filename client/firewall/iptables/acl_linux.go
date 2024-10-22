@@ -7,7 +7,6 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
-	"github.com/nadoo/ipset"
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -374,11 +373,14 @@ func (m *aclManager) updateState() {
 		return
 	}
 
-	currentState := &ShutdownState{}
-	if existing := m.stateManager.GetState(currentState); existing != nil {
+	var currentState *ShutdownState
+	if existing := m.stateManager.GetState(&ShutdownState{}); existing != nil {
 		if existingState, ok := existing.(*ShutdownState); ok {
-			*currentState = *existingState
+			currentState = existingState
 		}
+	}
+	if currentState == nil {
+		currentState = &ShutdownState{}
 	}
 
 	currentState.Lock()

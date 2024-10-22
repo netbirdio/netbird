@@ -465,11 +465,14 @@ func (r *router) updateState() {
 		return
 	}
 
-	currentState := &ShutdownState{}
-	if existing := r.stateManager.GetState(currentState); existing != nil {
+	var currentState *ShutdownState
+	if existing := r.stateManager.GetState(&ShutdownState{}); existing != nil {
 		if existingState, ok := existing.(*ShutdownState); ok {
-			*currentState = *existingState
+			currentState = existingState
 		}
+	}
+	if currentState == nil {
+		currentState = &ShutdownState{}
 	}
 
 	currentState.Lock()
