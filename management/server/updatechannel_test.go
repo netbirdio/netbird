@@ -145,6 +145,11 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 			newUpdate: &UpdateMessage{
 				Update: &proto.SyncResponse{
 					NetworkMap: &proto.NetworkMap{Serial: 2},
+					Checks: []*proto.Checks{
+						{
+							Files: []string{"/usr/bin/netbird"},
+						},
+					},
 				},
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 2}},
 			},
