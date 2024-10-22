@@ -7,6 +7,7 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
+	"github.com/nadoo/ipset"
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
