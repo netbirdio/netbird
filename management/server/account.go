@@ -2012,10 +2012,10 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 	jwtGroupsNames := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
 
-	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer func() {
-		if unlockPeer != nil {
-			unlockPeer()
+		if unlockAccount != nil {
+			unlockAccount()
 		}
 	}()
 
@@ -2024,12 +2024,12 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	var hasChanges bool
 	var user *User
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		user, err = am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+		user, err = transaction.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
 		if err != nil {
 			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		groups, err := am.Store.GetAccountGroups(ctx, accountID)
+		groups, err := transaction.GetAccountGroups(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("error getting account groups: %w", err)
 		}
@@ -2087,8 +2087,8 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
-		unlockPeer()
-		unlockPeer = nil
+		unlockAccount()
+		unlockAccount = nil
 
 		return nil
 	})
