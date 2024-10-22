@@ -19,6 +19,12 @@ const logLevel = log.TraceLevel
 // ErrIgnore can be returned by AddFunc to indicate that the counter should not be incremented for the given key.
 var ErrIgnore = errors.New("ignore")
 
+// Ref holds the reference count and associated data for a key.
+type Ref[O any] struct {
+	Count int
+	Out   O
+}
+
 // AddFunc is the function type for adding a new key.
 // Key is the type of the key (e.g., netip.Prefix).
 type AddFunc[Key, I, O any] func(key Key, in I) (out O, err error)
