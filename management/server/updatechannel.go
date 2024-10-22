@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/differs"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/r3labs/diff/v3"
 	log "github.com/sirupsen/logrus"
 
@@ -20,7 +19,6 @@ const channelBufferSize = 100
 type UpdateMessage struct {
 	Update     *proto.SyncResponse
 	NetworkMap *NetworkMap
-	Checks     []*posture.Checks
 }
 
 type PeersUpdateManager struct {
@@ -237,7 +235,10 @@ func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bo
 		return false, fmt.Errorf("failed to create differ: %v", err)
 	}
 
-	changelog, err := differ.Diff(lastSentUpdate.Checks, currUpdateToSend.Checks)
+	lastSentFiles := getChecksFiles(lastSentUpdate.Update.Checks)
+	currFiles := getChecksFiles(currUpdateToSend.Update.Checks)
+
+	changelog, err := differ.Diff(lastSentFiles, currFiles)
 	if err != nil {
 		return false, fmt.Errorf("failed to diff checks: %v", err)
 	}
@@ -250,4 +251,13 @@ func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bo
 		return false, fmt.Errorf("failed to diff network map: %v", err)
 	}
 	return len(changelog) > 0, nil
+}
+
+// getChecksFiles returns a list of files from the given checks.
+func getChecksFiles(checks []*proto.Checks) []string {
+	files := make([]string, 0, len(checks))
+	for _, check := range checks {
+		files = append(files, check.GetFiles()...)
+	}
+	return files
 }
