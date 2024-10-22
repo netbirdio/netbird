@@ -124,14 +124,12 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 					NetworkMap: &proto.NetworkMap{Serial: 1},
 				},
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
-				Checks:     []*posture.Checks{},
 			},
 			newUpdate: &UpdateMessage{
 				Update: &proto.SyncResponse{
 					NetworkMap: &proto.NetworkMap{Serial: 1},
 				},
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
-				Checks:     []*posture.Checks{},
 			},
 			expectedResult: false,
 		},
@@ -143,14 +141,12 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 					NetworkMap: &proto.NetworkMap{Serial: 1},
 				},
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
-				Checks:     []*posture.Checks{},
 			},
 			newUpdate: &UpdateMessage{
 				Update: &proto.SyncResponse{
 					NetworkMap: &proto.NetworkMap{Serial: 2},
 				},
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 2}},
-				Checks:     []*posture.Checks{{ID: "check1"}},
 			},
 			expectedResult: true,
 		},
@@ -193,7 +189,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage1 := createMockUpdateMessage(t)
 		newUpdateMessage2 := createMockUpdateMessage(t)
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.False(t, message)
 	})
@@ -204,7 +200,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.False(t, message)
 	})
@@ -216,7 +212,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.Routes[0].Network = netip.MustParsePrefix("1.1.1.1/32")
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 
@@ -229,7 +225,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.Routes[0].Groups = []string{"randomGroup1"}
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -248,26 +244,63 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.Peers = append(newUpdateMessage2.NetworkMap.Peers, newPeer)
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
 
-	t.Run("Updating posture checks", func(t *testing.T) {
+	t.Run("Updating process check", func(t *testing.T) {
 		newUpdateMessage1 := createMockUpdateMessage(t)
-		newUpdateMessage2 := createMockUpdateMessage(t)
 
-		newCheck := &posture.Checks{
+		newUpdateMessage2 := createMockUpdateMessage(t)
+		newUpdateMessage2.Update.NetworkMap.Serial++
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
+		assert.NoError(t, err)
+		assert.False(t, message)
+
+		newUpdateMessage3 := createMockUpdateMessage(t)
+		newUpdateMessage3.Update.Checks = []*proto.Checks{}
+		newUpdateMessage3.Update.NetworkMap.Serial++
+		message, err = isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage3)
+		assert.NoError(t, err)
+		assert.True(t, message)
+
+		newUpdateMessage4 := createMockUpdateMessage(t)
+		check := &posture.Checks{
 			Checks: posture.ChecksDefinition{
-				NBVersionCheck: &posture.NBVersionCheck{
-					MinVersion: "10.0",
+				ProcessCheck: &posture.ProcessCheck{
+					Processes: []posture.Process{
+						{
+							LinuxPath: "/usr/local/netbird",
+							MacPath:   "/usr/bin/netbird",
+						},
+					},
 				},
 			},
 		}
-		newUpdateMessage2.Checks = append(newUpdateMessage2.Checks, newCheck)
-		newUpdateMessage2.Update.NetworkMap.Serial++
+		newUpdateMessage4.Update.Checks = []*proto.Checks{toProtocolCheck(check)}
+		newUpdateMessage4.Update.NetworkMap.Serial++
+		message, err = isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage4)
+		assert.NoError(t, err)
+		assert.True(t, message)
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		newUpdateMessage5 := createMockUpdateMessage(t)
+		check = &posture.Checks{
+			Checks: posture.ChecksDefinition{
+				ProcessCheck: &posture.ProcessCheck{
+					Processes: []posture.Process{
+						{
+							LinuxPath:   "/usr/bin/netbird",
+							WindowsPath: "C:\\Program Files\\netbird\\netbird.exe",
+							MacPath:     "/usr/local/netbird",
+						},
+					},
+				},
+			},
+		}
+		newUpdateMessage5.Update.Checks = []*proto.Checks{toProtocolCheck(check)}
+		newUpdateMessage5.Update.NetworkMap.Serial++
+		message, err = isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage5)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -283,7 +316,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		)
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -295,7 +328,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.Peers[0].IP = net.ParseIP("192.168.1.10")
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -307,7 +340,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.FirewallRules[0].Port = "443"
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -326,7 +359,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.FirewallRules = append(newUpdateMessage2.NetworkMap.FirewallRules, newRule)
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -338,7 +371,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.DNSConfig.NameServerGroups[0].NameServers = make([]nbdns.NameServer, 0)
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -350,7 +383,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.DNSConfig.NameServerGroups[0].NameServers[0].IP = netip.MustParseAddr("8.8.4.4")
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -362,7 +395,7 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 		newUpdateMessage2.NetworkMap.DNSConfig.CustomZones[0].Records[0].RData = "100.64.0.2"
 		newUpdateMessage2.Update.NetworkMap.Serial++
 
-		message, err := isNewPeerUpdateMessage(newUpdateMessage1, newUpdateMessage2)
+		message, err := isNewPeerUpdateMessage(context.Background(), newUpdateMessage1, newUpdateMessage2)
 		assert.NoError(t, err)
 		assert.True(t, message)
 	})
@@ -487,7 +520,13 @@ func createMockUpdateMessage(t *testing.T) *UpdateMessage {
 		{
 			Checks: posture.ChecksDefinition{
 				ProcessCheck: &posture.ProcessCheck{
-					Processes: []posture.Process{{LinuxPath: "/usr/bin/netbird"}},
+					Processes: []posture.Process{
+						{
+							LinuxPath:   "/usr/bin/netbird",
+							WindowsPath: "C:\\Program Files\\netbird\\netbird.exe",
+							MacPath:     "/usr/bin/netbird",
+						},
+					},
 				},
 			},
 		},
@@ -507,6 +546,5 @@ func createMockUpdateMessage(t *testing.T) *UpdateMessage {
 	return &UpdateMessage{
 		Update:     toSyncResponse(context.Background(), config, peer, turnToken, relayToken, networkMap, dnsName, checks, dnsCache),
 		NetworkMap: networkMap,
-		Checks:     checks,
 	}
 }
