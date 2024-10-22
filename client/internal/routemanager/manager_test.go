@@ -407,7 +407,15 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil, nil)
+			opts := iface.WGIFaceOpts{
+				IFaceName:    fmt.Sprintf("utun43%d", n),
+				Address:      "100.65.65.2/24",
+				WGPort:       33100,
+				WGPrivKey:    peerPrivateKey.String(),
+				MTU:          iface.DefaultMTU,
+				TransportNet: newNet,
+			}
+			wgInterface, err := iface.NewWGIFace(opts)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 

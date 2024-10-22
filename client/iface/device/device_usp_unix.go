@@ -7,7 +7,6 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
@@ -30,7 +29,7 @@ type USPDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) *USPDevice {
+func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind) *USPDevice {
 	log.Infof("using userspace bind mode")
 
 	checkUser()
@@ -41,7 +40,8 @@ func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int,
 		port:    port,
 		key:     key,
 		mtu:     mtu,
-		iceBind: bind.NewICEBind(transportNet, filterFn)}
+		iceBind: iceBind,
+	}
 }
 
 func (t *USPDevice) Create() (WGConfigurer, error) {
