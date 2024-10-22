@@ -98,6 +98,11 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		log.Errorf("failed to update state: %v", err)
 	}
 
+	// persist early
+	if err := stateManager.PersistState(context.Background()); err != nil {
+		log.Errorf("failed to persist state: %v", err)
+	}
+
 	return nil
 }
 
