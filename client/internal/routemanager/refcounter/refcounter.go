@@ -84,12 +84,6 @@ func (rm *Counter[Key, I, O]) LoadData(
 	rm.idMap = existingCounter.idMap
 }
 
-// SetFunctions sets the add and remove functions for the Counter.
-func (rm *Counter[Key, I, O]) SetFunctions(add AddFunc[Key, I, O], remove RemoveFunc[Key, O]) {
-	rm.add = add
-	rm.remove = remove
-}
-
 // Get retrieves the current reference count and associated data for a key.
 // If the key doesn't exist, it returns a zero value Ref and false.
 func (rm *Counter[Key, I, O]) Get(key Key) (Ref[O], bool) {
