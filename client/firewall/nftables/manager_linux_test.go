@@ -109,6 +109,7 @@ func TestNftablesManager(t *testing.T) {
 			Register: 1,
 			Data:     []byte{0, 0, 0, 0},
 		},
+		&expr.Counter{},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,
 		},

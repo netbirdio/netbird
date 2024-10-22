@@ -1,11 +1,141 @@
 package util
 
 import (
+	"crypto/md5"
+	"encoding/hex"
+	"io"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
+
+type TestConfig struct {
+	SomeMap   map[string]string
+	SomeArray []string
+	SomeField int
+}
+
+func TestConfigJSON(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        *TestConfig
+		expectedError bool
+	}{
+		{
+			name: "Valid JSON config",
+			config: &TestConfig{
+				SomeMap:   map[string]string{"key1": "value1", "key2": "value2"},
+				SomeArray: []string{"value1", "value2"},
+				SomeField: 99,
+			},
+			expectedError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+
+			err := WriteJson(tmpDir+"/testconfig.json", tt.config)
+			require.NoError(t, err)
+
+			read, err := ReadJson(tmpDir+"/testconfig.json", &TestConfig{})
+			require.NoError(t, err)
+			require.NotNil(t, read)
+			require.Equal(t, tt.config.SomeMap["key1"], read.(*TestConfig).SomeMap["key1"])
+			require.Equal(t, tt.config.SomeMap["key2"], read.(*TestConfig).SomeMap["key2"])
+			require.ElementsMatch(t, tt.config.SomeArray, read.(*TestConfig).SomeArray)
+			require.Equal(t, tt.config.SomeField, read.(*TestConfig).SomeField)
+		})
+	}
+}
+
+func TestCopyFileContents(t *testing.T) {
+	tests := []struct {
+		name          string
+		srcContent    []string
+		expectedError bool
+	}{
+		{
+			name:          "Copy file contents successfully",
+			srcContent:    []string{"1", "2", "3"},
+			expectedError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+
+			src := tmpDir + "/copytest_src"
+			dst := tmpDir + "/copytest_dst"
+
+			err := WriteJson(src, tt.srcContent)
+			require.NoError(t, err)
+
+			err = CopyFileContents(src, dst)
+			require.NoError(t, err)
+
+			hashSrc := md5.New()
+			hashDst := md5.New()
+
+			srcFile, err := os.Open(src)
+			require.NoError(t, err)
+			defer func() {
+				_ = srcFile.Close()
+			}()
+
+			dstFile, err := os.Open(dst)
+			require.NoError(t, err)
+			defer func() {
+				_ = dstFile.Close()
+			}()
+
+			_, err = io.Copy(hashSrc, srcFile)
+			require.NoError(t, err)
+
+			_, err = io.Copy(hashDst, dstFile)
+			require.NoError(t, err)
+
+			require.Equal(t, hex.EncodeToString(hashSrc.Sum(nil)[:16]), hex.EncodeToString(hashDst.Sum(nil)[:16]))
+		})
+	}
+}
+
+func TestHandleConfigFileWithoutFullPath(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        *TestConfig
+		expectedError bool
+	}{
+		{
+			name: "Handle config file without full path",
+			config: &TestConfig{
+				SomeField: 123,
+			},
+			expectedError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgFile := "test_cfg.json"
+			defer func() {
+				_ = os.Remove(cfgFile)
+			}()
+
+			err := WriteJson(cfgFile, tt.config)
+			require.NoError(t, err)
+
+			read, err := ReadJson(cfgFile, &TestConfig{})
+			require.NoError(t, err)
+			require.NotNil(t, read)
+		})
+	}
+}
 
 func TestReadJsonWithEnvSub(t *testing.T) {
 	type Config struct {
