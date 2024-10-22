@@ -39,7 +39,7 @@ const (
 type WgConfig struct {
 	WgListenPort int
 	RemoteKey    string
-	WgInterface  iface.IWGIface
+	WgInterface  *iface.WGIface
 	AllowedIps   string
 	PreSharedKey *wgtypes.Key
 }

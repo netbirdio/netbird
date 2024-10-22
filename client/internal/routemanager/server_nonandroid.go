@@ -22,11 +22,11 @@ type defaultServerRouter struct {
 	ctx            context.Context
 	routes         map[route.ID]*route.Route
 	firewall       firewall.Manager
-	wgInterface    iface.IWGIface
+	wgInterface    *iface.WGIface
 	statusRecorder *peer.Status
 }
 
-func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall firewall.Manager, statusRecorder *peer.Status) (serverRouter, error) {
+func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall firewall.Manager, statusRecorder *peer.Status) (serverRouter, error) {
 	return &defaultServerRouter{
 		ctx:            ctx,
 		routes:         make(map[route.ID]*route.Route),
