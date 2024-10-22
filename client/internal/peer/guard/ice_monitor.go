@@ -52,7 +52,7 @@ func (cm *ICEMonitor) Start(ctx context.Context, onChanged func()) {
 		case <-ticker.C:
 			changed, err := cm.handleCandidateTick(ctx, ufrag, pwd)
 			if err != nil {
-				log.Warnf("Failed to handle candidate tick: %v", err)
+				log.Warnf("Failed to check ICE changes: %v", err)
 				continue
 			}
 
@@ -98,7 +98,7 @@ func (cm *ICEMonitor) handleCandidateTick(ctx context.Context, ufrag string, pwd
 
 	select {
 	case <-ctx.Done():
-		return false, fmt.Errorf("wait for gathering: %w", ctx.Err())
+		return false, fmt.Errorf("wait for gathering timed out")
 	case <-gatherDone:
 	}
 
