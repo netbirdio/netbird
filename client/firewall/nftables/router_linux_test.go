@@ -42,6 +42,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			manager, err := newRouter(context.TODO(), table, ifaceMock)
 			require.NoError(t, err, "failed to create router")
+			require.NoError(t, manager.init(table))
 
 			nftablesTestingClient := &nftables.Conn{}
 
@@ -132,6 +133,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			manager, err := newRouter(context.TODO(), table, ifaceMock)
 			require.NoError(t, err, "failed to create router")
+			require.NoError(t, manager.init(table))
 
 			nftablesTestingClient := &nftables.Conn{}
 
@@ -200,6 +202,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	r, err := newRouter(context.Background(), workTable, ifaceMock)
 	require.NoError(t, err, "Failed to create router")
+	require.NoError(t, r.init(workTable))
 
 	defer func(r *router) {
 		require.NoError(t, r.Reset(), "Failed to reset rules")
@@ -366,6 +369,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 
 	r, err := newRouter(context.Background(), workTable, ifaceMock)
 	require.NoError(t, err, "Failed to create router")
+	require.NoError(t, r.init(workTable))
 
 	defer func() {
 		require.NoError(t, r.Reset(), "Failed to reset router")

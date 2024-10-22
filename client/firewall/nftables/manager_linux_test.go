@@ -60,10 +60,11 @@ func TestNftablesManager(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create(context.Background(), ifaceMock)
 	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
 	time.Sleep(time.Second * 3)
 
 	defer func() {
-		err = manager.Reset()
+		err = manager.Reset(nil)
 		require.NoError(t, err, "failed to reset")
 		time.Sleep(time.Second)
 	}()
@@ -169,7 +170,7 @@ func TestNftablesManager(t *testing.T) {
 	// established rule remains
 	require.Len(t, rules, 1, "expected 1 rules after deletion")
 
-	err = manager.Reset()
+	err = manager.Reset(nil)
 	require.NoError(t, err, "failed to reset")
 }
 
@@ -194,10 +195,11 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			// just check on the local interface
 			manager, err := Create(context.Background(), mock)
 			require.NoError(t, err)
+			require.NoError(t, manager.Init(nil))
 			time.Sleep(time.Second * 3)
 
 			defer func() {
-				if err := manager.Reset(); err != nil {
+				if err := manager.Reset(nil); err != nil {
 					t.Errorf("clear the manager state: %v", err)
 				}
 				time.Sleep(time.Second)
