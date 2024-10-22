@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -207,7 +208,7 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 	p.channelsMux.RUnlock()
 
 	if lastSentUpdate != nil {
-		updated, err := isNewPeerUpdateMessage(lastSentUpdate, update)
+		updated, err := isNewPeerUpdateMessage(ctx, lastSentUpdate, update)
 		if err != nil {
 			log.WithContext(ctx).Errorf("error checking for SyncResponse updates: %v", err)
 			return false
@@ -222,7 +223,14 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 }
 
 // isNewPeerUpdateMessage checks if the given current update message is a new update that should be sent.
-func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bool, error) {
+func isNewPeerUpdateMessage(ctx context.Context, lastSentUpdate, currUpdateToSend *UpdateMessage) (isNew bool, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.WithContext(ctx).Panicf("comparing peer update messages. Trace: %s", debug.Stack())
+		}
+		isNew, err = true, nil
+	}()
+
 	if lastSentUpdate.Update.NetworkMap.GetSerial() > currUpdateToSend.Update.NetworkMap.GetSerial() {
 		return false, nil
 	}
