@@ -179,11 +179,11 @@ func TestMigrateSetupKeyToHashedSetupKey_ForPlainKey(t *testing.T) {
 	err = db.Model(&server.SetupKey{}).First(&key).Error
 	assert.NoError(t, err, "Failed to fetch setup key")
 
-	assert.Equal(t, "EEFDA*******************************", key.KeySecret, "Key should be secret")
+	assert.Equal(t, "EEFDA****", key.KeySecret, "Key should be secret")
 	assert.Equal(t, "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=", key.Key, "Key should be hashed")
 }
 
-func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey(t *testing.T) {
+func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case1(t *testing.T) {
 	db := setupDatabase(t)
 
 	err := db.AutoMigrate(&server.SetupKey{})
@@ -191,7 +191,7 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey(t *testing.T) {
 
 	err = db.Save(&server.SetupKey{
 		Key:       "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
-		KeySecret: "EEFDA*******************************",
+		KeySecret: "EEFDA****",
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
 
@@ -202,6 +202,27 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey(t *testing.T) {
 	err = db.Model(&server.SetupKey{}).First(&key).Error
 	assert.NoError(t, err, "Failed to fetch setup key")
 
-	assert.Equal(t, "EEFDA*******************************", key.KeySecret, "Key should be secret")
+	assert.Equal(t, "EEFDA****", key.KeySecret, "Key should be secret")
+	assert.Equal(t, "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=", key.Key, "Key should be hashed")
+}
+
+func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case2(t *testing.T) {
+	db := setupDatabase(t)
+
+	err := db.AutoMigrate(&server.SetupKey{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+
+	err = db.Save(&server.SetupKey{
+		Key: "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
+	}).Error
+	require.NoError(t, err, "Failed to insert setup key")
+
+	err = migration.MigrateSetupKeyToHashedSetupKey[server.SetupKey](context.Background(), db)
+	require.NoError(t, err, "Migration should not fail to migrate setup key")
+
+	var key server.SetupKey
+	err = db.Model(&server.SetupKey{}).First(&key).Error
+	assert.NoError(t, err, "Failed to fetch setup key")
+
 	assert.Equal(t, "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=", key.Key, "Key should be hashed")
 }
