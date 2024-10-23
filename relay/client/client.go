@@ -184,12 +184,14 @@ func (c *Client) Connect() error {
 		return err
 	}
 
+	c.log = c.log.WithField("relay", c.instanceURL.String())
+	c.log.Infof("relay connection established")
+
 	c.serviceIsRunning = true
 
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
 
-	c.log.Infof("relay connection established with: %s", c.instanceURL)
 	return nil
 }
 
