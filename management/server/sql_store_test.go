@@ -445,7 +445,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 
 	// save status of non-existing peer
 	newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()}
-	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
+	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -465,7 +465,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
+	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)
@@ -476,7 +476,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 
 	newStatus.Connected = true
 
-	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
+	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)
@@ -511,7 +511,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 		Meta: nbpeer.PeerSystemMeta{},
 	}
 	// error is expected as peer is not in store yet
-	err = store.SavePeerLocation(account.Id, peer)
+	err = store.SavePeerLocation(context.Background(), LockingStrengthUpdate, account.Id, peer)
 	assert.Error(t, err)
 
 	account.Peers[peer.ID] = peer
@@ -523,7 +523,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	peer.Location.CityName = "Berlin"
 	peer.Location.GeoNameID = 2950159
 
-	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
+	err = store.SavePeerLocation(context.Background(), LockingStrengthUpdate, account.Id, account.Peers[peer.ID])
 	assert.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)
@@ -533,7 +533,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	assert.Equal(t, peer.Location, actual)
 
 	peer.ID = "non-existing-peer"
-	err = store.SavePeerLocation(account.Id, peer)
+	err = store.SavePeerLocation(context.Background(), LockingStrengthUpdate, account.Id, peer)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -916,7 +916,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 
 	// save status of non-existing peer
 	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
-	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
+	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 
 	// save new status of existing peer
@@ -933,7 +933,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
+	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)

@@ -768,7 +768,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if len(expiredPeers) > 0 {
-		if err := am.expireAndUpdatePeers(ctx, account, expiredPeers); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
@@ -1049,21 +1049,22 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 }
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
-func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, account *Account, peers []*nbpeer.Peer) error {
+func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
 		if peer.Status.LoginExpired {
 			continue
 		}
+
 		peerIDs = append(peerIDs, peer.ID)
 		peer.MarkLoginExpired(true)
-		account.UpdatePeer(peer)
-		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
+
+		if err := am.Store.SavePeerStatus(ctx, LockingStrengthUpdate, accountID, peer.ID, *peer.Status); err != nil {
 			return err
 		}
 		am.StoreEvent(
 			ctx,
-			peer.UserID, peer.ID, account.Id,
+			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
 		)
 	}
@@ -1071,6 +1072,11 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
+
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf(errGetAccountFmt, err)
+		}
 		am.updateAccountPeers(ctx, account)
 	}
 	return nil

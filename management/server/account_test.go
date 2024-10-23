@@ -1695,10 +1695,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
-	account, err := manager.Store.GetAccount(context.Background(), accountID)
-	require.NoError(t, err, "unable to get the account")
-
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
@@ -1721,11 +1718,11 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	// disable expiration first
 	update := peer.Copy()
 	update.LoginExpirationEnabled = false
-	_, err = manager.UpdatePeer(context.Background(), account.Id, userID, update)
+	_, err = manager.UpdatePeer(context.Background(), accountID, userID, update)
 	require.NoError(t, err, "unable to update peer")
 	// enabling expiration should trigger the routine
 	update.LoginExpirationEnabled = true
-	_, err = manager.UpdatePeer(context.Background(), account.Id, userID, update)
+	_, err = manager.UpdatePeer(context.Background(), accountID, userID, update)
 	require.NoError(t, err, "unable to update peer")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1769,11 +1766,8 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	accountID, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
-	account, err := manager.Store.GetAccount(context.Background(), accountID)
-	require.NoError(t, err, "unable to get the account")
-
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1801,10 +1795,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
-	account, err := manager.Store.GetAccount(context.Background(), accountID)
-	require.NoError(t, err, "unable to get the account")
-
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
@@ -1818,7 +1809,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		},
 	}
 	// enabling PeerLoginExpirationEnabled should trigger the expiration job
-	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1831,7 +1822,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	wg.Add(1)
 
 	// disabling PeerLoginExpirationEnabled should trigger cancel
-	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
 	})

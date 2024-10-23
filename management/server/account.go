@@ -95,7 +95,7 @@ type AccountManager interface {
 	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*User, error)
 	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, account *Account) error
+	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(ctx context.Context, peerID string) (*NetworkMap, error)
@@ -1230,29 +1230,24 @@ func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
-		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-		defer unlock()
-
-		account, err := am.Store.GetAccount(ctx, accountID)
+		expiredPeers, err := am.getExpiredPeers(ctx, accountID)
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed getting account %s expiring peers", accountID)
-			return account.GetNextPeerExpiration()
+			return 0, false
 		}
 
-		expiredPeers := account.GetExpiredPeers()
 		var peerIDs []string
 		for _, peer := range expiredPeers {
 			peerIDs = append(peerIDs, peer.ID)
 		}
 
-		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
+		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(peerIDs), accountID)
 
-		if err := am.expireAndUpdatePeers(ctx, account, expiredPeers); err != nil {
-			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", account.Id)
-			return account.GetNextPeerExpiration()
+		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
+			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", accountID)
+			return 0, false
 		}
 
-		return account.GetNextPeerExpiration()
+		return am.getNextPeerExpiration(ctx, accountID)
 	}
 }
 
@@ -1266,29 +1261,25 @@ func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context
 // peerInactivityExpirationJob marks login expired for all inactive peers and returns the minimum duration in which the next peer of the account will expire by inactivity if found
 func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
-		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-		defer unlock()
-
-		account, err := am.Store.GetAccount(ctx, accountID)
+		inactivePeers, err := am.getInactivePeers(ctx, accountID)
 		if err != nil {
-			log.Errorf("failed getting account %s expiring peers", account.Id)
-			return account.GetNextInactivePeerExpiration()
+			log.WithContext(ctx).Errorf("failed getting inactive peers for account %s", accountID)
+			return 0, false
 		}
 
-		expiredPeers := account.GetInactivePeers()
 		var peerIDs []string
-		for _, peer := range expiredPeers {
+		for _, peer := range inactivePeers {
 			peerIDs = append(peerIDs, peer.ID)
 		}
 
-		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
+		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), accountID)
 
-		if err := am.expireAndUpdatePeers(ctx, account, expiredPeers); err != nil {
-			log.Errorf("failed updating account peers while expiring peers for account %s", account.Id)
-			return account.GetNextInactivePeerExpiration()
+		if err := am.expireAndUpdatePeers(ctx, accountID, inactivePeers); err != nil {
+			log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
+			return 0, false
 		}
 
-		return account.GetNextInactivePeerExpiration()
+		return am.getNextInactivePeerExpiration(ctx, accountID)
 	}
 }
 
@@ -2317,7 +2308,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 		return nil, nil, nil, err
 	}
 
-	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, account)
+	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, accountID)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
@@ -2326,23 +2317,11 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 }
 
 func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error {
-	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer accountUnlock()
-	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
-	defer peerUnlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
-	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, account)
+	err := am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
-
 	return nil
-
 }
 
 func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error {

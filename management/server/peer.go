@@ -104,37 +104,46 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, account *Account) error {
-	peer, err := account.FindPeerByPubKey(peerPubKey)
+func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string) error {
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, LockingStrengthShare, peerPubKey)
 	if err != nil {
 		return err
 	}
 
-	expired, err := am.updatePeerStatusAndLocation(ctx, peer, connected, realIP, account)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return err
+	}
+
+	expired, err := am.updatePeerStatusAndLocation(ctx, peer, connected, realIP, accountID)
 	if err != nil {
 		return err
 	}
 
 	if peer.AddedWithSSOLogin() {
-		if peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
-			am.checkAndSchedulePeerLoginExpiration(ctx, account.Id)
+		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
+			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 		}
 
-		if peer.InactivityExpirationEnabled && account.Settings.PeerInactivityExpirationEnabled {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, account.Id)
+		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
 	}
 
 	if expired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf(errGetAccountFmt, err)
+		}
 		am.updateAccountPeers(ctx, account)
 	}
 
 	return nil
 }
 
-func (am *DefaultAccountManager) updatePeerStatusAndLocation(ctx context.Context, peer *nbpeer.Peer, connected bool, realIP net.IP, account *Account) (bool, error) {
+func (am *DefaultAccountManager) updatePeerStatusAndLocation(ctx context.Context, peer *nbpeer.Peer, connected bool, realIP net.IP, accountID string) (bool, error) {
 	oldStatus := peer.Status.Copy()
 	newStatus := oldStatus
 	newStatus.LastSeen = time.Now().UTC()
@@ -154,16 +163,14 @@ func (am *DefaultAccountManager) updatePeerStatusAndLocation(ctx context.Context
 			peer.Location.CountryCode = location.Country.ISOCode
 			peer.Location.CityName = location.City.Names.En
 			peer.Location.GeoNameID = location.City.GeonameID
-			err = am.Store.SavePeerLocation(account.Id, peer)
+			err = am.Store.SavePeerLocation(ctx, LockingStrengthUpdate, accountID, peer)
 			if err != nil {
 				log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
 			}
 		}
 	}
 
-	account.UpdatePeer(peer)
-
-	err := am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
+	err := am.Store.SavePeerStatus(ctx, LockingStrengthUpdate, accountID, peer.ID, *newStatus)
 	if err != nil {
 		return false, err
 	}
