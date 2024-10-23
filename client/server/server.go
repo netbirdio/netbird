@@ -44,6 +44,8 @@ const (
 	defaultMaxRetryInterval = 60 * time.Minute
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
+
+	errRestoreResidualState = "failed to restore residual state: %v"
 )
 
 // Server for service control.
@@ -101,7 +103,7 @@ func (s *Server) Start() error {
 	state := internal.CtxGetState(s.rootCtx)
 
 	if err := restoreResidualState(s.rootCtx); err != nil {
-		log.Warnf("failed to restore residual state: %v", err)
+		log.Warnf(errRestoreResidualState, err)
 	}
 
 	// if current state contains any error, return it
@@ -302,7 +304,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.mutex.Unlock()
 
 	if err := restoreResidualState(ctx); err != nil {
-		log.Warnf("failed to restore residual state: %v", err)
+		log.Warnf(errRestoreResidualState, err)
 	}
 
 	state := internal.CtxGetState(ctx)
@@ -563,7 +565,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	defer s.mutex.Unlock()
 
 	if err := restoreResidualState(callerCtx); err != nil {
-		log.Warnf("failed to restore residual state: %v", err)
+		log.Warnf(errRestoreResidualState, err)
 	}
 
 	state := internal.CtxGetState(s.rootCtx)
