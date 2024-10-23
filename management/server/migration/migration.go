@@ -235,13 +235,11 @@ func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) er
 			}
 		}
 
-		pattern := "[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}"
-
 		var rows []map[string]any
 		if err := tx.Table(tableName).
 			Select("id", oldColumnName, newColumnName).
-			Where(newColumnName+" IS NULL OR "+newColumnName+" = ''").
-			Where(oldColumnName+" ~ ?", pattern).
+			Where(newColumnName + " IS NULL OR " + newColumnName + " = ''").
+			Where("SUBSTR(" + oldColumnName + ", 9, 1) = '-'").
 			Find(&rows).Error; err != nil {
 			return fmt.Errorf("find rows with empty secret key and matching pattern: %w", err)
 		}
