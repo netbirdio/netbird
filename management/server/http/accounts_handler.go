@@ -137,13 +137,15 @@ func toAccountResponse(accountID string, settings *server.Settings) *api.Account
 	}
 
 	apiSettings := api.AccountSettings{
-		PeerLoginExpiration:        int(settings.PeerLoginExpiration.Seconds()),
-		PeerLoginExpirationEnabled: settings.PeerLoginExpirationEnabled,
-		GroupsPropagationEnabled:   &settings.GroupsPropagationEnabled,
-		JwtGroupsEnabled:           &settings.JWTGroupsEnabled,
-		JwtGroupsClaimName:         &settings.JWTGroupsClaimName,
-		JwtAllowGroups:             &jwtAllowGroups,
-		RegularUsersViewBlocked:    settings.RegularUsersViewBlocked,
+		PeerLoginExpiration:             int(settings.PeerLoginExpiration.Seconds()),
+		PeerLoginExpirationEnabled:      settings.PeerLoginExpirationEnabled,
+		PeerInactivityExpiration:        int(settings.PeerInactivityExpiration.Seconds()),
+		PeerInactivityExpirationEnabled: settings.PeerInactivityExpirationEnabled,
+		GroupsPropagationEnabled:        &settings.GroupsPropagationEnabled,
+		JwtGroupsEnabled:                &settings.JWTGroupsEnabled,
+		JwtGroupsClaimName:              &settings.JWTGroupsClaimName,
+		JwtAllowGroups:                  &jwtAllowGroups,
+		RegularUsersViewBlocked:         settings.RegularUsersViewBlocked,
 	}
 
 	if settings.Extra != nil {
