@@ -254,41 +254,16 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	chains, err := m.rConn.ListChains()
-	if err != nil {
-		return fmt.Errorf("list of chains: %w", err)
-	}
-
-	for _, c := range chains {
-		// delete Netbird allow input traffic rule if it exists
-		if c.Table.Name == "filter" && c.Name == "INPUT" {
-			rules, err := m.rConn.GetRules(c.Table, c)
-			if err != nil {
-				log.Errorf("get rules for chain %q: %v", c.Name, err)
-				continue
-			}
-			for _, r := range rules {
-				if bytes.Equal(r.UserData, []byte(allowNetbirdInputRuleID)) {
-					if err := m.rConn.DelRule(r); err != nil {
-						log.Errorf("delete rule: %v", err)
-					}
-				}
-			}
-		}
+	if err := m.resetNetbirdInputRules(); err != nil {
+		return fmt.Errorf("reset netbird input rules: %v", err)
 	}
 
 	if err := m.router.Reset(); err != nil {
 		return fmt.Errorf("reset router: %v", err)
 	}
 
-	tables, err := m.rConn.ListTables()
-	if err != nil {
-		return fmt.Errorf("list tables: %w", err)
-	}
-	for _, t := range tables {
-		if t.Name == tableNameNetbird {
-			m.rConn.DelTable(t)
-		}
+	if err := m.cleanupNetbirdTables(); err != nil {
+		return fmt.Errorf("cleanup netbird tables: %v", err)
 	}
 
 	if err := m.rConn.Flush(); err != nil {
@@ -299,6 +274,55 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 		return fmt.Errorf("delete state: %v", err)
 	}
 
+	return nil
+}
+
+func (m *Manager) resetNetbirdInputRules() error {
+	chains, err := m.rConn.ListChains()
+	if err != nil {
+		return fmt.Errorf("list chains: %w", err)
+	}
+
+	m.deleteNetbirdInputRules(chains)
+
+	return nil
+}
+
+func (m *Manager) deleteNetbirdInputRules(chains []*nftables.Chain) {
+	for _, c := range chains {
+		if c.Table.Name == "filter" && c.Name == "INPUT" {
+			rules, err := m.rConn.GetRules(c.Table, c)
+			if err != nil {
+				log.Errorf("get rules for chain %q: %v", c.Name, err)
+				continue
+			}
+
+			m.deleteMatchingRules(rules)
+		}
+	}
+}
+
+func (m *Manager) deleteMatchingRules(rules []*nftables.Rule) {
+	for _, r := range rules {
+		if bytes.Equal(r.UserData, []byte(allowNetbirdInputRuleID)) {
+			if err := m.rConn.DelRule(r); err != nil {
+				log.Errorf("delete rule: %v", err)
+			}
+		}
+	}
+}
+
+func (m *Manager) cleanupNetbirdTables() error {
+	tables, err := m.rConn.ListTables()
+	if err != nil {
+		return fmt.Errorf("list tables: %w", err)
+	}
+
+	for _, t := range tables {
+		if t.Name == tableNameNetbird {
+			m.rConn.DelTable(t)
+		}
+	}
 	return nil
 }
 
