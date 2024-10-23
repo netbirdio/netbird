@@ -45,15 +45,15 @@ import (
 )
 
 const (
-	PublicCategory             = "public"
-	PrivateCategory            = "private"
-	UnknownCategory            = "unknown"
-	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
-	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
-	DefaultPeerLoginExpiration = 24 * time.Hour
+	PublicCategory                  = "public"
+	PrivateCategory                 = "private"
+	UnknownCategory                 = "unknown"
+	CacheExpirationMax              = 7 * 24 * 3600 * time.Second // 7 days
+	CacheExpirationMin              = 3 * 24 * 3600 * time.Second // 3 days
+	DefaultPeerLoginExpiration      = 24 * time.Hour
 	DefaultPeerInactivityExpiration = 10 * time.Minute
-	emptyUserID                = "empty user ID in claims"
-	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+	emptyUserID                     = "empty user ID in claims"
+	errorGettingDomainAccIDFmt      = "error getting account ID by private domain: %v"
 )
 
 type userLoggedInOnce bool
@@ -102,7 +102,6 @@ type AccountManager interface {
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
-	UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*nbgroup.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)
@@ -1440,7 +1439,7 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, u
 			return err
 		}
 		cachedAccount := &Account{
-			Id: accountID,
+			Id:    accountID,
 			Users: make(map[string]*User),
 		}
 		for _, user := range accountUsers {
@@ -2012,10 +2011,10 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 	jwtGroupsNames := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
 
-	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer func() {
-		if unlockPeer != nil {
-			unlockPeer()
+		if unlockAccount != nil {
+			unlockAccount()
 		}
 	}()
 
@@ -2024,12 +2023,12 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	var hasChanges bool
 	var user *User
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		user, err = am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+		user, err = transaction.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
 		if err != nil {
 			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		groups, err := am.Store.GetAccountGroups(ctx, accountID)
+		groups, err := transaction.GetAccountGroups(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("error getting account groups: %w", err)
 		}
@@ -2087,8 +2086,8 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
-		unlockPeer()
-		unlockPeer = nil
+		unlockAccount()
+		unlockAccount = nil
 
 		return nil
 	})
@@ -2132,8 +2131,10 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 			return fmt.Errorf("error getting account: %w", err)
 		}
 
-		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-		am.updateAccountPeers(ctx, account)
+		if areGroupChangesAffectPeers(account, addNewGroups) || areGroupChangesAffectPeers(account, removeOldGroups) {
+			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
+			am.updateAccountPeers(ctx, account)
+		}
 	}
 
 	return nil
@@ -2220,6 +2221,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 	// check again if the domain has a primary account because of simultaneous requests
 	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if handleNotFound(err) != nil {
+		cancel()
 		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
 		return "", nil, err
 	}
@@ -2276,7 +2278,7 @@ func handleNotFound(err error) error {
 }
 
 func domainIsUpToDate(domain string, domainCategory string, claims jwtclaims.AuthorizationClaims) bool {
-	return claims.Domain != "" && claims.Domain != domain && claims.DomainCategory == PrivateCategory && domainCategory != PrivateCategory
+	return domainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory || domain != claims.Domain
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {

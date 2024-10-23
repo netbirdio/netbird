@@ -61,7 +61,14 @@ func TestAddRemoveRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil, nil)
+			opts := iface.WGIFaceOpts{
+				IFaceName:    fmt.Sprintf("utun53%d", n),
+				Address:      "100.65.75.2/24",
+				WGPrivKey:    peerPrivateKey.String(),
+				MTU:          iface.DefaultMTU,
+				TransportNet: newNet,
+			}
+			wgInterface, err := iface.NewWGIFace(opts)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
@@ -213,7 +220,15 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil, nil)
+			opts := iface.WGIFaceOpts{
+				IFaceName:    fmt.Sprintf("utun53%d", n),
+				Address:      "100.65.75.2/24",
+				WGPort:       33100,
+				WGPrivKey:    peerPrivateKey.String(),
+				MTU:          iface.DefaultMTU,
+				TransportNet: newNet,
+			}
+			wgInterface, err := iface.NewWGIFace(opts)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
@@ -345,7 +360,15 @@ func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listen
 	newNet, err := stdnet.NewNet()
 	require.NoError(t, err)
 
-	wgInterface, err := iface.NewWGIFace(interfaceName, ipAddressCIDR, listenPort, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil, nil)
+	opts := iface.WGIFaceOpts{
+		IFaceName:    interfaceName,
+		Address:      ipAddressCIDR,
+		WGPrivKey:    peerPrivateKey.String(),
+		WGPort:       listenPort,
+		MTU:          iface.DefaultMTU,
+		TransportNet: newNet,
+	}
+	wgInterface, err := iface.NewWGIFace(opts)
 	require.NoError(t, err, "should create testing WireGuard interface")
 
 	err = wgInterface.Create()

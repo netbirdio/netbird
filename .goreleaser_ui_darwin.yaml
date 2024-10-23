@@ -23,6 +23,9 @@ builds:
     tags:
       - load_wgnt_from_rsrc
 
+universal_binaries:
+  - id: netbird-ui-darwin
+
 archives:
   - builds:
       - netbird-ui-darwin

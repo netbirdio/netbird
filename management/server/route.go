@@ -237,7 +237,9 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		return nil, err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if isRouteChangeAffectPeers(account, &newRoute) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
@@ -313,6 +315,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return err
 	}
 
+	oldRoute := account.Routes[routeToSave.ID]
 	account.Routes[routeToSave.ID] = routeToSave
 
 	account.Network.IncSerial()
@@ -320,7 +323,9 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if isRouteChangeAffectPeers(account, oldRoute) || isRouteChangeAffectPeers(account, routeToSave) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
@@ -350,7 +355,9 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
 
-	am.updateAccountPeers(ctx, account)
+	if isRouteChangeAffectPeers(account, routy) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -640,4 +647,10 @@ func getProtoPortInfo(rule *RouteFirewallRule) *proto.PortInfo {
 		}
 	}
 	return &portInfo
+}
+
+// isRouteChangeAffectPeers checks if a given route affects peers by determining
+// if it has a routing peer, distribution, or peer groups that include peers
+func isRouteChangeAffectPeers(account *Account, route *route.Route) bool {
+	return anyGroupHasPeers(account, route.Groups) || anyGroupHasPeers(account, route.PeerGroups) || route.Peer != ""
 }

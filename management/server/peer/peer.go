@@ -17,37 +17,37 @@ type Peer struct {
 	// WireGuard public key
 	Key string `gorm:"index"`
 	// A setup key this peer was registered with
-	SetupKey string
+	SetupKey string `diff:"-"`
 	// IP address of the Peer
 	IP net.IP `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
-	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_" diff:"-"`
 	// Name is peer's name (machine name)
 	Name string
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
 	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DNSLabel string
 	// Status peer's management connection status
-	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
+	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_" diff:"-"`
 	// The user ID that registered the peer
-	UserID string
+	UserID string `diff:"-"`
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
 	// SSHEnabled indicates whether SSH server is enabled on the peer
 	SSHEnabled bool
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
 	// Works with LastLogin
-	LoginExpirationEnabled bool
+	LoginExpirationEnabled bool `diff:"-"`
 
-	InactivityExpirationEnabled bool
+	InactivityExpirationEnabled bool `diff:"-"`
 	// LastLogin the time when peer performed last login operation
-	LastLogin time.Time
+	LastLogin time.Time `diff:"-"`
 	// CreatedAt records the time the peer was created
-	CreatedAt time.Time
+	CreatedAt time.Time `diff:"-"`
 	// Indicate ephemeral peer attribute
-	Ephemeral bool
+	Ephemeral bool `diff:"-"`
 	// Geo location based on connection IP
-	Location Location `gorm:"embedded;embeddedPrefix:location_"`
+	Location Location `gorm:"embedded;embeddedPrefix:location_" diff:"-"`
 }
 
 type PeerStatus struct { //nolint:revive
@@ -189,7 +189,6 @@ func (p *Peer) Copy() *Peer {
 		CreatedAt:              p.CreatedAt,
 		Ephemeral:              p.Ephemeral,
 		Location:               p.Location,
-
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 	}
 }
