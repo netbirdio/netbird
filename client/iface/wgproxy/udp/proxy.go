@@ -2,6 +2,7 @@ package udp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,7 +11,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/errors"
+	cerrors "github.com/netbirdio/netbird/client/errors"
 )
 
 // WGUDPProxy proxies
@@ -122,7 +123,7 @@ func (p *WGUDPProxy) close() error {
 	if err := p.localConn.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("local conn: %s", err))
 	}
-	return errors.FormatErrorOrNil(result)
+	return cerrors.FormatErrorOrNil(result)
 }
 
 // proxyToRemote proxies from Wireguard to the RemoteKey
@@ -161,7 +162,7 @@ func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 	defer func() {
 		if err := p.close(); err != nil {
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				log.Warnf("error in proxy to local loop: %s", err)
 			}
 		}
