@@ -1,7 +1,6 @@
 package nftables
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -35,7 +34,7 @@ func (s *ShutdownState) Name() string {
 }
 
 func (s *ShutdownState) Cleanup() error {
-	nft, err := Create(context.Background(), s.InterfaceState)
+	nft, err := Create(s.InterfaceState)
 	if err != nil {
 		return fmt.Errorf("create nftables manager: %w", err)
 	}

@@ -3,7 +3,6 @@
 package firewall
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -33,7 +32,7 @@ const SKIP_NFTABLES_ENV = "NB_SKIP_NFTABLES_CHECK"
 // FWType is the type for the firewall type
 type FWType int
 
-func NewFirewall(context context.Context, iface IFaceMapper, stateManager *statemanager.Manager) (firewall.Manager, error) {
+func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (firewall.Manager, error) {
 	// on the linux system we try to user nftables or iptables
 	// in any case, because we need to allow netbird interface traffic
 	// so we use AllowNetbird traffic from these firewall managers
@@ -44,13 +43,13 @@ func NewFirewall(context context.Context, iface IFaceMapper, stateManager *state
 	switch check() {
 	case IPTABLES:
 		log.Info("creating an iptables firewall manager")
-		fm, errFw = nbiptables.Create(context, iface)
+		fm, errFw = nbiptables.Create(iface)
 		if errFw != nil {
 			log.Errorf("failed to create iptables manager: %s", errFw)
 		}
 	case NFTABLES:
 		log.Info("creating an nftables firewall manager")
-		fm, errFw = nbnftables.Create(context, iface)
+		fm, errFw = nbnftables.Create(iface)
 		if errFw != nil {
 			log.Errorf("failed to create nftables manager: %s", errFw)
 		}

@@ -3,7 +3,6 @@
 package firewall
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 
@@ -15,7 +14,7 @@ import (
 )
 
 // NewFirewall creates a firewall manager instance
-func NewFirewall(_ context.Context, iface IFaceMapper, _ *statemanager.Manager) (firewall.Manager, error) {
+func NewFirewall(iface IFaceMapper, _ *statemanager.Manager) (firewall.Manager, error) {
 	if !iface.IsUserspaceBind() {
 		return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
 	}

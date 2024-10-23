@@ -36,7 +36,7 @@ type iFaceMapper interface {
 }
 
 // Create iptables firewall manager
-func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
+func Create(wgIface iFaceMapper) (*Manager, error) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, fmt.Errorf("init iptables: %w", err)
@@ -47,7 +47,7 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		ipv4Client: iptablesClient,
 	}
 
-	m.router, err = newRouter(context, iptablesClient, wgIface)
+	m.router, err = newRouter(iptablesClient, wgIface)
 	if err != nil {
 		return nil, fmt.Errorf("create router: %w", err)
 	}

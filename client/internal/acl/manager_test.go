@@ -1,7 +1,6 @@
 package acl
 
 import (
-	"context"
 	"net"
 	"testing"
 
@@ -52,7 +51,7 @@ func TestDefaultManager(t *testing.T) {
 	}).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
-	fw, err := firewall.NewFirewall(context.Background(), ifaceMock, nil)
+	fw, err := firewall.NewFirewall(ifaceMock, nil)
 	if err != nil {
 		t.Errorf("create firewall: %v", err)
 		return
@@ -345,7 +344,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	}).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
-	fw, err := firewall.NewFirewall(context.Background(), ifaceMock, nil)
+	fw, err := firewall.NewFirewall(ifaceMock, nil)
 	if err != nil {
 		t.Errorf("create firewall: %v", err)
 		return

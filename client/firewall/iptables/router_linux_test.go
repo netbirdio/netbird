@@ -3,7 +3,6 @@
 package iptables
 
 import (
-	"context"
 	"net/netip"
 	"os/exec"
 	"testing"
@@ -30,7 +29,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "failed to init iptables client")
 
-	manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
+	manager, err := newRouter(iptablesClient, ifaceMock)
 	require.NoError(t, err, "should return a valid iptables manager")
 	require.NoError(t, manager.init(nil))
 
@@ -75,7 +74,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 			require.NoError(t, err, "failed to init iptables client")
 
-			manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
+			manager, err := newRouter(iptablesClient, ifaceMock)
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 
@@ -134,7 +133,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 
-			manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
+			manager, err := newRouter(iptablesClient, ifaceMock)
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 			defer func() {
@@ -186,7 +185,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "Failed to create iptables client")
 
-	r, err := newRouter(context.Background(), iptablesClient, ifaceMock)
+	r, err := newRouter(iptablesClient, ifaceMock)
 	require.NoError(t, err, "Failed to create router manager")
 	require.NoError(t, r.init(nil))
 

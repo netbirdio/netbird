@@ -44,7 +44,7 @@ type Manager struct {
 }
 
 // Create nftables firewall manager
-func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
+func Create(wgIface iFaceMapper) (*Manager, error) {
 	m := &Manager{
 		rConn:   &nftables.Conn{},
 		wgIface: wgIface,
@@ -53,7 +53,7 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 	workTable := &nftables.Table{Name: tableNameNetbird, Family: nftables.TableFamilyIPv4}
 
 	var err error
-	m.router, err = newRouter(context, workTable, wgIface)
+	m.router, err = newRouter(workTable, wgIface)
 	if err != nil {
 		return nil, fmt.Errorf("create router: %w", err)
 	}

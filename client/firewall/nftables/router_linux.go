@@ -2,7 +2,6 @@ package nftables
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -40,8 +39,6 @@ var (
 )
 
 type router struct {
-	ctx         context.Context
-	stop        context.CancelFunc
 	conn        *nftables.Conn
 	workTable   *nftables.Table
 	filterTable *nftables.Table
@@ -54,12 +51,8 @@ type router struct {
 	legacyManagement bool
 }
 
-func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFaceMapper) (*router, error) {
-	ctx, cancel := context.WithCancel(parentCtx)
-
+func newRouter(workTable *nftables.Table, wgIface iFaceMapper) (*router, error) {
 	r := &router{
-		ctx:       ctx,
-		stop:      cancel,
 		conn:      &nftables.Conn{},
 		workTable: workTable,
 		chains:    make(map[string]*nftables.Chain),

@@ -3,7 +3,6 @@
 package iptables
 
 import (
-	"context"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -54,8 +53,6 @@ type routeRules map[string][]string
 type ipsetCounter = refcounter.Counter[string, []netip.Prefix, struct{}]
 
 type router struct {
-	ctx              context.Context
-	stop             context.CancelFunc
 	iptablesClient   *iptables.IPTables
 	rules            routeRules
 	ipsetCounter     *ipsetCounter
@@ -65,11 +62,8 @@ type router struct {
 	stateManager *statemanager.Manager
 }
 
-func newRouter(parentCtx context.Context, iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router, error) {
-	ctx, cancel := context.WithCancel(parentCtx)
+func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router, error) {
 	r := &router{
-		ctx:            ctx,
-		stop:           cancel,
 		iptablesClient: iptablesClient,
 		rules:          make(map[string][]string),
 		wgIface:        wgIface,

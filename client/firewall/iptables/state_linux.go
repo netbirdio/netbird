@@ -1,7 +1,6 @@
 package iptables
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
@@ -44,7 +43,7 @@ func (s *ShutdownState) Name() string {
 }
 
 func (s *ShutdownState) Cleanup() error {
-	ipt, err := Create(context.Background(), s.InterfaceState)
+	ipt, err := Create(s.InterfaceState)
 	if err != nil {
 		return fmt.Errorf("create iptables manager: %w", err)
 	}
