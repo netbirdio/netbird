@@ -3,7 +3,6 @@
 package nftables
 
 import (
-	"context"
 	"encoding/binary"
 	"net/netip"
 	"os/exec"
@@ -40,7 +39,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := newRouter(context.TODO(), table, ifaceMock)
+			manager, err := newRouter(table, ifaceMock)
 			require.NoError(t, err, "failed to create router")
 			require.NoError(t, manager.init(table))
 
