@@ -57,14 +57,14 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 				return nexthop, refcounter.ErrIgnore
 			}
 
-			r.updateState(stateManager, prefix, nexthop)
+			r.updateState(stateManager)
 
 			return nexthop, err
 		},
 		func(prefix netip.Prefix, nexthop Nexthop) error {
 			// remove from state even if we have trouble removing it from the route table
 			// it could be already gone
-			r.removeFromState(stateManager, prefix)
+			r.updateState(stateManager)
 
 			return r.removeFromRouteTable(prefix, nexthop)
 		},
@@ -75,21 +75,12 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 	return r.setupHooks(initAddresses)
 }
 
-func (r *SysOps) updateState(stateManager *statemanager.Manager, prefix netip.Prefix, nexthop Nexthop) {
+func (r *SysOps) updateState(stateManager *statemanager.Manager) {
 	state := getState(stateManager)
-	state.UpdateRoute(prefix, nexthop)
 
+	state.Counter = r.refCounter
 	if err := stateManager.UpdateState(state); err != nil {
 		log.Errorf("failed to update state: %v", err)
-	}
-}
-
-func (r *SysOps) removeFromState(stateManager *statemanager.Manager, prefix netip.Prefix) {
-	state := getState(stateManager)
-	state.RemoveRoute(prefix)
-
-	if err := stateManager.UpdateState(state); err != nil {
-		log.Errorf("Failed to update state: %v", err)
 	}
 }
 
@@ -546,7 +537,7 @@ func getState(stateManager *statemanager.Manager) *ShutdownState {
 	if state := stateManager.GetState(shutdownState); state != nil {
 		shutdownState = state.(*ShutdownState)
 	} else {
-		shutdownState = NewShutdownState()
+		shutdownState = &ShutdownState{}
 	}
 
 	return shutdownState
