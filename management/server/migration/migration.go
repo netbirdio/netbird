@@ -235,9 +235,15 @@ func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) er
 			}
 		}
 
+		pattern := "[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}"
+
 		var rows []map[string]any
-		if err := tx.Table(tableName).Select("id", oldColumnName, newColumnName).Where(newColumnName + " IS NULL OR " + newColumnName + " = ''").Find(&rows).Error; err != nil {
-			return fmt.Errorf("find rows with empty secret key: %w", err)
+		if err := tx.Table(tableName).
+			Select("id", oldColumnName, newColumnName).
+			Where(newColumnName+" IS NULL OR "+newColumnName+" = ''").
+			Where(oldColumnName+" ~ ?", pattern).
+			Find(&rows).Error; err != nil {
+			return fmt.Errorf("find rows with empty secret key and matching pattern: %w", err)
 		}
 
 		if len(rows) == 0 {
@@ -270,7 +276,7 @@ func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) er
 		}
 
 		if err := tx.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", "peers", "setup_key")).Error; err != nil {
-			return fmt.Errorf("drop column %s: %w", oldColumnName, err)
+			log.WithContext(ctx).Errorf("Failed to drop column %s: %v", "setup_key", err)
 		}
 
 		return nil

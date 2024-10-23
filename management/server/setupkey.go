@@ -108,6 +108,7 @@ func (key *SetupKey) Copy() *SetupKey {
 		Id:         key.Id,
 		AccountID:  key.AccountID,
 		Key:        key.Key,
+		KeySecret:  key.KeySecret,
 		Name:       key.Name,
 		Type:       key.Type,
 		CreatedAt:  key.CreatedAt,
