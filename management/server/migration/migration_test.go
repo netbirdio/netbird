@@ -160,3 +160,48 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	db.Model(&nbpeer.Peer{}).Select("location_connection_ip").First(&jsonStr)
 	assert.JSONEq(t, `"10.0.0.1"`, jsonStr, "Data should be unchanged")
 }
+
+func TestMigrateSetupKeyToHashedSetupKey_ForPlainKey(t *testing.T) {
+	db := setupDatabase(t)
+
+	err := db.AutoMigrate(&server.SetupKey{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+
+	err = db.Save(&server.SetupKey{
+		Key: "EEFDAB47-C1A5-4472-8C05-71DE9A1E8382",
+	}).Error
+	require.NoError(t, err, "Failed to insert setup key")
+
+	err = migration.MigrateSetupKeyToHashedSetupKey[server.SetupKey](context.Background(), db)
+	require.NoError(t, err, "Migration should not fail to migrate setup key")
+
+	var key server.SetupKey
+	err = db.Model(&server.SetupKey{}).First(&key).Error
+	assert.NoError(t, err, "Failed to fetch setup key")
+
+	assert.Equal(t, "EEFDA*******************************", key.KeySecret, "Key should be secret")
+	assert.Equal(t, "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=", key.Key, "Key should be hashed")
+}
+
+func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey(t *testing.T) {
+	db := setupDatabase(t)
+
+	err := db.AutoMigrate(&server.SetupKey{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+
+	err = db.Save(&server.SetupKey{
+		Key:       "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
+		KeySecret: "EEFDA*******************************",
+	}).Error
+	require.NoError(t, err, "Failed to insert setup key")
+
+	err = migration.MigrateSetupKeyToHashedSetupKey[server.SetupKey](context.Background(), db)
+	require.NoError(t, err, "Migration should not fail to migrate setup key")
+
+	var key server.SetupKey
+	err = db.Model(&server.SetupKey{}).First(&key).Error
+	assert.NoError(t, err, "Failed to fetch setup key")
+
+	assert.Equal(t, "EEFDA*******************************", key.KeySecret, "Key should be secret")
+	assert.Equal(t, "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=", key.Key, "Key should be hashed")
+}

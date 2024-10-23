@@ -187,11 +187,11 @@ func (am *MockAccountManager) CreateSetupKey(
 	usageLimit int,
 	userID string,
 	ephemeral bool,
-) (*server.SetupKey, error) {
+) (*server.SetupKey, string, error) {
 	if am.CreateSetupKeyFunc != nil {
 		return am.CreateSetupKeyFunc(ctx, accountID, keyName, keyType, expiresIn, autoGroups, usageLimit, userID, ephemeral)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
+	return nil, "", status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
 }
 
 // AccountExists mock implementation of AccountExists from server.AccountManager interface

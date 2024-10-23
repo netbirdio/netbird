@@ -153,6 +153,7 @@ type AccountManager interface {
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*Settings, error)
+	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 }
 
 type DefaultAccountManager struct {

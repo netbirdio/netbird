@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	b64 "encoding/base64"
+	"fmt"
 	"hash/fnv"
 	"strconv"
 	"strings"
@@ -73,6 +76,7 @@ type SetupKey struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 	Key       string
+	KeySecret string
 	Name      string
 	Type      SetupKeyType
 	CreatedAt time.Time
@@ -120,19 +124,17 @@ func (key *SetupKey) Copy() *SetupKey {
 
 // EventMeta returns activity event meta related to the setup key
 func (key *SetupKey) EventMeta() map[string]any {
-	return map[string]any{"name": key.Name, "type": key.Type, "key": key.HiddenCopy(1).Key}
+	return map[string]any{"name": key.Name, "type": key.Type, "key": key.KeySecret}
 }
 
-// HiddenCopy returns a copy of the key with a Key value hidden with "*" and a 5 character prefix.
+// hiddenKey returns the Key value hidden with "*" and a 5 character prefix.
 // E.g., "831F6*******************************"
-func (key *SetupKey) HiddenCopy(length int) *SetupKey {
-	k := key.Copy()
-	prefix := k.Key[0:5]
-	if length > utf8.RuneCountInString(key.Key) {
-		length = utf8.RuneCountInString(key.Key) - len(prefix)
+func hiddenKey(key string, length int) string {
+	prefix := key[0:5]
+	if length > utf8.RuneCountInString(key) {
+		length = utf8.RuneCountInString(key) - len(prefix)
 	}
-	k.Key = prefix + strings.Repeat("*", length)
-	return k
+	return prefix + strings.Repeat("*", length)
 }
 
 // IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
@@ -155,6 +157,9 @@ func (key *SetupKey) IsRevoked() bool {
 
 // IsExpired if key was expired
 func (key *SetupKey) IsExpired() bool {
+	if key.ExpiresAt.IsZero() {
+		return false
+	}
 	return time.Now().After(key.ExpiresAt)
 }
 
@@ -169,32 +174,44 @@ func (key *SetupKey) IsOverUsed() bool {
 
 // GenerateSetupKey generates a new setup key
 func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string,
-	usageLimit int, ephemeral bool) *SetupKey {
+	usageLimit int, ephemeral bool) (*SetupKey, string) {
 	key := strings.ToUpper(uuid.New().String())
 	limit := usageLimit
 	if t == SetupKeyOneOff {
 		limit = 1
 	}
+
+	expiresAt := time.Time{}
+	if validFor != 0 {
+		expiresAt = time.Now().UTC().Add(validFor)
+	}
+
+	hashedKey := sha256.Sum256([]byte(key))
+	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
 	return &SetupKey{
 		Id:         strconv.Itoa(int(Hash(key))),
-		Key:        key,
+		Key:        encodedHashedKey,
+		KeySecret:  hiddenKey(key, 4),
 		Name:       name,
 		Type:       t,
 		CreatedAt:  time.Now().UTC(),
-		ExpiresAt:  time.Now().UTC().Add(validFor),
+		ExpiresAt:  expiresAt,
 		UpdatedAt:  time.Now().UTC(),
 		Revoked:    false,
 		UsedTimes:  0,
 		AutoGroups: autoGroups,
 		UsageLimit: limit,
 		Ephemeral:  ephemeral,
-	}
+	}, key
 }
 
 // GenerateDefaultSetupKey generates a default reusable setup key with an unlimited usage and 30 days expiration
 func GenerateDefaultSetupKey() *SetupKey {
-	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{},
+	key, plainKey := GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{},
 		SetupKeyUnlimitedUsage, false)
+	key.Key = plainKey
+	return key
 }
 
 func Hash(s string) uint32 {
@@ -227,7 +244,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
+	setupKey, plainKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
 	account.SetupKeys[setupKey.Key] = setupKey
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
@@ -245,6 +262,9 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 			log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
 		}
 	}
+
+	// for the creation return the plain key to the caller
+	setupKey.Key = plainKey
 
 	return setupKey, nil
 }
@@ -342,18 +362,7 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 		return nil, err
 	}
 
-	keys := make([]*SetupKey, 0, len(setupKeys))
-	for _, key := range setupKeys {
-		var k *SetupKey
-		if !user.IsAdminOrServiceUser() {
-			k = key.HiddenCopy(999)
-		} else {
-			k = key.Copy()
-		}
-		keys = append(keys, k)
-	}
-
-	return keys, nil
+	return setupKeys, nil
 }
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
@@ -377,11 +386,21 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 		setupKey.UpdatedAt = setupKey.CreatedAt
 	}
 
-	if !user.IsAdminOrServiceUser() {
-		setupKey = setupKey.HiddenCopy(999)
+	return setupKey, nil
+}
+
+// DeleteSetupKey removes the setup key from the account
+func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
 	}
 
-	return setupKey, nil
+	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+		return status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
+	}
+
+	return am.Store.DeleteSetupKey(ctx, accountID, keyID)
 }
 
 func validateSetupKeyAutoGroups(account *Account, autoGroups []string) error {

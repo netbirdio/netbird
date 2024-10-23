@@ -62,9 +62,8 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 	expiresIn := time.Duration(req.ExpiresIn) * time.Second
 
 	day := time.Hour * 24
-	year := day * 365
-	if expiresIn < day || expiresIn > year {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "expiresIn should be between 1 day and 365 days"), w)
+	if expiresIn < day || expiresIn == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "expiresIn should be at least 1 day"), w)
 		return
 	}
 
@@ -76,6 +75,7 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 	if req.Ephemeral != nil {
 		ephemeral = *req.Ephemeral
 	}
+
 	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), accountID, req.Name, server.SetupKeyType(req.Type), expiresIn,
 		req.AutoGroups, req.UsageLimit, userID, ephemeral)
 	if err != nil {
@@ -83,7 +83,11 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeSuccess(r.Context(), w, setupKey)
+	apiSetupKeys := toResponseBody(setupKey)
+	// for the creation we need to send the plain key
+	apiSetupKeys.Key = setupKey.Key
+
+	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
 }
 
 // GetSetupKey is a GET request to get a SetupKey by ID
@@ -181,6 +185,30 @@ func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Reques
 	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
 }
 
+func (h *SetupKeysHandler) DeleteSetupKey(w http.ResponseWriter, r *http.Request) {
+	claims := h.claimsExtractor.FromRequestContext(r)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	keyID := vars["keyId"]
+	if len(keyID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid key ID"), w)
+		return
+	}
+
+	err = h.accountManager.DeleteSetupKey(r.Context(), accountID, userID, keyID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
+}
+
 func writeSuccess(ctx context.Context, w http.ResponseWriter, key *server.SetupKey) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
@@ -206,7 +234,7 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 
 	return &api.SetupKey{
 		Id:         key.Id,
-		Key:        key.Key,
+		Key:        key.KeySecret,
 		Name:       key.Name,
 		Expires:    key.ExpiresAt,
 		Type:       string(key.Type),
