@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,9 +41,8 @@ type upstreamResolverBase struct {
 	cancel           context.CancelFunc
 	upstreamClient   upstreamClient
 	upstreamServers  []string
-	disabled         bool
+	disabled         atomic.Bool
 	failsCount       atomic.Int32
-	successCount     atomic.Int32
 	failsTillDeact   int32
 	mutex            sync.Mutex
 	reactivatePeriod time.Duration
@@ -56,7 +56,7 @@ type upstreamResolverBase struct {
 func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *upstreamResolverBase {
 	ctx, cancel := context.WithCancel(ctx)
 
-	return &upstreamResolverBase{
+	resolverBase := &upstreamResolverBase{
 		ctx:              ctx,
 		cancel:           cancel,
 		upstreamTimeout:  upstreamTimeout,
@@ -64,6 +64,106 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *
 		failsTillDeact:   failsTillDeact,
 		statusRecorder:   statusRecorder,
 	}
+
+	go resolverBase.watchPeersConnStatusChanges()
+
+	return resolverBase
+}
+
+func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
+	var cancelBackOff context.CancelFunc
+	var dnsProbeIsRunning atomic.Bool
+	exponentialBackOff := &backoff.ExponentialBackOff{
+		InitialInterval:     500 * time.Millisecond,
+		RandomizationFactor: 0.5,
+		Multiplier:          1.1,
+		MaxInterval:         2 * time.Second,
+		MaxElapsedTime:      90 * time.Second,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
+
+	dnsProbe := func() error {
+		dnsProbeIsRunning.Store(true)
+		defer func() {
+			dnsProbeIsRunning.Store(false)
+		}()
+		u.probeAvailability()
+		if u.disabled.Load() {
+			return fmt.Errorf("DNS probe failed")
+		}
+		return nil
+	}
+
+	var mu sync.Mutex
+	dnsProbeWithBackOff := func() {
+		mu.Lock()
+		defer func() {
+			u.mutex.Lock()
+			log.Infof("DNS probe finished, servers %s disabled: %t", u.upstreamServers, u.disabled.Load())
+			dnsProbeIsRunning.Store(false)
+			u.mutex.Unlock()
+			mu.Unlock()
+		}()
+
+		var backOffCtx context.Context
+		backOffCtx, cancelBackOff = context.WithCancel(context.Background())
+		defer cancelBackOff()
+		err := backoff.Retry(func() error {
+			select {
+			case <-backOffCtx.Done():
+				log.Infof("dnsProbeWithBackOff: ctx canceled")
+				return backoff.Permanent(backOffCtx.Err())
+			case <-u.ctx.Done():
+				return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context : %s", u.upstreamServers, u.ctx.Err()))
+			default:
+				return dnsProbe()
+			}
+		}, backoff.WithContext(exponentialBackOff, backOffCtx))
+		if err != nil {
+			log.Warnf("DNS probe (peer ConnStatus change) stopped: %s", err)
+			return
+		}
+	}
+
+	for {
+		select {
+		case <-u.ctx.Done():
+			log.Infof("stopped watching peer connections: %s", u.ctx.Err())
+			return
+		case <-u.statusRecorder.GetPeersConnStatusChangeNotifier():
+			if cancelBackOff != nil {
+				log.Info("restart DNS probing")
+				cancelBackOff()
+			}
+
+			// wait for dnsProbe to finish
+			for dnsProbeIsRunning.Load() {
+				log.Infof("wait for current DNS probe to return")
+				time.Sleep(500 * time.Millisecond)
+			}
+
+			if u.statusRecorder.GetConnectedPeersCount() == 0 && u.areNameServersAllPrivate(u.upstreamServers) {
+				log.Infof("O peers connected, disabling private upstream servers %#v", u.upstreamServers)
+				u.disable(fmt.Errorf("0 peers connected"))
+			} else {
+				log.Info("DNS probe (peer ConnStatus change) started")
+				go dnsProbeWithBackOff()
+			}
+		}
+	}
+}
+
+func (u *upstreamResolverBase) areNameServersAllPrivate(nameServers []string) bool {
+	u.mutex.Lock()
+	defer u.mutex.Unlock()
+	for _, n := range nameServers {
+		ip := net.ParseIP(strings.Split(n, ":")[0])
+		if !ip.IsPrivate() {
+			return false
+		}
+	}
+	return true
 }
 
 func (u *upstreamResolverBase) stop() {
@@ -125,7 +225,6 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			return
 		}
 
-		u.successCount.Add(1)
 		log.Tracef("took %s to query the upstream %s", t, upstream)
 
 		err = w.WriteMsg(rm)
@@ -149,7 +248,7 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
-	if u.failsCount.Load() < u.failsTillDeact || u.disabled {
+	if u.failsCount.Load() < u.failsTillDeact || u.disabled.Load() {
 		return
 	}
 
@@ -163,7 +262,7 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 }
 
 // probeAvailability tests all upstream servers simultaneously and
-// disables the resolver if none work
+// disables/enable the resolver
 func (u *upstreamResolverBase) probeAvailability() {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
@@ -174,13 +273,7 @@ func (u *upstreamResolverBase) probeAvailability() {
 	default:
 	}
 
-	// avoid probe if upstreams could resolve at least one query and fails count is less than failsTillDeact
-	if u.successCount.Load() > 0 && u.failsCount.Load() < u.failsTillDeact {
-		return
-	}
-
-	var success bool
-	var mu sync.Mutex
+	var success atomic.Bool
 	var wg sync.WaitGroup
 
 	var errors *multierror.Error
@@ -190,25 +283,32 @@ func (u *upstreamResolverBase) probeAvailability() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := u.testNameserver(upstream, 500*time.Millisecond)
+			err := u.testNameserver(upstream, probeTimeout)
 			if err != nil {
 				errors = multierror.Append(errors, err)
 				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
 				return
 			}
 
-			mu.Lock()
-			defer mu.Unlock()
-			success = true
+			success.Store(true)
 		}()
 	}
 
 	wg.Wait()
 
 	// didn't find a working upstream server, let's disable and try later
-	if !success {
+	if !success.Load() {
 		u.disable(errors.ErrorOrNil())
+		return
 	}
+
+	if !u.disabled.Load() {
+		return
+	}
+	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
+	u.failsCount.Store(0)
+	u.reactivate()
+	u.disabled.Store(false)
 }
 
 // waitUntilResponse retries, in an exponential interval, querying the upstream servers until it gets a positive response
@@ -223,37 +323,22 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		Clock:               backoff.SystemClock,
 	}
 
-	operation := func() error {
-		select {
-		case <-u.ctx.Done():
-			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context has been canceled", u.upstreamServers))
-		default:
+	err := backoff.Retry(func() error {
+		if u.disabled.Load() {
+			u.probeAvailability()
 		}
 
-		for _, upstream := range u.upstreamServers {
-			if err := u.testNameserver(upstream, probeTimeout); err != nil {
-				log.Tracef("upstream check for %s: %s", upstream, err)
-			} else {
-				// at least one upstream server is available, stop probing
-				return nil
-			}
+		// check if still disabled
+		if u.disabled.Load() {
+			log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServers, exponentialBackOff.NextBackOff())
+			return fmt.Errorf("upstream check call error")
 		}
-
-		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServers, exponentialBackOff.NextBackOff())
-		return fmt.Errorf("upstream check call error")
-	}
-
-	err := backoff.Retry(operation, exponentialBackOff)
+		return nil
+	}, exponentialBackOff)
 	if err != nil {
 		log.Warn(err)
 		return
 	}
-
-	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
-	u.failsCount.Store(0)
-	u.successCount.Add(1)
-	u.reactivate()
-	u.disabled = false
 }
 
 // isTimeout returns true if the given error is a network timeout error.
@@ -268,14 +353,13 @@ func isTimeout(err error) bool {
 }
 
 func (u *upstreamResolverBase) disable(err error) {
-	if u.disabled {
+	if u.disabled.Load() {
 		return
 	}
 
 	log.Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
-	u.successCount.Store(0)
 	u.deactivate(err)
-	u.disabled = true
+	u.disabled.Store(true)
 	go u.waitUntilResponse()
 }
 
