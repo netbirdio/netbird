@@ -1,7 +1,6 @@
 package nftables
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -58,12 +57,13 @@ func (i *iFaceMock) IsUserspaceBind() bool { return false }
 func TestNftablesManager(t *testing.T) {
 
 	// just check on the local interface
-	manager, err := Create(context.Background(), ifaceMock)
+	manager, err := Create(ifaceMock)
 	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
 	time.Sleep(time.Second * 3)
 
 	defer func() {
-		err = manager.Reset()
+		err = manager.Reset(nil)
 		require.NoError(t, err, "failed to reset")
 		time.Sleep(time.Second)
 	}()
@@ -169,7 +169,7 @@ func TestNftablesManager(t *testing.T) {
 	// established rule remains
 	require.Len(t, rules, 1, "expected 1 rules after deletion")
 
-	err = manager.Reset()
+	err = manager.Reset(nil)
 	require.NoError(t, err, "failed to reset")
 }
 
@@ -192,12 +192,13 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(context.Background(), mock)
+			manager, err := Create(mock)
 			require.NoError(t, err)
+			require.NoError(t, manager.Init(nil))
 			time.Sleep(time.Second * 3)
 
 			defer func() {
-				if err := manager.Reset(); err != nil {
+				if err := manager.Reset(nil); err != nil {
 					t.Errorf("clear the manager state: %v", err)
 				}
 				time.Sleep(time.Second)

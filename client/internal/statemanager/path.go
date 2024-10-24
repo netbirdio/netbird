@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 // GetDefaultStatePath returns the path to the state file based on the operating system
@@ -27,7 +27,7 @@ func GetDefaultStatePath() string {
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		logrus.Errorf("Error creating directory %s: %v. Continuing without state support.", dir, err)
+		log.Errorf("Error creating directory %s: %v. Continuing without state support.", dir, err)
 		return ""
 	}
 
