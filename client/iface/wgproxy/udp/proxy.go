@@ -2,14 +2,16 @@ package udp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/errors"
+	cerrors "github.com/netbirdio/netbird/client/errors"
 )
 
 // WGUDPProxy proxies
@@ -121,7 +123,7 @@ func (p *WGUDPProxy) close() error {
 	if err := p.localConn.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("local conn: %s", err))
 	}
-	return errors.FormatErrorOrNil(result)
+	return cerrors.FormatErrorOrNil(result)
 }
 
 // proxyToRemote proxies from Wireguard to the RemoteKey
@@ -160,18 +162,16 @@ func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 	defer func() {
 		if err := p.close(); err != nil {
-			log.Warnf("error in proxy to local loop: %s", err)
+			if !errors.Is(err, io.EOF) {
+				log.Warnf("error in proxy to local loop: %s", err)
+			}
 		}
 	}()
 
 	buf := make([]byte, 1500)
 	for {
-		n, err := p.remoteConn.Read(buf)
+		n, err := p.remoteConnRead(ctx, buf)
 		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.RemoteAddr(), err)
 			return
 		}
 
@@ -192,4 +192,16 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 			continue
 		}
 	}
+}
+
+func (p *WGUDPProxy) remoteConnRead(ctx context.Context, buf []byte) (n int, err error) {
+	n, err = p.remoteConn.Read(buf)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.LocalAddr(), err)
+		return
+	}
+	return
 }

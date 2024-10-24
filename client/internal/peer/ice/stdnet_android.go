@@ -1,4 +1,4 @@
-package peer
+package ice
 
 import "github.com/netbirdio/netbird/client/internal/stdnet"
 
