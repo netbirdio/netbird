@@ -61,9 +61,8 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 
 	expiresIn := time.Duration(req.ExpiresIn) * time.Second
 
-	day := time.Hour * 24
-	if expiresIn < day || expiresIn == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "expiresIn should be at least 1 day"), w)
+	if expiresIn < 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "expiresIn can not be in the past"), w)
 		return
 	}
 
