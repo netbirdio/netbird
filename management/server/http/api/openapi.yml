@@ -530,10 +530,9 @@ components:
           type: string
           example: reusable
         expires_in:
-          description: Expiration time in seconds
+          description: Expiration time in seconds, 0 will mean the key never expires
           type: integer
-          minimum: 86400
-          maximum: 31536000
+          minimum: 0
           example: 86400
         revoked:
           description: Setup key revocation status
