@@ -67,6 +67,13 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 			ListSetupKeysFunc: func(_ context.Context, accountID, userID string) ([]*server.SetupKey, error) {
 				return []*server.SetupKey{defaultKey}, nil
 			},
+
+			DeleteSetupKeyFunc: func(_ context.Context, accountID, userID, keyID string) error {
+				if keyID == defaultKey.Id {
+					return nil
+				}
+				return status.Errorf(status.NotFound, "key %s not found", keyID)
+			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
@@ -153,6 +160,14 @@ func TestSetupKeysHandlers(t *testing.T) {
 			expectedBody:     true,
 			expectedSetupKey: toResponseBody(updatedDefaultSetupKey),
 		},
+		{
+			name:           "Delete Setup Key",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/setup-keys/" + defaultSetupKey.Id,
+			requestBody:    bytes.NewBuffer([]byte("")),
+			expectedStatus: http.StatusOK,
+			expectedBody:   false,
+		},
 	}
 
 	handler := initSetupKeysTestMetaData(defaultSetupKey, newSetupKey, updatedDefaultSetupKey, adminUser)
@@ -167,6 +182,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			router.HandleFunc("/api/setup-keys", handler.CreateSetupKey).Methods("POST", "OPTIONS")
 			router.HandleFunc("/api/setup-keys/{keyId}", handler.GetSetupKey).Methods("GET", "OPTIONS")
 			router.HandleFunc("/api/setup-keys/{keyId}", handler.UpdateSetupKey).Methods("PUT", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", handler.DeleteSetupKey).Methods("DELETE", "OPTIONS")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
