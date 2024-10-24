@@ -117,12 +117,6 @@ func (c *ConnectClient) run(
 
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
-	// Check if client was not shut down in a clean way and restore DNS config if required.
-	// Otherwise, we might not be able to connect to the management server to retrieve new config.
-	if err := dns.CheckUncleanShutdown(c.config.WgIface); err != nil {
-		log.Errorf("checking unclean shutdown error: %s", err)
-	}
-
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -358,7 +352,11 @@ func (c *ConnectClient) Stop() error {
 	if c.engine == nil {
 		return nil
 	}
-	return c.engine.Stop()
+	if err := c.engine.Stop(); err != nil {
+		return fmt.Errorf("stop engine: %w", err)
+	}
+
+	return nil
 }
 
 func (c *ConnectClient) isContextCancelled() bool {

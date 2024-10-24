@@ -36,6 +36,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
+
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -167,7 +169,7 @@ type Engine struct {
 	checks []*mgmProto.Checks
 
 	relayManager *relayClient.Manager
-
+	stateManager *statemanager.Manager
 	srWatcher *guard.SRWatcher
 }
 
@@ -216,7 +218,7 @@ func NewEngineWithProbes(
 	probes *ProbeHolder,
 	checks []*mgmProto.Checks,
 ) *Engine {
-	return &Engine{
+	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
 		signal:         signalClient,
@@ -235,6 +237,11 @@ func NewEngineWithProbes(
 		probes:         probes,
 		checks:         checks,
 	}
+	if path := statemanager.GetDefaultStatePath(); path != "" {
+		engine.stateManager = statemanager.New(path)
+	}
+
+	return engine
 }
 
 func (e *Engine) Stop() error {
@@ -256,7 +263,7 @@ func (e *Engine) Stop() error {
 	e.stopDNSServer()
 
 	if e.routeManager != nil {
-		e.routeManager.Stop()
+		e.routeManager.Stop(e.stateManager)
 	}
 
 	if e.srWatcher != nil {
@@ -282,6 +289,17 @@ func (e *Engine) Stop() error {
 
 	e.close()
 	log.Infof("stopped Netbird Engine")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := e.stateManager.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop state manager: %w", err)
+	}
+	if err := e.stateManager.PersistState(ctx); err != nil {
+		log.Errorf("failed to persist state: %v", err)
+	}
+
 	return nil
 }
 
@@ -321,6 +339,8 @@ func (e *Engine) Start() error {
 		}
 	}
 
+	e.stateManager.Start()
+
 	initialRoutes, dnsServer, err := e.newDnsServer()
 	if err != nil {
 		e.close()
@@ -329,7 +349,7 @@ func (e *Engine) Start() error {
 	e.dnsServer = dnsServer
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, e.relayManager, initialRoutes)
-	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
+	beforePeerHook, afterPeerHook, err := e.routeManager.Init(e.stateManager)
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
 	} else {
@@ -1238,10 +1258,11 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder)
 		return nil, dnsServer, nil
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager)
 		if err != nil {
 			return nil, nil, err
 		}
+
 		return nil, dnsServer, nil
 	}
 }

@@ -18,6 +18,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/routemanager/sysctl"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -85,10 +86,10 @@ func getSetupRules() []ruleParams {
 // Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
-func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
 	if isLegacy() {
 		log.Infof("Using legacy routing setup")
-		return r.setupRefCounter(initAddresses)
+		return r.setupRefCounter(initAddresses, stateManager)
 	}
 
 	if err = addRoutingTableName(); err != nil {
@@ -104,7 +105,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nb
 
 	defer func() {
 		if err != nil {
-			if cleanErr := r.CleanupRouting(); cleanErr != nil {
+			if cleanErr := r.CleanupRouting(stateManager); cleanErr != nil {
 				log.Errorf("Error cleaning up routing: %v", cleanErr)
 			}
 		}
@@ -116,7 +117,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nb
 			if errors.Is(err, syscall.EOPNOTSUPP) {
 				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
 				setIsLegacy(true)
-				return r.setupRefCounter(initAddresses)
+				return r.setupRefCounter(initAddresses, stateManager)
 			}
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}
@@ -128,9 +129,9 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nb
 // CleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
-func (r *SysOps) CleanupRouting() error {
+func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
 	if isLegacy() {
-		return r.cleanupRefCounter()
+		return r.cleanupRefCounter(stateManager)
 	}
 
 	var result *multierror.Error
