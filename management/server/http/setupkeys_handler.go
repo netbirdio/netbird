@@ -102,7 +102,7 @@ func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid key ID"), w)
+		util.WriteError(r.Context(), status.NewInvalidKeyIDError(), w)
 		return
 	}
 
@@ -127,7 +127,7 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid key ID"), w)
+		util.WriteError(r.Context(), status.NewInvalidKeyIDError(), w)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (h *SetupKeysHandler) DeleteSetupKey(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid key ID"), w)
+		util.WriteError(r.Context(), status.NewInvalidKeyIDError(), w)
 		return
 	}
 

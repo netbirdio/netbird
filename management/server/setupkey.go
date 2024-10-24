@@ -353,7 +353,7 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 	}
 
 	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
-		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
+		return nil, status.NewUnauthorizedToViewSetupKeysError()
 	}
 
 	setupKeys, err := am.Store.GetAccountSetupKeys(ctx, LockingStrengthShare, accountID)
@@ -372,7 +372,7 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 	}
 
 	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
-		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
+		return nil, status.NewUnauthorizedToViewSetupKeysError()
 	}
 
 	setupKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, keyID, accountID)
@@ -396,7 +396,7 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 	}
 
 	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
-		return status.Errorf(status.Unauthorized, "only users with admin power can view setup keys")
+		return status.NewUnauthorizedToViewSetupKeysError()
 	}
 
 	return am.Store.DeleteSetupKey(ctx, accountID, keyID)

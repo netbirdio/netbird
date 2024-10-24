@@ -114,3 +114,13 @@ func NewGetAccountFromStoreError(err error) error {
 func NewGetUserFromStoreError() error {
 	return Errorf(Internal, "issue getting user from store")
 }
+
+// NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key
+func NewInvalidKeyIDError() error {
+	return Errorf(InvalidArgument, "invalid key ID")
+}
+
+// NewUnauthorizedToViewSetupKeysError creates a new Error with Unauthorized type for an issue getting a setup key
+func NewUnauthorizedToViewSetupKeysError() error {
+	return Errorf(Unauthorized, "only users with admin power can view setup keys")
+}
