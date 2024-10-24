@@ -21,6 +21,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -124,7 +125,6 @@ func (r *router) createContainers() error {
 	insertReturnTrafficRule(r.conn, r.workTable, r.chains[chainNameRoutingFw])
 
 	prio := *nftables.ChainPriorityNATSource - 1
-
 	r.chains[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
 		Name:     chainNameRoutingNat,
 		Table:    r.workTable,
@@ -132,6 +132,21 @@ func (r *router) createContainers() error {
 		Priority: &prio,
 		Type:     nftables.ChainTypeNAT,
 	})
+
+	// Chain is created by acl manager
+	// TODO: move creation to a common place
+	r.chains[chainNamePrerouting] = &nftables.Chain{
+		Name:     chainNamePrerouting,
+		Table:    r.workTable,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityMangle,
+	}
+
+	// Add the single NAT rule that matches on mark
+	if err := r.addPostroutingRules(); err != nil {
+		return fmt.Errorf("add single nat rule: %v", err)
+	}
 
 	if err := r.acceptForwardRules(); err != nil {
 		log.Errorf("failed to add accept rules for the forward chain: %s", err)
@@ -422,59 +437,149 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
 	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
 
-	dir := expr.MetaKeyIIFNAME
-	notDir := expr.MetaKeyOIFNAME
+	op := expr.CmpOpEq
 	if pair.Inverse {
-		dir = expr.MetaKeyOIFNAME
-		notDir = expr.MetaKeyIIFNAME
+		op = expr.CmpOpNeq
 	}
 
-	lo := ifname("lo")
-	intf := ifname(r.wgIface.Name())
-
 	exprs := []expr.Any{
-		&expr.Meta{
-			Key:      dir,
+		// We only care about NEW connections to mark them and later identify them in the postrouting chain for masquerading.
+		// Masquerading will take care of the conntrack state, which means we won't need to mark established connections.
+		&expr.Ct{
+			Key:      expr.CtKeySTATE,
 			Register: 1,
 		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     intf,
-		},
-
-		// We need to exclude the loopback interface as this changes the ebpf proxy port
-		&expr.Meta{
-			Key:      notDir,
-			Register: 1,
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            4,
+			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitNEW),
+			Xor:            binaryutil.NativeEndian.PutUint32(0),
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpNeq,
 			Register: 1,
-			Data:     lo,
+			Data:     []byte{0, 0, 0, 0},
+		},
+
+		// interface matching
+		&expr.Meta{
+			Key:      expr.MetaKeyIIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       op,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
 		},
 	}
 
 	exprs = append(exprs, sourceExp...)
 	exprs = append(exprs, destExp...)
+
+	var markValue uint32 = nbnet.PreroutingFwmarkMasquerade
+	if pair.Inverse {
+		markValue = nbnet.PreroutingFwmarkMasqueradeReturn
+	}
+
 	exprs = append(exprs,
-		&expr.Counter{}, &expr.Masq{},
+		&expr.Immediate{
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(markValue),
+		},
+		&expr.Meta{
+			Key:            expr.MetaKeyMARK,
+			SourceRegister: true,
+			Register:       1,
+		},
 	)
 
-	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
+	ruleKey := firewall.GenKey(firewall.PreroutingFormat, pair)
 
 	if _, exists := r.rules[ruleKey]; exists {
 		if err := r.removeNatRule(pair); err != nil {
-			return fmt.Errorf("remove routing rule: %w", err)
+			return fmt.Errorf("remove prerouting rule: %w", err)
 		}
 	}
 
 	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
 		Table:    r.workTable,
-		Chain:    r.chains[chainNameRoutingNat],
+		Chain:    r.chains[chainNamePrerouting],
 		Exprs:    exprs,
 		UserData: []byte(ruleKey),
 	})
+
+	return nil
+}
+
+// addPostroutingRules adds the masquerade rules
+func (r *router) addPostroutingRules() error {
+	// First masquerade rule for traffic coming in from WireGuard interface
+	exprs := []expr.Any{
+		// Match on the first fwmark
+		&expr.Meta{
+			Key:      expr.MetaKeyMARK,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkMasquerade),
+		},
+
+		// We need to exclude the loopback interface as this changes the ebpf proxy port
+		&expr.Meta{
+			Key:      expr.MetaKeyOIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     ifname("lo"),
+		},
+		&expr.Counter{},
+		&expr.Masq{},
+	}
+
+	r.conn.AddRule(&nftables.Rule{
+		Table: r.workTable,
+		Chain: r.chains[chainNameRoutingNat],
+		Exprs: exprs,
+	})
+
+	// Second masquerade rule for traffic going out through WireGuard interface
+	exprs2 := []expr.Any{
+		// Match on the second fwmark
+		&expr.Meta{
+			Key:      expr.MetaKeyMARK,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkMasqueradeReturn),
+		},
+
+		// Match WireGuard interface
+		&expr.Meta{
+			Key:      expr.MetaKeyOIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Counter{},
+		&expr.Masq{},
+	}
+
+	r.conn.AddRule(&nftables.Rule{
+		Table: r.workTable,
+		Chain: r.chains[chainNameRoutingNat],
+		Exprs: exprs2,
+	})
+
 	return nil
 }
 
@@ -723,18 +828,18 @@ func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error 
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// RemoveNatRule removes a nftables rule pair from nat chains
+// RemoveNatRule removes the prerouting mark rule
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
 	if err := r.removeNatRule(pair); err != nil {
-		return fmt.Errorf("remove nat rule: %w", err)
+		return fmt.Errorf("remove prerouting rule: %w", err)
 	}
 
 	if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
-		return fmt.Errorf("remove inverse nat rule: %w", err)
+		return fmt.Errorf("remove inverse prerouting rule: %w", err)
 	}
 
 	if err := r.removeLegacyRouteRule(pair); err != nil {
@@ -749,21 +854,20 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-// removeNatRule adds a nftables rule to the removal queue and deletes it from the rules map
 func (r *router) removeNatRule(pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
+	ruleKey := firewall.GenKey(firewall.PreroutingFormat, pair)
 
 	if rule, exists := r.rules[ruleKey]; exists {
 		err := r.conn.DelRule(rule)
 		if err != nil {
-			return fmt.Errorf("remove nat rule %s -> %s: %v", pair.Source, pair.Destination, err)
+			return fmt.Errorf("remove prerouting rule %s -> %s: %v", pair.Source, pair.Destination, err)
 		}
 
-		log.Debugf("nftables: removed nat rule %s -> %s", pair.Source, pair.Destination)
+		log.Debugf("nftables: removed prerouting rule %s -> %s", pair.Source, pair.Destination)
 
 		delete(r.rules, ruleKey)
 	} else {
-		log.Debugf("nftables: nat rule %s not found", ruleKey)
+		log.Debugf("nftables: prerouting rule %s not found", ruleKey)
 	}
 
 	return nil
