@@ -229,11 +229,6 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	keyDuration := DefaultSetupKeyDuration
-	if expiresIn != 0 {
-		keyDuration = expiresIn
-	}
-
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -243,7 +238,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	setupKey, plainKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
+	setupKey, plainKey := GenerateSetupKey(keyName, keyType, expiresIn, autoGroups, usageLimit, ephemeral)
 	account.SetupKeys[setupKey.Key] = setupKey
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
