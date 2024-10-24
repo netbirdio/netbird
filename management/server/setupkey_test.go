@@ -332,14 +332,12 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 		t.Errorf("expected setup key to have CreatedAt ~ %v, got %v", expectedCreatedAt, key.CreatedAt)
 	}
 
-	if expectHashedKey {
+	if expectHashedKey && !isValidBase64SHA256(key.Key) {
+		t.Errorf("expected key to be hashed, got %v", key.Key)
+	} else {
 		_, err := uuid.Parse(key.Key)
 		if err != nil {
-			t.Errorf("expected new key to be a valid UUID, got %v, %v", key.Key, err)
-		}
-	} else {
-		if !isValidBase64SHA256(key.Key) {
-			t.Errorf("expected existing key to be hashed, got %v", key.Key)
+			t.Errorf("expected key to be a valid UUID, got %v, %v", key.Key, err)
 		}
 	}
 
