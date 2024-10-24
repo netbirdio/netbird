@@ -375,7 +375,7 @@ func (m *aclManager) updateState() {
 	}
 
 	var currentState *ShutdownState
-	if existing := m.stateManager.GetState(&ShutdownState{}); existing != nil {
+	if existing := m.stateManager.GetState(currentState); existing != nil {
 		if existingState, ok := existing.(*ShutdownState); ok {
 			currentState = existingState
 		}

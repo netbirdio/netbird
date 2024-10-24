@@ -460,7 +460,7 @@ func (r *router) updateState() {
 	}
 
 	var currentState *ShutdownState
-	if existing := r.stateManager.GetState(&ShutdownState{}); existing != nil {
+	if existing := r.stateManager.GetState(currentState); existing != nil {
 		if existingState, ok := existing.(*ShutdownState); ok {
 			currentState = existingState
 		}
