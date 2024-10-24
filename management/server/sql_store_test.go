@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"math/rand"
 	"net"
@@ -1107,12 +1109,17 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
+	plainKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	hashedKey := sha256.Sum256([]byte(plainKey))
+	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
-	assert.Equal(t, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB", setupKey.Key)
+	assert.Equal(t, encodedHashedKey, setupKey.Key)
+	assert.Equal(t, hiddenKey(plainKey, 4), setupKey.KeySecret)
 	assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", setupKey.AccountID)
 	assert.Equal(t, "Default key", setupKey.Name)
 }
@@ -1127,24 +1134,28 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
+	plainKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	hashedKey := sha256.Sum256([]byte(plainKey))
+	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 0, setupKey.UsedTimes)
 
 	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
 	require.NoError(t, err)
 
-	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupKey.UsedTimes)
 
 	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
 	require.NoError(t, err)
 
-	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 2, setupKey.UsedTimes)
 }
