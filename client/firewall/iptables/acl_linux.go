@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -22,6 +23,8 @@ const (
 	chainNameOutputRules = "NETBIRD-ACL-OUTPUT"
 )
 
+type aclEntries map[string][][]string
+
 type entry struct {
 	spec     []string
 	position int
@@ -32,9 +35,11 @@ type aclManager struct {
 	wgIface            iFaceMapper
 	routingFwChainName string
 
-	entries         map[string][][]string
+	entries         aclEntries
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
+
+	stateManager *statemanager.Manager
 }
 
 func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routingFwChainName string) (*aclManager, error) {
@@ -48,24 +53,30 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routi
 		ipsetStore:      newIpsetStore(),
 	}
 
-	err := ipset.Init()
-	if err != nil {
-		return nil, fmt.Errorf("failed to init ipset: %w", err)
+	if err := ipset.Init(); err != nil {
+		return nil, fmt.Errorf("init ipset: %w", err)
 	}
+
+	return m, nil
+}
+
+func (m *aclManager) init(stateManager *statemanager.Manager) error {
+	m.stateManager = stateManager
 
 	m.seedInitialEntries()
 	m.seedInitialOptionalEntries()
 
-	err = m.cleanChains()
-	if err != nil {
-		return nil, err
+	if err := m.cleanChains(); err != nil {
+		return fmt.Errorf("clean chains: %w", err)
 	}
 
-	err = m.createDefaultChains()
-	if err != nil {
-		return nil, err
+	if err := m.createDefaultChains(); err != nil {
+		return fmt.Errorf("create default chains: %w", err)
 	}
-	return m, nil
+
+	m.updateState()
+
+	return nil
 }
 
 func (m *aclManager) AddPeerFiltering(
@@ -146,6 +157,8 @@ func (m *aclManager) AddPeerFiltering(
 		chain:     chain,
 	}
 
+	m.updateState()
+
 	return []firewall.Rule{rule}, nil
 }
 
@@ -180,15 +193,23 @@ func (m *aclManager) DeletePeerRule(rule firewall.Rule) error {
 		}
 	}
 
-	err := m.iptablesClient.Delete(tableName, r.chain, r.specs...)
-	if err != nil {
-		log.Debugf("failed to delete rule, %s, %v: %s", r.chain, r.specs, err)
+	if err := m.iptablesClient.Delete(tableName, r.chain, r.specs...); err != nil {
+		return fmt.Errorf("failed to delete rule: %s, %v: %w", r.chain, r.specs, err)
 	}
-	return err
+
+	m.updateState()
+
+	return nil
 }
 
 func (m *aclManager) Reset() error {
-	return m.cleanChains()
+	if err := m.cleanChains(); err != nil {
+		return fmt.Errorf("clean chains: %w", err)
+	}
+
+	m.updateState()
+
+	return nil
 }
 
 // todo write less destructive cleanup mechanism
@@ -346,6 +367,32 @@ func (m *aclManager) seedInitialOptionalEntries() {
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {
 	m.entries[chainName] = append(m.entries[chainName], spec)
+}
+
+func (m *aclManager) updateState() {
+	if m.stateManager == nil {
+		return
+	}
+
+	var currentState *ShutdownState
+	if existing := m.stateManager.GetState(currentState); existing != nil {
+		if existingState, ok := existing.(*ShutdownState); ok {
+			currentState = existingState
+		}
+	}
+	if currentState == nil {
+		currentState = &ShutdownState{}
+	}
+
+	currentState.Lock()
+	defer currentState.Unlock()
+
+	currentState.ACLEntries = m.entries
+	currentState.ACLIPsetStore = m.ipsetStore
+
+	if err := m.stateManager.UpdateState(currentState); err != nil {
+		log.Errorf("failed to update state: %v", err)
+	}
 }
 
 // filterRuleSpecs returns the specs of a filtering rule

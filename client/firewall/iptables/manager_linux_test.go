@@ -1,7 +1,6 @@
 package iptables
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"testing"
@@ -56,13 +55,14 @@ func TestIptablesManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// just check on the local interface
-	manager, err := Create(context.Background(), ifaceMock)
+	manager, err := Create(ifaceMock)
 	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
 
 	time.Sleep(time.Second)
 
 	defer func() {
-		err := manager.Reset()
+		err := manager.Reset(nil)
 		require.NoError(t, err, "clear the manager state")
 
 		time.Sleep(time.Second)
@@ -122,7 +122,7 @@ func TestIptablesManager(t *testing.T) {
 		_, err = manager.AddPeerFiltering(ip, "udp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept Fake DNS traffic")
 		require.NoError(t, err, "failed to add rule")
 
-		err = manager.Reset()
+		err = manager.Reset(nil)
 		require.NoError(t, err, "failed to reset")
 
 		ok, err := ipv4Client.ChainExists("filter", chainNameInputRules)
@@ -154,13 +154,14 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	}
 
 	// just check on the local interface
-	manager, err := Create(context.Background(), mock)
+	manager, err := Create(mock)
 	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
 
 	time.Sleep(time.Second)
 
 	defer func() {
-		err := manager.Reset()
+		err := manager.Reset(nil)
 		require.NoError(t, err, "clear the manager state")
 
 		time.Sleep(time.Second)
@@ -219,7 +220,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	})
 
 	t.Run("reset check", func(t *testing.T) {
-		err = manager.Reset()
+		err = manager.Reset(nil)
 		require.NoError(t, err, "failed to reset")
 	})
 }
@@ -251,12 +252,13 @@ func TestIptablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(context.Background(), mock)
+			manager, err := Create(mock)
 			require.NoError(t, err)
+			require.NoError(t, manager.Init(nil))
 			time.Sleep(time.Second)
 
 			defer func() {
-				err := manager.Reset()
+				err := manager.Reset(nil)
 				require.NoError(t, err, "clear the manager state")
 
 				time.Sleep(time.Second)

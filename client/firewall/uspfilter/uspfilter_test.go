@@ -259,7 +259,7 @@ func TestManagerReset(t *testing.T) {
 		return
 	}
 
-	err = m.Reset()
+	err = m.Reset(nil)
 	if err != nil {
 		t.Errorf("failed to reset Manager: %v", err)
 		return
@@ -330,7 +330,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if err = m.Reset(); err != nil {
+	if err = m.Reset(nil); err != nil {
 		t.Errorf("failed to reset Manager: %v", err)
 		return
 	}
@@ -396,7 +396,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			time.Sleep(time.Second)
 
 			defer func() {
-				if err := manager.Reset(); err != nil {
+				if err := manager.Reset(nil); err != nil {
 					t.Errorf("clear the manager state: %v", err)
 				}
 				time.Sleep(time.Second)

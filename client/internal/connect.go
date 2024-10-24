@@ -62,10 +62,7 @@ func (c *ConnectClient) Run() error {
 }
 
 // RunWithProbes runs the client's main logic with probes attached
-func (c *ConnectClient) RunWithProbes(
-	probes *ProbeHolder,
-	runningChan chan error,
-) error {
+func (c *ConnectClient) RunWithProbes(probes *ProbeHolder, runningChan chan error) error {
 	return c.run(MobileDependency{}, probes, runningChan)
 }
 
@@ -104,11 +101,7 @@ func (c *ConnectClient) RunOniOS(
 	return c.run(mobileDependency, nil, nil)
 }
 
-func (c *ConnectClient) run(
-	mobileDependency MobileDependency,
-	probes *ProbeHolder,
-	runningChan chan error,
-) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHolder, runningChan chan error) error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
