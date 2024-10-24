@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -104,14 +105,14 @@ nameserver 8.8.8.8`,
 
 			var changed bool
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			updateFn := func([]string, string, *resolvConf) error {
+			updateFn := func([]string, string, *resolvConf, *statemanager.Manager) error {
 				changed = true
 				cancel()
 				return nil
 			}
 
 			r := newRepair(operationFile, updateFn)
-			r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1")
+			r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1", nil)
 
 			err = os.WriteFile(operationFile, []byte(tt.touchedConfContent), 0755)
 			if err != nil {
@@ -151,14 +152,14 @@ searchdomain netbird.cloud something`
 
 	var changed bool
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	updateFn := func([]string, string, *resolvConf) error {
+	updateFn := func([]string, string, *resolvConf, *statemanager.Manager) error {
 		changed = true
 		cancel()
 		return nil
 	}
 
 	r := newRepair(tmpLink, updateFn)
-	r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1")
+	r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1", nil)
 
 	err = os.WriteFile(tmpLink, []byte(modifyContent), 0755)
 	if err != nil {

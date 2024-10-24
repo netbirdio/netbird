@@ -426,10 +426,10 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			ctx := context.TODO()
 			routeManager := NewManager(ctx, localPeerKey, 0, wgInterface, statusRecorder, nil, nil)
 
-			_, _, err = routeManager.Init()
+			_, _, err = routeManager.Init(nil)
 
 			require.NoError(t, err, "should init route manager")
-			defer routeManager.Stop()
+			defer routeManager.Stop(nil)
 
 			if testCase.removeSrvRouter {
 				routeManager.serverRouter = nil

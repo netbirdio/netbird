@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/mitchellh/hashstructure/v2"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -63,6 +65,7 @@ type DefaultServer struct {
 	iosDnsManager        IosDnsManager
 
 	statusRecorder *peer.Status
+	stateManager   *statemanager.Manager
 }
 
 type handlerWithStop interface {
@@ -77,12 +80,7 @@ type muxUpdate struct {
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(
-	ctx context.Context,
-	wgInterface WGIface,
-	customAddress string,
-	statusRecorder *peer.Status,
-) (*DefaultServer, error) {
+func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress string, statusRecorder *peer.Status, stateManager *statemanager.Manager) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
 	if customAddress != "" {
 		parsedAddrPort, err := netip.ParseAddrPort(customAddress)
@@ -99,7 +97,7 @@ func NewDefaultServer(
 		dnsService = newServiceViaListener(wgInterface, addrPort)
 	}
 
-	return newDefaultServer(ctx, wgInterface, dnsService, statusRecorder), nil
+	return newDefaultServer(ctx, wgInterface, dnsService, statusRecorder, stateManager), nil
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
@@ -112,7 +110,7 @@ func NewDefaultServerPermanentUpstream(
 	statusRecorder *peer.Status,
 ) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
-	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil)
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.addHostRootZone()
@@ -130,12 +128,12 @@ func NewDefaultServerIos(
 	iosDnsManager IosDnsManager,
 	statusRecorder *peer.Status,
 ) *DefaultServer {
-	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil)
 	ds.iosDnsManager = iosDnsManager
 	return ds
 }
 
-func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService service, statusRecorder *peer.Status) *DefaultServer {
+func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService service, statusRecorder *peer.Status, stateManager *statemanager.Manager) *DefaultServer {
 	ctx, stop := context.WithCancel(ctx)
 	defaultServer := &DefaultServer{
 		ctx:       ctx,
@@ -147,6 +145,7 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 		},
 		wgInterface:    wgInterface,
 		statusRecorder: statusRecorder,
+		stateManager:   stateManager,
 		hostsDNSHolder: newHostsDNSHolder(),
 	}
 
@@ -169,6 +168,7 @@ func (s *DefaultServer) Initialize() (err error) {
 		}
 	}
 
+	s.stateManager.RegisterState(&ShutdownState{})
 	s.hostManager, err = s.initialize()
 	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
@@ -191,9 +191,10 @@ func (s *DefaultServer) Stop() {
 	s.ctxCancel()
 
 	if s.hostManager != nil {
-		err := s.hostManager.restoreHostDNS()
-		if err != nil {
-			log.Error(err)
+		if err := s.hostManager.restoreHostDNS(); err != nil {
+			log.Error("failed to restore host DNS settings: ", err)
+		} else if err := s.stateManager.DeleteState(&ShutdownState{}); err != nil {
+			log.Errorf("failed to delete shutdown dns state: %v", err)
 		}
 	}
 
@@ -318,8 +319,15 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		hostUpdate.RouteAll = false
 	}
 
-	if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
+	if err = s.hostManager.applyDNSConfig(hostUpdate, s.stateManager); err != nil {
 		log.Error(err)
+	}
+
+	// persist dns state right away
+	ctx, cancel := context.WithTimeout(s.ctx, 3*time.Second)
+	defer cancel()
+	if err := s.stateManager.PersistState(ctx); err != nil {
+		log.Errorf("Failed to persist dns state: %v", err)
 	}
 
 	if s.searchDomainNotifier != nil {
@@ -521,7 +529,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			}
 		}
 
-		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
+		if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
 			l.Errorf("Failed to apply nameserver deactivation on the host: %v", err)
 		}
 
@@ -551,7 +559,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			s.currentConfig.RouteAll = true
 			s.service.RegisterMux(nbdns.RootZone, handler)
 		}
-		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
+		if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
 			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
 		}
 
