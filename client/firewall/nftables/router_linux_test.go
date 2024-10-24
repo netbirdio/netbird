@@ -69,6 +69,12 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 						Register: 1,
 						Data:     ifname(ifaceMock.Name()),
 					},
+					&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+					&expr.Cmp{
+						Op:       expr.CmpOpNeq,
+						Register: 1,
+						Data:     ifname("lo"),
+					},
 				)
 
 				natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
@@ -96,6 +102,12 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 						Op:       expr.CmpOpEq,
 						Register: 1,
 						Data:     ifname(ifaceMock.Name()),
+					},
+					&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+					&expr.Cmp{
+						Op:       expr.CmpOpNeq,
+						Register: 1,
+						Data:     ifname("lo"),
 					},
 				)
 

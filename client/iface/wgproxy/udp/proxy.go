@@ -1,4 +1,4 @@
-package usp
+package udp
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 	"github.com/netbirdio/netbird/client/errors"
 )
 
-// WGUserSpaceProxy proxies
-type WGUserSpaceProxy struct {
+// WGUDPProxy proxies
+type WGUDPProxy struct {
 	localWGListenPort int
 
 	remoteConn net.Conn
@@ -28,10 +28,10 @@ type WGUserSpaceProxy struct {
 	isStarted bool
 }
 
-// NewWGUserSpaceProxy instantiate a user space WireGuard proxy. This is not a thread safe implementation
-func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
+// NewWGUDPProxy instantiate a UDP based WireGuard proxy. This is not a thread safe implementation
+func NewWGUDPProxy(wgPort int) *WGUDPProxy {
 	log.Debugf("Initializing new user space proxy with port %d", wgPort)
-	p := &WGUserSpaceProxy{
+	p := &WGUDPProxy{
 		localWGListenPort: wgPort,
 	}
 	return p
@@ -42,7 +42,7 @@ func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
 // the connection is complete, an error is returned. Once successfully
 // connected, any expiration of the context will not affect the
 // connection.
-func (p *WGUserSpaceProxy) AddTurnConn(ctx context.Context, remoteConn net.Conn) error {
+func (p *WGUDPProxy) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
 	dialer := net.Dialer{}
 	localConn, err := dialer.DialContext(ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
 	if err != nil {
@@ -57,7 +57,7 @@ func (p *WGUserSpaceProxy) AddTurnConn(ctx context.Context, remoteConn net.Conn)
 	return err
 }
 
-func (p *WGUserSpaceProxy) EndpointAddr() *net.UDPAddr {
+func (p *WGUDPProxy) EndpointAddr() *net.UDPAddr {
 	if p.localConn == nil {
 		return nil
 	}
@@ -66,7 +66,7 @@ func (p *WGUserSpaceProxy) EndpointAddr() *net.UDPAddr {
 }
 
 // Work starts the proxy or resumes it if it was paused
-func (p *WGUserSpaceProxy) Work() {
+func (p *WGUDPProxy) Work() {
 	if p.remoteConn == nil {
 		return
 	}
@@ -83,7 +83,7 @@ func (p *WGUserSpaceProxy) Work() {
 }
 
 // Pause pauses the proxy from receiving data from the remote peer
-func (p *WGUserSpaceProxy) Pause() {
+func (p *WGUDPProxy) Pause() {
 	if p.remoteConn == nil {
 		return
 	}
@@ -94,14 +94,14 @@ func (p *WGUserSpaceProxy) Pause() {
 }
 
 // CloseConn close the localConn
-func (p *WGUserSpaceProxy) CloseConn() error {
+func (p *WGUDPProxy) CloseConn() error {
 	if p.cancel == nil {
 		return fmt.Errorf("proxy not started")
 	}
 	return p.close()
 }
 
-func (p *WGUserSpaceProxy) close() error {
+func (p *WGUDPProxy) close() error {
 	p.closeMu.Lock()
 	defer p.closeMu.Unlock()
 
@@ -125,7 +125,7 @@ func (p *WGUserSpaceProxy) close() error {
 }
 
 // proxyToRemote proxies from Wireguard to the RemoteKey
-func (p *WGUserSpaceProxy) proxyToRemote(ctx context.Context) {
+func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 	defer func() {
 		if err := p.close(); err != nil {
 			log.Warnf("error in proxy to remote loop: %s", err)
@@ -157,7 +157,7 @@ func (p *WGUserSpaceProxy) proxyToRemote(ctx context.Context) {
 
 // proxyToLocal proxies from the Remote peer to local WireGuard
 // if the proxy is paused it will drain the remote conn and drop the packets
-func (p *WGUserSpaceProxy) proxyToLocal(ctx context.Context) {
+func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 	defer func() {
 		if err := p.close(); err != nil {
 			log.Warnf("error in proxy to local loop: %s", err)
