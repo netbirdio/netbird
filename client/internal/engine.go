@@ -30,6 +30,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peer/guard"
+	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -168,6 +170,7 @@ type Engine struct {
 
 	relayManager *relayClient.Manager
 	stateManager *statemanager.Manager
+	srWatcher *guard.SRWatcher
 }
 
 // Peer is an instance of the Connection Peer
@@ -261,6 +264,10 @@ func (e *Engine) Stop() error {
 
 	if e.routeManager != nil {
 		e.routeManager.Stop(e.stateManager)
+	}
+
+	if e.srWatcher != nil {
+		e.srWatcher.Close()
 	}
 
 	err := e.removeAllPeers()
@@ -388,6 +395,18 @@ func (e *Engine) Start() error {
 		e.close()
 		return fmt.Errorf("initialize dns server: %w", err)
 	}
+
+	iceCfg := icemaker.Config{
+		StunTurn:             &e.stunTurn,
+		InterfaceBlackList:   e.config.IFaceBlackList,
+		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
+		UDPMux:               e.udpMux.UDPMuxDefault,
+		UDPMuxSrflx:          e.udpMux,
+		NATExternalIPs:       e.parseNATExternalIPMappings(),
+	}
+
+	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
+	e.srWatcher.Start()
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -971,7 +990,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		LocalWgPort:     e.config.WgPort,
 		RosenpassPubKey: e.getRosenpassPubKey(),
 		RosenpassAddr:   e.getRosenpassAddr(),
-		ICEConfig: peer.ICEConfig{
+		ICEConfig: icemaker.Config{
 			StunTurn:             &e.stunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,
 			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
@@ -981,7 +1000,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		},
 	}
 
-	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager)
+	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher)
 	if err != nil {
 		return nil, err
 	}

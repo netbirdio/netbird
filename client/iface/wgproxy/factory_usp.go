@@ -1,6 +1,8 @@
 package wgproxy
 
 import (
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/iface/bind"
 	proxyBind "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
 )
@@ -10,6 +12,7 @@ type USPFactory struct {
 }
 
 func NewUSPFactory(iceBind *bind.ICEBind) *USPFactory {
+	log.Infof("WireGuard Proxy Factory will produce bind proxy")
 	f := &USPFactory{
 		bind: iceBind,
 	}

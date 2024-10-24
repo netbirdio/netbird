@@ -143,7 +143,6 @@ func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 	conn, ok := b.endpoints[ep.DstIP()]
 	b.endpointsMu.Unlock()
 	if !ok {
-		log.Infof("failed to find endpoint for %s", ep.DstIP())
 		return b.StdNetBind.Send(bufs, ep)
 	}
 
