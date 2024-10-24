@@ -1101,7 +1101,7 @@ type SetupKeyRequest struct {
 	// Ephemeral Indicate that the peer will be ephemeral or not
 	Ephemeral *bool `json:"ephemeral,omitempty"`
 
-	// ExpiresIn Expiration time in seconds
+	// ExpiresIn Expiration time in seconds, 0 will mean the key never expires
 	ExpiresIn int `json:"expires_in"`
 
 	// Name Setup Key name

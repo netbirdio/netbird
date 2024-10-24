@@ -13,12 +13,13 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"golang.org/x/exp/maps"
+
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"golang.org/x/exp/maps"
 
 	"github.com/stretchr/testify/assert"
 
@@ -168,7 +169,6 @@ func TestGetPeers(t *testing.T) {
 	peer := &nbpeer.Peer{
 		ID:                     testPeerID,
 		Key:                    "key",
-		SetupKey:               "setupkey",
 		IP:                     net.ParseIP("100.64.0.1"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "PeerName",

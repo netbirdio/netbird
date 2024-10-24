@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"math/rand"
 	"net"
@@ -71,7 +73,7 @@ func runLargeTest(t *testing.T, store Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
@@ -81,7 +83,6 @@ func runLargeTest(t *testing.T, store Store) {
 		peer := &nbpeer.Peer{
 			ID:         peerID,
 			Key:        peerID,
-			SetupKey:   "",
 			IP:         netIP,
 			Name:       peerID,
 			DNSLabel:   peerID,
@@ -133,7 +134,7 @@ func runLargeTest(t *testing.T, store Store) {
 		}
 		account.NameServerGroups[nameserver.ID] = nameserver
 
-		setupKey := GenerateDefaultSetupKey()
+		setupKey, _ := GenerateDefaultSetupKey()
 		account.SetupKeys[setupKey.Key] = setupKey
 	}
 
@@ -215,30 +216,28 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	assert.NoError(t, err)
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
-	setupKey = GenerateDefaultSetupKey()
+	setupKey, _ = GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
-		Key:      "peerkey2",
-		SetupKey: "peerkeysetupkey2",
-		IP:       net.IP{127, 0, 0, 2},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name 2",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey2",
+		IP:     net.IP{127, 0, 0, 2},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name 2",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account2)
@@ -297,15 +296,14 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	}}
 
 	account := newAccountWithId(context.Background(), "account_id", testUserID, "")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Users[testUserID] = user
 
@@ -394,13 +392,12 @@ func TestSqlite_SavePeer(t *testing.T) {
 
 	// save status of non-existing peer
 	peer := &nbpeer.Peer{
-		Key:      "peerkey",
-		ID:       "testpeer",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		ID:     "testpeer",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	ctx := context.Background()
 	err = store.SavePeer(ctx, account.Id, peer)
@@ -453,13 +450,12 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 
 	// save new status of existing peer
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		ID:       "testpeer",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		ID:     "testpeer",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
@@ -720,15 +716,14 @@ func newSqliteStore(t *testing.T) *SqlStore {
 func newAccount(store Store, id int) error {
 	str := fmt.Sprintf("%s-%d", uuid.New().String(), id)
 	account := newAccountWithId(context.Background(), str, str+"-testuser", "example.com")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["p"+str] = &nbpeer.Peer{
-		Key:      "peerkey" + str,
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey" + str,
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	return store.SaveAccount(context.Background(), account)
@@ -760,30 +755,28 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	assert.NoError(t, err)
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
-	setupKey = GenerateDefaultSetupKey()
+	setupKey, _ = GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
-		Key:      "peerkey2",
-		SetupKey: "peerkeysetupkey2",
-		IP:       net.IP{127, 0, 0, 2},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name 2",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey2",
+		IP:     net.IP{127, 0, 0, 2},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name 2",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account2)
@@ -842,15 +835,14 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	}}
 
 	account := newAccountWithId(context.Background(), "account_id", testUserID, "")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Users[testUserID] = user
 
@@ -921,13 +913,12 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 
 	// save new status of existing peer
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		ID:       "testpeer",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		ID:     "testpeer",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
@@ -1118,12 +1109,17 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
+	plainKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	hashedKey := sha256.Sum256([]byte(plainKey))
+	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
-	assert.Equal(t, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB", setupKey.Key)
+	assert.Equal(t, encodedHashedKey, setupKey.Key)
+	assert.Equal(t, hiddenKey(plainKey, 4), setupKey.KeySecret)
 	assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", setupKey.AccountID)
 	assert.Equal(t, "Default key", setupKey.Name)
 }
@@ -1138,24 +1134,28 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
+	plainKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	hashedKey := sha256.Sum256([]byte(plainKey))
+	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 0, setupKey.UsedTimes)
 
 	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
 	require.NoError(t, err)
 
-	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupKey.UsedTimes)
 
 	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
 	require.NoError(t, err)
 
-	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 2, setupKey.UsedTimes)
 }
@@ -1263,4 +1263,33 @@ func TestSqlite_GetGroupByName(t *testing.T) {
 	group, err := store.GetGroupByName(context.Background(), LockingStrengthShare, "All", accountID)
 	require.NoError(t, err)
 	require.Equal(t, "All", group.Name)
+}
+
+func Test_DeleteSetupKeySuccessfully(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	setupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+
+	err = store.DeleteSetupKey(context.Background(), accountID, setupKeyID)
+	require.NoError(t, err)
+
+	_, err = store.GetSetupKeyByID(context.Background(), LockingStrengthShare, setupKeyID, accountID)
+	require.Error(t, err)
+}
+
+func Test_DeleteSetupKeyFailsForNonExistingKey(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	nonExistingKeyID := "non-existing-key-id"
+
+	err = store.DeleteSetupKey(context.Background(), accountID, nonExistingKeyID)
+	require.Error(t, err)
 }

@@ -109,6 +109,14 @@ type MockAccountManager struct {
 	GetAccountByIDFunc                  func(ctx context.Context, accountID string, userID string) (*server.Account, error)
 	GetUserByIDFunc                     func(ctx context.Context, id string) (*server.User, error)
 	GetAccountSettingsFunc              func(ctx context.Context, accountID string, userID string) (*server.Settings, error)
+	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
+}
+
+func (am *MockAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {
+	if am.DeleteSetupKeyFunc != nil {
+		return am.DeleteSetupKeyFunc(ctx, accountID, userID, keyID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteSetupKey is not implemented")
 }
 
 func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {

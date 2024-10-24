@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,7 +69,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	}
 
 	assertKey(t, newKey, newKeyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
-		key.Id, time.Now().UTC(), autoGroups)
+		key.Id, time.Now().UTC(), autoGroups, true)
 
 	// check the corresponding events that should have been generated
 	ev := getEvent(t, account.Id, manager, activity.SetupKeyRevoked)
@@ -183,7 +186,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 
 			assertKey(t, key, tCase.expectedKeyName, false, tCase.expectedType, tCase.expectedUsedTimes,
 				tCase.expectedCreatedAt, tCase.expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))),
-				tCase.expectedUpdatedAt, tCase.expectedGroups)
+				tCase.expectedUpdatedAt, tCase.expectedGroups, false)
 
 			// check the corresponding events that should have been generated
 			ev := getEvent(t, account.Id, manager, activity.SetupKeyCreated)
@@ -239,10 +242,10 @@ func TestGenerateDefaultSetupKey(t *testing.T) {
 	expectedExpiresAt := time.Now().UTC().Add(24 * 30 * time.Hour)
 	var expectedAutoGroups []string
 
-	key := GenerateDefaultSetupKey()
+	key, plainKey := GenerateDefaultSetupKey()
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
-		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))), expectedUpdatedAt, expectedAutoGroups)
+		expectedExpiresAt, strconv.Itoa(int(Hash(plainKey))), expectedUpdatedAt, expectedAutoGroups, true)
 
 }
 
@@ -256,41 +259,41 @@ func TestGenerateSetupKey(t *testing.T) {
 	expectedUpdatedAt := time.Now().UTC()
 	var expectedAutoGroups []string
 
-	key := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	key, plain := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
-		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))), expectedUpdatedAt, expectedAutoGroups)
+		expectedExpiresAt, strconv.Itoa(int(Hash(plain))), expectedUpdatedAt, expectedAutoGroups, true)
 
 }
 
 func TestSetupKey_IsValid(t *testing.T) {
-	validKey := GenerateSetupKey("valid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	validKey, _ := GenerateSetupKey("valid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	if !validKey.IsValid() {
 		t.Errorf("expected key to be valid, got invalid %v", validKey)
 	}
 
 	// expired
-	expiredKey := GenerateSetupKey("invalid key", SetupKeyOneOff, -time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	expiredKey, _ := GenerateSetupKey("invalid key", SetupKeyOneOff, -time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	if expiredKey.IsValid() {
 		t.Errorf("expected key to be invalid due to expiration, got valid %v", expiredKey)
 	}
 
 	// revoked
-	revokedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	revokedKey, _ := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	revokedKey.Revoked = true
 	if revokedKey.IsValid() {
 		t.Errorf("expected revoked key to be invalid, got valid %v", revokedKey)
 	}
 
 	// overused
-	overUsedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	overUsedKey, _ := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	overUsedKey.UsedTimes = 1
 	if overUsedKey.IsValid() {
 		t.Errorf("expected overused key to be invalid, got valid %v", overUsedKey)
 	}
 
 	// overused
-	reusableKey := GenerateSetupKey("valid key", SetupKeyReusable, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	reusableKey, _ := GenerateSetupKey("valid key", SetupKeyReusable, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	reusableKey.UsedTimes = 99
 	if !reusableKey.IsValid() {
 		t.Errorf("expected reusable key to be valid when used many times, got valid %v", reusableKey)
@@ -299,7 +302,7 @@ func TestSetupKey_IsValid(t *testing.T) {
 
 func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke bool, expectedType string,
 	expectedUsedTimes int, expectedCreatedAt time.Time, expectedExpiresAt time.Time, expectedID string,
-	expectedUpdatedAt time.Time, expectedAutoGroups []string) {
+	expectedUpdatedAt time.Time, expectedAutoGroups []string, expectHashedKey bool) {
 	t.Helper()
 	if key.Name != expectedName {
 		t.Errorf("expected setup key to have Name %v, got %v", expectedName, key.Name)
@@ -329,13 +332,23 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 		t.Errorf("expected setup key to have CreatedAt ~ %v, got %v", expectedCreatedAt, key.CreatedAt)
 	}
 
-	_, err := uuid.Parse(key.Key)
-	if err != nil {
-		t.Errorf("expected key to be a valid UUID, got %v, %v", key.Key, err)
+	if expectHashedKey {
+		if !isValidBase64SHA256(key.Key) {
+			t.Errorf("expected key to be hashed, got %v", key.Key)
+		}
+	} else {
+		_, err := uuid.Parse(key.Key)
+		if err != nil {
+			t.Errorf("expected key to be a valid UUID, got %v, %v", key.Key, err)
+		}
 	}
 
-	if key.Id != strconv.Itoa(int(Hash(key.Key))) {
-		t.Errorf("expected key Id t= %v, got %v", expectedID, key.Id)
+	if !strings.HasSuffix(key.KeySecret, "****") {
+		t.Errorf("expected key secret to be secure, got %v", key.Key)
+	}
+
+	if key.Id != expectedID {
+		t.Errorf("expected key Id %v, got %v", expectedID, key.Id)
 	}
 
 	if len(key.AutoGroups) != len(expectedAutoGroups) {
@@ -344,13 +357,26 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 	assert.ElementsMatch(t, key.AutoGroups, expectedAutoGroups, "expected key AutoGroups to be equal")
 }
 
+func isValidBase64SHA256(encodedKey string) bool {
+	decoded, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil {
+		return false
+	}
+
+	if len(decoded) != sha256.Size {
+		return false
+	}
+
+	return true
+}
+
 func TestSetupKey_Copy(t *testing.T) {
 
-	key := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	key, _ := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	keyCopy := key.Copy()
 
 	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id,
-		key.UpdatedAt, key.AutoGroups)
+		key.UpdatedAt, key.AutoGroups, true)
 
 }
 

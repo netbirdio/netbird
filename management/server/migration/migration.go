@@ -2,13 +2,16 @@ package migration
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	b64 "encoding/base64"
 	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"strings"
+	"unicode/utf8"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -204,4 +207,91 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 	log.Printf("Migration of %s.%s from blob to json completed", tableName, fieldName)
 
 	return nil
+}
+
+func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) error {
+	oldColumnName := "key"
+	newColumnName := "key_secret"
+
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	err := stmt.Parse(&model)
+	if err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if !tx.Migrator().HasColumn(&model, newColumnName) {
+			log.WithContext(ctx).Infof("Column %s does not exist in table %s, adding it", newColumnName, tableName)
+			if err := tx.Migrator().AddColumn(&model, newColumnName); err != nil {
+				return fmt.Errorf("add column %s: %w", newColumnName, err)
+			}
+		}
+
+		var rows []map[string]any
+		if err := tx.Table(tableName).
+			Select("id", oldColumnName, newColumnName).
+			Where(newColumnName + " IS NULL OR " + newColumnName + " = ''").
+			Where("SUBSTR(" + oldColumnName + ", 9, 1) = '-'").
+			Find(&rows).Error; err != nil {
+			return fmt.Errorf("find rows with empty secret key and matching pattern: %w", err)
+		}
+
+		if len(rows) == 0 {
+			log.WithContext(ctx).Infof("No plain setup keys found in table %s, no migration needed", tableName)
+			return nil
+		}
+
+		for _, row := range rows {
+			var plainKey string
+			if columnValue := row[oldColumnName]; columnValue != nil {
+				value, ok := columnValue.(string)
+				if !ok {
+					return fmt.Errorf("type assertion failed")
+				}
+				plainKey = value
+			}
+
+			secretKey := hiddenKey(plainKey, 4)
+
+			hashedKey := sha256.Sum256([]byte(plainKey))
+			encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+			if err := tx.Table(tableName).Where("id = ?", row["id"]).Update(newColumnName, secretKey).Error; err != nil {
+				return fmt.Errorf("update row with secret key: %w", err)
+			}
+
+			if err := tx.Table(tableName).Where("id = ?", row["id"]).Update(oldColumnName, encodedHashedKey).Error; err != nil {
+				return fmt.Errorf("update row with hashed key: %w", err)
+			}
+		}
+
+		if err := tx.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", "peers", "setup_key")).Error; err != nil {
+			log.WithContext(ctx).Errorf("Failed to drop column %s: %v", "setup_key", err)
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.Printf("Migration of plain setup key to hashed setup key completed")
+	return nil
+}
+
+// hiddenKey returns the Key value hidden with "*" and a 5 character prefix.
+// E.g., "831F6*******************************"
+func hiddenKey(key string, length int) string {
+	prefix := key[0:5]
+	if length > utf8.RuneCountInString(key) {
+		length = utf8.RuneCountInString(key) - len(prefix)
+	}
+	return prefix + strings.Repeat("*", length)
 }

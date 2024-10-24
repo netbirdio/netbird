@@ -1010,7 +1010,6 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 	expectedPeerKey := key.PublicKey().String()
-	expectedSetupKey := setupKey.Key
 
 	peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  expectedPeerKey,
@@ -1033,10 +1032,6 @@ func TestAccountManager_AddPeer(t *testing.T) {
 
 	if !account.Network.Net.Contains(peer.IP) {
 		t.Errorf("expecting just added peer's IP %s to be in a network range %s", peer.IP.String(), account.Network.Net.String())
-	}
-
-	if peer.SetupKey != expectedSetupKey {
-		t.Errorf("expecting just added peer to have SetupKey = %s, got %s", expectedSetupKey, peer.SetupKey)
 	}
 
 	if account.Network.CurrentSerial() != 1 {
@@ -2367,7 +2362,6 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						LoginExpired: false,
 					},
 					LoginExpirationEnabled: true,
-					SetupKey:               "key",
 				},
 				"peer-2": {
 					Status: &nbpeer.PeerStatus{
@@ -2375,7 +2369,6 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						LoginExpired: false,
 					},
 					LoginExpirationEnabled: true,
-					SetupKey:               "key",
 				},
 			},
 			expiration:             time.Second,
@@ -2529,7 +2522,6 @@ func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
 						LoginExpired: false,
 					},
 					InactivityExpirationEnabled: true,
-					SetupKey:                    "key",
 				},
 				"peer-2": {
 					Status: &nbpeer.PeerStatus{
@@ -2537,7 +2529,6 @@ func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
 						LoginExpired: false,
 					},
 					InactivityExpirationEnabled: true,
-					SetupKey:                    "key",
 				},
 			},
 			expiration:             time.Second,
