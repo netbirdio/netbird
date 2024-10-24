@@ -3,6 +3,5 @@
 package dns
 
 const (
-	fileUncleanShutdownResolvConfLocation  = "/var/lib/netbird/resolv.conf"
-	fileUncleanShutdownManagerTypeLocation = "/var/lib/netbird/manager"
+	fileUncleanShutdownResolvConfLocation = "/var/lib/netbird/resolv.conf"
 )

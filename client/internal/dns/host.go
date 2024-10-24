@@ -5,14 +5,14 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 type hostManager interface {
-	applyDNSConfig(config HostDNSConfig) error
+	applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error
 	restoreHostDNS() error
 	supportCustomPort() bool
-	restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error
 }
 
 type SystemDNSSettings struct {
@@ -35,15 +35,15 @@ type DomainConfig struct {
 }
 
 type mockHostConfigurator struct {
-	applyDNSConfigFunc            func(config HostDNSConfig) error
+	applyDNSConfigFunc            func(config HostDNSConfig, stateManager *statemanager.Manager) error
 	restoreHostDNSFunc            func() error
 	supportCustomPortFunc         func() bool
 	restoreUncleanShutdownDNSFunc func(*netip.Addr) error
 }
 
-func (m *mockHostConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (m *mockHostConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	if m.applyDNSConfigFunc != nil {
-		return m.applyDNSConfigFunc(config)
+		return m.applyDNSConfigFunc(config, stateManager)
 	}
 	return fmt.Errorf("method applyDNSSettings is not implemented")
 }
@@ -62,16 +62,9 @@ func (m *mockHostConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (m *mockHostConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error {
-	if m.restoreUncleanShutdownDNSFunc != nil {
-		return m.restoreUncleanShutdownDNSFunc(storedDNSAddress)
-	}
-	return fmt.Errorf("method restoreUncleanShutdownDNS is not implemented")
-}
-
 func newNoopHostMocker() hostManager {
 	return &mockHostConfigurator{
-		applyDNSConfigFunc:            func(config HostDNSConfig) error { return nil },
+		applyDNSConfigFunc:            func(config HostDNSConfig, stateManager *statemanager.Manager) error { return nil },
 		restoreHostDNSFunc:            func() error { return nil },
 		supportCustomPortFunc:         func() bool { return true },
 		restoreUncleanShutdownDNSFunc: func(*netip.Addr) error { return nil },
