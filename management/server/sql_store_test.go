@@ -71,7 +71,7 @@ func runLargeTest(t *testing.T, store Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
@@ -81,7 +81,6 @@ func runLargeTest(t *testing.T, store Store) {
 		peer := &nbpeer.Peer{
 			ID:         peerID,
 			Key:        peerID,
-			SetupKey:   "",
 			IP:         netIP,
 			Name:       peerID,
 			DNSLabel:   peerID,
@@ -133,7 +132,7 @@ func runLargeTest(t *testing.T, store Store) {
 		}
 		account.NameServerGroups[nameserver.ID] = nameserver
 
-		setupKey := GenerateDefaultSetupKey()
+		setupKey, _ := GenerateDefaultSetupKey()
 		account.SetupKeys[setupKey.Key] = setupKey
 	}
 
@@ -215,30 +214,28 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	assert.NoError(t, err)
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
-	setupKey = GenerateDefaultSetupKey()
+	setupKey, _ = GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
-		Key:      "peerkey2",
-		SetupKey: "peerkeysetupkey2",
-		IP:       net.IP{127, 0, 0, 2},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name 2",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey2",
+		IP:     net.IP{127, 0, 0, 2},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name 2",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account2)
@@ -297,15 +294,14 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	}}
 
 	account := newAccountWithId(context.Background(), "account_id", testUserID, "")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Users[testUserID] = user
 
@@ -394,13 +390,12 @@ func TestSqlite_SavePeer(t *testing.T) {
 
 	// save status of non-existing peer
 	peer := &nbpeer.Peer{
-		Key:      "peerkey",
-		ID:       "testpeer",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		ID:     "testpeer",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	ctx := context.Background()
 	err = store.SavePeer(ctx, account.Id, peer)
@@ -453,13 +448,12 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 
 	// save new status of existing peer
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		ID:       "testpeer",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		ID:     "testpeer",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
@@ -720,15 +714,14 @@ func newSqliteStore(t *testing.T) *SqlStore {
 func newAccount(store Store, id int) error {
 	str := fmt.Sprintf("%s-%d", uuid.New().String(), id)
 	account := newAccountWithId(context.Background(), str, str+"-testuser", "example.com")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["p"+str] = &nbpeer.Peer{
-		Key:      "peerkey" + str,
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey" + str,
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	return store.SaveAccount(context.Background(), account)
@@ -760,30 +753,28 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	assert.NoError(t, err)
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
-	setupKey = GenerateDefaultSetupKey()
+	setupKey, _ = GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
-		Key:      "peerkey2",
-		SetupKey: "peerkeysetupkey2",
-		IP:       net.IP{127, 0, 0, 2},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name 2",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey2",
+		IP:     net.IP{127, 0, 0, 2},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name 2",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account2)
@@ -842,15 +833,14 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	}}
 
 	account := newAccountWithId(context.Background(), "account_id", testUserID, "")
-	setupKey := GenerateDefaultSetupKey()
+	setupKey, _ := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Users[testUserID] = user
 
@@ -921,13 +911,12 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 
 	// save new status of existing peer
 	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:      "peerkey",
-		ID:       "testpeer",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     nbpeer.PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Key:    "peerkey",
+		ID:     "testpeer",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)

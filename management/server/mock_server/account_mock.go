@@ -111,6 +111,11 @@ type MockAccountManager struct {
 	GetAccountSettingsFunc              func(ctx context.Context, accountID string, userID string) (*server.Settings, error)
 }
 
+func (am *MockAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
 func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
 	if am.SyncAndMarkPeerFunc != nil {
 		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP)
@@ -187,11 +192,11 @@ func (am *MockAccountManager) CreateSetupKey(
 	usageLimit int,
 	userID string,
 	ephemeral bool,
-) (*server.SetupKey, string, error) {
+) (*server.SetupKey, error) {
 	if am.CreateSetupKeyFunc != nil {
 		return am.CreateSetupKeyFunc(ctx, accountID, keyName, keyType, expiresIn, autoGroups, usageLimit, userID, ephemeral)
 	}
-	return nil, "", status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
 }
 
 // AccountExists mock implementation of AccountExists from server.AccountManager interface

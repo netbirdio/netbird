@@ -208,11 +208,9 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 }
 
 // GenerateDefaultSetupKey generates a default reusable setup key with an unlimited usage and 30 days expiration
-func GenerateDefaultSetupKey() *SetupKey {
-	key, plainKey := GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{},
+func GenerateDefaultSetupKey() (*SetupKey, string) {
+	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{},
 		SetupKeyUnlimitedUsage, false)
-	key.Key = plainKey
-	return key
 }
 
 func Hash(s string) uint32 {

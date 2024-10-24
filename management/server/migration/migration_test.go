@@ -168,6 +168,7 @@ func TestMigrateSetupKeyToHashedSetupKey_ForPlainKey(t *testing.T) {
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	err = db.Save(&server.SetupKey{
+		Id:  "1",
 		Key: "EEFDAB47-C1A5-4472-8C05-71DE9A1E8382",
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
@@ -190,6 +191,7 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case1(t *testing.
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	err = db.Save(&server.SetupKey{
+		Id:        "1",
 		Key:       "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
 		KeySecret: "EEFDA****",
 	}).Error
@@ -213,6 +215,7 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case2(t *testing.
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	err = db.Save(&server.SetupKey{
+		Id:  "1",
 		Key: "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")

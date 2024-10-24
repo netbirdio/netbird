@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -1090,7 +1092,6 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		ID:        xid.New().String(),
 		AccountID: existingAccountID,
 		Key:       "newPeerKey",
-		SetupKey:  "",
 		IP:        net.IP{123, 123, 123, 123},
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
@@ -1155,7 +1156,6 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		ID:        xid.New().String(),
 		AccountID: existingAccountID,
 		Key:       "newPeerKey",
-		SetupKey:  "existingSetupKey",
 		UserID:    "",
 		IP:        net.IP{123, 123, 123, 123},
 		Meta: nbpeer.PeerSystemMeta{
@@ -1175,7 +1175,6 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	peer, err := store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, newPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
-	assert.Equal(t, peer.SetupKey, existingSetupKeyID)
 
 	account, err := store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
@@ -1187,8 +1186,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
 	assert.NoError(t, err)
-	assert.NotEqual(t, lastUsed, account.SetupKeys[existingSetupKeyID].LastUsed)
-	assert.Equal(t, 1, account.SetupKeys[existingSetupKeyID].UsedTimes)
+
+	hashedKey := sha256.Sum256([]byte(existingSetupKeyID))
+	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+	assert.NotEqual(t, lastUsed, account.SetupKeys[encodedHashedKey].LastUsed)
+	assert.Equal(t, 1, account.SetupKeys[encodedHashedKey].UsedTimes)
 
 }
 
@@ -1221,7 +1223,6 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		ID:        xid.New().String(),
 		AccountID: existingAccountID,
 		Key:       "newPeerKey",
-		SetupKey:  "existingSetupKey",
 		UserID:    "",
 		IP:        net.IP{123, 123, 123, 123},
 		Meta: nbpeer.PeerSystemMeta{
@@ -1250,8 +1251,11 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
 	assert.NoError(t, err)
-	assert.Equal(t, lastUsed, account.SetupKeys[faultyKey].LastUsed.UTC())
-	assert.Equal(t, 0, account.SetupKeys[faultyKey].UsedTimes)
+
+	hashedKey := sha256.Sum256([]byte(faultyKey))
+	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].LastUsed.UTC())
+	assert.Equal(t, 0, account.SetupKeys[encodedHashedKey].UsedTimes)
 }
 
 func TestPeerAccountPeersUpdate(t *testing.T) {

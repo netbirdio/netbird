@@ -81,18 +81,21 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 }
 
 func TestSetupKeysHandlers(t *testing.T) {
-	defaultSetupKey := server.GenerateDefaultSetupKey()
+	defaultSetupKey, _ := server.GenerateDefaultSetupKey()
 	defaultSetupKey.Id = existingSetupKeyID
 
 	adminUser := server.NewAdminUser("test_user")
 
-	newSetupKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"},
+	newSetupKey, plainKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"},
 		server.SetupKeyUnlimitedUsage, true)
+	newSetupKey.Key = plainKey
 	updatedDefaultSetupKey := defaultSetupKey.Copy()
 	updatedDefaultSetupKey.AutoGroups = []string{"group-1"}
 	updatedDefaultSetupKey.Name = updatedSetupKeyName
 	updatedDefaultSetupKey.Revoked = true
 
+	expectedNewKey := toResponseBody(newSetupKey)
+	expectedNewKey.Key = plainKey
 	tt := []struct {
 		name              string
 		requestType       string
@@ -134,7 +137,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"%s\",\"expires_in\":86400, \"ephemeral\":true}", newSetupKey.Name, newSetupKey.Type))),
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(newSetupKey),
+			expectedSetupKey: expectedNewKey,
 		},
 		{
 			name:        "Update Setup Key",
