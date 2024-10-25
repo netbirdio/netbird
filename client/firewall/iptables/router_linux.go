@@ -296,6 +296,8 @@ func (r *router) RemoveAllLegacyRouteRules() error {
 		}
 		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWD, rule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove legacy forwarding rule: %v", err))
+		} else {
+			delete(r.rules, k)
 		}
 	}
 
