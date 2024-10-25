@@ -394,7 +394,19 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 		return status.NewUnauthorizedToViewSetupKeysError()
 	}
 
-	return am.Store.DeleteSetupKey(ctx, accountID, keyID)
+	deletedSetupKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, keyID, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to get setup key: %w", err)
+	}
+
+	err = am.Store.DeleteSetupKey(ctx, accountID, keyID)
+	if err != nil {
+		return fmt.Errorf("failed to delete setup key: %w", err)
+	}
+
+	am.StoreEvent(ctx, userID, keyID, accountID, activity.SetupKeyDeleted, deletedSetupKey.EventMeta())
+
+	return nil
 }
 
 func validateSetupKeyAutoGroups(account *Account, autoGroups []string) error {
