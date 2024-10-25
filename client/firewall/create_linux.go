@@ -45,7 +45,7 @@ func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (firewal
 	}
 
 	if err != nil {
-		log.Warnf("failed to create native firewall: %v", err)
+		log.Warnf("failed to create native firewall: %v. Proceeding with userspace", err)
 	}
 	return createUserspaceFirewall(iface, fm)
 }
