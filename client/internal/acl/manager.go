@@ -21,7 +21,7 @@ import (
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
-var ErrSourceRangesEmpty = errors.New("source ranges is empty")
+var ErrSourceRangesEmpty = errors.New("sources range is empty")
 
 // Manager is a ACL rules manager
 type Manager interface {
