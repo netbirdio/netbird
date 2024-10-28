@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -47,9 +49,23 @@ type PeerLogin struct {
 	ConnectionIP net.IP
 }
 
-// GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
+// ListPeers returns a list of peers under the given account.
+func (am *DefaultAccountManager) ListPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+	}
+
+	return am.Store.GetAccountPeers(ctx, LockingStrengthShare, accountID)
+}
+
+// GetUserPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
-func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+func (am *DefaultAccountManager) GetUserPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -60,7 +76,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(account)
+	approvedPeersMap, err := am.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -585,7 +601,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.updateAccountPeers(ctx, account)
 
-	approvedPeersMap, err := am.GetValidatedPeers(account)
+	approvedPeersMap, err := am.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -672,7 +688,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		am.updateAccountPeers(ctx, account)
 	}
 
-	validPeersMap, err := am.GetValidatedPeers(account)
+	validPeersMap, err := am.GetValidatedPeers(ctx, account.Id)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -847,7 +863,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return peer, emptyMap, nil, nil
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(account)
+	approvedPeersMap, err := am.GetValidatedPeers(ctx, account.Id)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -914,90 +930,51 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *Settings
 	return false
 }
 
-// UpdatePeerSSHKey updates peer's public SSH key
-func (am *DefaultAccountManager) UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error {
-	if sshKey == "" {
-		log.WithContext(ctx).Debugf("empty SSH key provided for peer %s, skipping update", peerID)
-		return nil
-	}
-
-	account, err := am.Store.GetAccountByPeerID(ctx, peerID)
-	if err != nil {
-		return err
-	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
-	defer unlock()
-
-	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
-	account, err = am.Store.GetAccount(ctx, account.Id)
-	if err != nil {
-		return err
-	}
-
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
-	}
-
-	if peer.SSHKey == sshKey {
-		log.WithContext(ctx).Debugf("same SSH key provided for peer %s, skipping update", peerID)
-		return nil
-	}
-
-	peer.SSHKey = sshKey
-	account.UpdatePeer(peer)
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return err
-	}
-
-	// trigger network map update
-	am.updateAccountPeers(ctx, account)
-
-	return nil
-}
-
 // GetPeer for a given accountID, peerID and userID error if not found.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	if user.AccountID != accountID {
+		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
+	if !user.IsAdminOrServiceUser() && settings.RegularUsersViewBlocked {
 		return nil, status.Errorf(status.Internal, "user %s has no access to his own peer %s under account %s", userID, peerID, accountID)
 	}
 
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return nil, status.Errorf(status.NotFound, "peer with %s not found under account %s", peerID, accountID)
+	peer, err := am.Store.GetPeerByID(ctx, LockingStrengthShare, accountID, peerID)
+	if err != nil {
+		return nil, err
 	}
 
 	// if admin or user owns this peer, return peer
-	if user.HasAdminPower() || user.IsServiceUser || peer.UserID == userID {
+	if user.IsAdminOrServiceUser() || peer.UserID == userID {
 		return peer, nil
 	}
 
 	// it is also possible that user doesn't own the peer but some of his peers have access to it,
 	// this is a valid case, show the peer as well.
-	userPeers, err := account.FindUserPeers(userID)
+	userPeers, err := am.Store.GetUserPeers(ctx, LockingStrengthShare, accountID, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(account)
+	approvedPeersMap, err := am.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		return nil, err
+	}
+
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf(errGetAccountFmt, err)
 	}
 
 	for _, p := range userPeers {
@@ -1024,7 +1001,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 
 	peers := account.GetPeers()
 
-	approvedPeersMap, err := am.GetValidatedPeers(account)
+	approvedPeersMap, err := am.GetValidatedPeers(ctx, account.Id)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to validate peer: %v", err)
 		return
@@ -1194,6 +1171,23 @@ func (am *DefaultAccountManager) getInactivePeers(ctx context.Context, accountID
 	}
 
 	return peers, nil
+}
+
+// GetPeerGroups returns groups that the peer is part of.
+func (am *DefaultAccountManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*nbgroup.Group, error) {
+	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	peerGroups := make([]*nbgroup.Group, 0)
+	for _, group := range groups {
+		if slices.Contains(group.Peers, peerID) {
+			peerGroups = append(peerGroups, group)
+		}
+	}
+
+	return peerGroups, nil
 }
 
 func ConvertSliceToMap(existingLabels []string) map[string]struct{} {

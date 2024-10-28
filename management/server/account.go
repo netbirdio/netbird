@@ -94,7 +94,8 @@ type AccountManager interface {
 	GetUserByID(ctx context.Context, id string) (*User, error)
 	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*User, error)
-	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
+	GetUserPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
+	ListPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
@@ -105,7 +106,6 @@ type AccountManager interface {
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
-	UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*nbgroup.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)
@@ -116,6 +116,7 @@ type AccountManager interface {
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
+	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*nbgroup.Group, error)
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error)
 	SavePolicy(ctx context.Context, accountID, userID string, policy *Policy, isUpdate bool) error
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
@@ -149,7 +150,7 @@ type AccountManager interface {
 	GetIdpManager() idp.Manager
 	UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
-	GetValidatedPeers(account *Account) (map[string]struct{}, error)
+	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error)
 	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
