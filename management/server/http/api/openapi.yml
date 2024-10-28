@@ -530,10 +530,9 @@ components:
           type: string
           example: reusable
         expires_in:
-          description: Expiration time in seconds
+          description: Expiration time in seconds, 0 will mean the key never expires
           type: integer
-          minimum: 86400
-          maximum: 31536000
+          minimum: 0
           example: 86400
         revoked:
           description: Setup key revocation status
@@ -2010,6 +2009,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SetupKey'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Setup Key
+      description: Delete a Setup Key
+      tags: [ Setup Keys ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: keyId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a setup key
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

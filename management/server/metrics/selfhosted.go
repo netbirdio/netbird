@@ -267,7 +267,7 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 				peersSSHEnabled++
 			}
 
-			if peer.SetupKey == "" {
+			if peer.UserID != "" {
 				userPeers++
 			}
 
