@@ -705,6 +705,8 @@ func skipDetailByFilters(peerState *proto.PeerState, isConnected bool) bool {
 				break
 			}
 		}
+	} else {
+		nameEval = false
 	}
 
 	return statusEval || ipEval || nameEval
