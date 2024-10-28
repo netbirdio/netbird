@@ -3,6 +3,7 @@ package acl
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -10,13 +11,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/ssh"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
+
+var ErrSourceRangesEmpty = errors.New("sources range is empty")
 
 // Manager is a ACL rules manager
 type Manager interface {
@@ -167,31 +172,40 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 }
 
 func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) error {
-	var newRouteRules = make(map[id.RuleID]struct{})
+	newRouteRules := make(map[id.RuleID]struct{}, len(rules))
+	var merr *multierror.Error
+
+	// Apply new rules - firewall manager will return existing rule ID if already present
 	for _, rule := range rules {
 		id, err := d.applyRouteACL(rule)
 		if err != nil {
-			return fmt.Errorf("apply route ACL: %w", err)
+			if errors.Is(err, ErrSourceRangesEmpty) {
+				log.Debugf("skipping empty rule with destination %s: %v", rule.Destination, err)
+			} else {
+				merr = multierror.Append(merr, fmt.Errorf("add route rule: %w", err))
+			}
+			continue
 		}
 		newRouteRules[id] = struct{}{}
 	}
 
+	// Clean up old firewall rules
 	for id := range d.routeRules {
-		if _, ok := newRouteRules[id]; !ok {
+		if _, exists := newRouteRules[id]; !exists {
 			if err := d.firewall.DeleteRouteRule(id); err != nil {
-				log.Errorf("failed to delete route firewall rule: %v", err)
-				continue
+				merr = multierror.Append(merr, fmt.Errorf("delete route rule: %w", err))
 			}
-			delete(d.routeRules, id)
+			// implicitly deleted from the map
 		}
 	}
+
 	d.routeRules = newRouteRules
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.RuleID, error) {
 	if len(rule.SourceRanges) == 0 {
-		return "", fmt.Errorf("source ranges is empty")
+		return "", ErrSourceRangesEmpty
 	}
 
 	var sources []netip.Prefix
