@@ -16,8 +16,6 @@ type Peer struct {
 	AccountID string `json:"-" gorm:"index"`
 	// WireGuard public key
 	Key string `gorm:"index"`
-	// A setup key this peer was registered with
-	SetupKey string `diff:"-"`
 	// IP address of the Peer
 	IP net.IP `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
@@ -172,23 +170,22 @@ func (p *Peer) Copy() *Peer {
 		peerStatus = p.Status.Copy()
 	}
 	return &Peer{
-		ID:                     p.ID,
-		AccountID:              p.AccountID,
-		Key:                    p.Key,
-		SetupKey:               p.SetupKey,
-		IP:                     p.IP,
-		Meta:                   p.Meta,
-		Name:                   p.Name,
-		DNSLabel:               p.DNSLabel,
-		Status:                 peerStatus,
-		UserID:                 p.UserID,
-		SSHKey:                 p.SSHKey,
-		SSHEnabled:             p.SSHEnabled,
-		LoginExpirationEnabled: p.LoginExpirationEnabled,
-		LastLogin:              p.LastLogin,
-		CreatedAt:              p.CreatedAt,
-		Ephemeral:              p.Ephemeral,
-		Location:               p.Location,
+		ID:                          p.ID,
+		AccountID:                   p.AccountID,
+		Key:                         p.Key,
+		IP:                          p.IP,
+		Meta:                        p.Meta,
+		Name:                        p.Name,
+		DNSLabel:                    p.DNSLabel,
+		Status:                      peerStatus,
+		UserID:                      p.UserID,
+		SSHKey:                      p.SSHKey,
+		SSHEnabled:                  p.SSHEnabled,
+		LoginExpirationEnabled:      p.LoginExpirationEnabled,
+		LastLogin:                   p.LastLogin,
+		CreatedAt:                   p.CreatedAt,
+		Ephemeral:                   p.Ephemeral,
+		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 	}
 }

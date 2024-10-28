@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"net"
 	"slices"
@@ -396,6 +398,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	upperKey := strings.ToUpper(setupKey)
+	hashedKey := sha256.Sum256([]byte(upperKey))
+	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
 	var accountID string
 	var err error
 	addedByUser := false
@@ -403,7 +407,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		addedByUser = true
 		accountID, err = am.Store.GetAccountIDByUserID(userID)
 	} else {
-		accountID, err = am.Store.GetAccountIDBySetupKey(ctx, setupKey)
+		accountID, err = am.Store.GetAccountIDBySetupKey(ctx, encodedHashedKey)
 	}
 	if err != nil {
 		return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
@@ -448,7 +452,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			opEvent.Activity = activity.PeerAddedByUser
 		} else {
 			// Validate the setup key
-			sk, err := transaction.GetSetupKeyBySecret(ctx, LockingStrengthUpdate, upperKey)
+			sk, err := transaction.GetSetupKeyBySecret(ctx, LockingStrengthUpdate, encodedHashedKey)
 			if err != nil {
 				return fmt.Errorf("failed to get setup key: %w", err)
 			}
@@ -489,7 +493,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			ID:                          xid.New().String(),
 			AccountID:                   accountID,
 			Key:                         peer.Key,
-			SetupKey:                    upperKey,
 			IP:                          freeIP,
 			Meta:                        peer.Meta,
 			Name:                        peer.Meta.Hostname,
