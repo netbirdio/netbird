@@ -141,7 +141,7 @@ type Client struct {
 	instanceURL      *RelayAddr
 	muInstanceURL    sync.Mutex
 
-	onDisconnectListener func()
+	onDisconnectListener func(string)
 	onConnectedListener  func()
 	listenerMutex        sync.Mutex
 }
@@ -234,7 +234,7 @@ func (c *Client) ServerInstanceURL() (string, error) {
 }
 
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
-func (c *Client) SetOnDisconnectListener(fn func()) {
+func (c *Client) SetOnDisconnectListener(fn func(string)) {
 	c.listenerMutex.Lock()
 	defer c.listenerMutex.Unlock()
 	c.onDisconnectListener = fn
@@ -555,7 +555,7 @@ func (c *Client) notifyDisconnected() {
 	if c.onDisconnectListener == nil {
 		return
 	}
-	go c.onDisconnectListener()
+	go c.onDisconnectListener(c.connectionURL)
 }
 
 func (c *Client) notifyConnected() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -24,20 +25,21 @@ type connResult struct {
 
 type ServerPicker struct {
 	TokenStore *auth.TokenStore
+	ServerURLs atomic.Value
 	PeerID     string
 }
 
-func (sp *ServerPicker) PickServer(parentCtx context.Context, urls []string) (*Client, error) {
+func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, connectionTimeout)
 	defer cancel()
 
-	totalServers := len(urls)
+	totalServers := len(sp.ServerURLs.Load().([]string))
 
 	connResultChan := make(chan connResult, totalServers)
 	successChan := make(chan connResult, 1)
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
 
-	for _, url := range urls {
+	for _, url := range sp.ServerURLs.Load().([]string) {
 		// todo check if we have a successful connection so we do not need to connect to other servers
 		concurrentLimiter <- struct{}{}
 		go func(url string) {

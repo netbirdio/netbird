@@ -551,7 +551,7 @@ func TestCloseByServer(t *testing.T) {
 	}
 
 	disconnected := make(chan struct{})
-	relayClient.SetOnDisconnectListener(func() {
+	relayClient.SetOnDisconnectListener(func(_ string) {
 		log.Infof("client disconnected")
 		close(disconnected)
 	})
