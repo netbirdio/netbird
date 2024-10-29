@@ -213,6 +213,7 @@ func (m *Manager) HasRelayAddress() bool {
 }
 
 func (m *Manager) UpdateServerURLs(serverURLs []string) {
+	log.Infof("update relay server URLs: %v", serverURLs)
 	m.serverPicker.ServerURLs.Store(serverURLs)
 }
 

@@ -42,6 +42,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	successChan := make(chan connResult, 1)
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
 
+	log.Debugf("pick server from list: %v", sp.ServerURLs.Load().([]string))
 	for _, url := range sp.ServerURLs.Load().([]string) {
 		// todo check if we have a successful connection so we do not need to connect to other servers
 		concurrentLimiter <- struct{}{}
