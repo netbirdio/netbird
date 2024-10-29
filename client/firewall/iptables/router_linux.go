@@ -34,6 +34,8 @@ const (
 	routingFinalForwardJump = "ACCEPT"
 	routingFinalNatJump     = "MASQUERADE"
 
+	jumpPre  = "jump-pre"
+	jumpNat  = "jump-nat"
 	matchSet = "--match-set"
 )
 
@@ -445,24 +447,24 @@ func (r *router) addJumpRules() error {
 	if err := r.iptablesClient.Insert(tableNat, chainPOSTROUTING, 1, natRule...); err != nil {
 		return fmt.Errorf("add nat jump rule: %v", err)
 	}
-	r.rules["jump-nat"] = natRule
+	r.rules[jumpNat] = natRule
 
 	// Jump to prerouting chain
 	preRule := []string{"-j", chainRTPRE}
 	if err := r.iptablesClient.Insert(tableMangle, chainPREROUTING, 1, preRule...); err != nil {
 		return fmt.Errorf("add prerouting jump rule: %v", err)
 	}
-	r.rules["jump-pre"] = preRule
+	r.rules[jumpPre] = preRule
 
 	return nil
 }
 
 func (r *router) cleanJumpRules() error {
-	for _, ruleKey := range []string{"jump-nat", "jump-pre"} {
+	for _, ruleKey := range []string{jumpNat, jumpPre} {
 		if rule, exists := r.rules[ruleKey]; exists {
 			table := tableNat
 			chain := chainPOSTROUTING
-			if ruleKey == "jump-pre" {
+			if ruleKey == jumpPre {
 				table = tableMangle
 				chain = chainPREROUTING
 			}
