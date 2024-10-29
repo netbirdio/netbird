@@ -92,6 +92,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
 
 				// Combine all expressions in the correct order
+				// nolint:gocritic
 				testingExpression := append(conntrackExprs, ifaceExprs...)
 				testingExpression = append(testingExpression, sourceExp...)
 				testingExpression = append(testingExpression, destExp...)
