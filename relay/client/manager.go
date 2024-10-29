@@ -106,7 +106,7 @@ func (m *Manager) Serve() error {
 
 	client, err := m.serverPicker.PickServer(m.ctx)
 	if err != nil {
-		m.reconnectGuard.StartReconnectTrys(m.ctx, nil)
+		go m.reconnectGuard.StartReconnectTrys(m.ctx, nil)
 	} else {
 		m.storeClient(client)
 	}
