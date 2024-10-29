@@ -126,6 +126,10 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
 		return
 	}
+	if remoteConnNil(remoteConn) {
+		w.log.Errorf("unexpected remote conn state")
+		return
+	}
 	w.log.Debugf("agent dial succeeded")
 
 	pair, err := w.agent.GetSelectedCandidatePair()
@@ -377,4 +381,8 @@ func isRelayed(pair *ice.CandidatePair) bool {
 		return true
 	}
 	return false
+}
+
+func remoteConnNil(conn *ice.Conn) bool {
+	return conn == nil || conn.RemoteAddr() == nil
 }
