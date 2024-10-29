@@ -8,6 +8,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var (
+	reconnectingTimeout = 60 * time.Second
+)
+
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
 type Guard struct {
 	// OnNewRelayClient is a channel that is used to notify the relay client about a new relay client instance.
@@ -111,7 +115,7 @@ func exponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval: 2 * time.Second,
 		Multiplier:      2,
-		MaxInterval:     60 * time.Second,
+		MaxInterval:     reconnectingTimeout,
 		Clock:           backoff.SystemClock,
 	}, ctx)
 
