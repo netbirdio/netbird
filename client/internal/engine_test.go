@@ -250,7 +250,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 	}
 	engine.wgInterface = wgIface
-	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, relayMgr, nil)
+	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, relayMgr, nil, nil)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
 	}

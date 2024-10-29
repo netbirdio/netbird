@@ -38,7 +38,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 
-
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -171,7 +170,7 @@ type Engine struct {
 
 	relayManager *relayClient.Manager
 	stateManager *statemanager.Manager
-	srWatcher *guard.SRWatcher
+	srWatcher    *guard.SRWatcher
 }
 
 // Peer is an instance of the Connection Peer
@@ -349,8 +348,17 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, e.relayManager, initialRoutes)
-	beforePeerHook, afterPeerHook, err := e.routeManager.Init(e.stateManager)
+	e.routeManager = routemanager.NewManager(
+		e.ctx,
+		e.config.WgPrivateKey.PublicKey().String(),
+		e.config.DNSRouteInterval,
+		e.wgInterface,
+		e.statusRecorder,
+		e.relayManager,
+		initialRoutes,
+		e.stateManager,
+	)
+	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
 	} else {

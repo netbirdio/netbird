@@ -215,15 +215,15 @@ func (m *Manager) PersistState(ctx context.Context) error {
 	return nil
 }
 
-// loadState loads the existing state from the state file
-func (m *Manager) loadState() error {
+// loadStateFile reads and unmarshals the state file into a map of raw JSON messages
+func (m *Manager) loadStateFile() (map[string]json.RawMessage, error) {
 	data, err := os.ReadFile(m.filePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			log.Debug("state file does not exist")
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("read state file: %w", err)
+		return nil, fmt.Errorf("read state file: %w", err)
 	}
 
 	var rawStates map[string]json.RawMessage
@@ -234,30 +234,90 @@ func (m *Manager) loadState() error {
 		} else {
 			log.Info("State file deleted")
 		}
-		return fmt.Errorf("unmarshal states: %w", err)
+		return nil, fmt.Errorf("unmarshal states: %w", err)
+	}
+
+	return rawStates, nil
+}
+
+// loadSingleRawState unmarshals a raw state into a concrete state object
+func (m *Manager) loadSingleRawState(name string, rawState json.RawMessage) (State, error) {
+	stateType, ok := m.stateTypes[name]
+	if !ok {
+		return nil, fmt.Errorf("state %s not registered", name)
+	}
+
+	if string(rawState) == "null" {
+		return nil, nil //nolint:nilnil
+	}
+
+	statePtr := reflect.New(stateType).Interface().(State)
+	if err := json.Unmarshal(rawState, statePtr); err != nil {
+		return nil, fmt.Errorf("unmarshal state %s: %w", name, err)
+	}
+
+	return statePtr, nil
+}
+
+// LoadState loads a specific state from the state file
+func (m *Manager) LoadState(state State) error {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	rawStates, err := m.loadStateFile()
+	if err != nil {
+		return err
+	}
+	if rawStates == nil {
+		return nil
+	}
+
+	name := state.Name()
+	rawState, exists := rawStates[name]
+	if !exists {
+		return nil
+	}
+
+	loadedState, err := m.loadSingleRawState(name, rawState)
+	if err != nil {
+		return err
+	}
+
+	m.states[name] = loadedState
+	if loadedState != nil {
+		log.Debugf("loaded state: %s", name)
+	}
+
+	return nil
+}
+
+// loadState loads all registered states from the state file
+func (m *Manager) loadState() error {
+	rawStates, err := m.loadStateFile()
+	if err != nil {
+		return err
+	}
+	if rawStates == nil {
+		return nil
 	}
 
 	var merr *multierror.Error
 
 	for name, rawState := range rawStates {
-		stateType, ok := m.stateTypes[name]
-		if !ok {
-			merr = multierror.Append(merr, fmt.Errorf("unknown state type: %s", name))
+		loadedState, err := m.loadSingleRawState(name, rawState)
+		if err != nil {
+			merr = multierror.Append(merr, err)
 			continue
 		}
 
-		if string(rawState) == "null" {
-			continue
+		m.states[name] = loadedState
+		if loadedState != nil {
+			log.Debugf("loaded state: %s", name)
 		}
-
-		statePtr := reflect.New(stateType).Interface().(State)
-		if err := json.Unmarshal(rawState, statePtr); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("unmarshal state %s: %w", name, err))
-			continue
-		}
-
-		m.states[name] = statePtr
-		log.Debugf("loaded state: %s", name)
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

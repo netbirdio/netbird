@@ -32,7 +32,7 @@ import (
 
 // Manager is a route manager interface
 type Manager interface {
-	Init(*statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
+	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
@@ -59,6 +59,7 @@ type DefaultManager struct {
 	routeRefCounter      *refcounter.RouteRefCounter
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter
 	dnsRouteInterval     time.Duration
+	stateManager         *statemanager.Manager
 }
 
 func NewManager(
@@ -69,6 +70,7 @@ func NewManager(
 	statusRecorder *peer.Status,
 	relayMgr *relayClient.Manager,
 	initialRoutes []*route.Route,
+	stateManager *statemanager.Manager,
 ) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	notifier := notifier.NewNotifier()
@@ -80,12 +82,12 @@ func NewManager(
 		dnsRouteInterval: dnsRouteInterval,
 		clientNetworks:   make(map[route.HAUniqueID]*clientNetwork),
 		relayMgr:         relayMgr,
-		routeSelector:    routeselector.NewRouteSelector(),
 		sysOps:           sysOps,
 		statusRecorder:   statusRecorder,
 		wgInterface:      wgInterface,
 		pubKey:           pubKey,
 		notifier:         notifier,
+		stateManager:     stateManager,
 	}
 
 	dm.routeRefCounter = refcounter.New(
@@ -121,7 +123,7 @@ func NewManager(
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init(stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	if nbnet.CustomRoutingDisabled() {
 		return nil, nil, nil
 	}
@@ -137,12 +139,36 @@ func (m *DefaultManager) Init(stateManager *statemanager.Manager) (nbnet.AddHook
 
 	ips := resolveURLsToIPs(initialAddresses)
 
-	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips, stateManager)
+	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips, m.stateManager)
 	if err != nil {
 		return nil, nil, fmt.Errorf("setup routing: %w", err)
 	}
+
+	m.routeSelector = m.initSelector()
+
 	log.Info("Routing setup complete")
 	return beforePeerHook, afterPeerHook, nil
+}
+
+func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
+	var state *SelectorState
+	m.stateManager.RegisterState(state)
+
+	// restore selector state if it exists
+	if err := m.stateManager.LoadState(state); err != nil {
+		log.Warnf("failed to load state: %v", err)
+		return routeselector.NewRouteSelector()
+	}
+
+	if state := m.stateManager.GetState(state); state != nil {
+		if selector, ok := state.(*SelectorState); ok {
+			return (*routeselector.RouteSelector)(selector)
+		}
+
+		log.Warnf("failed to convert state with type %T to SelectorState", state)
+	}
+
+	return routeselector.NewRouteSelector()
 }
 
 func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
@@ -251,6 +277,10 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
+	}
+
+	if err := m.stateManager.UpdateState((*SelectorState)(m.routeSelector)); err != nil {
+		log.Errorf("failed to update state: %v", err)
 	}
 }
 
