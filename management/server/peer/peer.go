@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"sort"
 	"time"
 )
 
@@ -107,6 +108,12 @@ type PeerSystemMeta struct { //nolint:revive
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	sort.Slice(p.NetworkAddresses, func(i, j int) bool {
+		return p.NetworkAddresses[i].Mac < p.NetworkAddresses[j].Mac
+	})
+	sort.Slice(other.NetworkAddresses, func(i, j int) bool {
+		return other.NetworkAddresses[i].Mac < other.NetworkAddresses[j].Mac
+	})
 	equalNetworkAddresses := slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
 		return addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP
 	})
@@ -114,6 +121,12 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		return false
 	}
 
+	sort.Slice(p.Files, func(i, j int) bool {
+		return p.Files[i].Path < p.Files[j].Path
+	})
+	sort.Slice(other.Files, func(i, j int) bool {
+		return other.Files[i].Path < other.Files[j].Path
+	})
 	equalFiles := slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
 		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
 	})
