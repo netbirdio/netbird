@@ -675,11 +675,11 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	// in case of connection we will use the instance specific address
 	instanceAddr, err := d.relayMgr.RelayInstanceAddress()
 	if err != nil {
-		// TODO add their status
 		if errors.Is(err, relayClient.ErrRelayClientNotConnected) {
 			for _, r := range d.relayMgr.ServerURLs() {
 				relayStates = append(relayStates, relay.ProbeResult{
 					URI: r,
+					Err: err,
 				})
 			}
 			return relayStates
