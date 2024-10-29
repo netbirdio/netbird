@@ -403,7 +403,7 @@ func TestSqlite_SavePeer(t *testing.T) {
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	ctx := context.Background()
-	err = store.SavePeer(ctx, account.Id, peer)
+	err = store.SavePeer(ctx, LockingStrengthUpdate, account.Id, peer)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -419,7 +419,7 @@ func TestSqlite_SavePeer(t *testing.T) {
 	updatedPeer.Status.Connected = false
 	updatedPeer.Meta.Hostname = "updatedpeer"
 
-	err = store.SavePeer(ctx, account.Id, updatedPeer)
+	err = store.SavePeer(ctx, LockingStrengthUpdate, account.Id, updatedPeer)
 	require.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)
@@ -1056,7 +1056,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
+	labels, err := store.GetAccountPeerDNSLabels(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{}, labels)
 
@@ -1068,7 +1068,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 	err = store.AddPeerToAccount(context.Background(), peer1)
 	require.NoError(t, err)
 
-	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
+	labels, err = store.GetAccountPeerDNSLabels(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"peer1.domain.test"}, labels)
 
@@ -1080,7 +1080,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 	err = store.AddPeerToAccount(context.Background(), peer2)
 	require.NoError(t, err)
 
-	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
+	labels, err = store.GetAccountPeerDNSLabels(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"peer1.domain.test", "peer2.domain.test"}, labels)
 }

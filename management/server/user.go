@@ -493,17 +493,12 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 }
 
 func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *Account) error {
-	peers, err := account.FindUserPeers(targetUserID)
+	peers, err := am.Store.GetUserPeers(ctx, LockingStrengthShare, account.Id, targetUserID)
 	if err != nil {
-		return status.Errorf(status.Internal, "failed to find user peers")
+		return err
 	}
 
-	peerIDs := make([]string, 0, len(peers))
-	for _, peer := range peers {
-		peerIDs = append(peerIDs, peer.ID)
-	}
-
-	return am.deletePeers(ctx, account, peerIDs, initiatorUserID)
+	return am.deletePeers(ctx, account.Id, initiatorUserID, peers)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.

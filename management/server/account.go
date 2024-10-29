@@ -139,7 +139,7 @@ type AccountManager interface {
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Settings, error)
 	LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
-	SyncPeer(ctx context.Context, sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) // used by peer gRPC API
+	SyncPeer(ctx context.Context, sync PeerSync, accountID string) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
@@ -2294,17 +2294,7 @@ func domainIsUpToDate(domain string, domainCategory string, claims jwtclaims.Aut
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
-	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer accountUnlock()
-	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
-	defer peerUnlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	peer, netMap, postureChecks, err := am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
+	peer, netMap, postureChecks, err := am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -2331,18 +2321,11 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 		return err
 	}
 
-	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
-	_, _, _, err = am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, account)
+	_, _, _, err = am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
 	if err != nil {
 		return mapError(ctx, err)
 	}
+
 	return nil
 }
 
@@ -2436,7 +2419,7 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpee
 }
 
 func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, store Store, accountID string, peerHostName string) (string, error) {
-	existingLabels, err := store.GetPeerLabelsInAccount(ctx, LockingStrengthShare, accountID)
+	existingLabels, err := store.GetAccountPeerDNSLabels(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
 	}
