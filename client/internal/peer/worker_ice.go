@@ -126,6 +126,8 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
 		return
 	}
+	w.log.Infof("check remoteConn: %v", remoteConn)
+	w.log.Infof("check remoteConn.RemoteAddr: %v", remoteConn.RemoteAddr())
 	w.log.Debugf("agent dial succeeded")
 
 	pair, err := w.agent.GetSelectedCandidatePair()
@@ -322,8 +324,10 @@ func (w *WorkerICE) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool 
 func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
 	isControlling := w.config.LocalKey > w.config.Key
 	if isControlling {
+		w.log.Infof("dialing remote peer %s as controlling", w.config.Key)
 		return w.agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
+		w.log.Infof("dialing remote peer %s as controlled", w.config.Key)
 		return w.agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
 }
