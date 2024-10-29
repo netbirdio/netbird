@@ -13,8 +13,11 @@ import (
 )
 
 const (
-	connectionTimeout    = 30 * time.Second
 	maxConcurrentServers = 7
+)
+
+var (
+	connectionTimeout = 30 * time.Second
 )
 
 type connResult struct {

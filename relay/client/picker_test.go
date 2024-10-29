@@ -8,6 +8,8 @@ import (
 )
 
 func TestServerPicker_UnavailableServers(t *testing.T) {
+	connectionTimeout = 5 * time.Second
+
 	sp := ServerPicker{
 		TokenStore: nil,
 		PeerID:     "test",
