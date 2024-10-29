@@ -89,6 +89,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string) *Manage
 		onDisconnectedListeners: make(map[string]*list.List),
 	}
 	m.serverPicker.ServerURLs.Store(serverURLs)
+	m.reconnectGuard = NewGuard(m.serverPicker)
 	return m
 }
 
@@ -103,14 +104,14 @@ func (m *Manager) Serve() error {
 	m.running = true
 	log.Debugf("starting relay client manager with %v relay servers", m.serverPicker.ServerURLs.Load())
 
-	m.reconnectGuard = NewGuard(m.serverPicker)
-	go m.listenGuardEvent(m.ctx)
-
 	client, err := m.serverPicker.PickServer(m.ctx)
-	if err == nil {
+	if err != nil {
+		m.reconnectGuard.StartReconnectTrys(m.ctx, nil)
+	} else {
 		m.storeClient(client)
 	}
 
+	go m.listenGuardEvent(m.ctx)
 	go m.startCleanupLoop()
 	return err
 }

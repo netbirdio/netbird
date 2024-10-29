@@ -38,10 +38,15 @@ func NewGuard(sp *ServerPicker) *Guard {
 // - relayClient: The relay client instance that was disconnected.
 // todo prevent multiple reconnection instances. In the current usage it should not happen, but it is better to prevent
 func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
+	if relayClient == nil {
+		goto RETRY
+	}
 	if g.isServerURLStillValid(relayClient) && g.quickReconnect(ctx, relayClient) {
 		return
 	}
 
+RETRY:
+	// todo use exponent ticker
 	ticker := time.NewTicker(reconnectingTimeout)
 	defer ticker.Stop()
 
@@ -60,6 +65,7 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 }
 
 func (g *Guard) retry(ctx context.Context) error {
+	log.Infof("try to pick up a new Relay server")
 	relayClient, err := g.serverPicker.PickServer(ctx)
 	if err != nil {
 		return err
@@ -80,6 +86,7 @@ func (g *Guard) quickReconnect(parentCtx context.Context, rc *Client) bool {
 	if parentCtx.Err() != nil {
 		return false
 	}
+	log.Infof("try to reconnect to Relay server: %s", rc.connectionURL)
 
 	if err := rc.Connect(); err != nil {
 		log.Errorf("failed to reconnect to relay server: %s", err)

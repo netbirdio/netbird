@@ -80,7 +80,7 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 	for numOfResults := 0; numOfResults < cap(resultChan); numOfResults++ {
 		cr := <-resultChan
 		if cr.Err != nil {
-			log.Debugf("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
+			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
 			continue
 		}
 		log.Infof("connected to Relay server: %s", cr.Url)
