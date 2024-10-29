@@ -4,11 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-)
-
-var (
-	reconnectingTimeout = 5 * time.Second
 )
 
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
@@ -46,8 +43,7 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 	}
 
 RETRY:
-	// todo use exponent ticker
-	ticker := time.NewTicker(reconnectingTimeout)
+	ticker := exponentTicker(ctx)
 	defer ticker.Stop()
 
 	for {
@@ -109,4 +105,15 @@ func (g *Guard) isServerURLStillValid(rc *Client) bool {
 		}
 	}
 	return false
+}
+
+func exponentTicker(ctx context.Context) *backoff.Ticker {
+	bo := backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval: 2 * time.Second,
+		Multiplier:      2,
+		MaxInterval:     60 * time.Second,
+		Clock:           backoff.SystemClock,
+	}, ctx)
+
+	return backoff.NewTicker(bo)
 }
