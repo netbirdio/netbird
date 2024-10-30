@@ -177,6 +177,7 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 		if runtime.GOOS == "linux" || runtime.GOOS == "android" {
 			if rxOffload {
 				readAt := len(*msgs) - (wgConn.IdealBatchSize / wgConn.UdpSegmentMaxDatagrams)
+				//nolint
 				numMsgs, err = pc.ReadBatch((*msgs)[readAt:], 0)
 				if err != nil {
 					return 0, err
