@@ -314,34 +314,6 @@ func (m *Manager) LoadState(state State) error {
 	return nil
 }
 
-// loadState loads all registered states from the state file
-func (m *Manager) loadState() error {
-	rawStates, err := m.loadStateFile()
-	if err != nil {
-		return err
-	}
-	if rawStates == nil {
-		return nil
-	}
-
-	var merr *multierror.Error
-
-	for name, rawState := range rawStates {
-		loadedState, err := m.loadSingleRawState(name, rawState)
-		if err != nil {
-			merr = multierror.Append(merr, err)
-			continue
-		}
-
-		m.states[name] = loadedState
-		if loadedState != nil {
-			log.Debugf("loaded state: %s", name)
-		}
-	}
-
-	return nberrors.FormatErrorOrNil(merr)
-}
-
 // PerformCleanup retrieves all states from the state file and calls Cleanup on registered states that support it.
 // Unregistered states are preserved in their original state.
 func (m *Manager) PerformCleanup() error {
