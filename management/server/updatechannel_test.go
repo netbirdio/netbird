@@ -178,8 +178,12 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewPeersUpdateManager(nil)
+			p := NewPeersUpdateManager(metrics)
 			ctx := context.Background()
 
 			if tt.existingUpdate != nil {
