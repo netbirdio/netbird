@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/differs"
 	"github.com/r3labs/diff/v3"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/differs"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -208,10 +208,10 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 	p.channelsMux.RUnlock()
 
 	if lastSentUpdate != nil {
-		updated, err := isNewPeerUpdateMessage(ctx, lastSentUpdate, update)
+		updated, err := isNewPeerUpdateMessage(ctx, lastSentUpdate, update, p.metrics.UpdateChannelMetrics())
 		if err != nil {
 			log.WithContext(ctx).Errorf("error checking for SyncResponse updates: %v", err)
-			return false
+			return true
 		}
 		if !updated {
 			log.WithContext(ctx).Debugf("peer %s network map is not updated, skip sending update", peerID)
@@ -223,7 +223,9 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 }
 
 // isNewPeerUpdateMessage checks if the given current update message is a new update that should be sent.
-func isNewPeerUpdateMessage(ctx context.Context, lastSentUpdate, currUpdateToSend *UpdateMessage) (isNew bool, err error) {
+func isNewPeerUpdateMessage(ctx context.Context, lastSentUpdate, currUpdateToSend *UpdateMessage, metric *telemetry.UpdateChannelMetrics) (isNew bool, err error) {
+	startTime := time.Now()
+
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithContext(ctx).Panicf("comparing peer update messages. Trace: %s", debug.Stack())
@@ -258,6 +260,9 @@ func isNewPeerUpdateMessage(ctx context.Context, lastSentUpdate, currUpdateToSen
 	if err != nil {
 		return false, fmt.Errorf("failed to diff network map: %v", err)
 	}
+
+	metric.CountNetworkMapDiffDurationMicro(time.Since(startTime))
+
 	return len(changelog) > 0, nil
 }
 
