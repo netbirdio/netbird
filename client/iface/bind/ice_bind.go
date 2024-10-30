@@ -12,6 +12,7 @@ import (
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 	wgConn "golang.zx2c4.com/wireguard/conn"
 )
 
@@ -24,8 +25,8 @@ type receiverCreator struct {
 	iceBind *ICEBind
 }
 
-func (rc receiverCreator) CreateIPv4ReceiverFn(msgPool *sync.Pool, pc *ipv4.PacketConn, conn *net.UDPConn) wgConn.ReceiveFunc {
-	return rc.iceBind.createIPv4ReceiverFn(msgPool, pc, conn)
+func (rc receiverCreator) CreateIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
+	return rc.iceBind.createIPv4ReceiverFn(pc, conn, rxOffload, msgPool)
 }
 
 // ICEBind is a bind implementation with two main features:
@@ -154,7 +155,7 @@ func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 	return nil
 }
 
-func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketConn, conn *net.UDPConn) wgConn.ReceiveFunc {
+func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 
@@ -166,16 +167,29 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 		},
 	)
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
-		msgs := ipv4MsgsPool.Get().(*[]ipv4.Message)
-		defer ipv4MsgsPool.Put(msgs)
+		msgs := getMessages(msgsPool)
 		for i := range bufs {
 			(*msgs)[i].Buffers[0] = bufs[i]
+			(*msgs)[i].OOB = (*msgs)[i].OOB[:cap((*msgs)[i].OOB)]
 		}
+		defer putMessages(msgs, msgsPool)
 		var numMsgs int
-		if runtime.GOOS == "linux" {
-			numMsgs, err = pc.ReadBatch(*msgs, 0)
-			if err != nil {
-				return 0, err
+		if runtime.GOOS == "linux" || runtime.GOOS == "android" {
+			if rxOffload {
+				readAt := len(*msgs) - (wgConn.IdealBatchSize / wgConn.UdpSegmentMaxDatagrams)
+				numMsgs, err = pc.ReadBatch((*msgs)[readAt:], 0)
+				if err != nil {
+					return 0, err
+				}
+				numMsgs, err = wgConn.SplitCoalescedMessages(*msgs, readAt, wgConn.GetGSOSize)
+				if err != nil {
+					return 0, err
+				}
+			} else {
+				numMsgs, err = pc.ReadBatch(*msgs, 0)
+				if err != nil {
+					return 0, err
+				}
 			}
 		} else {
 			msg := &(*msgs)[0]
@@ -191,11 +205,12 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 			// todo: handle err
 			ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
 			if ok {
-				sizes[i] = 0
-			} else {
-				sizes[i] = msg.N
+				continue
 			}
-
+			sizes[i] = msg.N
+			if sizes[i] == 0 {
+				continue
+			}
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
 			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
 			wgConn.GetSrcFromControl(msg.OOB[:msg.NN], ep)
@@ -272,4 +287,16 @@ func fakeAddress(peerAddress *net.UDPAddr) (*net.UDPAddr, error) {
 		Port: peerAddress.Port,
 	}
 	return newAddr, nil
+}
+
+func getMessages(msgsPool *sync.Pool) *[]ipv6.Message {
+	return msgsPool.Get().(*[]ipv6.Message)
+}
+
+func putMessages(msgs *[]ipv6.Message, msgsPool *sync.Pool) {
+	for i := range *msgs {
+		(*msgs)[i].OOB = (*msgs)[i].OOB[:0]
+		(*msgs)[i] = ipv6.Message{Buffers: (*msgs)[i].Buffers, OOB: (*msgs)[i].OOB}
+	}
+	msgsPool.Put(msgs)
 }
