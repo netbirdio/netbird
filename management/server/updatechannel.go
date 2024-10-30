@@ -208,7 +208,7 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 	p.channelsMux.RUnlock()
 
 	if lastSentUpdate != nil {
-		updated, err := isNewPeerUpdateMessage(ctx, lastSentUpdate, update, p.metrics.UpdateChannelMetrics())
+		updated, err := isNewPeerUpdateMessage(ctx, lastSentUpdate, update, p.metrics)
 		if err != nil {
 			log.WithContext(ctx).Errorf("error checking for SyncResponse updates: %v", err)
 			return true
@@ -223,7 +223,7 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 }
 
 // isNewPeerUpdateMessage checks if the given current update message is a new update that should be sent.
-func isNewPeerUpdateMessage(ctx context.Context, lastSentUpdate, currUpdateToSend *UpdateMessage, metric *telemetry.UpdateChannelMetrics) (isNew bool, err error) {
+func isNewPeerUpdateMessage(ctx context.Context, lastSentUpdate, currUpdateToSend *UpdateMessage, metric telemetry.AppMetrics) (isNew bool, err error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -261,7 +261,9 @@ func isNewPeerUpdateMessage(ctx context.Context, lastSentUpdate, currUpdateToSen
 		return false, fmt.Errorf("failed to diff network map: %v", err)
 	}
 
-	metric.CountNetworkMapDiffDurationMicro(time.Since(startTime))
+	if metric != nil {
+		metric.UpdateChannelMetrics().CountNetworkMapDiffDurationMicro(time.Since(startTime))
+	}
 
 	return len(changelog) > 0, nil
 }
