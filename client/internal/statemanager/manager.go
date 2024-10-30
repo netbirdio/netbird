@@ -21,7 +21,26 @@ import (
 // State interface defines the methods that all state types must implement
 type State interface {
 	Name() string
+}
+
+// CleanableState interface extends State with cleanup capability
+type CleanableState interface {
+	State
 	Cleanup() error
+}
+
+// RawState wraps raw JSON data for unregistered states
+type RawState struct {
+	data json.RawMessage
+}
+
+func (r *RawState) Name() string {
+	return "" // This is a placeholder implementation
+}
+
+// MarshalJSON implements json.Marshaler to preserve the original JSON
+func (r *RawState) MarshalJSON() ([]byte, error) {
+	return r.data, nil
 }
 
 // Manager handles the persistence and management of various states
@@ -323,8 +342,8 @@ func (m *Manager) loadState() error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// PerformCleanup retrieves all states from the state file for the registered states and calls Cleanup on them.
-// If the cleanup is successful, the state is marked for deletion.
+// PerformCleanup retrieves all states from the state file and calls Cleanup on registered states that support it.
+// Unregistered states are preserved in their original state.
 func (m *Manager) PerformCleanup() error {
 	if m == nil {
 		return nil
@@ -333,22 +352,53 @@ func (m *Manager) PerformCleanup() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := m.loadState(); err != nil {
+	// Load raw states from file
+	rawStates, err := m.loadStateFile()
+	if err != nil {
 		log.Warnf("Failed to load state during cleanup: %v", err)
+		return err
+	}
+	if rawStates == nil {
+		return nil
 	}
 
 	var merr *multierror.Error
-	for name, state := range m.states {
-		if state == nil {
-			// If no state was found in the state file, we don't mark the state dirty nor return an error
+
+	// Process each state in the file
+	for name, rawState := range rawStates {
+		// For unregistered states, preserve the raw JSON
+		if _, registered := m.stateTypes[name]; !registered {
+			m.states[name] = &RawState{data: rawState}
 			continue
 		}
 
+		// Load the registered state
+		loadedState, err := m.loadSingleRawState(name, rawState)
+		if err != nil {
+			merr = multierror.Append(merr, err)
+			continue
+		}
+
+		if loadedState == nil {
+			continue
+		}
+
+		// Check if state supports cleanup
+		cleanableState, isCleanable := loadedState.(CleanableState)
+		if !isCleanable {
+			// If it doesn't support cleanup, keep it as-is
+			m.states[name] = loadedState
+			continue
+		}
+
+		// Perform cleanup for cleanable states
 		log.Infof("client was not shut down properly, cleaning up %s", name)
-		if err := state.Cleanup(); err != nil {
+		if err := cleanableState.Cleanup(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("cleanup state for %s: %w", name, err))
+			// On cleanup error, preserve the state
+			m.states[name] = loadedState
 		} else {
-			// mark for deletion on cleanup success
+			// Successfully cleaned up - mark for deletion
 			m.states[name] = nil
 			m.dirty[name] = struct{}{}
 		}

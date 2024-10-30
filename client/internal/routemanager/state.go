@@ -10,10 +10,6 @@ func (s *SelectorState) Name() string {
 	return "routeselector_state"
 }
 
-func (s *SelectorState) Cleanup() error {
-	return nil
-}
-
 func (s *SelectorState) MarshalJSON() ([]byte, error) {
 	return (*routeselector.RouteSelector)(s).MarshalJSON()
 }
