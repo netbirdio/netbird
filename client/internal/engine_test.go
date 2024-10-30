@@ -245,6 +245,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		nil)
 
 	wgIface := &iface.MockWGIface{
+		NameFunc: func() string { return "utun102" },
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},
