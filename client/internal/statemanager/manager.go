@@ -240,7 +240,7 @@ func (m *Manager) loadStateFile() (map[string]json.RawMessage, error) {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			log.Debug("state file does not exist")
-			return nil, nil
+			return nil, nil // nolint:nilnil
 		}
 		return nil, fmt.Errorf("read state file: %w", err)
 	}
