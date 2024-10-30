@@ -17,7 +17,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -56,13 +55,6 @@ type AclManager struct {
 	rules      map[string]*Rule
 }
 
-// iFaceMapper defines subset methods of interface required for manager
-type iFaceMapper interface {
-	Name() string
-	Address() iface.WGAddress
-	IsUserspaceBind() bool
-}
-
 func newAclManager(table *nftables.Table, wgIface iFaceMapper, routingFwChainName string) (*AclManager, error) {
 	// sConn is used for creating sets and adding/removing elements from them
 	// it's differ then rConn (which does create new conn for each flush operation)
@@ -70,10 +62,10 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routingFwChainNam
 	// overloads netlink with high amount of rules ( > 10000)
 	sConn, err := nftables.New(nftables.AsLasting())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create nf conn: %w", err)
 	}
 
-	m := &AclManager{
+	return &AclManager{
 		rConn:              &nftables.Conn{},
 		sConn:              sConn,
 		wgIface:            wgIface,
@@ -82,14 +74,12 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routingFwChainNam
 
 		ipsetStore: newIpsetStore(),
 		rules:      make(map[string]*Rule),
-	}
+	}, nil
+}
 
-	err = m.createDefaultChains()
-	if err != nil {
-		return nil, err
-	}
-
-	return m, nil
+func (m *AclManager) init(workTable *nftables.Table) error {
+	m.workTable = workTable
+	return m.createDefaultChains()
 }
 
 // AddPeerFiltering rule to the firewall

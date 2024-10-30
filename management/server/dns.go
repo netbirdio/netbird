@@ -86,8 +86,12 @@ func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view DNS settings")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewDNSSettingsError()
 	}
 
 	return am.Store.GetAccountDNSSettings(ctx, LockingStrengthShare, accountID)
@@ -104,8 +108,12 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		return err
 	}
 
-	if !user.HasAdminPower() || user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to update DNS settings")
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
+	}
+
+	if !user.HasAdminPower() {
+		return status.NewUnauthorizedToViewDNSSettingsError()
 	}
 
 	oldSettings, err := am.Store.GetAccountDNSSettings(ctx, LockingStrengthUpdate, accountID)
@@ -123,6 +131,14 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		if err != nil {
 			return err
 		}
+	}
+
+	addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
+	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
+
+	updateAccountPeers, err := am.areDNSSettingChangesAffectPeers(ctx, accountID, addedGroups, removedGroups)
+	if err != nil {
+		return fmt.Errorf("failed to check if dns settings changes affect peers: %w", err)
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
@@ -145,7 +161,6 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		groupMap[g.ID] = g
 	}
 
-	addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
 	for _, id := range addedGroups {
 		group, ok := groupMap[id]
 		if ok {
@@ -154,7 +169,6 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		}
 	}
 
-	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
 	for _, id := range removedGroups {
 		group, ok := groupMap[id]
 		if ok {
@@ -163,13 +177,29 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		}
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
+}
+
+// areDNSSettingChangesAffectPeers checks if the DNS settings changes affect any peers.
+func (am *DefaultAccountManager) areDNSSettingChangesAffectPeers(ctx context.Context, accountID string, addedGroups, removedGroups []string) (bool, error) {
+	hasPeers, err := am.anyGroupHasPeers(ctx, accountID, addedGroups)
+	if err != nil {
+		return false, err
+	}
+
+	if hasPeers {
+		return true, nil
+	}
+
+	return am.anyGroupHasPeers(ctx, accountID, removedGroups)
 }
 
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache

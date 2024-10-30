@@ -26,8 +26,12 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view name server groups")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewNSGroupsError()
 	}
 
 	return am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupID)
@@ -41,7 +45,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	}
 
 	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "no permission to create nameserver for this account")
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
 	newNSGroup := &nbdns.NameServerGroup{
@@ -58,6 +62,11 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	}
 
 	err = am.validateNameServerGroup(ctx, accountID, newNSGroup)
+	if err != nil {
+		return nil, err
+	}
+
+	updateAccountPeers, err := am.anyGroupHasPeers(ctx, accountID, newNSGroup.Groups)
 	if err != nil {
 		return nil, err
 	}
@@ -79,11 +88,13 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("error getting account: %w", err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return nil, fmt.Errorf("error getting account: %w", err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return newNSGroup.Copy(), nil
 }
@@ -100,15 +111,19 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "no permission to delete nameserver for this account")
+		return status.NewUserNotPartOfAccountError()
 	}
 
-	_, err = am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupToSave.ID)
+	oldNSGroup, err := am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupToSave.ID)
 	if err != nil {
 		return err
 	}
 
-	err = am.validateNameServerGroup(ctx, accountID, nsGroupToSave)
+	if err = am.validateNameServerGroup(ctx, accountID, nsGroupToSave); err != nil {
+		return err
+	}
+
+	updateAccountPeers, err := am.areNameServerGroupChangesAffectPeers(ctx, nsGroupToSave, oldNSGroup)
 	if err != nil {
 		return err
 	}
@@ -130,11 +145,13 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -147,10 +164,15 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "no permission to delete nameserver for this account")
+		return status.NewUserNotPartOfAccountError()
 	}
 
 	nsGroup, err := am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupID)
+	if err != nil {
+		return err
+	}
+
+	updateAccountPeers, err := am.anyGroupHasPeers(ctx, accountID, nsGroup.Groups)
 	if err != nil {
 		return err
 	}
@@ -172,11 +194,13 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -188,8 +212,12 @@ func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accou
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view name server groups")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewNSGroupsError()
 	}
 
 	return am.Store.GetAccountNameServerGroups(ctx, LockingStrengthShare, accountID)
@@ -227,6 +255,24 @@ func (am *DefaultAccountManager) validateNameServerGroup(ctx context.Context, ac
 	}
 
 	return nil
+}
+
+// areNameServerGroupChangesAffectPeers checks if the changes in the nameserver group affect the peers.
+func (am *DefaultAccountManager) areNameServerGroupChangesAffectPeers(ctx context.Context, newNSGroup, oldNSGroup *nbdns.NameServerGroup) (bool, error) {
+	if !newNSGroup.Enabled && !oldNSGroup.Enabled {
+		return false, nil
+	}
+
+	hasPeers, err := am.anyGroupHasPeers(ctx, newNSGroup.AccountID, newNSGroup.Groups)
+	if err != nil {
+		return false, err
+	}
+
+	if hasPeers {
+		return true, nil
+	}
+
+	return am.anyGroupHasPeers(ctx, oldNSGroup.AccountID, oldNSGroup.Groups)
 }
 
 func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bool) error {

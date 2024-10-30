@@ -142,6 +142,7 @@ type Client struct {
 	muInstanceURL    sync.Mutex
 
 	onDisconnectListener func()
+	onConnectedListener  func()
 	listenerMutex        sync.Mutex
 }
 
@@ -184,12 +185,15 @@ func (c *Client) Connect() error {
 		return err
 	}
 
+	c.log = c.log.WithField("relay", c.instanceURL.String())
+	c.log.Infof("relay connection established")
+
 	c.serviceIsRunning = true
 
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
+	go c.notifyConnected()
 
-	c.log.Infof("relay connection established")
 	return nil
 }
 
@@ -236,11 +240,23 @@ func (c *Client) SetOnDisconnectListener(fn func()) {
 	c.onDisconnectListener = fn
 }
 
+func (c *Client) SetOnConnectedListener(fn func()) {
+	c.listenerMutex.Lock()
+	defer c.listenerMutex.Unlock()
+	c.onConnectedListener = fn
+}
+
 // HasConns returns true if there are connections.
 func (c *Client) HasConns() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.conns) > 0
+}
+
+func (c *Client) Ready() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.serviceIsRunning
 }
 
 // Close closes the connection to the relay server and all connections to other peers.
@@ -361,9 +377,9 @@ func (c *Client) readLoop(relayConn net.Conn) {
 	c.instanceURL = nil
 	c.muInstanceURL.Unlock()
 
-	c.notifyDisconnected()
 	c.wgReadLoop.Done()
 	_ = c.close(false)
+	c.notifyDisconnected()
 }
 
 func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
@@ -540,6 +556,16 @@ func (c *Client) notifyDisconnected() {
 		return
 	}
 	go c.onDisconnectListener()
+}
+
+func (c *Client) notifyConnected() {
+	c.listenerMutex.Lock()
+	defer c.listenerMutex.Unlock()
+
+	if c.onConnectedListener == nil {
+		return
+	}
+	go c.onConnectedListener()
 }
 
 func (c *Client) writeCloseMsg() {

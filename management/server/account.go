@@ -157,6 +157,7 @@ type AccountManager interface {
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*Settings, error)
+	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 }
 
 type DefaultAccountManager struct {
@@ -1131,8 +1132,12 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	if !user.HasAdminPower() || user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if !user.HasAdminPower() {
+		return nil, status.NewUnauthorizedToViewAccountSettingError()
 	}
 
 	halfYearLimit := 180 * 24 * time.Hour
@@ -1144,25 +1149,16 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	var oldSettings *Settings
-
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		oldSettings, err = transaction.GetAccountSettings(ctx, LockingStrengthUpdate, accountID)
-		if err != nil {
-			return fmt.Errorf("failed to get account settings: %w", err)
-		}
-
-		if err = am.validateExtraSettings(ctx, newSettings, oldSettings, userID, accountID); err != nil {
-			return fmt.Errorf("failed to validate extra settings: %w", err)
-		}
-
-		if err = transaction.SaveAccountSettings(ctx, LockingStrengthUpdate, accountID, newSettings); err != nil {
-			return fmt.Errorf("failed to update account settings: %w", err)
-		}
-
-		return nil
-	})
+	oldSettings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = am.validateExtraSettings(ctx, newSettings, oldSettings, userID, accountID); err != nil {
+		return nil, err
+	}
+
+	if err = am.Store.SaveAccountSettings(ctx, LockingStrengthUpdate, accountID, newSettings); err != nil {
 		return nil, err
 	}
 
@@ -2026,10 +2022,10 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 	jwtGroupsNames := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
 
-	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer func() {
-		if unlockPeer != nil {
-			unlockPeer()
+		if unlockAccount != nil {
+			unlockAccount()
 		}
 	}()
 
@@ -2038,12 +2034,12 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	var hasChanges bool
 	var user *User
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		user, err = am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+		user, err = transaction.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
 		if err != nil {
 			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
+		groups, err := transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			return fmt.Errorf("error getting account groups: %w", err)
 		}
@@ -2101,8 +2097,8 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
-		unlockPeer()
-		unlockPeer = nil
+		unlockAccount()
+		unlockAccount = nil
 
 		return nil
 	})
@@ -2115,7 +2111,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range addNewGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {
@@ -2128,7 +2124,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range removeOldGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {
@@ -2141,13 +2137,24 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	if settings.GroupsPropagationEnabled {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		removedGroupAffectsPeers, err := am.areGroupChangesAffectPeers(ctx, accountID, removeOldGroups)
 		if err != nil {
-			return fmt.Errorf("error getting account: %w", err)
+			return err
 		}
 
-		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-		am.updateAccountPeers(ctx, account)
+		newGroupsAffectsPeers, err := am.areGroupChangesAffectPeers(ctx, accountID, addNewGroups)
+		if err != nil {
+			return err
+		}
+
+		if removedGroupAffectsPeers || newGroupsAffectsPeers {
+			account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+			if err != nil {
+				return fmt.Errorf("error getting account: %w", err)
+			}
+			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
+			am.updateAccountPeers(ctx, account)
+		}
 	}
 
 	return nil
@@ -2249,7 +2256,8 @@ func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context
 	}
 
 	if userAccountID != claims.AccountId {
-		return "", fmt.Errorf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
+		log.WithContext(ctx).Debugf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
+		return "", status.NewUserNotPartOfAccountError()
 	}
 
 	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, claims.AccountId)
@@ -2443,8 +2451,12 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 		return nil, err
 	}
 
-	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
-		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewAccountSettingError()
 	}
 
 	return am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
@@ -2467,8 +2479,8 @@ func addAllGroup(account *Account) error {
 
 		defaultPolicy := &Policy{
 			ID:          id,
-			Name:        DefaultRuleName,
-			Description: DefaultRuleDescription,
+			Name:        DefaultPolicyName,
+			Description: DefaultPolicyDescription,
 			Enabled:     true,
 			Rules: []*PolicyRule{
 				{

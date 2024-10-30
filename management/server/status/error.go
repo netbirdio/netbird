@@ -101,16 +101,62 @@ func NewPeerLoginExpiredError() error {
 	return Errorf(PermissionDenied, "peer login has expired, please log in once more")
 }
 
-// NewSetupKeyNotFoundError creates a new Error with NotFound type for a missing setup key
-func NewSetupKeyNotFoundError(err error) error {
-	return Errorf(NotFound, "setup key not found: %s", err)
-}
-
 func NewGetAccountFromStoreError(err error) error {
 	return Errorf(Internal, "issue getting account from store: %s", err)
+}
+
+func NewUnauthorizedToViewAccountSettingError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view account settings")
+}
+
+// NewUserNotPartOfAccountError creates a new Error with PermissionDenied type for a user not being part of an account
+func NewUserNotPartOfAccountError() error {
+	return Errorf(PermissionDenied, "user is not part of this account")
 }
 
 // NewGetUserFromStoreError creates a new Error with Internal type for an issue getting user from store
 func NewGetUserFromStoreError() error {
 	return Errorf(Internal, "issue getting user from store")
+}
+
+// NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key
+func NewInvalidKeyIDError() error {
+	return Errorf(InvalidArgument, "invalid key ID")
+}
+
+// NewSetupKeyNotFoundError creates a new Error with NotFound type for a missing setup key
+func NewSetupKeyNotFoundError(err error) error {
+	return Errorf(NotFound, "setup key not found: %s", err)
+}
+
+// NewUnauthorizedToViewSetupKeysError creates a new Error with Unauthorized type for an issue getting a setup key
+func NewUnauthorizedToViewSetupKeysError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view setup keys")
+}
+
+func NewUnauthorizedToViewGroupsError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view groups")
+}
+func NewUnauthorizedToViewPATsError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view personal access tokens")
+}
+
+func NewUnauthorizedToViewPoliciesError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view policies")
+}
+
+func NewUnauthorizedToViewPostureChecksError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view posture checks")
+}
+
+func NewUnauthorizedToViewDNSSettingsError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view dns settings")
+}
+
+func NewUnauthorizedToViewNSGroupsError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view name server groups")
+}
+
+func NewUnauthorizedToViewRoutesError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view network routes")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,8 +32,6 @@ const (
 
 	UserIssuedAPI         = "api"
 	UserIssuedIntegration = "integration"
-
-	errUserNotPartOfAccountMsg = "user is not part of this account"
 )
 
 // StrRoleToUserRole returns UserRole for a given strRole or UserRoleUnknown if the specified role is unknown
@@ -102,6 +101,11 @@ func (u *User) HasAdminPower() bool {
 // IsAdminOrServiceUser checks if the user has admin power or is a service user.
 func (u *User) IsAdminOrServiceUser() bool {
 	return u.HasAdminPower() || u.IsServiceUser
+}
+
+// IsRegularUser checks if the user is a regular user.
+func (u *User) IsRegularUser() bool {
+	return !u.HasAdminPower() && !u.IsServiceUser
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
@@ -475,7 +479,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 }
 
 func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account *Account, initiatorUserID, targetUserID string) error {
-	meta, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
+	meta, updateAccountPeers, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
 	if err != nil {
 		return err
 	}
@@ -487,18 +491,30 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 	}
 
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
-	am.updateAccountPeers(ctx, account)
+	if updateAccountPeers {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
 
-func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *Account) error {
-	peers, err := am.Store.GetUserPeers(ctx, LockingStrengthShare, account.Id, targetUserID)
+func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *Account) (bool, error) {
+	peers, err := account.FindUserPeers(targetUserID)
 	if err != nil {
-		return err
+		return false, status.Errorf(status.Internal, "failed to find user peers")
 	}
 
-	return am.deletePeers(ctx, account.Id, initiatorUserID, peers)
+	hadPeers := len(peers) > 0
+	if !hadPeers {
+		return false, nil
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+	}
+
+	return hadPeers, am.deletePeers(ctx, account.Id, initiatorUserID, peers)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
@@ -543,6 +559,9 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 
 // CreatePAT creates a new PAT for the given user
 func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	if tokenName == "" {
 		return nil, status.Errorf(status.InvalidArgument, "token name can't be empty")
 	}
@@ -551,28 +570,35 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between 1 and 365")
 	}
 
-	executingUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
-	if err != nil {
-		return nil, err
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) ||
-		executingUser.AccountID != accountID {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "user not found")
+	}
+
+	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to create PAT for this user")
 	}
 
-	pat, err := CreateNewPAT(tokenName, expiresIn, targetUser.Id, executingUser.Id)
+	pat, err := CreateNewPAT(tokenName, expiresIn, targetUserID, executingUser.Id)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed to create PAT: %v", err)
 	}
 
-	if err = am.Store.SavePAT(ctx, LockingStrengthUpdate, &pat.PersonalAccessToken); err != nil {
-		return nil, fmt.Errorf("failed to save PAT: %w", err)
+	targetUser.PATs[pat.ID] = &pat.PersonalAccessToken
+
+	err = am.Store.SaveAccount(ctx, account)
+	if err != nil {
+		return nil, status.Errorf(status.Internal, "failed to save account: %v", err)
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
@@ -583,7 +609,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 
 // DeletePAT deletes a specific PAT from a user
 func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
-	executingUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
 		return err
 	}
@@ -593,24 +619,19 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 		return err
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) ||
-		executingUser.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, "no permission to delete PAT for this user")
-	}
-
-	pat, err := am.Store.GetPATByID(ctx, LockingStrengthShare, tokenID, targetUserID)
+	pat, err := am.Store.GetPATByID(ctx, LockingStrengthShare, targetUserID, tokenID)
 	if err != nil {
 		return err
 	}
 
-	if err = am.Store.DeletePAT(ctx, LockingStrengthUpdate, tokenID, targetUserID); err != nil {
-		return fmt.Errorf("failed to delete PAT: %w", err)
+	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
+		return status.NewUnauthorizedToViewPATsError()
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
 
-	return nil
+	return am.Store.DeletePAT(ctx, LockingStrengthUpdate, targetUserID, tokenID)
 }
 
 // GetPAT returns a specific PAT from a user
@@ -620,8 +641,12 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, err
 	}
 
-	if (initiatorUserID != targetUserID && !initiatorUser.IsAdminOrServiceUser()) || initiatorUser.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
+	if initiatorUser.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewPATsError()
 	}
 
 	return am.Store.GetPATByID(ctx, LockingStrengthShare, targetUserID, tokenID)
@@ -634,21 +659,15 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 		return nil, err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
-	if err != nil {
-		return nil, err
+	if initiatorUser.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	if (initiatorUserID != targetUserID && !initiatorUser.IsAdminOrServiceUser()) || initiatorUser.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
+	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewPATsError()
 	}
 
-	pats := make([]*PersonalAccessToken, 0, len(targetUser.PATsG))
-	for _, pat := range targetUser.PATsG {
-		pats = append(pats, pat.Copy())
-	}
-
-	return pats, nil
+	return am.Store.GetUserPATs(ctx, LockingStrengthShare, targetUserID)
 }
 
 // SaveUser saves updates to the given user. If the user doesn't exist, it will throw status.NotFound error.
@@ -703,6 +722,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	updatedUsers := make([]*UserInfo, 0, len(updates))
 	var (
 		expiredPeers  []*nbpeer.Peer
+		userIDs       []string
 		eventsToStore []func()
 	)
 
@@ -710,6 +730,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if update == nil {
 			return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 		}
+
+		userIDs = append(userIDs, update.Id)
 
 		oldUser := account.Users[update.Id]
 		if oldUser == nil {
@@ -774,7 +796,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	if account.Settings.GroupsPropagationEnabled {
+	if account.Settings.GroupsPropagationEnabled && areUsersLinkedToPeers(account, userIDs) {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -1050,7 +1072,6 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		if peer.Status.LoginExpired {
 			continue
 		}
-
 		peerIDs = append(peerIDs, peer.ID)
 		peer.MarkLoginExpired(true)
 
@@ -1070,7 +1091,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 
 		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
-			return fmt.Errorf(errGetAccountFmt, err)
+			return fmt.Errorf("error getting account: %w", err)
 		}
 		am.updateAccountPeers(ctx, account)
 	}
@@ -1131,7 +1152,10 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		return status.Errorf(status.PermissionDenied, "only users with admin power can delete users")
 	}
 
-	var allErrors error
+	var (
+		allErrors          error
+		updateAccountPeers bool
+	)
 
 	deletedUsersMeta := make(map[string]map[string]any)
 	for _, targetUserID := range targetUserIDs {
@@ -1157,10 +1181,14 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 			continue
 		}
 
-		meta, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
+		meta, hadPeers, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
 		if err != nil {
 			allErrors = errors.Join(allErrors, fmt.Errorf("failed to delete user %s: %s", targetUserID, err))
 			continue
+		}
+
+		if hadPeers {
+			updateAccountPeers = true
 		}
 
 		delete(account.Users, targetUserID)
@@ -1172,7 +1200,9 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		return fmt.Errorf("failed to delete users: %w", err)
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if updateAccountPeers {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	for targetUserID, meta := range deletedUsersMeta {
 		am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
@@ -1181,11 +1211,11 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	return allErrors
 }
 
-func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, account *Account, initiatorUserID, targetUserID string) (map[string]any, error) {
+func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, account *Account, initiatorUserID, targetUserID string) (map[string]any, bool, error) {
 	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(ctx, account.Id, initiatorUserID, targetUserID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to resolve email address: %s", err)
-		return nil, err
+		return nil, false, err
 	}
 
 	if !isNil(am.idpManager) {
@@ -1196,16 +1226,16 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 			err = am.deleteUserFromIDP(ctx, targetUserID, account.Id)
 			if err != nil {
 				log.WithContext(ctx).Debugf("failed to delete user from IDP: %s", targetUserID)
-				return nil, err
+				return nil, false, err
 			}
 		} else {
 			log.WithContext(ctx).Debugf("skipped deleting user %s from IDP, error: %v", targetUserID, err)
 		}
 	}
 
-	err = am.deleteUserPeers(ctx, initiatorUserID, targetUserID, account)
+	hadPeers, err := am.deleteUserPeers(ctx, initiatorUserID, targetUserID, account)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	u, err := account.FindUser(targetUserID)
@@ -1218,7 +1248,7 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 		tuCreatedAt = u.CreatedAt
 	}
 
-	return map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}, nil
+	return map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}, hadPeers, nil
 }
 
 // updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
@@ -1296,4 +1326,14 @@ func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserDa
 		}
 	}
 	return nil, false
+}
+
+// areUsersLinkedToPeers checks if any of the given userIDs are linked to any of the peers in the account.
+func areUsersLinkedToPeers(account *Account, userIDs []string) bool {
+	for _, peer := range account.Peers {
+		if slices.Contains(userIDs, peer.UserID) {
+			return true
+		}
+	}
+	return false
 }

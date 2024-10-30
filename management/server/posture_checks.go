@@ -12,22 +12,18 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-const (
-	errPostureAdminOnlyMsg = "only users with admin power are allowed to view posture checks"
-)
-
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !user.HasAdminPower() {
-		return nil, status.Errorf(status.PermissionDenied, errPostureAdminOnlyMsg)
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	if !user.HasAdminPower() {
+		return nil, status.NewUnauthorizedToViewPostureChecksError()
 	}
 
 	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
@@ -40,20 +36,24 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		return err
 	}
 
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "only admin users are allowed to update posture checks")
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
 	}
 
-	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	if !user.HasAdminPower() {
+		return status.NewUnauthorizedToViewPostureChecksError()
 	}
 
 	if err = am.validatePostureChecks(ctx, accountID, postureChecks); err != nil {
 		return status.Errorf(status.InvalidArgument, err.Error())
 	}
 
-	action := activity.PostureCheckCreated
+	updateAccountPeers, err := am.arePostureCheckChangesAffectPeers(ctx, accountID, postureChecks.ID, isUpdate)
+	if err != nil {
+		return err
+	}
 
+	action := activity.PostureCheckCreated
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if isUpdate {
 			action = activity.PostureCheckUpdated
@@ -63,7 +63,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 			}
 
 			if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-				return fmt.Errorf(errNetworkSerialIncrementFmt, err)
+				return fmt.Errorf("failed to increment network serial: %w", err)
 			}
 		}
 
@@ -78,11 +78,12 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
-	if isUpdate {
+	if updateAccountPeers {
 		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account: %w", err)
 		}
+
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -115,16 +116,12 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 		return err
 	}
 
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "only admin users are allowed to delete posture checks")
-	}
-
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+		return status.NewUserNotPartOfAccountError()
 	}
 
-	if err = am.isPostureCheckLinkedToPolicy(ctx, postureChecksID, accountID); err != nil {
-		return err
+	if !user.HasAdminPower() {
+		return status.NewUnauthorizedToViewPostureChecksError()
 	}
 
 	postureChecks, err := am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
@@ -132,9 +129,13 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 		return err
 	}
 
+	if err = am.isPostureCheckLinkedToPolicy(ctx, postureChecksID, accountID); err != nil {
+		return err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
+			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
 		if err = transaction.DeletePostureChecks(ctx, LockingStrengthUpdate, accountID, postureChecksID); err != nil {
@@ -148,12 +149,6 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, activity.PostureCheckDeleted, postureChecks.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
-	}
-	am.updateAccountPeers(ctx, account)
-
 	return nil
 }
 
@@ -164,12 +159,12 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 		return nil, err
 	}
 
-	if !user.HasAdminPower() {
-		return nil, status.Errorf(status.PermissionDenied, errPostureAdminOnlyMsg)
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	if !user.HasAdminPower() {
+		return nil, status.NewUnauthorizedToViewPostureChecksError()
 	}
 
 	return am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
@@ -243,6 +238,33 @@ func (am *DefaultAccountManager) isPeerInPolicySourceGroups(ctx context.Context,
 			}
 
 			if slices.Contains(group.Peers, peerID) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// arePostureCheckChangesAffectPeers checks if the changes in posture checks are affecting peers.
+func (am *DefaultAccountManager) arePostureCheckChangesAffectPeers(ctx context.Context, accountID, postureCheckID string, exists bool) (bool, error) {
+	if !exists {
+		return false, nil
+	}
+
+	policies, err := am.Store.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, policy := range policies {
+		if slices.Contains(policy.SourcePostureChecks, postureCheckID) {
+			hasPeers, err := am.anyGroupHasPeers(ctx, accountID, policy.ruleGroups())
+			if err != nil {
+				return false, err
+			}
+
+			if hasPeers {
 				return true, nil
 			}
 		}

@@ -69,8 +69,6 @@ type Store interface {
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
-	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
-	DeleteTokenID2UserIDIndex(tokenID string) error
 
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbgroup.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*nbgroup.Group, error)
@@ -111,6 +109,7 @@ type Store interface {
 	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error)
 	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*SetupKey, error)
 	SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *SetupKey) error
+	DeleteSetupKey(ctx context.Context, lockStrength LockingStrength, accountID, keyID string) error
 
 	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
 	GetRouteByID(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) (*route.Route, error)
@@ -123,6 +122,7 @@ type Store interface {
 	DeleteNameServerGroup(ctx context.Context, lockStrength LockingStrength, accountID, nameServerGroupID string) error
 
 	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*PersonalAccessToken, error)
+	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*PersonalAccessToken, error)
 	SavePAT(ctx context.Context, strength LockingStrength, pat *PersonalAccessToken) error
 	DeletePAT(ctx context.Context, strength LockingStrength, userID, patID string) error
 
@@ -262,6 +262,9 @@ func getMigrations(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](ctx, db, "ip", "idx_peers_account_id_ip")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateSetupKeyToHashedSetupKey[SetupKey](ctx, db)
 		},
 	}
 }

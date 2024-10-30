@@ -2,6 +2,7 @@ package peer
 
 import (
 	"fmt"
+	"net/netip"
 	"testing"
 )
 
@@ -28,4 +29,57 @@ func BenchmarkFQDN(b *testing.B) {
 			p.FQDN(dnsDomain)
 		}
 	})
+}
+
+func TestIsEqual(t *testing.T) {
+	meta1 := PeerSystemMeta{
+		NetworkAddresses: []NetworkAddress{{
+			NetIP: netip.MustParsePrefix("192.168.1.2/24"),
+			Mac:   "2",
+		},
+			{
+				NetIP: netip.MustParsePrefix("192.168.1.0/24"),
+				Mac:   "1",
+			},
+		},
+		Files: []File{
+			{
+				Path:             "/etc/hosts1",
+				Exist:            true,
+				ProcessIsRunning: true,
+			},
+			{
+				Path:             "/etc/hosts2",
+				Exist:            false,
+				ProcessIsRunning: false,
+			},
+		},
+	}
+	meta2 := PeerSystemMeta{
+		NetworkAddresses: []NetworkAddress{
+			{
+				NetIP: netip.MustParsePrefix("192.168.1.0/24"),
+				Mac:   "1",
+			},
+			{
+				NetIP: netip.MustParsePrefix("192.168.1.2/24"),
+				Mac:   "2",
+			},
+		},
+		Files: []File{
+			{
+				Path:             "/etc/hosts2",
+				Exist:            false,
+				ProcessIsRunning: false,
+			},
+			{
+				Path:             "/etc/hosts1",
+				Exist:            true,
+				ProcessIsRunning: true,
+			},
+		},
+	}
+	if !meta1.isEqual(meta2) {
+		t.Error("meta1 should be equal to meta2")
+	}
 }

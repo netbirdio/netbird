@@ -430,16 +430,6 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 	return nil
 }
 
-// DeleteHashedPAT2TokenIDIndex is noop in SqlStore
-func (s *SqlStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
-	return nil
-}
-
-// DeleteTokenID2UserIDIndex is noop in SqlStore
-func (s *SqlStore) DeleteTokenID2UserIDIndex(tokenID string) error {
-	return nil
-}
-
 func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error) {
 	accountID, err := s.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if err != nil {
@@ -469,7 +459,7 @@ func (s *SqlStore) GetAccountIDByPrivateDomain(ctx context.Context, lockStrength
 
 func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) {
 	var key SetupKey
-	result := s.db.WithContext(ctx).Select("account_id").First(&key, keyQueryCondition, strings.ToUpper(setupKey))
+	result := s.db.WithContext(ctx).Select("account_id").First(&key, keyQueryCondition, setupKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -741,7 +731,7 @@ func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
 
 func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) (string, error) {
 	var accountID string
-	result := s.db.WithContext(ctx).Model(&SetupKey{}).Select("account_id").Where(keyQueryCondition, strings.ToUpper(setupKey)).First(&accountID)
+	result := s.db.WithContext(ctx).Model(&SetupKey{}).Select("account_id").Where(keyQueryCondition, setupKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -993,7 +983,7 @@ func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error) {
 	var setupKey SetupKey
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		First(&setupKey, keyQueryCondition, strings.ToUpper(key))
+		First(&setupKey, keyQueryCondition, key)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "setup key not found")
@@ -1543,6 +1533,21 @@ func (s *SqlStore) SaveSetupKey(ctx context.Context, lockStrength LockingStrengt
 	return nil
 }
 
+func (s *SqlStore) DeleteSetupKey(ctx context.Context, lockStrength LockingStrength, accountID, keyID string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&SetupKey{}, accountAndIDQueryCondition, accountID, keyID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete setup key from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete setup key from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "setup key not found")
+	}
+
+	return nil
+}
+
 // GetAccountNameServerGroups retrieves name server groups for an account.
 func (s *SqlStore) GetAccountNameServerGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbdns.NameServerGroup, error) {
 	var nsGroups []*nbdns.NameServerGroup
@@ -1597,7 +1602,7 @@ func (s *SqlStore) DeleteNameServerGroup(ctx context.Context, lockStrength Locki
 }
 
 // GetPATByID retrieves a personal access token by its ID and user ID.
-func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, patID string, userID string) (*PersonalAccessToken, error) {
+func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, userID string, patID string) (*PersonalAccessToken, error) {
 	var pat PersonalAccessToken
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&pat, "id = ? AND user_id = ?", patID, userID)
@@ -1610,6 +1615,18 @@ func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength,
 	}
 
 	return &pat, nil
+}
+
+// GetUserPATs retrieves personal access tokens for a user.
+func (s *SqlStore) GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*PersonalAccessToken, error) {
+	var pats []*PersonalAccessToken
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&pats, "user_id = ?", userID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get user PAT's from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get user PAT's from store")
+	}
+
+	return pats, nil
 }
 
 // SavePAT saves a personal access token to the database.

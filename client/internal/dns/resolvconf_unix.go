@@ -9,6 +9,8 @@ import (
 	"os/exec"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const resolvconfCommand = "resolvconf"
@@ -22,7 +24,7 @@ type resolvconf struct {
 }
 
 // supported "openresolv" only
-func newResolvConfConfigurator(wgInterface string) (hostManager, error) {
+func newResolvConfConfigurator(wgInterface string) (*resolvconf, error) {
 	resolvConfEntries, err := parseDefaultResolvConf()
 	if err != nil {
 		log.Errorf("could not read original search domains from %s: %s", defaultResolvConfPath, err)
@@ -40,7 +42,7 @@ func (r *resolvconf) supportCustomPort() bool {
 	return false
 }
 
-func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
+func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	var err error
 	if !config.RouteAll {
 		err = r.restoreHostDNS()
@@ -60,9 +62,12 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 		append([]string{config.ServerIP}, r.originalNameServers...),
 		options)
 
-	// create a backup for unclean shutdown detection before the resolv.conf is changed
-	if err := createUncleanShutdownIndicator(defaultResolvConfPath, resolvConfManager, config.ServerIP); err != nil {
-		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	state := &ShutdownState{
+		ManagerType: resolvConfManager,
+		WgIface:     r.ifaceName,
+	}
+	if err := stateManager.UpdateState(state); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
 	err = r.applyConfig(buf)
@@ -79,11 +84,7 @@ func (r *resolvconf) restoreHostDNS() error {
 	cmd := exec.Command(resolvconfCommand, "-f", "-d", r.ifaceName)
 	_, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("removing resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
-	}
-
-	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+		return fmt.Errorf("removing resolvconf configuration for %s interface: %w", r.ifaceName, err)
 	}
 
 	return nil
@@ -95,7 +96,7 @@ func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	cmd.Stdin = &content
 	_, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("applying resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
+		return fmt.Errorf("applying resolvconf configuration for %s interface: %w", r.ifaceName, err)
 	}
 	return nil
 }

@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -203,6 +203,17 @@ func (p *Policy) UpgradeAndFix() {
 	}
 }
 
+// ruleGroups returns a list of all groups referenced in the policy's rules,
+// including sources and destinations.
+func (p *Policy) ruleGroups() []string {
+	groups := make([]string, 0)
+	for _, rule := range p.Rules {
+		groups = append(groups, rule.Sources...)
+		groups = append(groups, rule.Destinations...)
+	}
+	return groups
+}
+
 // FirewallRule is a rule of the firewall.
 type FirewallRule struct {
 	// PeerIP of the peer
@@ -331,12 +342,12 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	if user.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewPoliciesError()
 	}
 
 	return am.Store.GetPolicyByID(ctx, LockingStrengthShare, accountID, policyID)
@@ -349,12 +360,12 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		return err
 	}
 
-	if !user.IsAdminOrServiceUser() {
-		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
 	}
 
-	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	if user.IsRegularUser() {
+		return status.NewUnauthorizedToViewPoliciesError()
 	}
 
 	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
@@ -377,38 +388,38 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		policy.SourcePostureChecks = getValidPostureCheckIDs(postureChecks, policy.SourcePostureChecks)
 	}
 
-	action := activity.PolicyAdded
-	if isUpdate {
-		action = activity.PolicyUpdated
-
-		if _, err = am.Store.GetPolicyByID(ctx, LockingStrengthShare, accountID, policy.ID); err != nil {
-			return err
-		}
+	updateAccountPeers, err := am.arePolicyChangesAffectPeers(ctx, policy, isUpdate)
+	if err != nil {
+		return err
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
+			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
-		err = transaction.SavePolicy(ctx, LockingStrengthUpdate, policy)
-		if err != nil {
+		if err = transaction.SavePolicy(ctx, LockingStrengthUpdate, policy); err != nil {
 			return fmt.Errorf("failed to save policy: %w", err)
 		}
-
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
+	action := activity.PolicyAdded
+	if isUpdate {
+		action = activity.PolicyUpdated
+	}
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -421,7 +432,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+		return status.NewUserNotPartOfAccountError()
 	}
 
 	policy, err := am.Store.GetPolicyByID(ctx, LockingStrengthShare, accountID, policyID)
@@ -430,13 +441,11 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID)
-		if err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
 		}
 
-		err = transaction.DeletePolicy(ctx, LockingStrengthUpdate, accountID, policyID)
-		if err != nil {
+		if err = transaction.DeletePolicy(ctx, LockingStrengthUpdate, accountID, policyID); err != nil {
 			return fmt.Errorf("failed to delete policy: %w", err)
 		}
 		return nil
@@ -456,34 +465,49 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	return nil
 }
 
-// ListPolicies from the store
+// ListPolicies from the store.
 func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, userID string) ([]*Policy, error) {
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view policies")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewPoliciesError()
 	}
 
 	return am.Store.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
 }
 
-func toProtocolFirewallRules(rules []*FirewallRule) []*proto.FirewallRule {
-	result := make([]*proto.FirewallRule, len(rules))
-	for i := range rules {
-		rule := rules[i]
-
-		result[i] = &proto.FirewallRule{
-			PeerIP:    rule.PeerIP,
-			Direction: getProtoDirection(rule.Direction),
-			Action:    getProtoAction(rule.Action),
-			Protocol:  getProtoProtocol(rule.Protocol),
-			Port:      rule.Port,
+// arePolicyChangesAffectPeers checks if changes to a policy will affect any associated peers.
+func (am *DefaultAccountManager) arePolicyChangesAffectPeers(ctx context.Context, policyToSave *Policy, isUpdate bool) (bool, error) {
+	if isUpdate {
+		existingPolicy, err := am.Store.GetPolicyByID(ctx, LockingStrengthShare, policyToSave.AccountID, policyToSave.ID)
+		if err != nil {
+			return false, err
 		}
+
+		if !policyToSave.Enabled && !existingPolicy.Enabled {
+			return false, nil
+		}
+
+		hasPeers, err := am.anyGroupHasPeers(ctx, policyToSave.AccountID, existingPolicy.ruleGroups())
+		if err != nil {
+			return false, err
+		}
+
+		if hasPeers {
+			return true, nil
+		}
+
+		return am.anyGroupHasPeers(ctx, policyToSave.AccountID, policyToSave.ruleGroups())
 	}
-	return result
+
+	return am.anyGroupHasPeers(ctx, policyToSave.AccountID, policyToSave.ruleGroups())
 }
 
 // getAllPeersFromGroups for given peer ID and list of groups
@@ -596,4 +620,21 @@ func getValidGroupIDs(groups []*nbgroup.Group, groupIDs []string) []string {
 	}
 
 	return validIDs
+}
+
+// toProtocolFirewallRules converts the firewall rules to the protocol firewall rules.
+func toProtocolFirewallRules(rules []*FirewallRule) []*proto.FirewallRule {
+	result := make([]*proto.FirewallRule, len(rules))
+	for i := range rules {
+		rule := rules[i]
+
+		result[i] = &proto.FirewallRule{
+			PeerIP:    rule.PeerIP,
+			Direction: getProtoDirection(rule.Direction),
+			Action:    getProtoAction(rule.Action),
+			Protocol:  getProtoProtocol(rule.Protocol),
+			Port:      rule.Port,
+		}
+	}
+	return result
 }

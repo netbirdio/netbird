@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"sort"
 	"time"
 )
 
@@ -16,38 +17,36 @@ type Peer struct {
 	AccountID string `json:"-" gorm:"index"`
 	// WireGuard public key
 	Key string `gorm:"index"`
-	// A setup key this peer was registered with
-	SetupKey string
 	// IP address of the Peer
 	IP net.IP `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
-	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_" diff:"-"`
 	// Name is peer's name (machine name)
 	Name string
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
 	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DNSLabel string
 	// Status peer's management connection status
-	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
+	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_" diff:"-"`
 	// The user ID that registered the peer
-	UserID string
+	UserID string `diff:"-"`
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
 	// SSHEnabled indicates whether SSH server is enabled on the peer
 	SSHEnabled bool
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
 	// Works with LastLogin
-	LoginExpirationEnabled bool
+	LoginExpirationEnabled bool `diff:"-"`
 
-	InactivityExpirationEnabled bool
+	InactivityExpirationEnabled bool `diff:"-"`
 	// LastLogin the time when peer performed last login operation
-	LastLogin time.Time
+	LastLogin time.Time `diff:"-"`
 	// CreatedAt records the time the peer was created
-	CreatedAt time.Time
+	CreatedAt time.Time `diff:"-"`
 	// Indicate ephemeral peer attribute
-	Ephemeral bool
+	Ephemeral bool `diff:"-"`
 	// Geo location based on connection IP
-	Location Location `gorm:"embedded;embeddedPrefix:location_"`
+	Location Location `gorm:"embedded;embeddedPrefix:location_" diff:"-"`
 }
 
 type PeerStatus struct { //nolint:revive
@@ -109,6 +108,12 @@ type PeerSystemMeta struct { //nolint:revive
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	sort.Slice(p.NetworkAddresses, func(i, j int) bool {
+		return p.NetworkAddresses[i].Mac < p.NetworkAddresses[j].Mac
+	})
+	sort.Slice(other.NetworkAddresses, func(i, j int) bool {
+		return other.NetworkAddresses[i].Mac < other.NetworkAddresses[j].Mac
+	})
 	equalNetworkAddresses := slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
 		return addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP
 	})
@@ -116,6 +121,12 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		return false
 	}
 
+	sort.Slice(p.Files, func(i, j int) bool {
+		return p.Files[i].Path < p.Files[j].Path
+	})
+	sort.Slice(other.Files, func(i, j int) bool {
+		return other.Files[i].Path < other.Files[j].Path
+	})
 	equalFiles := slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
 		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
 	})
@@ -172,24 +183,22 @@ func (p *Peer) Copy() *Peer {
 		peerStatus = p.Status.Copy()
 	}
 	return &Peer{
-		ID:                     p.ID,
-		AccountID:              p.AccountID,
-		Key:                    p.Key,
-		SetupKey:               p.SetupKey,
-		IP:                     p.IP,
-		Meta:                   p.Meta,
-		Name:                   p.Name,
-		DNSLabel:               p.DNSLabel,
-		Status:                 peerStatus,
-		UserID:                 p.UserID,
-		SSHKey:                 p.SSHKey,
-		SSHEnabled:             p.SSHEnabled,
-		LoginExpirationEnabled: p.LoginExpirationEnabled,
-		LastLogin:              p.LastLogin,
-		CreatedAt:              p.CreatedAt,
-		Ephemeral:              p.Ephemeral,
-		Location:               p.Location,
-
+		ID:                          p.ID,
+		AccountID:                   p.AccountID,
+		Key:                         p.Key,
+		IP:                          p.IP,
+		Meta:                        p.Meta,
+		Name:                        p.Name,
+		DNSLabel:                    p.DNSLabel,
+		Status:                      peerStatus,
+		UserID:                      p.UserID,
+		SSHKey:                      p.SSHKey,
+		SSHEnabled:                  p.SSHEnabled,
+		LoginExpirationEnabled:      p.LoginExpirationEnabled,
+		LastLogin:                   p.LastLogin,
+		CreatedAt:                   p.CreatedAt,
+		Ephemeral:                   p.Ephemeral,
+		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 	}
 }

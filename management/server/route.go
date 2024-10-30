@@ -52,12 +52,12 @@ func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string,
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	if user.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewRoutesError()
 	}
 
 	return am.Store.GetRouteByID(ctx, LockingStrengthShare, accountID, string(routeID))
@@ -181,12 +181,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	}
 
 	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
-	}
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
 	// Do not allow non-Linux peers
@@ -274,6 +269,11 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	newRoute.KeepRoute = keepRoute
 	newRoute.AccessControlGroups = accessControlGroupIDs
 
+	updateAccountPeers, err := am.areRouteChangesAffectPeers(ctx, &newRoute)
+	if err != nil {
+		return nil, err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
@@ -292,11 +292,13 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
-	account, err = am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf(errGetAccountFmt, err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return nil, fmt.Errorf(errGetAccountFmt, err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return &newRoute, nil
 }
@@ -309,7 +311,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+		return status.NewUserNotPartOfAccountError()
 	}
 
 	if routeToSave == nil {
@@ -324,7 +326,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
-	_, err = am.Store.GetRouteByID(ctx, LockingStrengthShare, accountID, string(routeToSave.ID))
+	oldRoute, err := am.Store.GetRouteByID(ctx, LockingStrengthShare, accountID, string(routeToSave.ID))
 	if err != nil {
 		return err
 	}
@@ -386,6 +388,16 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return err
 	}
 
+	oldRouteAffectsPeers, err := am.areRouteChangesAffectPeers(ctx, oldRoute)
+	if err != nil {
+		return err
+	}
+
+	newRouteAffectsPeers, err := am.areRouteChangesAffectPeers(ctx, routeToSave)
+	if err != nil {
+		return err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
@@ -404,11 +416,13 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf(errGetAccountFmt, err)
+	if oldRouteAffectsPeers || newRouteAffectsPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf(errGetAccountFmt, err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -421,10 +435,15 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+		return status.NewUserNotPartOfAccountError()
 	}
 
 	route, err := am.Store.GetRouteByID(ctx, LockingStrengthShare, accountID, string(routeID))
+	if err != nil {
+		return err
+	}
+
+	updateAccountPeers, err := am.areRouteChangesAffectPeers(ctx, route)
 	if err != nil {
 		return err
 	}
@@ -442,11 +461,13 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf(errGetAccountFmt, err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf(errGetAccountFmt, err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -458,12 +479,12 @@ func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	if user.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewRoutesError()
 	}
 
 	return am.Store.GetAccountRoutes(ctx, LockingStrengthShare, accountID)
@@ -740,4 +761,23 @@ func getProtoPortInfo(rule *RouteFirewallRule) *proto.PortInfo {
 		}
 	}
 	return &portInfo
+}
+
+// areRouteChangesAffectPeers checks if a given route affects peers by determining
+// if it has a routing peer, distribution, or peer groups that include peers.
+func (am *DefaultAccountManager) areRouteChangesAffectPeers(ctx context.Context, route *route.Route) (bool, error) {
+	if route.Peer != "" {
+		return true, nil
+	}
+
+	hasPeers, err := am.anyGroupHasPeers(ctx, route.AccountID, route.Groups)
+	if err != nil {
+		return false, err
+	}
+
+	if hasPeers {
+		return true, nil
+	}
+
+	return am.anyGroupHasPeers(ctx, route.AccountID, route.PeerGroups)
 }

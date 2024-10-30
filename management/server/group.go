@@ -37,12 +37,12 @@ func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, acco
 		return err
 	}
 
-	if !user.IsAdminOrServiceUser() && settings.RegularUsersViewBlocked {
-		return status.Errorf(status.PermissionDenied, "access to groups is blocked for users")
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
 	}
 
-	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+	if user.IsRegularUser() && settings.RegularUsersViewBlocked {
+		return status.NewUnauthorizedToViewGroupsError()
 	}
 
 	return nil
@@ -84,7 +84,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+		return status.NewUserNotPartOfAccountError()
 	}
 
 	var (
@@ -128,6 +128,16 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		eventsToStore = append(eventsToStore, events...)
 	}
 
+	newGroupIDs := make([]string, 0, len(newGroups))
+	for _, newGroup := range newGroups {
+		newGroupIDs = append(newGroupIDs, newGroup.ID)
+	}
+
+	updateAccountPeers, err := am.areGroupChangesAffectPeers(ctx, accountID, newGroupIDs)
+	if err != nil {
+		return err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
@@ -146,11 +156,13 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		storeEvent()
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf(errGetAccountFmt, err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf(errGetAccountFmt, err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -233,7 +245,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+		return status.NewUserNotPartOfAccountError()
 	}
 
 	group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
@@ -265,12 +277,6 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 
 	am.StoreEvent(ctx, userID, groupID, accountID, activity.GroupDeleted, group.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf(errGetAccountFmt, err)
-	}
-	am.updateAccountPeers(ctx, account)
-
 	return nil
 }
 
@@ -282,7 +288,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	}
 
 	if user.AccountID != accountID {
-		return status.Errorf(status.PermissionDenied, errUserNotPartOfAccountMsg)
+		return status.NewUserNotPartOfAccountError()
 	}
 
 	var (
@@ -324,12 +330,6 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf(errGetAccountFmt, err)
-	}
-	am.updateAccountPeers(ctx, account)
-
 	return allErrors
 }
 
@@ -351,6 +351,11 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		group.Peers = append(group.Peers, peerID)
 	}
 
+	updateAccountPeers, err := am.areGroupChangesAffectPeers(ctx, accountID, []string{groupID})
+	if err != nil {
+		return err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
@@ -365,11 +370,13 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf(errGetAccountFmt, err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf(errGetAccountFmt, err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -394,6 +401,11 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return nil
 	}
 
+	updateAccountPeers, err := am.areGroupChangesAffectPeers(ctx, accountID, []string{groupID})
+	if err != nil {
+		return err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
@@ -408,11 +420,13 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return err
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf(errGetAccountFmt, err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf(errGetAccountFmt, err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -429,23 +443,23 @@ func (am *DefaultAccountManager) validateDeleteGroup(ctx context.Context, group 
 		}
 	}
 
-	if isLinked, linkedRoute := am.isGroupLinkedToRoute(ctx, group.ID, group.AccountID); isLinked {
+	if isLinked, linkedRoute := am.isGroupLinkedToRoute(ctx, group.AccountID, group.ID); isLinked {
 		return &GroupLinkError{"route", string(linkedRoute.NetID)}
 	}
 
-	if isLinked, linkedDns := am.isGroupLinkedToDns(ctx, group.ID, group.AccountID); isLinked {
+	if isLinked, linkedDns := am.isGroupLinkedToDns(ctx, group.AccountID, group.ID); isLinked {
 		return &GroupLinkError{"name server groups", linkedDns.Name}
 	}
 
-	if isLinked, linkedPolicy := am.isGroupLinkedToPolicy(ctx, group.ID, group.AccountID); isLinked {
+	if isLinked, linkedPolicy := am.isGroupLinkedToPolicy(ctx, group.AccountID, group.ID); isLinked {
 		return &GroupLinkError{"policy", linkedPolicy.Name}
 	}
 
-	if isLinked, linkedSetupKey := am.isGroupLinkedToSetupKey(ctx, group.ID, group.AccountID); isLinked {
+	if isLinked, linkedSetupKey := am.isGroupLinkedToSetupKey(ctx, group.AccountID, group.ID); isLinked {
 		return &GroupLinkError{"setup key", linkedSetupKey.Name}
 	}
 
-	if isLinked, linkedUser := am.isGroupLinkedToUser(ctx, group.ID, group.AccountID); isLinked {
+	if isLinked, linkedUser := am.isGroupLinkedToUser(ctx, group.AccountID, group.ID); isLinked {
 		return &GroupLinkError{"user", linkedUser.Id}
 	}
 
@@ -473,7 +487,7 @@ func (am *DefaultAccountManager) validateDeleteGroup(ctx context.Context, group 
 }
 
 // isGroupLinkedToRoute checks if a group is linked to any route in the account.
-func (am *DefaultAccountManager) isGroupLinkedToRoute(ctx context.Context, groupID string, accountID string) (bool, *route.Route) {
+func (am *DefaultAccountManager) isGroupLinkedToRoute(ctx context.Context, accountID string, groupID string) (bool, *route.Route) {
 	routes, err := am.Store.GetAccountRoutes(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error retrieving routes while checking group linkage: %v", err)
@@ -490,7 +504,7 @@ func (am *DefaultAccountManager) isGroupLinkedToRoute(ctx context.Context, group
 }
 
 // isGroupLinkedToPolicy checks if a group is linked to any policy in the account.
-func (am *DefaultAccountManager) isGroupLinkedToPolicy(ctx context.Context, groupID string, accountID string) (bool, *Policy) {
+func (am *DefaultAccountManager) isGroupLinkedToPolicy(ctx context.Context, accountID string, groupID string) (bool, *Policy) {
 	policies, err := am.Store.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error retrieving policies while checking group linkage: %v", err)
@@ -508,7 +522,7 @@ func (am *DefaultAccountManager) isGroupLinkedToPolicy(ctx context.Context, grou
 }
 
 // isGroupLinkedToDns checks if a group is linked to any nameserver group in the account.
-func (am *DefaultAccountManager) isGroupLinkedToDns(ctx context.Context, groupID string, accountID string) (bool, *nbdns.NameServerGroup) {
+func (am *DefaultAccountManager) isGroupLinkedToDns(ctx context.Context, accountID string, groupID string) (bool, *nbdns.NameServerGroup) {
 	nameServerGroups, err := am.Store.GetAccountNameServerGroups(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error retrieving name server groups while checking group linkage: %v", err)
@@ -527,7 +541,7 @@ func (am *DefaultAccountManager) isGroupLinkedToDns(ctx context.Context, groupID
 }
 
 // isGroupLinkedToSetupKey checks if a group is linked to any setup key in the account.
-func (am *DefaultAccountManager) isGroupLinkedToSetupKey(ctx context.Context, groupID string, accountID string) (bool, *SetupKey) {
+func (am *DefaultAccountManager) isGroupLinkedToSetupKey(ctx context.Context, accountID string, groupID string) (bool, *SetupKey) {
 	setupKeys, err := am.Store.GetAccountSetupKeys(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error retrieving setup keys while checking group linkage: %v", err)
@@ -543,7 +557,7 @@ func (am *DefaultAccountManager) isGroupLinkedToSetupKey(ctx context.Context, gr
 }
 
 // isGroupLinkedToUser checks if a group is linked to any user in the account.
-func (am *DefaultAccountManager) isGroupLinkedToUser(ctx context.Context, groupID string, accountID string) (bool, *User) {
+func (am *DefaultAccountManager) isGroupLinkedToUser(ctx context.Context, accountID string, groupID string) (bool, *User) {
 	users, err := am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error retrieving users while checking group linkage: %v", err)
@@ -555,5 +569,50 @@ func (am *DefaultAccountManager) isGroupLinkedToUser(ctx context.Context, groupI
 			return true, user
 		}
 	}
+	return false, nil
+}
+
+// anyGroupHasPeers checks if any of the given groups in the account have peers.
+func (am *DefaultAccountManager) anyGroupHasPeers(ctx context.Context, accountID string, groupIDs []string) (bool, error) {
+	for _, groupID := range groupIDs {
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
+		if err != nil {
+			return false, err
+		}
+
+		if group.HasPeers() {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// areGroupChangesAffectPeers checks if any changes to the specified groups will affect peers.
+func (am *DefaultAccountManager) areGroupChangesAffectPeers(ctx context.Context, accountID string, groupIDs []string) (bool, error) {
+	if len(groupIDs) == 0 {
+		return false, nil
+	}
+
+	dnsSettings, err := am.Store.GetAccountDNSSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, groupID := range groupIDs {
+		if slices.Contains(dnsSettings.DisabledManagementGroups, groupID) {
+			return true, nil
+		}
+		if linked, _ := am.isGroupLinkedToDns(ctx, accountID, groupID); linked {
+			return true, nil
+		}
+		if linked, _ := am.isGroupLinkedToPolicy(ctx, accountID, groupID); linked {
+			return true, nil
+		}
+		if linked, _ := am.isGroupLinkedToRoute(ctx, accountID, groupID); linked {
+			return true, nil
+		}
+	}
+
 	return false, nil
 }

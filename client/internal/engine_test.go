@@ -29,6 +29,8 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peer/guard"
+	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -258,6 +260,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 	engine.ctx = ctx
+	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
 
 	type testCase struct {
 		name       string
@@ -602,7 +605,16 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, engine.config.WgPort, key.String(), iface.DefaultMTU, newNet, nil, nil)
+
+			opts := iface.WGIFaceOpts{
+				IFaceName:    wgIfaceName,
+				Address:      wgAddr,
+				WGPort:       engine.config.WgPort,
+				WGPrivKey:    key.String(),
+				MTU:          iface.DefaultMTU,
+				TransportNet: newNet,
+			}
+			engine.wgInterface, err = iface.NewWGIFace(opts)
 			assert.NoError(t, err, "shouldn't return error")
 			input := struct {
 				inputSerial uint64
@@ -774,7 +786,15 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, 33100, key.String(), iface.DefaultMTU, newNet, nil, nil)
+			opts := iface.WGIFaceOpts{
+				IFaceName:    wgIfaceName,
+				Address:      wgAddr,
+				WGPort:       33100,
+				WGPrivKey:    key.String(),
+				MTU:          iface.DefaultMTU,
+				TransportNet: newNet,
+			}
+			engine.wgInterface, err = iface.NewWGIFace(opts)
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
