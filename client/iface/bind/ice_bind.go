@@ -220,7 +220,7 @@ func (s *ICEBind) receiveIP(
 			if err != nil {
 				return 0, err
 			}
-			numMsgs, err = splitCoalescedMessages(*msgs, readAt, wgConn.GetGSOSize)
+			numMsgs, err = splitCoalescedMessages(*msgs, readAt, GetGSOSize)
 			if err != nil {
 				return 0, err
 			}
