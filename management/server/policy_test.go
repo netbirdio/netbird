@@ -854,14 +854,9 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	updMsg1 := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
 		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
-	updMsg2 := manager.peersUpdateManager.CreateChannel(context.Background(), peer2.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer2.ID)
 	})
 
 	// Saving policy with rule groups with no peers should not update account's peers and not send peer update
@@ -883,7 +878,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg1)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -918,7 +913,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -953,7 +948,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg2)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -987,7 +982,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1021,7 +1016,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1056,7 +1051,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg1)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1090,7 +1085,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1104,46 +1099,13 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// Saving unchanged policy should trigger account peers update but not send peer update
-	t.Run("saving unchanged policy", func(t *testing.T) {
-		policy := Policy{
-			ID:      "policy-source-destination-peers",
-			Enabled: true,
-			Rules: []*PolicyRule{
-				{
-					ID:            xid.New().String(),
-					Enabled:       true,
-					Sources:       []string{"groupA"},
-					Destinations:  []string{"groupD"},
-					Bidirectional: true,
-					Action:        PolicyTrafficActionAccept,
-				},
-			},
-		}
-
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg1)
-			close(done)
-		}()
-
-		err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
 	// Deleting policy should trigger account peers update and send peer update
 	t.Run("deleting policy with source and destination groups with peers", func(t *testing.T) {
 		policyID := "policy-source-destination-peers"
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1164,7 +1126,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		policyID := "policy-destination-has-peers-source-none"
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg2)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1180,10 +1142,10 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 	// Deleting policy with no peers in groups should not update account's peers and not send peer update
 	t.Run("deleting policy with no peers in groups", func(t *testing.T) {
-		policyID := "policy-rule-groups-no-peers" // Deleting the policy created in Case 2
+		policyID := "policy-rule-groups-no-peers"
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg1)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 

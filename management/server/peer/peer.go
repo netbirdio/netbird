@@ -20,33 +20,33 @@ type Peer struct {
 	// IP address of the Peer
 	IP net.IP `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
-	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_" diff:"-"`
+	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
 	Name string
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
 	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DNSLabel string
 	// Status peer's management connection status
-	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_" diff:"-"`
+	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
 	// The user ID that registered the peer
-	UserID string `diff:"-"`
+	UserID string
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
 	// SSHEnabled indicates whether SSH server is enabled on the peer
 	SSHEnabled bool
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
 	// Works with LastLogin
-	LoginExpirationEnabled bool `diff:"-"`
+	LoginExpirationEnabled bool
 
-	InactivityExpirationEnabled bool `diff:"-"`
+	InactivityExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
-	LastLogin time.Time `diff:"-"`
+	LastLogin time.Time
 	// CreatedAt records the time the peer was created
-	CreatedAt time.Time `diff:"-"`
+	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
-	Ephemeral bool `gorm:"index" diff:"-"`
+	Ephemeral bool `gorm:"index"`
 	// Geo location based on connection IP
-	Location Location `gorm:"embedded;embeddedPrefix:location_" diff:"-"`
+	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 }
 
 type PeerStatus struct { //nolint:revive

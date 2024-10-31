@@ -440,6 +440,11 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 		return err
 	}
 
+	updateAccountPeers, err := am.arePolicyChangesAffectPeers(ctx, policy, false)
+	if err != nil {
+		return err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 			return fmt.Errorf(errNetworkSerialIncrementFmt, err)
@@ -456,11 +461,13 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
+	if updateAccountPeers {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("error getting account: %w", err)
+		}
+		am.updateAccountPeers(ctx, account)
 	}
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -484,18 +491,18 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 }
 
 // arePolicyChangesAffectPeers checks if changes to a policy will affect any associated peers.
-func (am *DefaultAccountManager) arePolicyChangesAffectPeers(ctx context.Context, policyToSave *Policy, isUpdate bool) (bool, error) {
+func (am *DefaultAccountManager) arePolicyChangesAffectPeers(ctx context.Context, policy *Policy, isUpdate bool) (bool, error) {
 	if isUpdate {
-		existingPolicy, err := am.Store.GetPolicyByID(ctx, LockingStrengthShare, policyToSave.AccountID, policyToSave.ID)
+		existingPolicy, err := am.Store.GetPolicyByID(ctx, LockingStrengthShare, policy.AccountID, policy.ID)
 		if err != nil {
 			return false, err
 		}
 
-		if !policyToSave.Enabled && !existingPolicy.Enabled {
+		if !policy.Enabled && !existingPolicy.Enabled {
 			return false, nil
 		}
 
-		hasPeers, err := am.anyGroupHasPeers(ctx, policyToSave.AccountID, existingPolicy.ruleGroups())
+		hasPeers, err := am.anyGroupHasPeers(ctx, policy.AccountID, existingPolicy.ruleGroups())
 		if err != nil {
 			return false, err
 		}
@@ -504,10 +511,10 @@ func (am *DefaultAccountManager) arePolicyChangesAffectPeers(ctx context.Context
 			return true, nil
 		}
 
-		return am.anyGroupHasPeers(ctx, policyToSave.AccountID, policyToSave.ruleGroups())
+		return am.anyGroupHasPeers(ctx, policy.AccountID, policy.ruleGroups())
 	}
 
-	return am.anyGroupHasPeers(ctx, policyToSave.AccountID, policyToSave.ruleGroups())
+	return am.anyGroupHasPeers(ctx, policy.AccountID, policy.ruleGroups())
 }
 
 // getAllPeersFromGroups for given peer ID and list of groups
