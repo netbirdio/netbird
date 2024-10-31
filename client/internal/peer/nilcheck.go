@@ -28,6 +28,7 @@ func nilCheck(log *log.Entry, conn net.Conn) {
 func agentCheck(log *log.Entry, agent *ice.Agent) {
 	if agent == nil {
 		log.Errorf("agent is nil")
+		return
 	}
 
 	pair, err := agent.GetSelectedCandidatePair()
