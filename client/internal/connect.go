@@ -336,6 +336,19 @@ func (c *ConnectClient) Engine() *Engine {
 	return e
 }
 
+// Status returns the current client status
+func (c *ConnectClient) Status() StatusType {
+	if c == nil {
+		return StatusIdle
+	}
+	status, err := CtxGetState(c.ctx).Status()
+	if err != nil {
+		return StatusIdle
+	}
+
+	return status
+}
+
 func (c *ConnectClient) Stop() error {
 	if c == nil {
 		return nil

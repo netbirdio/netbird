@@ -43,6 +43,12 @@ type DaemonServiceClient interface {
 	GetLogLevel(ctx context.Context, in *GetLogLevelRequest, opts ...grpc.CallOption) (*GetLogLevelResponse, error)
 	// SetLogLevel sets the log level of the daemon
 	SetLogLevel(ctx context.Context, in *SetLogLevelRequest, opts ...grpc.CallOption) (*SetLogLevelResponse, error)
+	// List all states
+	ListStates(ctx context.Context, in *ListStatesRequest, opts ...grpc.CallOption) (*ListStatesResponse, error)
+	// Clean specific state or all states
+	CleanState(ctx context.Context, in *CleanStateRequest, opts ...grpc.CallOption) (*CleanStateResponse, error)
+	// Delete specific state or all states
+	DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -161,6 +167,33 @@ func (c *daemonServiceClient) SetLogLevel(ctx context.Context, in *SetLogLevelRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) ListStates(ctx context.Context, in *ListStatesRequest, opts ...grpc.CallOption) (*ListStatesResponse, error) {
+	out := new(ListStatesResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/ListStates", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) CleanState(ctx context.Context, in *CleanStateRequest, opts ...grpc.CallOption) (*CleanStateResponse, error) {
+	out := new(CleanStateResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/CleanState", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error) {
+	out := new(DeleteStateResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/DeleteState", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -190,6 +223,12 @@ type DaemonServiceServer interface {
 	GetLogLevel(context.Context, *GetLogLevelRequest) (*GetLogLevelResponse, error)
 	// SetLogLevel sets the log level of the daemon
 	SetLogLevel(context.Context, *SetLogLevelRequest) (*SetLogLevelResponse, error)
+	// List all states
+	ListStates(context.Context, *ListStatesRequest) (*ListStatesResponse, error)
+	// Clean specific state or all states
+	CleanState(context.Context, *CleanStateRequest) (*CleanStateResponse, error)
+	// Delete specific state or all states
+	DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -232,6 +271,15 @@ func (UnimplementedDaemonServiceServer) GetLogLevel(context.Context, *GetLogLeve
 }
 func (UnimplementedDaemonServiceServer) SetLogLevel(context.Context, *SetLogLevelRequest) (*SetLogLevelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetLogLevel not implemented")
+}
+func (UnimplementedDaemonServiceServer) ListStates(context.Context, *ListStatesRequest) (*ListStatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListStates not implemented")
+}
+func (UnimplementedDaemonServiceServer) CleanState(context.Context, *CleanStateRequest) (*CleanStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CleanState not implemented")
+}
+func (UnimplementedDaemonServiceServer) DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteState not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -462,6 +510,60 @@ func _DaemonService_SetLogLevel_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_ListStates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListStatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ListStates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/ListStates",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ListStates(ctx, req.(*ListStatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_CleanState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CleanStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).CleanState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/CleanState",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).CleanState(ctx, req.(*CleanStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_DeleteState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).DeleteState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/DeleteState",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).DeleteState(ctx, req.(*DeleteStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -516,6 +618,18 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetLogLevel",
 			Handler:    _DaemonService_SetLogLevel_Handler,
+		},
+		{
+			MethodName: "ListStates",
+			Handler:    _DaemonService_ListStates_Handler,
+		},
+		{
+			MethodName: "CleanState",
+			Handler:    _DaemonService_CleanState_Handler,
+		},
+		{
+			MethodName: "DeleteState",
+			Handler:    _DaemonService_DeleteState_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

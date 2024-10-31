@@ -45,6 +45,15 @@ service DaemonService {
 
   // SetLogLevel sets the log level of the daemon
   rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
+
+  // List all states
+  rpc ListStates(ListStatesRequest) returns (ListStatesResponse) {}
+
+  // Clean specific state or all states
+  rpc CleanState(CleanStateRequest) returns (CleanStateResponse) {}
+
+  // Delete specific state or all states
+  rpc DeleteState(DeleteStateRequest) returns (DeleteStateResponse) {}
 };
 
 message LoginRequest {
@@ -293,4 +302,39 @@ message SetLogLevelRequest {
 }
 
 message SetLogLevelResponse {
+}
+
+// State represents a daemon state entry
+message State {
+  string name = 1;
+}
+
+// ListStatesRequest is empty as it requires no parameters
+message ListStatesRequest {}
+
+// ListStatesResponse contains a list of states
+message ListStatesResponse {
+  repeated State states = 1;
+}
+
+// CleanStateRequest for cleaning states
+message CleanStateRequest {
+  string state_name = 1;
+  bool all = 2;
+}
+
+// CleanStateResponse contains the result of the clean operation
+message CleanStateResponse {
+  int32 cleaned_states = 1;
+}
+
+// DeleteStateRequest for deleting states
+message DeleteStateRequest {
+  string state_name = 1;
+  bool all = 2;
+}
+
+// DeleteStateResponse contains the result of the delete operation
+message DeleteStateResponse {
+  int32 deleted_states = 1;
 }
