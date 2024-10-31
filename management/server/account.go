@@ -1865,33 +1865,7 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 
 // MarkPATUsed marks a personal access token as used
 func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string) error {
-
-	user, err := am.Store.GetUserByTokenID(ctx, tokenID)
-	if err != nil {
-		return err
-	}
-
-	account, err := am.Store.GetAccountByUser(ctx, user.Id)
-	if err != nil {
-		return err
-	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
-	defer unlock()
-
-	account, err = am.Store.GetAccountByUser(ctx, user.Id)
-	if err != nil {
-		return err
-	}
-
-	pat, ok := account.Users[user.Id].PATs[tokenID]
-	if !ok {
-		return fmt.Errorf("token not found")
-	}
-
-	pat.LastUsed = time.Now().UTC()
-
-	return am.Store.SaveAccount(ctx, account)
+	return am.Store.MarkPATUsed(ctx, LockingStrengthUpdate, tokenID)
 }
 
 // GetAccount returns an account associated with this account ID.

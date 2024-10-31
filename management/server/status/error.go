@@ -82,8 +82,8 @@ func NewPeerNotFoundError(peerKey string) error {
 }
 
 // NewAccountNotFoundError creates a new Error with NotFound type for a missing account
-func NewAccountNotFoundError(accountKey string) error {
-	return Errorf(NotFound, "account not found: %s", accountKey)
+func NewAccountNotFoundError() error {
+	return Errorf(NotFound, "account not found")
 }
 
 // NewUserNotFoundError creates a new Error with NotFound type for a missing user
@@ -134,11 +134,20 @@ func NewUnauthorizedToViewSetupKeysError() error {
 	return Errorf(PermissionDenied, "only users with admin power can view setup keys")
 }
 
+func NewGroupNotFoundError() error {
+	return Errorf(NotFound, "group not found")
+}
+
 func NewUnauthorizedToViewGroupsError() error {
 	return Errorf(PermissionDenied, "only users with admin power can view groups")
 }
+
+func NewPATNotFoundError() error {
+	return Errorf(NotFound, "PAT not found")
+}
+
 func NewUnauthorizedToViewPATsError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view personal access tokens")
+	return Errorf(PermissionDenied, "only users with admin power can view PATs")
 }
 
 func NewUnauthorizedToViewPoliciesError() error {

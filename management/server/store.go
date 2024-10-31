@@ -50,6 +50,7 @@ type Store interface {
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
+	GetAccountIDByPeerID(ctx context.Context, lockStrength LockingStrength, peerID string) (string, error)
 	GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error)
 	GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) // todo use key hash later
 	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
@@ -99,6 +100,7 @@ type Store interface {
 	GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAccountPeersWithInactivity(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
+	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
 	SavePeer(ctx context.Context, lockStrength LockingStrength, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, lockStrength LockingStrength, accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(ctx context.Context, lockStrength LockingStrength, accountID string, peer *nbpeer.Peer) error
@@ -123,6 +125,7 @@ type Store interface {
 
 	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*PersonalAccessToken, error)
 	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*PersonalAccessToken, error)
+	MarkPATUsed(ctx context.Context, lockStrength LockingStrength, patID string) error
 	SavePAT(ctx context.Context, strength LockingStrength, pat *PersonalAccessToken) error
 	DeletePAT(ctx context.Context, strength LockingStrength, userID, patID string) error
 

@@ -363,12 +363,12 @@ func (am *DefaultAccountManager) deletePeers(ctx context.Context, accountID stri
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, LockingStrengthShare, peerID)
 	if err != nil {
 		return err
 	}
 
-	if user.AccountID != accountID {
+	if peerAccountID != accountID {
 		return status.NewUserNotPartOfAccountError()
 	}
 

@@ -44,7 +44,7 @@ type Peer struct {
 	// CreatedAt records the time the peer was created
 	CreatedAt time.Time `diff:"-"`
 	// Indicate ephemeral peer attribute
-	Ephemeral bool `diff:"-"`
+	Ephemeral bool `gorm:"index" diff:"-"`
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_" diff:"-"`
 }
