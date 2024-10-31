@@ -522,23 +522,64 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
-	assert.NoError(t, err)
+	// Creating DNS settings with groups that have no peers should not update account peers or send peer update
+	t.Run("creating dns setting with unused groups", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
 
-	_, err = manager.CreateNameServerGroup(
-		context.Background(), account.Id, "ns-group-1", "ns-group-1", []dns.NameServer{{
-			IP:     netip.MustParseAddr(peer1.IP.String()),
-			NSType: dns.UDPNameServerType,
-			Port:   dns.DefaultDNSPort,
-		}},
-		[]string{"groupA"},
-		true, []string{}, true, userID, false,
-	)
-	assert.NoError(t, err)
+		_, err = manager.CreateNameServerGroup(
+			context.Background(), account.Id, "ns-group", "ns-group", []dns.NameServer{{
+				IP:     netip.MustParseAddr(peer1.IP.String()),
+				NSType: dns.UDPNameServerType,
+				Port:   dns.DefaultDNSPort,
+			}},
+			[]string{"groupB"},
+			true, []string{}, true, userID, false,
+		)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// Creating DNS settings with groups that have peers should update account peers and send peer update
+	t.Run("creating dns setting with used groups", func(t *testing.T) {
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		})
+		assert.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		_, err = manager.CreateNameServerGroup(
+			context.Background(), account.Id, "ns-group-1", "ns-group-1", []dns.NameServer{{
+				IP:     netip.MustParseAddr(peer1.IP.String()),
+				NSType: dns.UDPNameServerType,
+				Port:   dns.DefaultDNSPort,
+			}},
+			[]string{"groupA"},
+			true, []string{}, true, userID, false,
+		)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 
 	// Saving DNS settings with groups that have peers should update account peers and send peer update
 	t.Run("saving dns setting with used groups", func(t *testing.T) {

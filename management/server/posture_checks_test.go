@@ -394,50 +394,9 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// Updating linked posture check to policy where source has peers but destination does not,
-	// should not trigger account peers update or send peer update
-	t.Run("updating linked posture check to policy where source has peers but destination does not", func(t *testing.T) {
-		policy = Policy{
-			ID:      "policyB",
-			Enabled: true,
-			Rules: []*PolicyRule{
-				{
-					Enabled:       true,
-					Sources:       []string{"groupA"},
-					Destinations:  []string{"groupB"},
-					Bidirectional: true,
-					Action:        PolicyTrafficActionAccept,
-				},
-			},
-			SourcePostureChecks: []string{postureCheck.ID},
-		}
-		err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
-		assert.NoError(t, err)
-
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		postureCheck.Checks = posture.ChecksDefinition{
-			NBVersionCheck: &posture.NBVersionCheck{
-				MinVersion: "0.29.0",
-			},
-		}
-		err := manager.SavePostureChecks(context.Background(), account.Id, userID, &postureCheck)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
 	// Updating linked client posture check to policy where source has peers but destination does not,
 	// should trigger account peers update and send peer update
-	t.Run("updating linked client posture check to policy where source has peers but destination does not", func(t *testing.T) {
+	t.Run("updating linked posture check to policy where source has peers but destination does not", func(t *testing.T) {
 		policy = Policy{
 			ID:      "policyB",
 			Enabled: true,
