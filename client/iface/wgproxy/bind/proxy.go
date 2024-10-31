@@ -104,8 +104,8 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 		}
 	}()
 
-	buf := make([]byte, 1500)
 	for {
+		buf := make([]byte, 1500)
 		n, err := p.remoteConn.Read(buf)
 		if err != nil {
 			if ctx.Err() != nil {
