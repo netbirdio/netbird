@@ -19,8 +19,14 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+type ICEEvent struct {
+	ConnStatus  ConnStatus
+	ICEConnInfo ICEConnInfo
+}
+
 type ICEConnInfo struct {
 	RemoteConn                 net.Conn
+	RemoteAddr                 net.Addr
 	RosenpassPubKey            []byte
 	RosenpassAddr              string
 	LocalIceCandidateType      string
@@ -29,14 +35,11 @@ type ICEConnInfo struct {
 	LocalIceCandidateEndpoint  string
 	Relayed                    bool
 	RelayedOnLocal             bool
-}
-
-type WorkerICECallbacks struct {
-	OnConnReady     func(ConnPriority, ICEConnInfo)
-	OnStatusChanged func(ConnStatus)
+	ConnPriority               ConnPriority
 }
 
 type WorkerICE struct {
+	EventChan         chan ICEEvent
 	ctx               context.Context
 	log               *log.Entry
 	config            ConnConfig
@@ -44,7 +47,6 @@ type WorkerICE struct {
 	iFaceDiscover     stdnet.ExternalIFaceDiscover
 	statusRecorder    *Status
 	hasRelayOnLocally bool
-	conn              WorkerICECallbacks
 
 	selectedPriority ConnPriority
 
@@ -59,8 +61,9 @@ type WorkerICE struct {
 	localPwd   string
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool, callBacks WorkerICECallbacks) (*WorkerICE, error) {
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
 	w := &WorkerICE{
+		EventChan:         make(chan ICEEvent, 2),
 		ctx:               ctx,
 		log:               log,
 		config:            config,
@@ -68,7 +71,6 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signal
 		iFaceDiscover:     ifaceDiscover,
 		statusRecorder:    statusRecorder,
 		hasRelayOnLocally: hasRelayOnLocally,
-		conn:              callBacks,
 	}
 
 	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
@@ -80,7 +82,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signal
 	return w, nil
 }
 
-func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerICE) OnNewOffer(_ context.Context, remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("OnNewOffer for ICE")
 	w.muxAgent.Lock()
 
@@ -133,6 +135,11 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		return
 	}
 
+	if pair == nil {
+		w.log.Errorf("remote address is nil, ICE conn already closed")
+		return
+	}
+
 	if !isRelayCandidate(pair.Local) {
 		// dynamically set remote WireGuard port if other side specified a different one from the default one
 		remoteWgPort := iface.DefaultWgPort
@@ -154,9 +161,13 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
+		ConnPriority:               w.selectedPriority,
 	}
 	w.log.Debugf("on ICE conn read to use ready")
-	go w.conn.OnConnReady(w.selectedPriority, ci)
+	select {
+	case w.EventChan <- ICEEvent{ConnStatus: StatusConnected, ICEConnInfo: ci}:
+	case <-w.ctx.Done():
+	}
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -216,7 +227,10 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 	err = agent.OnConnectionStateChange(func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
-			w.conn.OnStatusChanged(StatusDisconnected)
+			select {
+			case w.EventChan <- ICEEvent{ConnStatus: StatusDisconnected}:
+			case <-w.ctx.Done():
+			}
 
 			w.muxAgent.Lock()
 			agentCancel()

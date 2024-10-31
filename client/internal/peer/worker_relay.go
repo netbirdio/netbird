@@ -18,23 +18,23 @@ var (
 	wgHandshakeOvertime = 30 * time.Second
 )
 
+type RelayEvent struct {
+	ConnStatus    ConnStatus
+	RelayConnInfo RelayConnInfo
+}
+
 type RelayConnInfo struct {
 	relayedConn     net.Conn
 	rosenpassPubKey []byte
 	rosenpassAddr   string
 }
 
-type WorkerRelayCallbacks struct {
-	OnConnReady    func(RelayConnInfo)
-	OnDisconnected func()
-}
-
 type WorkerRelay struct {
+	EventChan    chan RelayEvent
 	log          *log.Entry
 	isController bool
 	config       ConnConfig
 	relayManager relayClient.ManagerService
-	callBacks    WorkerRelayCallbacks
 
 	relayedConn      net.Conn
 	relayLock        sync.Mutex
@@ -45,18 +45,18 @@ type WorkerRelay struct {
 	relaySupportedOnRemotePeer atomic.Bool
 }
 
-func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
+func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, relayManager relayClient.ManagerService) *WorkerRelay {
 	r := &WorkerRelay{
+		EventChan:    make(chan RelayEvent, 2),
 		log:          log,
 		isController: ctrl,
 		config:       config,
 		relayManager: relayManager,
-		callBacks:    callbacks,
 	}
 	return r
 }
 
-func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerRelay) OnNewOffer(ctx context.Context, remoteOfferAnswer *OfferAnswer) {
 	if !w.isRelaySupported(remoteOfferAnswer) {
 		w.log.Infof("Relay is not supported by remote peer")
 		w.relaySupportedOnRemotePeer.Store(false)
@@ -87,7 +87,9 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.relayedConn = relayedConn
 	w.relayLock.Unlock()
 
-	err = w.relayManager.AddCloseListener(srv, w.onRelayMGDisconnected)
+	err = w.relayManager.AddCloseListener(srv, func() {
+		w.onRelayMGDisconnected(ctx)
+	})
 	if err != nil {
 		log.Errorf("failed to add close listener: %s", err)
 		_ = relayedConn.Close()
@@ -95,11 +97,17 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	w.log.Debugf("peer conn opened via Relay: %s", srv)
-	go w.callBacks.OnConnReady(RelayConnInfo{
-		relayedConn:     relayedConn,
-		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
-		rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
-	})
+	select {
+	case w.EventChan <- RelayEvent{
+		ConnStatus: StatusConnected,
+		RelayConnInfo: RelayConnInfo{
+			relayedConn:     relayedConn,
+			rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
+			rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
+		},
+	}:
+	case <-ctx.Done():
+	}
 }
 
 func (w *WorkerRelay) EnableWgWatcher(ctx context.Context) {
@@ -187,7 +195,11 @@ func (w *WorkerRelay) wgStateCheck(ctx context.Context, ctxCancel context.Cancel
 					w.relayLock.Lock()
 					_ = w.relayedConn.Close()
 					w.relayLock.Unlock()
-					w.callBacks.OnDisconnected()
+
+					select {
+					case w.EventChan <- RelayEvent{ConnStatus: StatusDisconnected}:
+					case <-ctx.Done():
+					}
 					return
 				}
 
@@ -225,12 +237,16 @@ func (w *WorkerRelay) wgState() (time.Time, error) {
 	return wgState.LastHandshake, nil
 }
 
-func (w *WorkerRelay) onRelayMGDisconnected() {
+func (w *WorkerRelay) onRelayMGDisconnected(ctx context.Context) {
 	w.ctxLock.Lock()
 	defer w.ctxLock.Unlock()
 
 	if w.ctxCancelWgWatch != nil {
 		w.ctxCancelWgWatch()
 	}
-	go w.callBacks.OnDisconnected()
+
+	select {
+	case w.EventChan <- RelayEvent{ConnStatus: StatusDisconnected}:
+	case <-ctx.Done():
+	}
 }

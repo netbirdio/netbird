@@ -134,36 +134,29 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		statusICE:      NewAtomicConnStatus(),
 	}
 
-	rFns := WorkerRelayCallbacks{
-		OnConnReady:    conn.relayConnectionIsReady,
-		OnDisconnected: conn.onWorkerRelayStateDisconnected,
-	}
-
-	wFns := WorkerICECallbacks{
-		OnConnReady:     conn.iCEConnectionIsReady,
-		OnStatusChanged: conn.onWorkerICEStateDisconnected,
-	}
-
 	ctrl := isController(config)
-	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, relayManager, rFns)
+	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, relayManager)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally, wFns)
+	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally)
 	if err != nil {
 		return nil, err
 	}
 
 	conn.handshaker = NewHandshaker(ctx, connLog, config, signaler, conn.workerICE, conn.workerRelay)
 
-	conn.handshaker.AddOnNewOfferListener(conn.workerRelay.OnNewOffer)
+	conn.handshaker.AddOnNewOfferListener(func(remoteOfferAnswer *OfferAnswer) {
+		conn.workerRelay.OnNewOffer(ctx, remoteOfferAnswer)
+	})
 	if os.Getenv("NB_FORCE_RELAY") != "true" {
-		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
+		conn.handshaker.AddOnNewOfferListener(func(remoteOfferAnswer *OfferAnswer) {
+			conn.workerICE.OnNewOffer(ctx, remoteOfferAnswer)
+		})
 	}
 
 	conn.guard = guard.NewGuard(connLog, ctrl, conn.isConnectedOnAllWay, config.Timeout, srWatcher)
 
 	go conn.handshaker.Listen()
-
 	return conn, nil
 }
 
@@ -190,6 +183,7 @@ func (conn *Conn) Open() {
 	}
 
 	go conn.startHandshakeAndReconnect(conn.ctx)
+	go conn.listenWorkersEvents()
 }
 
 func (conn *Conn) startHandshakeAndReconnect(ctx context.Context) {
@@ -301,7 +295,7 @@ func (conn *Conn) GetKey() string {
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICEConnInfo) {
+func (conn *Conn) iCEConnectionIsReady(iceConnInfo ICEConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -311,7 +305,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 
 	conn.log.Debugf("ICE connection is ready")
 
-	if conn.currentConnPriority > priority {
+	if conn.currentConnPriority > iceConnInfo.ConnPriority {
 		conn.statusICE.Set(StatusConnected)
 		conn.updateIceState(iceConnInfo)
 		return
@@ -333,7 +327,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		ep = wgProxy.EndpointAddr()
 		conn.wgProxyICE = wgProxy
 	} else {
-		directEp, err := net.ResolveUDPAddr("udp", iceConnInfo.RemoteConn.RemoteAddr().String())
+		directEp, err := net.ResolveUDPAddr("udp", iceConnInfo.RemoteIceCandidateEndpoint)
 		if err != nil {
 			log.Errorf("failed to resolveUDPaddr")
 			conn.handleConfigurationFailure(err, nil)
@@ -361,14 +355,13 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		return
 	}
 	wgConfigWorkaround()
-	conn.currentConnPriority = priority
+	conn.currentConnPriority = iceConnInfo.ConnPriority
 	conn.statusICE.Set(StatusConnected)
 	conn.updateIceState(iceConnInfo)
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 }
 
-// todo review to make sense to handle connecting and disconnected status also?
-func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
+func (conn *Conn) onWorkerICEStateDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -376,7 +369,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		return
 	}
 
-	conn.log.Tracef("ICE connection state changed to %s", newState)
+	conn.log.Tracef("ICE connection state changed to disconnected")
 
 	if conn.wgProxyICE != nil {
 		if err := conn.wgProxyICE.CloseConn(); err != nil {
@@ -396,8 +389,8 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		conn.currentConnPriority = connPriorityRelay
 	}
 
-	changed := conn.statusICE.Get() != newState && newState != StatusConnecting
-	conn.statusICE.Set(newState)
+	changed := conn.statusICE.Get() != stateDisconnected
+	conn.statusICE.Set(stateDisconnected)
 
 	conn.guard.SetICEConnDisconnected(changed)
 
@@ -728,6 +721,33 @@ func (conn *Conn) logTraceConnState() {
 		conn.log.Tracef("connectivity guard check, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
 	} else {
 		conn.log.Tracef("connectivity guard check, ice state: %s", conn.statusICE)
+	}
+}
+
+func (conn *Conn) listenWorkersEvents() {
+	for {
+		select {
+		case e := <-conn.workerRelay.EventChan:
+			switch e.ConnStatus {
+			case StatusConnected:
+				conn.relayConnectionIsReady(e.RelayConnInfo)
+			case StatusDisconnected:
+				conn.onWorkerRelayStateDisconnected()
+			default:
+				log.Errorf("unexpected relay connection status: %v", e.ConnStatus)
+			}
+		case e := <-conn.workerICE.EventChan:
+			switch e.ConnStatus {
+			case StatusConnected:
+				conn.iCEConnectionIsReady(e.ICEConnInfo)
+			case StatusDisconnected:
+				conn.onWorkerICEStateDisconnected()
+			default:
+				log.Errorf("unexpected ICE connection status: %v", e.ConnStatus)
+			}
+		case <-conn.ctx.Done():
+			return
+		}
 	}
 }
 
