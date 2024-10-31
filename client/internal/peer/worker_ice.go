@@ -126,10 +126,6 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
 		return
 	}
-	if w.remoteConnNil(remoteConn) {
-		w.log.Errorf("unexpected remote conn state")
-		return
-	}
 	w.log.Debugf("agent dial succeeded")
 
 	pair, err := w.agent.GetSelectedCandidatePair()
@@ -330,19 +326,6 @@ func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferA
 	} else {
 		return w.agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
-}
-func (w *WorkerICE) remoteConnNil(conn *ice.Conn) bool {
-	if conn == nil {
-		w.log.Errorf("ice conn is nil")
-		return true
-	}
-
-	if conn.RemoteAddr() == nil {
-		w.log.Errorf("ICE remote address is nil")
-		return true
-	}
-
-	return false
 }
 
 func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive, error) {

@@ -309,6 +309,11 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		return
 	}
 
+	if remoteConnNil(conn.log, iceConnInfo.RemoteConn) {
+		conn.log.Errorf("remote ICE connection is nil")
+		return
+	}
+
 	conn.log.Debugf("ICE connection is ready")
 
 	if conn.currentConnPriority > priority {
