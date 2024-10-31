@@ -43,7 +43,7 @@ type Network struct {
 	// Used to synchronize state to the client apps.
 	Serial uint64
 
-	mu sync.Mutex `json:"-" gorm:"-""`
+	mu sync.Mutex `json:"-" gorm:"-"`
 }
 
 // NewNetwork creates a new Network initializing it with a Serial=0
