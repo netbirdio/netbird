@@ -29,6 +29,7 @@ type ICEConnInfo struct {
 	LocalIceCandidateEndpoint  string
 	Relayed                    bool
 	RelayedOnLocal             bool
+	Agent                      *ice.Agent
 }
 
 type WorkerICECallbacks struct {
@@ -157,6 +158,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
+		Agent:                      agent,
 	}
 	w.log.Debugf("on ICE conn read to use ready")
 	go w.conn.OnConnReady(w.selectedPriority, ci)
