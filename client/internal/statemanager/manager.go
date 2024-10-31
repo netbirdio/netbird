@@ -19,6 +19,11 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+const (
+	errStateNotRegistered = "state %s not registered"
+	errLoadStateFile      = "load state file: %w"
+)
+
 // State interface defines the methods that all state types must implement
 type State interface {
 	Name() string
@@ -159,7 +164,7 @@ func (m *Manager) setState(name string, state State) error {
 	defer m.mu.Unlock()
 
 	if _, exists := m.states[name]; !exists {
-		return fmt.Errorf("state %s not registered", name)
+		return fmt.Errorf(errStateNotRegistered, name)
 	}
 
 	m.states[name] = state
@@ -180,7 +185,7 @@ func (m *Manager) DeleteStateByName(stateName string) error {
 
 	rawStates, err := m.loadStateFile(false)
 	if err != nil {
-		return fmt.Errorf("load state file: %w", err)
+		return fmt.Errorf(errLoadStateFile, err)
 	}
 	if rawStates == nil {
 		return nil
@@ -208,7 +213,7 @@ func (m *Manager) DeleteAllStates() (int, error) {
 
 	rawStates, err := m.loadStateFile(false)
 	if err != nil {
-		return 0, fmt.Errorf("load state file: %w", err)
+		return 0, fmt.Errorf(errLoadStateFile, err)
 	}
 	if rawStates == nil {
 		return 0, nil
@@ -316,7 +321,7 @@ func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage,
 func (m *Manager) loadSingleRawState(name string, rawState json.RawMessage) (State, error) {
 	stateType, ok := m.stateTypes[name]
 	if !ok {
-		return nil, fmt.Errorf("state %s not registered", name)
+		return nil, fmt.Errorf(errStateNotRegistered, name)
 	}
 
 	if string(rawState) == "null" {
@@ -420,7 +425,7 @@ func (m *Manager) CleanupStateByName(name string) error {
 
 	// Check if state is registered
 	if _, registered := m.stateTypes[name]; !registered {
-		return fmt.Errorf("state %s not registered", name)
+		return fmt.Errorf(errStateNotRegistered, name)
 	}
 
 	// Load raw states from file
@@ -458,8 +463,7 @@ func (m *Manager) PerformCleanup() error {
 	// Load raw states from file
 	rawStates, err := m.loadStateFile(true)
 	if err != nil {
-		log.Warnf("Failed to load state during cleanup: %v", err)
-		return err
+		return fmt.Errorf(errLoadStateFile, err)
 	}
 	if rawStates == nil {
 		return nil
@@ -485,7 +489,7 @@ func (m *Manager) GetSavedStateNames() ([]string, error) {
 
 	rawStates, err := m.loadStateFile(false)
 	if err != nil {
-		return nil, fmt.Errorf("load state file: %w", err)
+		return nil, fmt.Errorf(errLoadStateFile, err)
 	}
 	if rawStates == nil {
 		return nil, nil
