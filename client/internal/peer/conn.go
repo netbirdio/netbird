@@ -333,10 +333,11 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		ep = wgProxy.EndpointAddr()
 		conn.wgProxyICE = wgProxy
 	} else {
-		log.Infof("direct iceConnInfo: %v", iceConnInfo.RemoteConn)
+		conn.log.Infof("direct iceConnInfo: %v", iceConnInfo.RemoteConn)
+		nilCheck(conn.log, iceConnInfo.RemoteConn)
 		directEp, err := net.ResolveUDPAddr("udp", iceConnInfo.RemoteConn.RemoteAddr().String())
 		if err != nil {
-			log.Errorf("failed to resolveUDPaddr")
+			conn.log.Errorf("failed to resolveUDPaddr")
 			conn.handleConfigurationFailure(err, nil)
 			return
 		}

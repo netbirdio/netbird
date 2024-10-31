@@ -128,6 +128,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 	w.log.Infof("check remoteConn: %v", remoteConn)
 	w.log.Infof("check remoteConn.RemoteAddr: %v", remoteConn.RemoteAddr())
+	nilCheck(w.log, remoteConn)
 	w.log.Debugf("agent dial succeeded")
 
 	pair, err := w.agent.GetSelectedCandidatePair()
