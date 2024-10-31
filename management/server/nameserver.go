@@ -89,11 +89,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
 	if updateAccountPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return nil, fmt.Errorf("error getting account: %w", err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return newNSGroup.Copy(), nil
@@ -146,11 +142,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
 	if updateAccountPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf("error getting account: %w", err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -195,11 +187,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
 	if updateAccountPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf("error getting account: %w", err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil

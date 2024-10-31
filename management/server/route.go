@@ -293,11 +293,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
 	if updateAccountPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return nil, fmt.Errorf(errGetAccountFmt, err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return &newRoute, nil
@@ -417,11 +413,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
 	if oldRouteAffectsPeers || newRouteAffectsPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf(errGetAccountFmt, err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -462,11 +454,7 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
 
 	if updateAccountPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf(errGetAccountFmt, err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil

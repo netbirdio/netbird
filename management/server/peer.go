@@ -162,11 +162,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	if expired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf(errGetAccountFmt, err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -309,11 +305,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	if peerLabelUpdated {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return nil, fmt.Errorf(errGetAccountFmt, err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return peer, nil
@@ -387,11 +379,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	if updateAccountPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf(errGetAccountFmt, err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -637,28 +625,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, err
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error getting account: %w", err)
-	}
-
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	postureChecks, err := am.getPeerPostureChecks(ctx, account.Id, newPeer.ID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
-	return newPeer, networkMap, postureChecks, nil
+	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
 }
 
 func (am *DefaultAccountManager) getFreeIP(ctx context.Context, store Store, accountID string) (net.IP, error) {
@@ -718,20 +689,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, err
 	}
 
-	var postureChecks []*posture.Checks
-
-	if peerNotValid {
-		network, err := am.Store.GetAccountNetwork(ctx, LockingStrengthShare, accountID)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		emptyMap := &NetworkMap{
-			Network: network.Copy(),
-		}
-		return peer, emptyMap, postureChecks, nil
-	}
-
 	updated := peer.UpdateMetaIfNew(sync.Meta)
 	if updated {
 		err = am.Store.SavePeer(ctx, LockingStrengthUpdate, accountID, peer)
@@ -740,27 +697,11 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		}
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	if isStatusChanged || (updated && sync.UpdateAccountPeers) {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
-	validPeersMap, err := am.GetValidatedPeers(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	postureChecks, err = am.getPeerPostureChecks(ctx, accountID, peer.ID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
+	return am.getValidatedPeerWithMap(ctx, peerNotValid, accountID, peer)
 }
 
 // LoginPeer logs in or registers a peer.
@@ -875,16 +816,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	unlockPeer()
 	unlockPeer = nil
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	if updateRemotePeers || isStatusChanged {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
-	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, account, peer)
+	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)
 }
 
 // checkIFPeerNeedsLoginWithoutLock checks if the peer needs login without acquiring the account lock. The check validate if the peer was not added via SSO
@@ -916,12 +852,22 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 	return nil
 }
 
-func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, account *Account, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
+func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	if isRequiresApproval {
+		network, err := am.Store.GetAccountNetwork(ctx, LockingStrengthShare, accountID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
 		emptyMap := &NetworkMap{
-			Network: account.Network.Copy(),
+			Network: network.Copy(),
 		}
 		return peer, emptyMap, nil, nil
+	}
+
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	approvedPeersMap, err := am.GetValidatedPeers(ctx, account.Id)
@@ -1052,13 +998,19 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
-func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account *Account) {
+func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, accountID string) {
 	start := time.Now()
 	defer func() {
 		if am.metrics != nil {
 			am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
 		}
 	}()
+
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
+		return
+	}
 
 	peers := account.GetPeers()
 

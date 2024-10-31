@@ -178,11 +178,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	}
 
 	if updateAccountPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf("error getting account: %w", err)
-		}
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil

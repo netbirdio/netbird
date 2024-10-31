@@ -79,12 +79,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
 	if updateAccountPeers {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf("failed to get account: %w", err)
-		}
-
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil

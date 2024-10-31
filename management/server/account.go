@@ -1165,11 +1165,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("error getting account: %w", err)
-	}
-	am.updateAccountPeers(ctx, account)
+	am.updateAccountPeers(ctx, accountID)
 
 	return newSettings, nil
 }
@@ -2122,12 +2118,8 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		}
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
-			account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-			if err != nil {
-				return fmt.Errorf("error getting account: %w", err)
-			}
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			am.updateAccountPeers(ctx, account)
+			am.updateAccountPeers(ctx, accountID)
 		}
 	}
 
@@ -2362,12 +2354,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context,
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	updatedAccount, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account %s: %v", accountID, err)
-		return
-	}
-	am.updateAccountPeers(ctx, updatedAccount)
+	am.updateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
