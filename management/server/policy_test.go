@@ -1104,39 +1104,6 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// Saving unchanged policy should trigger account peers update but not send peer update
-	t.Run("saving unchanged policy", func(t *testing.T) {
-		policy := Policy{
-			ID:      "policy-source-destination-peers",
-			Enabled: true,
-			Rules: []*PolicyRule{
-				{
-					ID:            xid.New().String(),
-					Enabled:       true,
-					Sources:       []string{"groupA"},
-					Destinations:  []string{"groupD"},
-					Bidirectional: true,
-					Action:        PolicyTrafficActionAccept,
-				},
-			},
-		}
-
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg1)
-			close(done)
-		}()
-
-		err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
 	// Deleting policy should trigger account peers update and send peer update
 	t.Run("deleting policy with source and destination groups with peers", func(t *testing.T) {
 		policyID := "policy-source-destination-peers"

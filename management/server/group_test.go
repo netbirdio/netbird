@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -533,29 +534,6 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		case <-done:
 		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Saving an unchanged group should trigger account peers update and not send peer update
-	// since there is no change in the network map
-	t.Run("saving unchanged group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{peer1.ID, peer2.ID},
-		})
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 

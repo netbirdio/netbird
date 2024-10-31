@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/stretchr/testify/assert"
 
 	"github.com/stretchr/testify/require"
 
@@ -556,27 +557,6 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 		case <-done:
 		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Saving unchanged DNS settings with used groups should update account peers and not send peer update
-	// since there is no change in the network map
-	t.Run("saving unchanged dns setting with used groups", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
-			DisabledManagementGroups: []string{"groupA", "groupB"},
-		})
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 

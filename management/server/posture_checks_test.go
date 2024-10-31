@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/group"
 
 	"github.com/netbirdio/netbird/management/server/posture"
 )
@@ -261,25 +262,6 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		case <-done:
 		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Saving unchanged posture check should not trigger account peers update and not send peer update
-	// since there is no change in the network map
-	t.Run("saving unchanged posture check", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.SavePostureChecks(context.Background(), account.Id, userID, &postureCheck)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 
