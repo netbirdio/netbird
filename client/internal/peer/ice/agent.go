@@ -1,13 +1,14 @@
 package ice
 
 import (
-	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"time"
+
 	"github.com/pion/ice/v3"
 	"github.com/pion/randutil"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
-	"runtime"
-	"time"
+
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
 const (
@@ -77,10 +78,7 @@ func CandidateTypes() []ice.CandidateType {
 	if hasICEForceRelayConn() {
 		return []ice.CandidateType{ice.CandidateTypeRelay}
 	}
-	// TODO: remove this once we have refactored userspace proxy into the bind package
-	if runtime.GOOS == "ios" {
-		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
-	}
+
 	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
 }
 

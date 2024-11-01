@@ -124,6 +124,7 @@ type Store interface {
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
+	DeleteSetupKey(ctx context.Context, accountID, keyID string) error
 }
 
 type StoreEngine string
@@ -240,6 +241,9 @@ func getMigrations(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](ctx, db, "ip", "idx_peers_account_id_ip")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateSetupKeyToHashedSetupKey[SetupKey](ctx, db)
 		},
 	}
 }

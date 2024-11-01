@@ -516,7 +516,7 @@ func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*
 	startTime := time.Now()
 
 	var key SetupKey
-	result := s.db.WithContext(ctx).Select("account_id").First(&key, keyQueryCondition, strings.ToUpper(setupKey))
+	result := s.db.WithContext(ctx).Select("account_id").First(&key, keyQueryCondition, setupKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -842,7 +842,7 @@ func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) 
 	startTime := time.Now()
 
 	var accountID string
-	result := s.db.WithContext(ctx).Model(&SetupKey{}).Select("account_id").Where(keyQueryCondition, strings.ToUpper(setupKey)).First(&accountID)
+	result := s.db.WithContext(ctx).Model(&SetupKey{}).Select("account_id").Where(keyQueryCondition, setupKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -1111,7 +1111,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 
 	var setupKey SetupKey
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		First(&setupKey, keyQueryCondition, strings.ToUpper(key))
+		First(&setupKey, keyQueryCondition, key)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "setup key not found")
@@ -1414,6 +1414,10 @@ func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength Lock
 	return getRecordByID[nbdns.NameServerGroup](s.db.WithContext(ctx), lockStrength, nsGroupID, accountID)
 }
 
+func (s *SqlStore) DeleteSetupKey(ctx context.Context, accountID, keyID string) error {
+	return deleteRecordByID[SetupKey](s.db.WithContext(ctx), LockingStrengthUpdate, keyID, accountID)
+}
+
 // getRecords retrieves records from the database based on the account ID.
 func getRecords[T any](db *gorm.DB, lockStrength LockingStrength, accountID string) ([]T, error) {
 	var record []T
@@ -1445,4 +1449,22 @@ func getRecordByID[T any](db *gorm.DB, lockStrength LockingStrength, recordID, a
 		return nil, status.Errorf(status.Internal, "failed to get %s from store: %v", recordType, err)
 	}
 	return &record, nil
+}
+
+// deleteRecordByID deletes a record by its ID and account ID from the database.
+func deleteRecordByID[T any](db *gorm.DB, lockStrength LockingStrength, recordID, accountID string) error {
+	var record T
+	result := db.Clauses(clause.Locking{Strength: string(lockStrength)}).Delete(record, accountAndIDQueryCondition, accountID, recordID)
+	if err := result.Error; err != nil {
+		parts := strings.Split(fmt.Sprintf("%T", record), ".")
+		recordType := parts[len(parts)-1]
+
+		return status.Errorf(status.Internal, "failed to delete %s from store: %v", recordType, err)
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "record not found")
+	}
+
+	return nil
 }
