@@ -119,8 +119,9 @@ func NewGetUserFromStoreError() error {
 // NewStoreContextCanceledError creates a new Error with Internal type for a canceled store context
 func NewStoreContextCanceledError(duration time.Duration) error {
 	return Errorf(Internal, "store access: context canceled after %v", duration)
+}
 
-  // NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key
+// NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key
 func NewInvalidKeyIDError() error {
 	return Errorf(InvalidArgument, "invalid key ID")
 }
@@ -128,3 +129,4 @@ func NewInvalidKeyIDError() error {
 // NewUnauthorizedToViewSetupKeysError creates a new Error with Unauthorized type for an issue getting a setup key
 func NewUnauthorizedToViewSetupKeysError() error {
 	return Errorf(Unauthorized, "only users with admin power can view setup keys")
+}
