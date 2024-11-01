@@ -83,6 +83,10 @@ func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
 		return nil, 0, err
 	}
 	fns = append(fns, s.receiveRelayed)
+
+	s.muUDPMux.Lock()
+	s.udpMux = s.createUDPMux()
+	s.muUDPMux.Unlock()
 	return fns, port, nil
 }
 
@@ -156,16 +160,6 @@ func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 }
 
 func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
-	s.muUDPMux.Lock()
-	defer s.muUDPMux.Unlock()
-
-	s.udpMux = NewUniversalUDPMuxDefault(
-		UniversalUDPMuxParams{
-			UDPConn:  conn,
-			Net:      s.transportNet,
-			FilterFn: s.filterFn,
-		},
-	)
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
 		msgs := getMessages(msgsPool)
 		for i := range bufs {
@@ -257,14 +251,14 @@ func (s *ICEBind) parseSTUNMessage(raw []byte) (*stun.Message, error) {
 
 // receiveRelayed is a receive function that is used to receive packets from the relayed connection and forward to the
 // WireGuard. Critical part is do not block if the Closed() has been called.
-func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpoint) (int, error) {
-	c.closedChanMu.RLock()
-	defer c.closedChanMu.RUnlock()
+func (s *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpoint) (int, error) {
+	s.closedChanMu.RLock()
+	defer s.closedChanMu.RUnlock()
 
 	select {
-	case <-c.closedChan:
+	case <-s.closedChan:
 		return 0, net.ErrClosed
-	case msg, ok := <-c.RecvChan:
+	case msg, ok := <-s.RecvChan:
 		if !ok {
 			return 0, net.ErrClosed
 		}
@@ -273,6 +267,16 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 		eps[0] = wgConn.Endpoint(msg.Endpoint)
 		return 1, nil
 	}
+}
+
+func (s *ICEBind) createUDPMux() *UniversalUDPMuxDefault {
+	return NewUniversalUDPMuxDefault(
+		UniversalUDPMuxParams{
+			UDPConn:  s.StdNetBind.IPv4Conn(),
+			Net:      s.transportNet,
+			FilterFn: s.filterFn,
+		},
+	)
 }
 
 // fakeAddress returns a fake address that is used to as an identifier for the peer.
