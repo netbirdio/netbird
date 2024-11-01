@@ -7,6 +7,8 @@ import (
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -31,13 +33,16 @@ func handlePanicLog() error {
 	// Ensure the directory exists
 	logDir := filepath.Dir(logPath)
 	if err := os.MkdirAll(logDir, 0750); err != nil {
-		return fmt.Errorf("create panic log directory: %v", err)
+		return fmt.Errorf("create panic log directory: %w", err)
+	}
+	if err := util.EnforcePermission(logPath); err != nil {
+		return fmt.Errorf("enforce permission on panic log file: %w", err)
 	}
 
 	// Open log file with append mode
 	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		return fmt.Errorf("open panic log file: %v", err)
+		return fmt.Errorf("open panic log file: %w", err)
 	}
 
 	// Redirect stderr to the file
@@ -45,7 +50,7 @@ func handlePanicLog() error {
 		if closeErr := f.Close(); closeErr != nil {
 			log.Warnf("failed to close file after redirect error: %v", closeErr)
 		}
-		return fmt.Errorf("redirect stderr: %v", err)
+		return fmt.Errorf("redirect stderr: %w", err)
 	}
 
 	log.Infof("successfully configured panic logging to: %s", logPath)
@@ -56,7 +61,7 @@ func handlePanicLog() error {
 func redirectStderr(f *os.File) error {
 	// Get the current process's stderr handle
 	if err := setStdHandle(f); err != nil {
-		return fmt.Errorf("failed to set stderr handle: %v", err)
+		return fmt.Errorf("failed to set stderr handle: %w", err)
 	}
 
 	// Also set os.Stderr for Go's standard library
