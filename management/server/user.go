@@ -222,33 +222,25 @@ func NewOwnerUser(id string) *User {
 
 // createServiceUser creates a new service user under the given account.
 func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountID string, initiatorUserID string, role UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
+		return nil, err
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if executingUser == nil {
-		return nil, status.Errorf(status.NotFound, "user not found")
-	}
-	if !executingUser.HasAdminPower() {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can create service users")
+	if !initiatorUser.HasAdminPower() {
+		return nil, status.NewUnauthorizedToViewServiceUsersError()
 	}
 
 	if role == UserRoleOwner {
-		return nil, status.Errorf(status.InvalidArgument, "can't create a service user with owner role")
+		return nil, status.NewServiceUserRoleInvalidError()
 	}
 
 	newUserID := uuid.New().String()
 	newUser := NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, UserIssuedAPI)
+	newUser.AccountID = accountID
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
-	account.Users[newUserID] = newUser
 
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
+	if err = am.Store.SaveUser(ctx, LockingStrengthUpdate, newUser); err != nil {
 		return nil, err
 	}
 
@@ -301,23 +293,22 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	default:
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
-	}
-
-	initiatorUser, err := account.FindUser(userID)
-	if err != nil {
-		return nil, status.Errorf(status.NotFound, "initiator user with ID %s doesn't exist", userID)
+		return nil, err
 	}
 
 	inviterID := userID
 	if initiatorUser.IsServiceUser {
-		inviterID = account.CreatedBy
+		createdBy, err := am.Store.GetAccountCreatedBy(ctx, LockingStrengthShare, accountID)
+		if err != nil {
+			return nil, err
+		}
+		inviterID = createdBy
 	}
 
 	// inviterUser is the one who is inviting the new user
-	inviterUser, err := am.lookupUserInCache(ctx, inviterID, account)
+	inviterUser, err := am.lookupUserInCache(ctx, inviterID, accountID)
 	if err != nil || inviterUser == nil {
 		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
 	}
@@ -348,27 +339,31 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 	newUser := &User{
 		Id:                   idpUser.ID,
+		AccountID:            accountID,
 		Role:                 invitedRole,
 		AutoGroups:           invite.AutoGroups,
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
 	}
-	account.Users[idpUser.ID] = newUser
 
-	err = am.Store.SaveAccount(ctx, account)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = am.refreshCache(ctx, account.Id)
+	if err = am.Store.SaveUser(ctx, LockingStrengthUpdate, newUser); err != nil {
+		return nil, err
+	}
+
+	_, err = am.refreshCache(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	am.StoreEvent(ctx, userID, newUser.Id, accountID, activity.UserInvited, nil)
 
-	return newUser.ToUserInfo(idpUser, account.Settings)
+	return newUser.ToUserInfo(idpUser, settings)
 }
 
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*User, error) {
@@ -408,20 +403,7 @@ func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.A
 // ListUsers returns lists of all users under the account.
 // It doesn't populate user information such as email or name.
 func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string) ([]*User, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	users := make([]*User, 0, len(account.Users))
-	for _, item := range account.Users {
-		users = append(users, item)
-	}
-
-	return users, nil
+	return am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
 }
 
 func (am *DefaultAccountManager) deleteServiceUser(ctx context.Context, account *Account, initiatorUserID string, targetUser *User) {
@@ -519,20 +501,12 @@ func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorU
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
 func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if am.idpManager == nil {
 		return status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
-	}
-
 	// check if the user is already registered with this ID
-	user, err := am.lookupUserInCache(ctx, targetUserID, account)
+	user, err := am.lookupUserInCache(ctx, targetUserID, accountID)
 	if err != nil {
 		return err
 	}
@@ -559,9 +533,6 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 
 // CreatePAT creates a new PAT for the given user
 func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if tokenName == "" {
 		return nil, status.Errorf(status.InvalidArgument, "token name can't be empty")
 	}
@@ -570,35 +541,31 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between 1 and 365")
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetUser, ok := account.Users[targetUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	if initiatorUser.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	executingUser, ok := account.Users[initiatorUserID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "user not found")
+	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
+		return nil, status.NewUnauthorizedToViewPATsError()
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
-		return nil, status.Errorf(status.PermissionDenied, "no permission to create PAT for this user")
+	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
+	if err != nil {
+		return nil, err
 	}
 
-	pat, err := CreateNewPAT(tokenName, expiresIn, targetUserID, executingUser.Id)
+	pat, err := CreateNewPAT(tokenName, expiresIn, targetUserID, initiatorUser.Id)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed to create PAT: %v", err)
 	}
 
-	targetUser.PATs[pat.ID] = &pat.PersonalAccessToken
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return nil, status.Errorf(status.Internal, "failed to save account: %v", err)
+	if err = am.Store.SavePAT(ctx, LockingStrengthUpdate, &pat.PersonalAccessToken); err != nil {
+		return nil, err
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
@@ -777,7 +744,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		events := am.prepareUserUpdateEvents(ctx, initiatorUser.Id, oldUser, newUser, account, transferredOwnerRole)
 		eventsToStore = append(eventsToStore, events...)
 
-		updatedUserInfo, err := getUserInfo(ctx, am, newUser, account)
+		updatedUserInfo, err := getUserInfo(ctx, am, newUser, accountID)
 		if err != nil {
 			return nil, err
 		}
@@ -876,15 +843,20 @@ func handleOwnerRoleTransfer(account *Account, initiatorUser, update *User) bool
 // getUserInfo retrieves the UserInfo for a given User and Account.
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
-func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, account *Account) (*UserInfo, error) {
+func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, accountID string) (*UserInfo, error) {
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	if !isNil(am.idpManager) && !user.IsServiceUser {
-		userData, err := am.lookupUserInCache(ctx, user.Id, account)
+		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
 		}
-		return user.ToUserInfo(userData, account.Settings)
+		return user.ToUserInfo(userData, settings)
 	}
-	return user.ToUserInfo(nil, account.Settings)
+	return user.ToUserInfo(nil, settings)
 }
 
 // validateUserUpdate validates the update operation for a user.

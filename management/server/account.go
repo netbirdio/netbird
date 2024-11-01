@@ -1441,20 +1441,8 @@ func isNil(i idp.Manager) bool {
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
-		accountUsers, err := am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
-		cachedAccount := &Account{
-			Id:    accountID,
-			Users: make(map[string]*User),
-		}
-		for _, user := range accountUsers {
-			cachedAccount.Users[user.Id] = user
-		}
-
 		// user can be nil if it wasn't found (e.g., just created)
-		user, err := am.lookupUserInCache(ctx, userID, cachedAccount)
+		user, err := am.lookupUserInCache(ctx, userID, accountID)
 		if err != nil {
 			return err
 		}
@@ -1483,11 +1471,10 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID inte
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
-	account, err := am.Store.GetAccount(ctx, accountIDString)
+	accountUsers, err := am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountIDString)
 	if err != nil {
 		return nil, err
 	}
-
 	userData, err := am.idpManager.GetAccount(ctx, accountIDString)
 	if err != nil {
 		return nil, err
@@ -1500,7 +1487,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID inte
 	}
 
 	matchedUserData := make([]*idp.UserData, 0)
-	for _, user := range account.Users {
+	for _, user := range accountUsers {
 		if user.IsServiceUser {
 			continue
 		}
@@ -1530,10 +1517,15 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(ctx context.Context, e
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
-func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID string, account *Account) (*idp.UserData, error) {
-	users := make(map[string]userLoggedInOnce, len(account.Users))
+func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID string, accountID string) (*idp.UserData, error) {
+	accountUsers, err := am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make(map[string]userLoggedInOnce, len(accountUsers))
 	// ignore service users and users provisioned by integrations than are never logged in
-	for _, user := range account.Users {
+	for _, user := range accountUsers {
 		if user.IsServiceUser {
 			continue
 		}
@@ -1542,8 +1534,8 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 		}
 		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 	}
-	log.WithContext(ctx).Debugf("looking up user %s of account %s in cache", userID, account.Id)
-	userData, err := am.lookupCache(ctx, users, account.Id)
+	log.WithContext(ctx).Debugf("looking up user %s of account %s in cache", userID, accountID)
+	userData, err := am.lookupCache(ctx, users, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -1556,13 +1548,13 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 
 	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
 	// or it didn't have its metadata updated with am.addAccountIDToIDPAppMeta
-	user, err := account.FindUser(userID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, account.Id)
+		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, accountID)
 		return nil, err
 	}
 
-	key := user.IntegrationReference.CacheKey(account.Id, userID)
+	key := user.IntegrationReference.CacheKey(accountID, userID)
 	ud, err := am.externalCacheManager.Get(am.ctx, key)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get externalCache for key: %s, error: %s", key, err)
@@ -1827,12 +1819,7 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 		return nil
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
-	user, err := am.lookupUserInCache(ctx, userID, account)
+	user, err := am.lookupUserInCache(ctx, userID, accountID)
 	if err != nil {
 		return err
 	}
@@ -1842,17 +1829,17 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 	}
 
 	if user.AppMetadata.WTPendingInvite != nil && *user.AppMetadata.WTPendingInvite {
-		log.WithContext(ctx).Infof("redeeming invite for user %s account %s", userID, account.Id)
+		log.WithContext(ctx).Infof("redeeming invite for user %s account %s", userID, accountID)
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
 		go func() {
-			_, err = am.refreshCache(ctx, account.Id)
+			_, err = am.refreshCache(ctx, accountID)
 			if err != nil {
-				log.WithContext(ctx).Warnf("failed reloading cache when redeeming user %s under account %s", userID, account.Id)
+				log.WithContext(ctx).Warnf("failed reloading cache when redeeming user %s under account %s", userID, accountID)
 				return
 			}
-			log.WithContext(ctx).Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
-			am.StoreEvent(ctx, userID, userID, account.Id, activity.UserJoined, nil)
+			log.WithContext(ctx).Debugf("user %s of account %s redeemed invite", user.ID, accountID)
+			am.StoreEvent(ctx, userID, userID, accountID, activity.UserJoined, nil)
 		}()
 	}
 

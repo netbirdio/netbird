@@ -413,7 +413,8 @@ func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
 func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error {
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(user)
 	if result.Error != nil {
-		return status.Errorf(status.Internal, "failed to save user to store: %v", result.Error)
+		log.WithContext(ctx).Errorf("failed to save user to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save user to store")
 	}
 	return nil
 }
@@ -820,6 +821,21 @@ func (s *SqlStore) GetAccountSettings(ctx context.Context, lockStrength LockingS
 		return nil, status.Errorf(status.Internal, "issue getting settings from store: %s", err)
 	}
 	return accountSettings.Settings, nil
+}
+
+func (s *SqlStore) GetAccountCreatedBy(ctx context.Context, lockStrength LockingStrength, accountID string) (string, error) {
+	var createdBy string
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Select("created_by").First(&createdBy, idQueryCondition, accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.NewAccountNotFoundError()
+		}
+		log.WithContext(ctx).Errorf("error when getting account creator from the store: %s", result.Error)
+		return "", status.NewGetAccountFromStoreError(result.Error)
+	}
+
+	return createdBy, nil
 }
 
 // SaveAccountSettings stores the account settings in DB.

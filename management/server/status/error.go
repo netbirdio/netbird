@@ -119,6 +119,19 @@ func NewGetUserFromStoreError() error {
 	return Errorf(Internal, "issue getting user from store")
 }
 
+func NewUnauthorizedToViewUsersError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view users")
+}
+
+func NewUnauthorizedToViewServiceUsersError() error {
+	return Errorf(PermissionDenied, "only users with admin power can view service users")
+}
+
+// NewServiceUserRoleInvalidError creates a new Error with InvalidArgument type for creating a service user with owner role
+func NewServiceUserRoleInvalidError() error {
+	return Errorf(InvalidArgument, "can't create a service user with owner role")
+}
+
 // NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key
 func NewInvalidKeyIDError() error {
 	return Errorf(InvalidArgument, "invalid key ID")
