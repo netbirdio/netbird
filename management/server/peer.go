@@ -589,6 +589,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, fmt.Errorf("error getting account: %w", err)
 	}
 
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("error getting all group ID: %w", err)
+	}
+
+	groupsToAdd = append(groupsToAdd, allGroup.ID)
 	if areGroupChangesAffectPeers(account, groupsToAdd) {
 		am.updateAccountPeers(ctx, account)
 	}
