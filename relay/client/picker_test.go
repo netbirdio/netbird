@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 )
 
 func TestServerPicker_UnavailableServers(t *testing.T) {
@@ -13,7 +12,7 @@ func TestServerPicker_UnavailableServers(t *testing.T) {
 		PeerID:     "test",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), connectionTimeout+1)
 	defer cancel()
 
 	go func() {
