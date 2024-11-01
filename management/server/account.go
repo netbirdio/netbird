@@ -88,7 +88,7 @@ type AccountManager interface {
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
-	GetAccountFromPAT(ctx context.Context, pat string) (*Account, *User, *PersonalAccessToken, error)
+	GetAccountInfoFromPAT(ctx context.Context, token string) (*User, *PersonalAccessToken, string, string, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	MarkPATUsed(ctx context.Context, tokenID string) error
 	GetUserByID(ctx context.Context, id string) (*User, error)
@@ -1869,52 +1869,59 @@ func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID strin
 	return am.Store.GetAccount(ctx, accountID)
 }
 
-// GetAccountFromPAT returns Account and User associated with a personal access token
-func (am *DefaultAccountManager) GetAccountFromPAT(ctx context.Context, token string) (*Account, *User, *PersonalAccessToken, error) {
+// GetAccountInfoFromPAT retrieves user, personal access token, domain, and category details from a personal access token.
+func (am *DefaultAccountManager) GetAccountInfoFromPAT(ctx context.Context, token string) (user *User, pat *PersonalAccessToken, domain string, category string, err error) {
+	user, pat, err = am.extractPATFromToken(ctx, token)
+	if err != nil {
+		return nil, nil, "", "", err
+	}
+
+	domain, category, err = am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, user.AccountID)
+	if err != nil {
+		return nil, nil, "", "", err
+	}
+
+	return user, pat, domain, category, nil
+}
+
+// extractPATFromToken validates the token structure and retrieves associated User and PAT.
+func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token string) (*User, *PersonalAccessToken, error) {
 	if len(token) != PATLength {
-		return nil, nil, nil, fmt.Errorf("token has wrong length")
+		return nil, nil, fmt.Errorf("token has incorrect length")
 	}
 
 	prefix := token[:len(PATPrefix)]
 	if prefix != PATPrefix {
-		return nil, nil, nil, fmt.Errorf("token has wrong prefix")
+		return nil, nil, fmt.Errorf("token has incorrect prefix")
 	}
+
 	secret := token[len(PATPrefix) : len(PATPrefix)+PATSecretLength]
 	encodedChecksum := token[len(PATPrefix)+PATSecretLength : len(PATPrefix)+PATSecretLength+PATChecksumLength]
 
 	verificationChecksum, err := base62.Decode(encodedChecksum)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
+		return nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
 	}
 
 	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
 	if secretChecksum != verificationChecksum {
-		return nil, nil, nil, fmt.Errorf("token checksum does not match")
+		return nil, nil, fmt.Errorf("token checksum does not match")
 	}
 
 	hashedToken := sha256.Sum256([]byte(token))
 	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
-	tokenID, err := am.Store.GetTokenIDByHashedToken(ctx, encodedHashedToken)
+
+	pat, err := am.Store.GetPATByHashedToken(ctx, LockingStrengthShare, encodedHashedToken)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	user, err := am.Store.GetUserByTokenID(ctx, tokenID)
+	user, err := am.Store.GetUserByPATID(ctx, LockingStrengthShare, pat.ID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	account, err := am.Store.GetAccountByUser(ctx, user.Id)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	pat := user.PATs[tokenID]
-	if pat == nil {
-		return nil, nil, nil, fmt.Errorf("personal access token not found")
-	}
-
-	return account, user, pat, nil
+	return user, pat, nil
 }
 
 // GetAccountByID returns an account associated with this account ID.

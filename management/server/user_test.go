@@ -55,25 +55,25 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
+	newPAT, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
 
-	assert.Equal(t, pat.CreatedBy, mockUserID)
+	assert.Equal(t, newPAT.CreatedBy, mockUserID)
 
-	tokenID, err := am.Store.GetTokenIDByHashedToken(context.Background(), pat.HashedToken)
+	pat, err := am.Store.GetPATByHashedToken(context.Background(), LockingStrengthShare, newPAT.HashedToken)
 	if err != nil {
 		t.Fatalf("Error when getting token ID by hashed token: %s", err)
 	}
 
-	if tokenID == "" {
+	if pat.ID == "" {
 		t.Fatal("GetTokenIDByHashedToken failed after adding PAT")
 	}
 
-	assert.Equal(t, pat.ID, tokenID)
+	assert.Equal(t, newPAT.ID, pat.ID)
 
-	user, err := am.Store.GetUserByTokenID(context.Background(), tokenID)
+	user, err := am.Store.GetUserByPATID(context.Background(), LockingStrengthShare, pat.ID)
 	if err != nil {
 		t.Fatalf("Error when getting user by token ID: %s", err)
 	}

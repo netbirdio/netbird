@@ -475,49 +475,6 @@ func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*
 	return s.GetAccount(ctx, key.AccountID)
 }
 
-func (s *SqlStore) GetTokenIDByHashedToken(ctx context.Context, hashedToken string) (string, error) {
-	var token PersonalAccessToken
-	result := s.db.First(&token, "hashed_token = ?", hashedToken)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
-		}
-		log.WithContext(ctx).Errorf("error when getting token from the store: %s", result.Error)
-		return "", status.NewGetAccountFromStoreError(result.Error)
-	}
-
-	return token.ID, nil
-}
-
-func (s *SqlStore) GetUserByTokenID(ctx context.Context, tokenID string) (*User, error) {
-	var token PersonalAccessToken
-	result := s.db.First(&token, idQueryCondition, tokenID)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
-		}
-		log.WithContext(ctx).Errorf("error when getting token from the store: %s", result.Error)
-		return nil, status.NewGetAccountFromStoreError(result.Error)
-	}
-
-	if token.UserID == "" {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
-	}
-
-	var user User
-	result = s.db.Preload("PATsG").First(&user, idQueryCondition, token.UserID)
-	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
-	}
-
-	user.PATs = make(map[string]*PersonalAccessToken, len(user.PATsG))
-	for _, pat := range user.PATsG {
-		user.PATs[pat.ID] = pat.Copy()
-	}
-
-	return &user, nil
-}
-
 func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error) {
 	var user User
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
@@ -526,6 +483,23 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewUserNotFoundError(userID)
 		}
+		log.WithContext(ctx).Errorf("failed to get user from the store: %s", result.Error)
+		return nil, status.NewGetUserFromStoreError()
+	}
+
+	return &user, nil
+}
+
+func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*User, error) {
+	var user User
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Joins("JOIN personal_access_tokens ON personal_access_tokens.user_id = users.id").
+		Where("personal_access_tokens.id = ?", patID).First(&user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewPATNotFoundError()
+		}
+		log.WithContext(ctx).Errorf("failed to get token user from the store: %s", result.Error)
 		return nil, status.NewGetUserFromStoreError()
 	}
 
@@ -1635,6 +1609,21 @@ func (s *SqlStore) DeleteNameServerGroup(ctx context.Context, lockStrength Locki
 	return nil
 }
 
+// GetPATByHashedToken returns a PersonalAccessToken by its hashed token.
+func (s *SqlStore) GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*PersonalAccessToken, error) {
+	var pat PersonalAccessToken
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).First(&pat, "hashed_token = ?", hashedToken)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewPATNotFoundError()
+		}
+		log.WithContext(ctx).Errorf("failed to get pat from the store: %s", result.Error)
+		return nil, status.NewGetPATFromStoreError()
+	}
+
+	return &pat, nil
+}
+
 // GetPATByID retrieves a personal access token by its ID and user ID.
 func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, userID string, patID string) (*PersonalAccessToken, error) {
 	var pat PersonalAccessToken
@@ -1642,10 +1631,10 @@ func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength,
 		First(&pat, "id = ? AND user_id = ?", patID, userID)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "PAT not found")
+			return nil, status.NewPATNotFoundError()
 		}
 		log.WithContext(ctx).Errorf("failed to get PAT from the store: %s", err)
-		return nil, status.Errorf(status.Internal, "failed to get PAT from store")
+		return nil, status.NewGetPATFromStoreError()
 	}
 
 	return &pat, nil

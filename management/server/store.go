@@ -63,13 +63,12 @@ type Store interface {
 	DeleteAccount(ctx context.Context, account *Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 
-	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
+	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*User, error)
 	SaveUsers(accountID string, users map[string]*User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
-	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbgroup.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*nbgroup.Group, error)
@@ -125,6 +124,7 @@ type Store interface {
 
 	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*PersonalAccessToken, error)
 	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*PersonalAccessToken, error)
+	GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*PersonalAccessToken, error)
 	MarkPATUsed(ctx context.Context, lockStrength LockingStrength, patID string) error
 	SavePAT(ctx context.Context, strength LockingStrength, pat *PersonalAccessToken) error
 	DeletePAT(ctx context.Context, strength LockingStrength, userID, patID string) error

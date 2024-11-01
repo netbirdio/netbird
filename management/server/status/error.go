@@ -146,6 +146,10 @@ func NewPATNotFoundError() error {
 	return Errorf(NotFound, "PAT not found")
 }
 
+func NewGetPATFromStoreError() error {
+	return Errorf(Internal, "issue getting pat from store")
+}
+
 func NewUnauthorizedToViewPATsError() error {
 	return Errorf(PermissionDenied, "only users with admin power can view PATs")
 }
