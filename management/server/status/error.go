@@ -3,6 +3,7 @@ package status
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 const (
@@ -113,6 +114,11 @@ func NewGetAccountFromStoreError(err error) error {
 // NewGetUserFromStoreError creates a new Error with Internal type for an issue getting user from store
 func NewGetUserFromStoreError() error {
 	return Errorf(Internal, "issue getting user from store")
+}
+
+// NewStoreContextCanceledError creates a new Error with Internal type for a canceled store context
+func NewStoreContextCanceledError(duration time.Duration) error {
+	return Errorf(Internal, "store access: context canceled after %v", duration)
 }
 
 // NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key

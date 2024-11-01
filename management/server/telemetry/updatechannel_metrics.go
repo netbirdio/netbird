@@ -18,7 +18,6 @@ type UpdateChannelMetrics struct {
 	getAllConnectedPeersDurationMicro metric.Int64Histogram
 	getAllConnectedPeers              metric.Int64Histogram
 	hasChannelDurationMicro           metric.Int64Histogram
-	networkMapDiffDurationMicro       metric.Int64Histogram
 	ctx                               context.Context
 }
 
@@ -64,11 +63,6 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		return nil, err
 	}
 
-	networkMapDiffDurationMicro, err := meter.Int64Histogram("management.updatechannel.networkmap.diff.duration.micro")
-	if err != nil {
-		return nil, err
-	}
-
 	return &UpdateChannelMetrics{
 		createChannelDurationMicro:        createChannelDurationMicro,
 		closeChannelDurationMicro:         closeChannelDurationMicro,
@@ -78,7 +72,6 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		getAllConnectedPeersDurationMicro: getAllConnectedPeersDurationMicro,
 		getAllConnectedPeers:              getAllConnectedPeers,
 		hasChannelDurationMicro:           hasChannelDurationMicro,
-		networkMapDiffDurationMicro:       networkMapDiffDurationMicro,
 		ctx:                               ctx,
 	}, nil
 }
@@ -117,9 +110,4 @@ func (metrics *UpdateChannelMetrics) CountGetAllConnectedPeersDuration(duration 
 // CountHasChannelDuration counts the duration of the HasChannel method
 func (metrics *UpdateChannelMetrics) CountHasChannelDuration(duration time.Duration) {
 	metrics.hasChannelDurationMicro.Record(metrics.ctx, duration.Microseconds())
-}
-
-// CountNetworkMapDiffDurationMicro counts the duration of the NetworkMapDiff method
-func (metrics *UpdateChannelMetrics) CountNetworkMapDiffDurationMicro(duration time.Duration) {
-	metrics.networkMapDiffDurationMicro.Record(metrics.ctx, duration.Microseconds())
 }

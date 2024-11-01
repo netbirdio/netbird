@@ -405,7 +405,9 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	am.updateAccountPeers(ctx, account)
+	if anyGroupHasPeers(account, policy.ruleGroups()) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
