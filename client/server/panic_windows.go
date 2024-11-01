@@ -30,7 +30,7 @@ func handlePanicLog() error {
 
 	// Ensure the directory exists
 	logDir := filepath.Dir(logPath)
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0750); err != nil {
 		return fmt.Errorf("create panic log directory: %v", err)
 	}
 
