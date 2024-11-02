@@ -120,8 +120,15 @@ func NewGetUserFromStoreError() error {
 	return Errorf(Internal, "issue getting user from store")
 }
 
-func NewUnauthorizedToViewUsersError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view users")
+// NewAdminPermissionError creates a new Error with PermissionDenied type for actions requiring admin role.
+func NewAdminPermissionError() error {
+	return Errorf(PermissionDenied, "admin role required to perform this action")
+}
+
+// NewOwnerDeletePermissionError creates a new Error with PermissionDenied type for attempting
+// to delete a user with the owner role.
+func NewOwnerDeletePermissionError() error {
+	return Errorf(PermissionDenied, "can't delete a user with the owner role")
 }
 
 func NewUnauthorizedToViewServiceUsersError() error {
@@ -162,10 +169,6 @@ func NewPATNotFoundError() error {
 
 func NewGetPATFromStoreError() error {
 	return Errorf(Internal, "issue getting pat from store")
-}
-
-func NewUnauthorizedToViewPATsError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view PATs")
 }
 
 func NewUnauthorizedToViewPoliciesError() error {

@@ -491,6 +491,21 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 	return &user, nil
 }
 
+func (s *SqlStore) DeleteUser(ctx context.Context, lockStrength LockingStrength, accountID, userID string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&User{}, accountAndIDQueryCondition, accountID, userID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete user from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to user policy from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewUserNotFoundError(userID)
+	}
+
+	return nil
+}
+
 func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*User, error) {
 	var user User
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).

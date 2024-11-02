@@ -1378,13 +1378,13 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 			continue
 		}
 
-		deleteUserErr := am.deleteRegularUser(ctx, account, userID, otherUser.Id)
+		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, otherUser.Id)
 		if deleteUserErr != nil {
 			return deleteUserErr
 		}
 	}
 
-	err = am.deleteRegularUser(ctx, account, userID, userID)
+	_, err = am.deleteRegularUser(ctx, accountID, userID, userID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
 		return err

@@ -311,48 +311,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	return peer, nil
 }
 
-// deletePeers will delete all specified peers and send updates to the remote peers. Don't call without acquiring account lock
-func (am *DefaultAccountManager) deletePeers(ctx context.Context, accountID string, userID string, peers []*nbpeer.Peer) error {
-	return am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		for _, peer := range peers {
-			if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID); err != nil {
-				return fmt.Errorf("failed to validate peer: %w", err)
-			}
-
-			network, err := transaction.GetAccountNetwork(ctx, LockingStrengthShare, accountID)
-			if err != nil {
-				return fmt.Errorf("failed to get account network: %w", err)
-			}
-
-			if err = transaction.DeletePeer(ctx, LockingStrengthUpdate, accountID, peer.ID); err != nil {
-				return fmt.Errorf("failed to delete peer: %w", err)
-			}
-
-			am.peersUpdateManager.SendUpdate(ctx, peer.ID,
-				&UpdateMessage{
-					Update: &proto.SyncResponse{
-						// fill those field for backward compatibility
-						RemotePeers:        []*proto.RemotePeerConfig{},
-						RemotePeersIsEmpty: true,
-						// new field
-						NetworkMap: &proto.NetworkMap{
-							Serial:               network.CurrentSerial(),
-							RemotePeers:          []*proto.RemotePeerConfig{},
-							RemotePeersIsEmpty:   true,
-							FirewallRules:        []*proto.FirewallRule{},
-							FirewallRulesIsEmpty: true,
-						},
-					},
-					NetworkMap: &NetworkMap{},
-				})
-			am.peersUpdateManager.CloseChannel(ctx, peer.ID)
-			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
-		}
-		return nil
-	})
-
-}
-
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, LockingStrengthShare, peerID)
@@ -364,18 +322,30 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return status.NewUserNotPartOfAccountError()
 	}
 
-	peer, err := am.Store.GetPeerByID(ctx, LockingStrengthShare, accountID, peerID)
-	if err != nil {
-		return err
-	}
-
 	updateAccountPeers, err := am.isPeerInActiveGroup(ctx, accountID, peerID)
 	if err != nil {
 		return err
 	}
 
-	if err = am.deletePeers(ctx, accountID, userID, []*nbpeer.Peer{peer}); err != nil {
-		return err
+	var peer *nbpeer.Peer
+	var addPeerRemovedEvents []func()
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		peer, err = transaction.GetPeerByID(ctx, LockingStrengthShare, accountID, peerID)
+		if err != nil {
+			return fmt.Errorf("failed to get peer to delete: %w", err)
+		}
+
+		addPeerRemovedEvents, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
+		if err != nil {
+			return fmt.Errorf("failed to delete peer: %w", err)
+		}
+
+		return nil
+	})
+
+	for _, addPeerRemovedEvent := range addPeerRemovedEvents {
+		addPeerRemovedEvent()
 	}
 
 	if updateAccountPeers {
@@ -1231,14 +1201,6 @@ func (am *DefaultAccountManager) getPeerDNSLabels(ctx context.Context, accountID
 	return existingLabels, nil
 }
 
-func ConvertSliceToMap(existingLabels []string) map[string]struct{} {
-	labelMap := make(map[string]struct{}, len(existingLabels))
-	for _, label := range existingLabels {
-		labelMap[label] = struct{}{}
-	}
-	return labelMap
-}
-
 // IsPeerInActiveGroup checks if the given peer is part of a group that is used
 // in an active DNS, route, or ACL configuration.
 func (am *DefaultAccountManager) isPeerInActiveGroup(ctx context.Context, accountID, peerID string) (bool, error) {
@@ -1247,4 +1209,54 @@ func (am *DefaultAccountManager) isPeerInActiveGroup(ctx context.Context, accoun
 		return false, err
 	}
 	return am.areGroupChangesAffectPeers(ctx, accountID, peerGroupIDs)
+}
+
+// deletePeers deletes all specified peers and sends updates to the remote peers.
+// Returns a slice of functions to save events after successful peer deletion.
+func deletePeers(ctx context.Context, am *DefaultAccountManager, store Store, accountID, userID string, peers []*nbpeer.Peer) ([]func(), error) {
+	var peerDeletedEvents []func()
+
+	for _, peer := range peers {
+		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID); err != nil {
+			return nil, fmt.Errorf("failed to validate peer: %w", err)
+		}
+
+		network, err := store.GetAccountNetwork(ctx, LockingStrengthShare, accountID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get account network: %w", err)
+		}
+
+		if err = store.DeletePeer(ctx, LockingStrengthUpdate, accountID, peer.ID); err != nil {
+			return nil, fmt.Errorf("failed to delete peer: %w", err)
+		}
+
+		am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{
+			Update: &proto.SyncResponse{
+				RemotePeers:        []*proto.RemotePeerConfig{},
+				RemotePeersIsEmpty: true,
+				NetworkMap: &proto.NetworkMap{
+					Serial:               network.CurrentSerial(),
+					RemotePeers:          []*proto.RemotePeerConfig{},
+					RemotePeersIsEmpty:   true,
+					FirewallRules:        []*proto.FirewallRule{},
+					FirewallRulesIsEmpty: true,
+				},
+			},
+			NetworkMap: &NetworkMap{},
+		})
+		am.peersUpdateManager.CloseChannel(ctx, peer.ID)
+		peerDeletedEvents = append(peerDeletedEvents, func() {
+			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
+		})
+	}
+
+	return peerDeletedEvents, nil
+}
+
+func ConvertSliceToMap(existingLabels []string) map[string]struct{} {
+	labelMap := make(map[string]struct{}, len(existingLabels))
+	for _, label := range existingLabels {
+		labelMap[label] = struct{}{}
+	}
+	return labelMap
 }
