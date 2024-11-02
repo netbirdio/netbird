@@ -393,20 +393,17 @@ func (s *SqlStore) SavePeerLocation(ctx context.Context, lockStrength LockingStr
 }
 
 // SaveUsers saves the given list of users to the database.
-// It updates existing users if a conflict occurs.
-func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
-	usersToSave := make([]User, 0, len(users))
-	for _, user := range users {
-		user.AccountID = accountID
-		for id, pat := range user.PATs {
-			pat.ID = id
-			user.PATsG = append(user.PATsG, *pat)
-		}
-		usersToSave = append(usersToSave, *user)
+func (s *SqlStore) SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*User) error {
+	if len(users) == 0 {
+		return nil
 	}
-	return s.db.Session(&gorm.Session{FullSaveAssociations: true}).
-		Clauses(clause.OnConflict{UpdateAll: true}).
-		Create(&usersToSave).Error
+
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&users)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save users to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save users to store")
+	}
+	return nil
 }
 
 // SaveUser saves the given user to the database.

@@ -67,7 +67,7 @@ type Store interface {
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*User, error)
-	SaveUsers(accountID string, users map[string]*User) error
+	SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
 	DeleteUser(ctx context.Context, lockStrength LockingStrength, accountID, userID string) error

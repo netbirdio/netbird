@@ -1794,9 +1794,9 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
 	defer unlockAccount()
 
-	usersMap := make(map[string]*User)
-	usersMap[claims.UserId] = NewRegularUser(claims.UserId)
-	err := am.Store.SaveUsers(domainAccountID, usersMap)
+	newUser := NewRegularUser(claims.UserId)
+	newUser.AccountID = domainAccountID
+	err := am.Store.SaveUser(ctx, LockingStrengthUpdate, newUser)
 	if err != nil {
 		return "", err
 	}
