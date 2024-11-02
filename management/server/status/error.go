@@ -3,6 +3,7 @@ package status
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 const (
@@ -185,4 +186,9 @@ func NewUnauthorizedToViewNSGroupsError() error {
 
 func NewUnauthorizedToViewRoutesError() error {
 	return Errorf(PermissionDenied, "only users with admin power can view network routes")
+}
+
+// NewStoreContextCanceledError creates a new Error with Internal type for a canceled store context
+func NewStoreContextCanceledError(duration time.Duration) error {
+	return Errorf(Internal, "store access: context canceled after %v", duration)
 }

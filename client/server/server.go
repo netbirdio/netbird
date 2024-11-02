@@ -97,6 +97,10 @@ func (s *Server) Start() error {
 	defer s.mutex.Unlock()
 	state := internal.CtxGetState(s.rootCtx)
 
+	if err := handlePanicLog(); err != nil {
+		log.Warnf("failed to redirect stderr: %v", err)
+	}
+
 	if err := restoreResidualState(s.rootCtx); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}

@@ -472,12 +472,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	var newPeer *nbpeer.Peer
-	var groupsToAdd []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		var setupKeyID string
 		var setupKeyName string
 		var ephemeral bool
+		var groupsToAdd []string
 		if addedByUser {
 			user, err := transaction.GetUserByUserID(ctx, LockingStrengthUpdate, userID)
 			if err != nil {
@@ -620,7 +620,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	unlock()
 	unlock = nil
 
-	updateAccountPeers, err := am.areGroupChangesAffectPeers(ctx, accountID, groupsToAdd)
+	updateAccountPeers, err := am.isPeerInActiveGroup(ctx, accountID, newPeer.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
