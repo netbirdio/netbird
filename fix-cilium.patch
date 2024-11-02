@@ -1,0 +1,25 @@
+From f97abdf83a1daac75ffba7c0d7536389e27c4aca Mon Sep 17 00:00:00 2001
+From: David King Rhodes <david.king.rhodes@gmail.com>
+Date: Fri, 30 Aug 2024 21:58:58 +0800
+Subject: [PATCH] compat cilium
+
+---
+ client/internal/routemanager/systemops/systemops_linux.go | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/client/internal/routemanager/systemops/systemops_linux.go b/client/internal/routemanager/systemops/systemops_linux.go
+index 2d0c578..8cf0a6d 100644
+--- a/client/internal/routemanager/systemops/systemops_linux.go
++++ b/client/internal/routemanager/systemops/systemops_linux.go
+@@ -68,8 +68,9 @@ func setIsLegacy(b bool) {
+ 
+ func getSetupRules() []ruleParams {
+ 	return []ruleParams{
+-		{100, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, false, 0, "rule with suppress prefixlen v4"},
+-		{100, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, false, 0, "rule with suppress prefixlen v6"},
++		// fix conflict with cilium rule
++		{105, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, false, 0, "rule with suppress prefixlen v4"},
++		{105, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, false, 0, "rule with suppress prefixlen v6"},
+ 		{110, nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, true, -1, "rule v4 netbird"},
+ 		{110, nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, true, -1, "rule v6 netbird"},
+ 	}
