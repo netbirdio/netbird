@@ -1,0 +1,70 @@
+package quic
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"net"
+
+	"github.com/quic-go/quic-go"
+	log "github.com/sirupsen/logrus"
+)
+
+type Listener struct {
+	// Address is the address to listen on
+	Address string
+	// TLSConfig is the TLS configuration for the server
+	TLSConfig *tls.Config
+
+	listener *quic.Listener
+	acceptFn func(conn net.Conn)
+}
+
+func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
+	l.acceptFn = acceptFn
+
+	quicCfg := &quic.Config{
+		EnableDatagrams: true,
+	}
+	listener, err := quic.ListenAddr(l.Address, l.TLSConfig, quicCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create QUIC listener: %v", err)
+	}
+
+	l.listener = listener
+	log.Infof("QUIC server listening on address: %s", l.Address)
+
+	for {
+		session, err := listener.Accept(context.Background())
+		if err != nil {
+			// Check if the listener was closed intentionally
+			if err.Error() == "server closed" {
+				return nil
+			}
+			log.Errorf("Failed to accept QUIC session: %v", err)
+			continue
+		}
+
+		// Handle each session in a separate goroutine
+		go l.handleSession(session)
+	}
+}
+
+func (l *Listener) handleSession(session quic.Connection) {
+	conn := NewConn(session)
+	l.acceptFn(conn)
+}
+
+func (l *Listener) Shutdown(ctx context.Context) error {
+	if l.listener == nil {
+		return nil
+	}
+
+	log.Infof("stopping QUIC listener")
+	err := l.listener.Close()
+	if err != nil {
+		return fmt.Errorf("listener shutdown failed: %v", err)
+	}
+	log.Infof("QUIC listener stopped")
+	return nil
+}

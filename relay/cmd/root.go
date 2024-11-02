@@ -2,10 +2,17 @@ package cmd
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -141,6 +148,13 @@ func execute(cmd *cobra.Command, args []string) error {
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
 	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
 
+	tlsSupport = true
+	srvListenerCfg.TLSConfig, err = generateTestTLSConfig()
+	if err != nil {
+		log.Debugf("failed to generate test TLS config: %s", err)
+		return fmt.Errorf("failed to generate test TLS config: %s", err)
+	}
+
 	srv, err := server.NewServer(metricsServer.Meter, cobraConfig.ExposedAddress, tlsSupport, authenticator)
 	if err != nil {
 		log.Debugf("failed to create relay server: %v", err)
@@ -212,4 +226,58 @@ func setupTLSCertManager(letsencryptDataDir string, letsencryptDomains ...string
 		return nil, fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
 	}
 	return certManager.TLSConfig(), nil
+}
+
+// GenerateTestTLSConfig creates a self-signed certificate for testing
+func generateTestTLSConfig() (*tls.Config, error) {
+	// Generate private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test Organization"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(time.Hour * 24 * 180), // Valid for 180 days
+		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageServerAuth,
+		},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode certificate and private key to PEM format
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	})
+
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+
+	// Create TLS certificate
+	tlsCert, err := tls.X509KeyPair(certPEM, privateKeyPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		NextProtos:   []string{"netbird-relay"}, // Your application protocol
+	}, nil
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/server/listener"
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	"github.com/netbirdio/netbird/relay/server/listener/quic"
 )
 
 // ListenerConfig is the configuration for the listener.
@@ -45,7 +45,7 @@ func NewServer(meter metric.Meter, exposedAddress string, tlsSupport bool, authV
 
 // Listen starts the relay server.
 func (r *Server) Listen(cfg ListenerConfig) error {
-	r.wSListener = &ws.Listener{
+	r.wSListener = &quic.Listener{
 		Address:   cfg.Address,
 		TLSConfig: cfg.TLSConfig,
 	}

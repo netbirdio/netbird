@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
-	"github.com/netbirdio/netbird/relay/client/dialer/ws"
+	"github.com/netbirdio/netbird/relay/client/dialer/quic"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
 )
@@ -93,10 +93,6 @@ func (cc *connContainer) writeMsg(msg Msg) {
 	case cc.messages <- msg:
 	case <-cc.ctx.Done():
 		msg.Free()
-	default:
-		msg.Free()
-		cc.log.Infof("message queue is full")
-		// todo consider to close the connection
 	}
 }
 
@@ -264,7 +260,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := ws.Dial(c.connectionURL)
+	conn, err := quic.Dial(c.connectionURL)
 	if err != nil {
 		return err
 	}
