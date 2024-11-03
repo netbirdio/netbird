@@ -47,8 +47,9 @@ type Store interface {
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
 	GetAccountByUser(ctx context.Context, userID string) (*Account, error)
 	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error)
+	GetAllAccountIDs(ctx context.Context, lockStrength LockingStrength) ([]string, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
-	GetAccountIDByUserID(userID string) (string, error)
+	GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByPeerID(ctx context.Context, lockStrength LockingStrength, peerID string) (string, error)
 	GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error)
@@ -62,7 +63,7 @@ type Store interface {
 	SaveAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *Settings) error
 	SaveAccount(ctx context.Context, account *Account) error
 	DeleteAccount(ctx context.Context, account *Account) error
-	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
+	UpdateAccountDomainAttributes(ctx context.Context, lockStrength LockingStrength, accountID string, domain string, category string, isPrimaryDomain bool) error
 
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)

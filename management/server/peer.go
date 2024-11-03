@@ -411,7 +411,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	addedByUser := false
 	if len(userID) > 0 {
 		addedByUser = true
-		accountID, err = am.Store.GetAccountIDByUserID(userID)
+		accountID, err = am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, userID)
 	} else {
 		accountID, err = am.Store.GetAccountIDBySetupKey(ctx, encodedHashedKey)
 	}

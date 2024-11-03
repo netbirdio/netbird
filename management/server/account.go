@@ -1052,39 +1052,21 @@ func BuildManager(
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 	}
-	allAccounts := store.GetAllAccounts(ctx)
+	allAccountIDs, err := store.GetAllAccountIDs(ctx, LockingStrengthShare)
+	if err != nil {
+		return nil, err
+	}
+
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
-	am.singleAccountMode = singleAccountModeDomain != "" && len(allAccounts) <= 1
+	am.singleAccountMode = singleAccountModeDomain != "" && len(allAccountIDs) <= 1
 	if am.singleAccountMode {
 		if !isDomainValid(singleAccountModeDomain) {
 			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for a single account mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
 		}
 		am.singleAccountModeDomain = singleAccountModeDomain
-		log.WithContext(ctx).Infof("single account mode enabled, accounts number %d", len(allAccounts))
+		log.WithContext(ctx).Infof("single account mode enabled, accounts number %d", len(allAccountIDs))
 	} else {
-		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", len(allAccounts))
-	}
-
-	// if account doesn't have a default group
-	// we create 'all' group and add all peers into it
-	// also we create default rule with source as destination
-	for _, account := range allAccounts {
-		shouldSave := false
-
-		_, err := account.GetGroupAll()
-		if err != nil {
-			if err := addAllGroup(account); err != nil {
-				return nil, err
-			}
-			shouldSave = true
-		}
-
-		if shouldSave {
-			err = store.SaveAccount(ctx, account)
-			if err != nil {
-				return nil, err
-			}
-		}
+		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", len(allAccountIDs))
 	}
 
 	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
@@ -1290,19 +1272,18 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
-		_, err := am.Store.GetAccount(ctx, accountId)
-		statusErr, _ := status.FromError(err)
-		switch {
-		case err == nil:
-			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
-			continue
-		case statusErr.Type() == status.NotFound:
+		exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, accountId)
+		if err != nil {
+			log.WithContext(ctx).Errorf("error while checking account existence: %v", err)
+			return nil, err
+		}
+
+		if !exists {
 			newAccount := newAccountWithId(ctx, accountId, userID, domain)
 			am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
-		default:
-			return nil, err
 		}
+		log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
 	}
 
 	return nil, status.Errorf(status.Internal, "error while creating new account")
@@ -1321,16 +1302,16 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
 	// update their AppMetadata with the AccountID.
 	if unsetData, ok := userData[idp.UnsetAccountID]; ok {
 		for _, user := range unsetData {
-			accountID, err := am.Store.GetAccountByUser(ctx, user.ID)
+			userAccountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, user.ID)
 			if err == nil {
-				data := userData[accountID.Id]
+				data := userData[userAccountID]
 				if data == nil {
 					data = make([]*idp.UserData, 0, 1)
 				}
 
-				user.AppMetadata.WTAccountID = accountID.Id
+				user.AppMetadata.WTAccountID = userAccountID
 
-				userData[accountID.Id] = append(data, user)
+				userData[userAccountID] = append(data, user)
 			}
 		}
 	}
@@ -1416,7 +1397,7 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userI
 		return "", status.Errorf(status.NotFound, "no valid userID provided")
 	}
 
-	accountID, err := am.Store.GetAccountIDByUserID(userID)
+	accountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 			account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
@@ -1696,9 +1677,6 @@ func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx 
 		return nil
 	}
 
-	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlockAccount()
-
 	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting account domain and category: %v", err)
@@ -1716,7 +1694,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx 
 	}
 
 	newDomain := accountDomain
-	newCategoty := domainCategory
+	newCategory := domainCategory
 
 	lowerDomain := strings.ToLower(claims.Domain)
 	if accountDomain != lowerDomain && user.HasAdminPower() {
@@ -1724,10 +1702,10 @@ func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx 
 	}
 
 	if accountDomain == lowerDomain {
-		newCategoty = claims.DomainCategory
+		newCategory = claims.DomainCategory
 	}
 
-	return am.Store.UpdateAccountDomainAttributes(ctx, accountID, newDomain, newCategoty, primaryDomain)
+	return am.Store.UpdateAccountDomainAttributes(ctx, LockingStrengthUpdate, accountID, newDomain, newCategory, primaryDomain)
 }
 
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
@@ -2163,7 +2141,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		return "", err
 	}
 
-	userAccountID, err := am.Store.GetAccountIDByUserID(claims.UserId)
+	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, claims.UserId)
 	if handleNotFound(err) != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
 		return "", err
@@ -2209,7 +2187,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 }
 
 func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {
-	userAccountID, err := am.Store.GetAccountIDByUserID(claims.UserId)
+	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, claims.UserId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
 		return "", err

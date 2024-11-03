@@ -324,7 +324,7 @@ func (s *SqlStore) SavePeer(ctx context.Context, lockStrength LockingStrength, a
 	return nil
 }
 
-func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error {
+func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, lockStrength LockingStrength, accountID string, domain string, category string, isPrimaryDomain bool) error {
 	accountCopy := Account{
 		Domain:                 domain,
 		DomainCategory:         category,
@@ -332,7 +332,7 @@ func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID 
 	}
 
 	fieldsToUpdate := []string{"domain", "domain_category", "is_domain_primary_account"}
-	result := s.db.WithContext(ctx).Model(&Account{}).
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
 		Select(fieldsToUpdate).
 		Where(idQueryCondition, accountID).
 		Updates(&accountCopy)
@@ -563,6 +563,18 @@ func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*Account) {
 	return all
 }
 
+func (s *SqlStore) GetAllAccountIDs(ctx context.Context, lockStrength LockingStrength) ([]string, error) {
+	var accountIDs []string
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Model(&Account{}).Pluck("id", &accountIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get account IDs from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get account IDs from store")
+	}
+
+	return accountIDs, nil
+}
+
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, error) {
 	start := time.Now()
 	defer func() {
@@ -704,14 +716,15 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string)
 	return accountID, nil
 }
 
-func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
+func (s *SqlStore) GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error) {
 	var accountID string
-	result := s.db.Model(&User{}).Select("account_id").Where(idQueryCondition, userID).First(&accountID)
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&User{}).
+		Select("account_id").Where(idQueryCondition, userID).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.NewAccountNotFoundError()
 		}
-
+		log.WithContext(ctx).Errorf("failed to get accountID from the store: %s", result.Error)
 		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
 
