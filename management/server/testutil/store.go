@@ -10,17 +10,18 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/mysql"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func CreatePGDB() (func(), error) {
 	ctx := context.Background()
-	c, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:alpine"),
+	c, err := postgres.Run(ctx,
+		"postgres:16-alpine",
 		postgres.WithDatabase("test"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
+		postgres.WithUsername("user"),
+		postgres.WithPassword("password"),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).WithStartupTimeout(15*time.Second)),
@@ -42,4 +43,29 @@ func CreatePGDB() (func(), error) {
 		return cleanup, err
 	}
 	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
+}
+
+func CreateMyDB() (func(), error) {
+	ctx := context.Background()
+	c, err := mysql.Run(ctx, "mysql:5.7.34", testcontainers.WithWaitStrategy(
+		wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).WithStartupTimeout(15*time.Second)),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	cleanup := func() {
+		timeout := 10 * time.Second
+		err = c.Stop(ctx, &timeout)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
+		}
+	}
+
+	talksConn, err := c.ConnectionString(ctx)
+	if err != nil {
+		return cleanup, err
+	}
+	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_MYSQL_DSN", talksConn)
 }
