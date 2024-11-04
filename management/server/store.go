@@ -200,7 +200,7 @@ func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics tel
 		return newPostgresStore(ctx, metrics)
 	case MysqlStoreEngine:
 		log.WithContext(ctx).Info("using MySQL store engine")
-		return newMySqlStore(ctx, metrics)
+		return newMysqlStore(ctx, metrics)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
