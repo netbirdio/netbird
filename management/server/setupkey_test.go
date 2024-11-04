@@ -449,3 +449,31 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultAccountManager_CreateSetupKey_ShouldNotAllowToUpdateRevokedKey(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "testingUser"
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key, err := manager.CreateSetupKey(context.Background(), account.Id, "testName", SetupKeyReusable, time.Hour, nil, SetupKeyUnlimitedUsage, userID, false)
+	assert.NoError(t, err)
+
+	// revoke the key
+	updateKey := key.Copy()
+	updateKey.Revoked = true
+	_, err = manager.SaveSetupKey(context.Background(), account.Id, updateKey, userID)
+	assert.NoError(t, err)
+
+	// re-activate revoked key
+	updateKey.Revoked = false
+	_, err = manager.SaveSetupKey(context.Background(), account.Id, updateKey, userID)
+	assert.Error(t, err, "should not allow to update revoked key")
+
+}

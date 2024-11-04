@@ -295,9 +295,12 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, err
 	}
 
+	if oldKey.Revoked && !keyToSave.Revoked {
+		return nil, status.Errorf(status.InvalidArgument, "can't un-revoke a revoked setup key")
+	}
+
 	// only auto groups, revoked status, and name can be updated for now
 	newKey := oldKey.Copy()
-	newKey.Name = keyToSave.Name
 	newKey.AutoGroups = keyToSave.AutoGroups
 	newKey.Revoked = keyToSave.Revoked
 	newKey.UpdatedAt = time.Now().UTC()
