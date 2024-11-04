@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/dns"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/testutil"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
@@ -27,7 +28,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -284,12 +284,14 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
-	cleanUp := func() {
-		store.Close(ctx)
-	}
+
+	return getSqlStoreEngine(ctx, store, kind)
+}
+
+func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (Store, func(), error) {
 
 	if kind == PostgresStoreEngine {
-		cleanUp, err = testutil.CreatePGDB()
+		cleanUp, err := testutil.CreatePGDB()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -303,10 +305,12 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		if err != nil {
 			return nil, nil, err
 		}
+
+		return store, cleanUp, nil
 	}
 
 	if kind == MysqlStoreEngine {
-		cleanUp, err = testutil.CreateMyDB()
+		cleanUp, err := testutil.CreateMyDB()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -320,9 +324,15 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		if err != nil {
 			return nil, nil, err
 		}
+
+		return store, cleanUp, nil
 	}
 
-	return store, cleanUp, nil
+	closeConnection := func() {
+		store.Close(ctx)
+	}
+
+	return store, closeConnection, nil
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {
