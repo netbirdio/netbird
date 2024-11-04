@@ -927,43 +927,42 @@ func validateUserUpdate(groupsMap map[string]*nbgroup.Group, initiatorUser, oldU
 	return nil
 }
 
-// GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
-func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userID, domain string) (*Account, error) {
-	start := time.Now()
-	unlock := am.Store.AcquireGlobalLock(ctx)
-	defer unlock()
-	log.WithContext(ctx).Debugf("Acquired global lock in %s for user %s", time.Since(start), userID)
-
+// GetOrCreateAccountIDByUser returns the account ID for a given user ID.
+// If no account exists for the user, it creates a new one using the specified domain.
+func (am *DefaultAccountManager) GetOrCreateAccountIDByUser(ctx context.Context, userID, domain string) (string, error) {
 	lowerDomain := strings.ToLower(domain)
-
-	account, err := am.Store.GetAccountByUser(ctx, userID)
+	accountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			account, err = am.newAccount(ctx, userID, lowerDomain)
+			accountID, err = am.newAccount(ctx, userID, lowerDomain)
 			if err != nil {
-				return nil, err
+				return "", err
 			}
-			err = am.Store.SaveAccount(ctx, account)
-			if err != nil {
-				return nil, err
-			}
+			return accountID, nil
 		} else {
 			// other error
-			return nil, err
+			return "", err
 		}
 	}
 
-	userObj := account.Users[userID]
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return "", err
+	}
 
-	if lowerDomain != "" && account.Domain != lowerDomain && userObj.Role == UserRoleOwner {
-		account.Domain = lowerDomain
-		err = am.Store.SaveAccount(ctx, account)
+	accDomain, accCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return "", err
+	}
+
+	if lowerDomain != "" && accDomain != lowerDomain && user.Role == UserRoleOwner {
+		err = am.Store.UpdateAccountDomainAttributes(ctx, LockingStrengthUpdate, accountID, lowerDomain, accCategory, nil)
 		if err != nil {
-			return nil, status.Errorf(status.Internal, "failed updating account with domain")
+			return "", err
 		}
 	}
 
-	return account, nil
+	return "", nil
 }
 
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return

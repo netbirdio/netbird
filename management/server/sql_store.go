@@ -143,6 +143,15 @@ func (s *SqlStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (u
 	return unlock
 }
 
+func (s *SqlStore) CreateAccount(ctx context.Context, lockStrength LockingStrength, account *Account) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Create(&account)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save new account in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save new account in store")
+	}
+	return nil
+}
+
 func (s *SqlStore) SaveAccount(ctx context.Context, account *Account) error {
 	start := time.Now()
 	defer func() {
@@ -324,14 +333,18 @@ func (s *SqlStore) SavePeer(ctx context.Context, lockStrength LockingStrength, a
 	return nil
 }
 
-func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, lockStrength LockingStrength, accountID string, domain string, category string, isPrimaryDomain bool) error {
+func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, lockStrength LockingStrength, accountID string, domain string, category string, isPrimaryDomain *bool) error {
 	accountCopy := Account{
-		Domain:                 domain,
-		DomainCategory:         category,
-		IsDomainPrimaryAccount: isPrimaryDomain,
+		Domain:         domain,
+		DomainCategory: category,
 	}
 
-	fieldsToUpdate := []string{"domain", "domain_category", "is_domain_primary_account"}
+	fieldsToUpdate := []string{"domain", "domain_category"}
+	if isPrimaryDomain != nil {
+		accountCopy.IsDomainPrimaryAccount = *isPrimaryDomain
+		fieldsToUpdate = append(fieldsToUpdate, "is_domain_primary_account")
+	}
+
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
 		Select(fieldsToUpdate).
 		Where(idQueryCondition, accountID).

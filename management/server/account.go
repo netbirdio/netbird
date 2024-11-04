@@ -69,7 +69,7 @@ func cacheEntryExpiration() time.Duration {
 }
 
 type AccountManager interface {
-	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*Account, error)
+	GetOrCreateAccountIDByUser(ctx context.Context, userId, domain string) (string, error)
 	GetAccount(ctx context.Context, accountID string) (*Account, error)
 	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
 		autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error)
@@ -1268,25 +1268,28 @@ func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx co
 
 // newAccount creates a new Account with a generated ID and generated default setup keys.
 // If ID is already in use (due to collision) we try one more time before returning error
-func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain string) (*Account, error) {
+func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain string) (string, error) {
 	for i := 0; i < 2; i++ {
-		accountId := xid.New().String()
+		accountID := xid.New().String()
 
-		exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, accountId)
+		exists, err := am.Store.AccountExists(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("error while checking account existence: %v", err)
-			return nil, err
+			return "", err
 		}
 
 		if !exists {
-			newAccount := newAccountWithId(ctx, accountId, userID, domain)
-			am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
-			return newAccount, nil
+			if err = newAccountWithId(ctx, am.Store, accountID, userID, domain); err != nil {
+				return "", err
+			}
+
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountCreated, nil)
+			return accountID, nil
 		}
 		log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
 	}
 
-	return nil, status.Errorf(status.Internal, "error while creating new account")
+	return "", status.Errorf(status.Internal, "error while creating new account")
 }
 
 func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
@@ -1400,15 +1403,15 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userI
 	accountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
+			accountID, err = am.GetOrCreateAccountIDByUser(ctx, userID, domain)
 			if err != nil {
 				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
 			}
 
-			if err = am.addAccountIDToIDPAppMeta(ctx, userID, account.Id); err != nil {
+			if err = am.addAccountIDToIDPAppMeta(ctx, userID, accountID); err != nil {
 				return "", err
 			}
-			return account.Id, nil
+			return accountID, nil
 		}
 		return "", err
 	}
@@ -1705,7 +1708,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx 
 		newCategory = claims.DomainCategory
 	}
 
-	return am.Store.UpdateAccountDomainAttributes(ctx, LockingStrengthUpdate, accountID, newDomain, newCategory, primaryDomain)
+	return am.Store.UpdateAccountDomainAttributes(ctx, LockingStrengthUpdate, accountID, newDomain, newCategory, &primaryDomain)
 }
 
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
@@ -1743,29 +1746,26 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 	}
 
 	lowerDomain := strings.ToLower(claims.Domain)
+	isPrimaryDomain := true
 
-	newAccount, err := am.newAccount(ctx, claims.UserId, lowerDomain)
+	newAccountID, err := am.newAccount(ctx, claims.UserId, lowerDomain)
 	if err != nil {
 		return "", err
 	}
 
-	newAccount.Domain = lowerDomain
-	newAccount.DomainCategory = claims.DomainCategory
-	newAccount.IsDomainPrimaryAccount = true
-
-	err = am.Store.SaveAccount(ctx, newAccount)
+	err = am.Store.UpdateAccountDomainAttributes(ctx, LockingStrengthUpdate, newAccountID, lowerDomain, claims.DomainCategory, &isPrimaryDomain)
 	if err != nil {
 		return "", err
 	}
 
-	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, newAccount.Id)
+	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, newAccountID)
 	if err != nil {
 		return "", err
 	}
 
-	am.StoreEvent(ctx, claims.UserId, claims.UserId, newAccount.Id, activity.UserJoined, nil)
+	am.StoreEvent(ctx, claims.UserId, claims.UserId, newAccountID, activity.UserJoined, nil)
 
-	return newAccount.Id, nil
+	return newAccountID, nil
 }
 
 func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, claims jwtclaims.AuthorizationClaims) (string, error) {
@@ -2395,23 +2395,56 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 	return am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 }
 
-// addAllGroup to account object if it doesn't exist
-func addAllGroup(account *Account) error {
-	if len(account.Groups) == 0 {
+// newAccountWithId initializes a new Account instance with the provided account ID, user ID, and domain.
+// It creates default settings and establishes an initial user, group, and policy.
+func newAccountWithId(ctx context.Context, store Store, accountID, userID, domain string) error {
+	log.WithContext(ctx).Debugf("creating new account")
+
+	return store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		acc := &Account{
+			Id:        accountID,
+			CreatedAt: time.Now().UTC(),
+			Network:   NewNetwork(),
+			CreatedBy: userID,
+			Domain:    domain,
+			DNSSettings: DNSSettings{
+				DisabledManagementGroups: make([]string, 0),
+			},
+			Settings: &Settings{
+				PeerLoginExpirationEnabled: true,
+				PeerLoginExpiration:        DefaultPeerLoginExpiration,
+				GroupsPropagationEnabled:   true,
+				RegularUsersViewBlocked:    true,
+
+				PeerInactivityExpirationEnabled: false,
+				PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
+			},
+		}
+
+		if err := transaction.CreateAccount(ctx, LockingStrengthUpdate, acc); err != nil {
+			return fmt.Errorf("failed to create account: %w", err)
+		}
+
+		owner := NewOwnerUser(userID)
+		owner.AccountID = accountID
+		if err := transaction.SaveUser(ctx, LockingStrengthUpdate, owner); err != nil {
+			return fmt.Errorf("failed to save account owner: %w", err)
+		}
+
 		allGroup := &nbgroup.Group{
-			ID:     xid.New().String(),
-			Name:   "All",
-			Issued: nbgroup.GroupIssuedAPI,
+			ID:        xid.New().String(),
+			AccountID: accountID,
+			Name:      "All",
+			Issued:    nbgroup.GroupIssuedAPI,
 		}
-		for _, peer := range account.Peers {
-			allGroup.Peers = append(allGroup.Peers, peer.ID)
+		if err := transaction.SaveGroup(ctx, LockingStrengthUpdate, allGroup); err != nil {
+			return fmt.Errorf("failed to save group All: %w", err)
 		}
-		account.Groups = map[string]*nbgroup.Group{allGroup.ID: allGroup}
 
 		id := xid.New().String()
-
 		defaultPolicy := &Policy{
 			ID:          id,
+			AccountID:   accountID,
 			Name:        DefaultPolicyName,
 			Description: DefaultPolicyDescription,
 			Enabled:     true,
@@ -2429,59 +2462,14 @@ func addAllGroup(account *Account) error {
 				},
 			},
 		}
+		if err := transaction.SavePolicy(ctx, LockingStrengthUpdate, defaultPolicy); err != nil {
+			return fmt.Errorf("failed to save default policy: %w", err)
+		}
 
-		account.Policies = []*Policy{defaultPolicy}
-	}
-	return nil
-}
+		log.WithContext(ctx).Debugf("created new account %s", accountID)
 
-// newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Account {
-	log.WithContext(ctx).Debugf("creating new account")
-
-	network := NewNetwork()
-	peers := make(map[string]*nbpeer.Peer)
-	users := make(map[string]*User)
-	routes := make(map[route.ID]*route.Route)
-	setupKeys := map[string]*SetupKey{}
-	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
-
-	owner := NewOwnerUser(userID)
-	owner.AccountID = accountID
-	users[userID] = owner
-
-	dnsSettings := DNSSettings{
-		DisabledManagementGroups: make([]string, 0),
-	}
-	log.WithContext(ctx).Debugf("created new account %s", accountID)
-
-	acc := &Account{
-		Id:               accountID,
-		CreatedAt:        time.Now().UTC(),
-		SetupKeys:        setupKeys,
-		Network:          network,
-		Peers:            peers,
-		Users:            users,
-		CreatedBy:        userID,
-		Domain:           domain,
-		Routes:           routes,
-		NameServerGroups: nameServersGroups,
-		DNSSettings:      dnsSettings,
-		Settings: &Settings{
-			PeerLoginExpirationEnabled: true,
-			PeerLoginExpiration:        DefaultPeerLoginExpiration,
-			GroupsPropagationEnabled:   true,
-			RegularUsersViewBlocked:    true,
-
-			PeerInactivityExpirationEnabled: false,
-			PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
-		},
-	}
-
-	if err := addAllGroup(acc); err != nil {
-		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
-	}
-	return acc
+		return nil
+	})
 }
 
 // extractJWTGroups extracts the group names from a JWT token's claims.
