@@ -305,6 +305,23 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		}
 	}
 
+	if kind == MysqlStoreEngine {
+		cleanUp, err = testutil.CreateMyDB()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		dsn, ok := os.LookupEnv(mysqlDsnEnv)
+		if !ok {
+			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
+		}
+
+		store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	return store, cleanUp, nil
 }
 
