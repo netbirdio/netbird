@@ -59,5 +59,5 @@ func GetContextDB(ctx context.Context, c testcontainers.Container, talksConn str
 		return cleanup, err
 	}
 
-	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
+	return cleanup, os.Setenv(dsn, talksConn)
 }
