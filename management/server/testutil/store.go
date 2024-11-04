@@ -17,32 +17,17 @@ import (
 
 func CreatePGDB() (func(), error) {
 	ctx := context.Background()
-	c, err := postgres.Run(ctx,
-		"postgres:16-alpine",
-		postgres.WithDatabase("test"),
-		postgres.WithUsername("user"),
-		postgres.WithPassword("password"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).WithStartupTimeout(15*time.Second)),
+	c, err := postgres.Run(ctx, "postgres:16-alpine", testcontainers.WithWaitStrategy(
+		wait.ForLog("database system is ready to accept connections").
+			WithOccurrence(2).WithStartupTimeout(15*time.Second)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	cleanup := func() {
-		timeout := 10 * time.Second
-		err = c.Stop(ctx, &timeout)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
-		}
-	}
-
 	talksConn, err := c.ConnectionString(ctx)
-	if err != nil {
-		return cleanup, err
-	}
-	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
+
+	return GetContextDB(ctx, c, talksConn, err, "NETBIRD_STORE_ENGINE_POSTGRES_DSN")
 }
 
 func CreateMyDB() (func(), error) {
@@ -55,6 +40,13 @@ func CreateMyDB() (func(), error) {
 		return nil, err
 	}
 
+	talksConn, err := c.ConnectionString(ctx)
+
+	return GetContextDB(ctx, c, talksConn, err, "NETBIRD_STORE_ENGINE_MYSQL_DSN")
+}
+
+func GetContextDB(ctx context.Context, c testcontainers.Container, talksConn string, err error, dsn string) (func(), error) {
+
 	cleanup := func() {
 		timeout := 10 * time.Second
 		err = c.Stop(ctx, &timeout)
@@ -63,9 +55,9 @@ func CreateMyDB() (func(), error) {
 		}
 	}
 
-	talksConn, err := c.ConnectionString(ctx)
 	if err != nil {
 		return cleanup, err
 	}
-	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_MYSQL_DSN", talksConn)
+
+	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
 }
