@@ -17,6 +17,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/mysql"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -1045,6 +1046,16 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
 }
 
+// NewMysqlStore creates a new Postgres store.
+func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	db, err := gorm.Open(mysql.Open(dsn), getGormConfig())
+	if err != nil {
+		return nil, err
+	}
+
+	return NewSqlStore(ctx, db, MysqlStoreEngine, metrics)
+}
+
 func getGormConfig() *gorm.Config {
 	return &gorm.Config{
 		Logger:          logger.Default.LogMode(logger.Silent),
@@ -1060,6 +1071,15 @@ func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics) (Store,
 		return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
 	return NewPostgresqlStore(ctx, dsn, metrics)
+}
+
+// newMysqlStore initializes a new Postgres store.
+func newMysqlStore(ctx context.Context, metrics telemetry.AppMetrics) (Store, error) {
+	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	if !ok {
+		return nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
+	}
+	return NewMysqlStore(ctx, dsn, metrics)
 }
 
 // NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir.
