@@ -136,6 +136,7 @@ const (
 	MysqlStoreEngine    StoreEngine = "mysql"
 
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
+	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
 
 func getStoreEngineFromEnv() StoreEngine {
