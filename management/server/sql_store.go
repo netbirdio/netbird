@@ -1046,7 +1046,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
 }
 
-// NewMysqlStore creates a new Postgres store.
+// NewMysqlStore creates a new MySQL store.
 func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	db, err := gorm.Open(mysql.Open(dsn), getGormConfig())
 	if err != nil {
@@ -1073,7 +1073,7 @@ func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics) (Store,
 	return NewPostgresqlStore(ctx, dsn, metrics)
 }
 
-// newMysqlStore initializes a new Postgres store.
+// newMysqlStore initializes a new MySQL store.
 func newMysqlStore(ctx context.Context, metrics telemetry.AppMetrics) (Store, error) {
 	dsn, ok := os.LookupEnv(mysqlDsnEnv)
 	if !ok {
@@ -1107,6 +1107,28 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 // NewPostgresqlStoreFromSqlStore restores a store from SqlStore and stores Postgres DB.
 func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	store, err := NewPostgresqlStore(ctx, dsn, metrics)
+	if err != nil {
+		return nil, err
+	}
+
+	err = store.SaveInstallationID(ctx, sqliteStore.GetInstallationID())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, account := range sqliteStore.GetAllAccounts(ctx) {
+		err := store.SaveAccount(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return store, nil
+}
+
+// NewMysqlStoreFromSqlStore restores a store from SqlStore and stores MySQL DB.
+func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	store, err := NewMysqlStore(ctx, dsn, metrics)
 	if err != nil {
 		return nil, err
 	}
