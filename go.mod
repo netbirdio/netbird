@@ -97,6 +97,7 @@ require (
 	google.golang.org/api v0.177.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/postgres v1.5.7
+	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/sqlite v1.5.3
 	gorm.io/gorm v1.25.7-0.20240204074919-46816ad31dde
 	nhooyr.io/websocket v1.8.11
