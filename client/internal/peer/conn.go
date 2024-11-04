@@ -65,14 +65,6 @@ type ConnConfig struct {
 	ICEConfig icemaker.Config
 }
 
-type WorkerCallbacks struct {
-	OnRelayReadyCallback func(info RelayConnInfo)
-	OnRelayStatusChanged func(ConnStatus)
-
-	OnICEConnReadyCallback func(ConnPriority, ICEConnInfo)
-	OnICEStatusChanged     func(ConnStatus)
-}
-
 type Conn struct {
 	log            *log.Entry
 	mu             sync.Mutex
@@ -134,24 +126,18 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		statusICE:      NewAtomicConnStatus(),
 	}
 
-	rFns := WorkerRelayCallbacks{
-		OnConnReady:    conn.relayConnectionIsReady,
-		OnDisconnected: conn.onWorkerRelayStateDisconnected,
-	}
-
-	wFns := WorkerICECallbacks{
-		OnConnReady:     conn.iCEConnectionIsReady,
-		OnStatusChanged: conn.onWorkerICEStateDisconnected,
-	}
-
 	ctrl := isController(config)
-	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, relayManager, rFns)
+	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, relayManager)
+	conn.workerRelay.SetOnConnReady(conn.relayConnectionIsReady)
+	conn.workerRelay.SetOnDisconnected(conn.onWorkerRelayStateDisconnected)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally, wFns)
+	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally)
 	if err != nil {
 		return nil, err
 	}
+	conn.workerICE.SetOnConnReady(conn.iCEConnectionIsReady)
+	conn.workerICE.SetOnDisconnected(conn.onWorkerICEStateDisconnected)
 
 	conn.handshaker = NewHandshaker(ctx, connLog, config, signaler, conn.workerICE, conn.workerRelay)
 
@@ -301,7 +287,7 @@ func (conn *Conn) GetKey() string {
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICEConnInfo) {
+func (conn *Conn) iCEConnectionIsReady(iceConnInfo ICEConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -309,14 +295,18 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		return
 	}
 
-	if remoteConnNil(conn.log, iceConnInfo.RemoteConn) {
-		conn.log.Errorf("remote ICE connection is nil")
-		return
-	}
+	/*
+		// temporarily disabled the check
+		if remoteConnNil(conn.log, iceConnInfo.RemoteConn) {
+			conn.log.Errorf("remote ICE connection is nil")
+			return
+		}
+
+	*/
 
 	conn.log.Debugf("ICE connection is ready")
 
-	if conn.currentConnPriority > priority {
+	if conn.currentConnPriority > iceConnInfo.Priority {
 		conn.statusICE.Set(StatusConnected)
 		conn.updateIceState(iceConnInfo)
 		return
@@ -366,14 +356,14 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		return
 	}
 	wgConfigWorkaround()
-	conn.currentConnPriority = priority
+	conn.currentConnPriority = iceConnInfo.Priority
 	conn.statusICE.Set(StatusConnected)
 	conn.updateIceState(iceConnInfo)
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 }
 
 // todo review to make sense to handle connecting and disconnected status also?
-func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
+func (conn *Conn) onWorkerICEStateDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -381,7 +371,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		return
 	}
 
-	conn.log.Tracef("ICE connection state changed to %s", newState)
+	conn.log.Tracef("ICE connection state changed to disconnected")
 
 	if conn.wgProxyICE != nil {
 		if err := conn.wgProxyICE.CloseConn(); err != nil {
@@ -401,8 +391,8 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		conn.currentConnPriority = connPriorityRelay
 	}
 
-	changed := conn.statusICE.Get() != newState && newState != StatusConnecting
-	conn.statusICE.Set(newState)
+	changed := conn.statusICE.Get() != StatusDisconnected
+	conn.statusICE.Set(StatusDisconnected)
 
 	conn.guard.SetICEConnDisconnected(changed)
 
