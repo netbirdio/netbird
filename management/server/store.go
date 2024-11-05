@@ -316,6 +316,9 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (
 		}
 
 		dsn, ok := os.LookupEnv(mysqlDsnEnv)
+
+		log.WithContext(ctx).Warnf("MysqlStoreEngine DSN: %s", mysqlDsnEnv)
+
 		if !ok {
 			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 		}
