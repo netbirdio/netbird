@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -34,21 +33,8 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 ) *SetupKeysHandler {
 	return &SetupKeysHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				return &server.Account{
-					Id:     testAccountID,
-					Domain: "hotmail.com",
-					Users: map[string]*server.User{
-						user.Id: user,
-					},
-					SetupKeys: map[string]*server.SetupKey{
-						defaultKey.Key: defaultKey,
-					},
-					Groups: map[string]*nbgroup.Group{
-						"group-1": {ID: "group-1", Peers: []string{"A", "B"}},
-						"id-all":  {ID: "id-all", Name: "All"},
-					},
-				}, user, nil
+			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, claims.UserId, nil
 			},
 			CreateSetupKeyFunc: func(_ context.Context, _ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
 				_ int, _ string, ephemeral bool,
@@ -81,6 +67,13 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 			ListSetupKeysFunc: func(_ context.Context, accountID, userID string) ([]*server.SetupKey, error) {
 				return []*server.SetupKey{defaultKey}, nil
 			},
+
+			DeleteSetupKeyFunc: func(_ context.Context, accountID, userID, keyID string) error {
+				if keyID == defaultKey.Id {
+					return nil
+				}
+				return status.Errorf(status.NotFound, "key %s not found", keyID)
+			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
@@ -95,18 +88,21 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 }
 
 func TestSetupKeysHandlers(t *testing.T) {
-	defaultSetupKey := server.GenerateDefaultSetupKey()
+	defaultSetupKey, _ := server.GenerateDefaultSetupKey()
 	defaultSetupKey.Id = existingSetupKeyID
 
 	adminUser := server.NewAdminUser("test_user")
 
-	newSetupKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"},
+	newSetupKey, plainKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"},
 		server.SetupKeyUnlimitedUsage, true)
+	newSetupKey.Key = plainKey
 	updatedDefaultSetupKey := defaultSetupKey.Copy()
 	updatedDefaultSetupKey.AutoGroups = []string{"group-1"}
 	updatedDefaultSetupKey.Name = updatedSetupKeyName
 	updatedDefaultSetupKey.Revoked = true
 
+	expectedNewKey := toResponseBody(newSetupKey)
+	expectedNewKey.Key = plainKey
 	tt := []struct {
 		name              string
 		requestType       string
@@ -148,7 +144,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"%s\",\"expires_in\":86400, \"ephemeral\":true}", newSetupKey.Name, newSetupKey.Type))),
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(newSetupKey),
+			expectedSetupKey: expectedNewKey,
 		},
 		{
 			name:        "Update Setup Key",
@@ -164,6 +160,14 @@ func TestSetupKeysHandlers(t *testing.T) {
 			expectedBody:     true,
 			expectedSetupKey: toResponseBody(updatedDefaultSetupKey),
 		},
+		{
+			name:           "Delete Setup Key",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/setup-keys/" + defaultSetupKey.Id,
+			requestBody:    bytes.NewBuffer([]byte("")),
+			expectedStatus: http.StatusOK,
+			expectedBody:   false,
+		},
 	}
 
 	handler := initSetupKeysTestMetaData(defaultSetupKey, newSetupKey, updatedDefaultSetupKey, adminUser)
@@ -178,6 +182,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			router.HandleFunc("/api/setup-keys", handler.CreateSetupKey).Methods("POST", "OPTIONS")
 			router.HandleFunc("/api/setup-keys/{keyId}", handler.GetSetupKey).Methods("GET", "OPTIONS")
 			router.HandleFunc("/api/setup-keys/{keyId}", handler.UpdateSetupKey).Methods("PUT", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", handler.DeleteSetupKey).Methods("DELETE", "OPTIONS")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

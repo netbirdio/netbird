@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"path/filepath"
 	"runtime"
 	sync2 "sync"
 	"time"
@@ -52,8 +51,6 @@ var _ = Describe("Management service", func() {
 		dataDir, err = os.MkdirTemp("", "wiretrustee_mgmt_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
 
-		err = util.CopyFileContents("testdata/store.json", filepath.Join(dataDir, "store.json"))
-		Expect(err).NotTo(HaveOccurred())
 		var listener net.Listener
 
 		config := &server.Config{}
@@ -61,7 +58,7 @@ var _ = Describe("Management service", func() {
 		Expect(err).NotTo(HaveOccurred())
 		config.Datadir = dataDir
 
-		s, listener = startServer(config)
+		s, listener = startServer(config, dataDir, "testdata/store.sql")
 		addr = listener.Addr().String()
 		client, conn = createRawClient(addr)
 
@@ -530,12 +527,12 @@ func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.Clie
 	return mgmtProto.NewManagementServiceClient(conn), conn
 }
 
-func startServer(config *server.Config) (*grpc.Server, net.Listener) {
+func startServer(config *server.Config, dataDir string, testFile string) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
 
-	store, _, err := server.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, _, err := server.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}

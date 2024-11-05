@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -15,7 +16,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/util/net"
 )
 
@@ -26,7 +26,7 @@ type ConnectionListener interface {
 
 // TunAdapter export internal TunAdapter for mobile
 type TunAdapter interface {
-	iface.TunAdapter
+	device.TunAdapter
 }
 
 // IFaceDiscover export internal IFaceDiscover for mobile
@@ -51,7 +51,7 @@ func init() {
 // Client struct manage the life circle of background service
 type Client struct {
 	cfgFile               string
-	tunAdapter            iface.TunAdapter
+	tunAdapter            device.TunAdapter
 	iFaceDiscover         IFaceDiscover
 	recorder              *peer.Status
 	ctxCancel             context.CancelFunc

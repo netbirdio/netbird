@@ -11,15 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 type IFaceMock struct {
-	SetFilterFunc func(iface.PacketFilter) error
+	SetFilterFunc func(device.PacketFilter) error
 	AddressFunc   func() iface.WGAddress
 }
 
-func (i *IFaceMock) SetFilter(iface iface.PacketFilter) error {
+func (i *IFaceMock) SetFilter(iface device.PacketFilter) error {
 	if i.SetFilterFunc == nil {
 		return fmt.Errorf("not implemented")
 	}
@@ -35,7 +36,7 @@ func (i *IFaceMock) Address() iface.WGAddress {
 
 func TestManagerCreate(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilterFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -49,10 +50,10 @@ func TestManagerCreate(t *testing.T) {
 	}
 }
 
-func TestManagerAddFiltering(t *testing.T) {
+func TestManagerAddPeerFiltering(t *testing.T) {
 	isSetFilterCalled := false
 	ifaceMock := &IFaceMock{
-		SetFilterFunc: func(iface.PacketFilter) error {
+		SetFilterFunc: func(device.PacketFilter) error {
 			isSetFilterCalled = true
 			return nil
 		},
@@ -71,7 +72,7 @@ func TestManagerAddFiltering(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	rule, err := m.AddFiltering(ip, proto, nil, port, direction, action, "", comment)
+	rule, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -90,7 +91,7 @@ func TestManagerAddFiltering(t *testing.T) {
 
 func TestManagerDeleteRule(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilterFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -106,7 +107,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	rule, err := m.AddFiltering(ip, proto, nil, port, direction, action, "", comment)
+	rule, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -119,14 +120,14 @@ func TestManagerDeleteRule(t *testing.T) {
 	action = fw.ActionDrop
 	comment = "Test rule 2"
 
-	rule2, err := m.AddFiltering(ip, proto, nil, port, direction, action, "", comment)
+	rule2, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
 	}
 
 	for _, r := range rule {
-		err = m.DeleteRule(r)
+		err = m.DeletePeerRule(r)
 		if err != nil {
 			t.Errorf("failed to delete rule: %v", err)
 			return
@@ -140,7 +141,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	for _, r := range rule2 {
-		err = m.DeleteRule(r)
+		err = m.DeletePeerRule(r)
 		if err != nil {
 			t.Errorf("failed to delete rule: %v", err)
 			return
@@ -236,7 +237,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 
 func TestManagerReset(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilterFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -252,13 +253,13 @@ func TestManagerReset(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	_, err = m.AddFiltering(ip, proto, nil, port, direction, action, "", comment)
+	_, err = m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
 	}
 
-	err = m.Reset()
+	err = m.Reset(nil)
 	if err != nil {
 		t.Errorf("failed to reset Manager: %v", err)
 		return
@@ -271,7 +272,7 @@ func TestManagerReset(t *testing.T) {
 
 func TestNotMatchByIP(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilterFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -290,7 +291,7 @@ func TestNotMatchByIP(t *testing.T) {
 	action := fw.ActionAccept
 	comment := "Test rule"
 
-	_, err = m.AddFiltering(ip, proto, nil, nil, direction, action, "", comment)
+	_, err = m.AddPeerFiltering(ip, proto, nil, nil, direction, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -329,7 +330,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if err = m.Reset(); err != nil {
+	if err = m.Reset(nil); err != nil {
 		t.Errorf("failed to reset Manager: %v", err)
 		return
 	}
@@ -339,7 +340,7 @@ func TestNotMatchByIP(t *testing.T) {
 func TestRemovePacketHook(t *testing.T) {
 	// creating mock iface
 	iface := &IFaceMock{
-		SetFilterFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
 	// creating manager instance
@@ -388,14 +389,14 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
 			ifaceMock := &IFaceMock{
-				SetFilterFunc: func(iface.PacketFilter) error { return nil },
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}
 			manager, err := Create(ifaceMock)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
 			defer func() {
-				if err := manager.Reset(); err != nil {
+				if err := manager.Reset(nil); err != nil {
 					t.Errorf("clear the manager state: %v", err)
 				}
 				time.Sleep(time.Second)
@@ -406,9 +407,9 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []int{1000 + i}}
 				if i%2 == 0 {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
+					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
 				} else {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
+					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
 				}
 
 				require.NoError(t, err, "failed to add rule")

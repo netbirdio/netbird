@@ -25,91 +25,46 @@ func (e *GroupLinkError) Error() string {
 	return fmt.Sprintf("group has been linked to %s: %s", e.Resource, e.Name)
 }
 
-// GetGroup object of the peers
+// CheckGroupPermissions validates if a user has the necessary permissions to view groups
+func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return err
+	}
+
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return err
+	}
+
+	if (!user.IsAdminOrServiceUser() && settings.RegularUsersViewBlocked) || user.AccountID != accountID {
+		return status.Errorf(status.PermissionDenied, "groups are blocked for users")
+	}
+
+	return nil
+}
+
+// GetGroup returns a specific group by groupID in an account
 func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupID, userID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
+	if err := am.CheckGroupPermissions(ctx, accountID, userID); err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
-		return nil, status.Errorf(status.PermissionDenied, "groups are blocked for users")
-	}
-
-	group, ok := account.Groups[groupID]
-	if ok {
-		return group, nil
-	}
-
-	return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
+	return am.Store.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
 }
 
 // GetAllGroups returns all groups in an account
-func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID string, userID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
+func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error) {
+	if err := am.CheckGroupPermissions(ctx, accountID, userID); err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
-		return nil, status.Errorf(status.PermissionDenied, "groups are blocked for users")
-	}
-
-	groups := make([]*nbgroup.Group, 0, len(account.Groups))
-	for _, item := range account.Groups {
-		groups = append(groups, item)
-	}
-
-	return groups, nil
+	return am.Store.GetAccountGroups(ctx, accountID)
 }
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
 func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	matchingGroups := make([]*nbgroup.Group, 0)
-	for _, group := range account.Groups {
-		if group.Name == groupName {
-			matchingGroups = append(matchingGroups, group)
-		}
-	}
-
-	if len(matchingGroups) == 0 {
-		return nil, status.Errorf(status.NotFound, "group with name %s not found", groupName)
-	}
-
-	maxPeers := -1
-	var groupWithMostPeers *nbgroup.Group
-	for i, group := range matchingGroups {
-		if len(group.Peers) > maxPeers {
-			maxPeers = len(group.Peers)
-			groupWithMostPeers = matchingGroups[i]
-		}
-	}
-
-	return groupWithMostPeers, nil
+	return am.Store.GetGroupByName(ctx, LockingStrengthShare, groupName, accountID)
 }
 
 // SaveGroup object of the peers
@@ -166,12 +121,19 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		eventsToStore = append(eventsToStore, events...)
 	}
 
+	newGroupIDs := make([]string, 0, len(newGroups))
+	for _, newGroup := range newGroups {
+		newGroupIDs = append(newGroupIDs, newGroup.ID)
+	}
+
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if areGroupChangesAffectPeers(account, newGroupIDs) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
@@ -262,6 +224,15 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 		return nil
 	}
 
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		return err
+	}
+
+	if allGroup.ID == groupID {
+		return status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed")
+	}
+
 	if err = validateDeleteGroup(account, group, userId); err != nil {
 		return err
 	}
@@ -273,8 +244,6 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 	}
 
 	am.StoreEvent(ctx, userId, groupID, accountId, activity.GroupDeleted, group.EventMeta())
-
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -317,8 +286,6 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountId, us
 	for _, g := range deletedGroups {
 		am.StoreEvent(ctx, userId, g.ID, accountId, activity.GroupDeleted, g.EventMeta())
 	}
-
-	am.updateAccountPeers(ctx, account)
 
 	return allErrors
 }
@@ -372,7 +339,9 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if areGroupChangesAffectPeers(account, []string{group.ID}) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -402,7 +371,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		}
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if areGroupChangesAffectPeers(account, []string{group.ID}) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -504,4 +475,33 @@ func isGroupLinkedToUser(users map[string]*User, groupID string) (bool, *User) {
 		}
 	}
 	return false, nil
+}
+
+// anyGroupHasPeers checks if any of the given groups in the account have peers.
+func anyGroupHasPeers(account *Account, groupIDs []string) bool {
+	for _, groupID := range groupIDs {
+		if group, exists := account.Groups[groupID]; exists && group.HasPeers() {
+			return true
+		}
+	}
+	return false
+}
+
+func areGroupChangesAffectPeers(account *Account, groupIDs []string) bool {
+	for _, groupID := range groupIDs {
+		if slices.Contains(account.DNSSettings.DisabledManagementGroups, groupID) {
+			return true
+		}
+		if linked, _ := isGroupLinkedToDns(account.NameServerGroups, groupID); linked {
+			return true
+		}
+		if linked, _ := isGroupLinkedToPolicy(account.Policies, groupID); linked {
+			return true
+		}
+		if linked, _ := isGroupLinkedToRoute(account.Routes, groupID); linked {
+			return true
+		}
+	}
+
+	return false
 }

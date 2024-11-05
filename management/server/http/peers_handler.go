@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -14,7 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 )
 
 // PeersHandler is a handler that returns peers of the account
@@ -74,7 +75,7 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, valid))
 }
 
-func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
+func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, userID, peerID string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PeerRequest{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -87,6 +88,8 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 		SSHEnabled:             req.SshEnabled,
 		Name:                   req.Name,
 		LoginExpirationEnabled: req.LoginExpirationEnabled,
+
+		InactivityExpirationEnabled: req.InactivityExpirationEnabled,
 	}
 
 	if req.ApprovalRequired != nil {
@@ -96,7 +99,7 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 		}
 	}
 
-	peer, err := h.accountManager.UpdatePeer(ctx, account.Id, user.Id, update)
+	peer, err := h.accountManager.UpdatePeer(ctx, account.Id, userID, update)
 	if err != nil {
 		util.WriteError(ctx, err, w)
 		return
@@ -130,7 +133,7 @@ func (h *PeersHandler) deletePeer(ctx context.Context, accountID, userID string,
 // HandlePeer handles all peer requests for GET, PUT and DELETE operations
 func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -144,13 +147,20 @@ func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodDelete:
-		h.deletePeer(r.Context(), account.Id, user.Id, peerID, w)
+		h.deletePeer(r.Context(), accountID, userID, peerID, w)
 		return
-	case http.MethodPut:
-		h.updatePeer(r.Context(), account, user, peerID, w, r)
-		return
-	case http.MethodGet:
-		h.getPeer(r.Context(), account, peerID, user.Id, w)
+	case http.MethodGet, http.MethodPut:
+		account, err := h.accountManager.GetAccountByID(r.Context(), accountID, userID)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		if r.Method == http.MethodGet {
+			h.getPeer(r.Context(), account, peerID, userID, w)
+		} else {
+			h.updatePeer(r.Context(), account, userID, peerID, w, r)
+		}
 		return
 	default:
 		util.WriteError(r.Context(), status.Errorf(status.NotFound, "unknown METHOD"), w)
@@ -159,19 +169,14 @@ func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 
 // GetAllPeers returns a list of all peers associated with a provided account
 func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		util.WriteError(r.Context(), status.Errorf(status.NotFound, "unknown METHOD"), w)
-		return
-	}
-
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	peers, err := h.accountManager.GetPeers(r.Context(), account.Id, user.Id)
+	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -179,8 +184,8 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	respBody := make([]*api.PeerBatch, 0, len(peers))
-	for _, peer := range peers {
+	respBody := make([]*api.PeerBatch, 0, len(account.Peers))
+	for _, peer := range account.Peers {
 		peerToReturn, err := h.checkPeerStatus(peer)
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
@@ -214,7 +219,7 @@ func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approv
 // GetAccessiblePeers returns a list of all peers that the specified peer can connect to within the network.
 func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -224,6 +229,18 @@ func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request
 	peerID := vars["peerId"]
 	if len(peerID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
+		return
+	}
+
+	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -317,29 +334,30 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 	}
 
 	return &api.Peer{
-		Id:                     peer.ID,
-		Name:                   peer.Name,
-		Ip:                     peer.IP.String(),
-		ConnectionIp:           peer.Location.ConnectionIP.String(),
-		Connected:              peer.Status.Connected,
-		LastSeen:               peer.Status.LastSeen,
-		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
-		KernelVersion:          peer.Meta.KernelVersion,
-		GeonameId:              int(peer.Location.GeoNameID),
-		Version:                peer.Meta.WtVersion,
-		Groups:                 groupsInfo,
-		SshEnabled:             peer.SSHEnabled,
-		Hostname:               peer.Meta.Hostname,
-		UserId:                 peer.UserID,
-		UiVersion:              peer.Meta.UIVersion,
-		DnsLabel:               fqdn(peer, dnsDomain),
-		LoginExpirationEnabled: peer.LoginExpirationEnabled,
-		LastLogin:              peer.LastLogin,
-		LoginExpired:           peer.Status.LoginExpired,
-		ApprovalRequired:       !approved,
-		CountryCode:            peer.Location.CountryCode,
-		CityName:               peer.Location.CityName,
-		SerialNumber:           peer.Meta.SystemSerialNumber,
+		Id:                          peer.ID,
+		Name:                        peer.Name,
+		Ip:                          peer.IP.String(),
+		ConnectionIp:                peer.Location.ConnectionIP.String(),
+		Connected:                   peer.Status.Connected,
+		LastSeen:                    peer.Status.LastSeen,
+		Os:                          fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
+		KernelVersion:               peer.Meta.KernelVersion,
+		GeonameId:                   int(peer.Location.GeoNameID),
+		Version:                     peer.Meta.WtVersion,
+		Groups:                      groupsInfo,
+		SshEnabled:                  peer.SSHEnabled,
+		Hostname:                    peer.Meta.Hostname,
+		UserId:                      peer.UserID,
+		UiVersion:                   peer.Meta.UIVersion,
+		DnsLabel:                    fqdn(peer, dnsDomain),
+		LoginExpirationEnabled:      peer.LoginExpirationEnabled,
+		LastLogin:                   peer.LastLogin,
+		LoginExpired:                peer.Status.LoginExpired,
+		ApprovalRequired:            !approved,
+		CountryCode:                 peer.Location.CountryCode,
+		CityName:                    peer.Location.CityName,
+		SerialNumber:                peer.Meta.SystemSerialNumber,
+		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 	}
 }
 
@@ -373,6 +391,8 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,
 		SerialNumber:           peer.Meta.SystemSerialNumber,
+
+		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 	}
 }
 

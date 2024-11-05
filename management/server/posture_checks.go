@@ -15,30 +15,16 @@ const (
 )
 
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() {
+	if !user.HasAdminPower() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
 	}
 
-	for _, postureChecks := range account.PostureChecks {
-		if postureChecks.ID == postureChecksID {
-			return postureChecks, nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "posture checks with ID %s not found", postureChecksID)
+	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, postureChecksID, accountID)
 }
 
 func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error {
@@ -81,7 +67,8 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	}
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
-	if exists {
+
+	if arePostureCheckChangesAffectingPeers(account, postureChecks.ID, exists) {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -121,24 +108,16 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 }
 
 func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() {
+	if !user.HasAdminPower() || user.AccountID != accountID {
 		return nil, status.Errorf(status.PermissionDenied, errMsgPostureAdminOnly)
 	}
 
-	return account.PostureChecks, nil
+	return am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
 }
 
 func (am *DefaultAccountManager) savePostureChecks(account *Account, postureChecks *posture.Checks) (exists, uniqName bool) {
@@ -170,13 +149,9 @@ func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureCh
 		return nil, status.Errorf(status.NotFound, "posture checks with ID %s doesn't exist", postureChecksID)
 	}
 
-	// check policy links
-	for _, policy := range account.Policies {
-		for _, id := range policy.SourcePostureChecks {
-			if id == postureChecksID {
-				return nil, status.Errorf(status.PreconditionFailed, "posture checks have been linked to policy: %s", policy.Name)
-			}
-		}
+	// Check if posture check is linked to any policy
+	if isLinked, linkedPolicy := isPostureCheckLinkedToPolicy(account, postureChecksID); isLinked {
+		return nil, status.Errorf(status.PreconditionFailed, "posture checks have been linked to policy: %s", linkedPolicy.Name)
 	}
 
 	postureChecks := account.PostureChecks[postureChecksIdx]
@@ -238,4 +213,26 @@ func addPolicyPostureChecks(account *Account, policy *Policy, peerPostureChecks 
 			}
 		}
 	}
+}
+
+func isPostureCheckLinkedToPolicy(account *Account, postureChecksID string) (bool, *Policy) {
+	for _, policy := range account.Policies {
+		if slices.Contains(policy.SourcePostureChecks, postureChecksID) {
+			return true, policy
+		}
+	}
+	return false, nil
+}
+
+// arePostureCheckChangesAffectingPeers checks if the changes in posture checks are affecting peers.
+func arePostureCheckChangesAffectingPeers(account *Account, postureCheckID string, exists bool) bool {
+	if !exists {
+		return false
+	}
+
+	isLinked, linkedPolicy := isPostureCheckLinkedToPolicy(account, postureCheckID)
+	if !isLinked {
+		return false
+	}
+	return anyGroupHasPeers(account, linkedPolicy.ruleGroups())
 }

@@ -16,6 +16,7 @@ import (
 
 var (
 	relayCleanupInterval = 60 * time.Second
+	keepUnusedServerTime = 5 * time.Second
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
@@ -27,10 +28,13 @@ type RelayTrack struct {
 	sync.RWMutex
 	relayClient *Client
 	err         error
+	created     time.Time
 }
 
 func NewRelayTrack() *RelayTrack {
-	return &RelayTrack{}
+	return &RelayTrack{
+		created: time.Now(),
+	}
 }
 
 type OnServerCloseListener func()
@@ -65,6 +69,7 @@ type Manager struct {
 	relayClientsMutex sync.RWMutex
 
 	onDisconnectedListeners map[string]*list.List
+	onReconnectedListenerFn func()
 	listenerLock            sync.Mutex
 }
 
@@ -101,6 +106,7 @@ func (m *Manager) Serve() error {
 	m.relayClient = client
 
 	m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
+	m.relayClient.SetOnConnectedListener(m.onServerConnected)
 	m.relayClient.SetOnDisconnectListener(func() {
 		m.onServerDisconnected(client.connectionURL)
 	})
@@ -136,6 +142,18 @@ func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 	}
 
 	return netConn, err
+}
+
+// Ready returns true if the home Relay client is connected to the relay server.
+func (m *Manager) Ready() bool {
+	if m.relayClient == nil {
+		return false
+	}
+	return m.relayClient.Ready()
+}
+
+func (m *Manager) SetOnReconnectedListener(f func()) {
+	m.onReconnectedListenerFn = f
 }
 
 // AddCloseListener adds a listener to the given server instance address. The listener will be called if the connection
@@ -240,6 +258,13 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 	return conn, nil
 }
 
+func (m *Manager) onServerConnected() {
+	if m.onReconnectedListenerFn == nil {
+		return
+	}
+	go m.onReconnectedListenerFn()
+}
+
 func (m *Manager) onServerDisconnected(serverAddress string) {
 	if serverAddress == m.relayClient.connectionURL {
 		go m.reconnectGuard.OnDisconnected()
@@ -281,6 +306,18 @@ func (m *Manager) cleanUpUnusedRelays() {
 
 	for addr, rt := range m.relayClients {
 		rt.Lock()
+		// if the connection failed to the server the relay client will be nil
+		// but the instance will be kept in the relayClients until the next locking
+		if rt.err != nil {
+			rt.Unlock()
+			continue
+		}
+
+		if time.Since(rt.created) <= keepUnusedServerTime {
+			rt.Unlock()
+			continue
+		}
+
 		if rt.relayClient.HasConns() {
 			rt.Unlock()
 			continue

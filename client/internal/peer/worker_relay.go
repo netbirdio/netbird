@@ -31,6 +31,7 @@ type WorkerRelayCallbacks struct {
 
 type WorkerRelay struct {
 	log          *log.Entry
+	isController bool
 	config       ConnConfig
 	relayManager relayClient.ManagerService
 	callBacks    WorkerRelayCallbacks
@@ -44,9 +45,10 @@ type WorkerRelay struct {
 	relaySupportedOnRemotePeer atomic.Bool
 }
 
-func NewWorkerRelay(log *log.Entry, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
+func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
 	r := &WorkerRelay{
 		log:          log,
+		isController: ctrl,
 		config:       config,
 		relayManager: relayManager,
 		callBacks:    callbacks,
@@ -74,12 +76,13 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
-			w.log.Infof("do not need to reopen relay connection")
+			w.log.Debugf("handled offer by reusing existing relay connection")
 			return
 		}
 		w.log.Errorf("failed to open connection via Relay: %s", err)
 		return
 	}
+
 	w.relayLock.Lock()
 	w.relayedConn = relayedConn
 	w.relayLock.Unlock()
@@ -134,10 +137,6 @@ func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
 
 func (w *WorkerRelay) IsRelayConnectionSupportedWithPeer() bool {
 	return w.relaySupportedOnRemotePeer.Load() && w.RelayIsSupportedLocally()
-}
-
-func (w *WorkerRelay) IsController() bool {
-	return w.config.LocalKey > w.config.Key
 }
 
 func (w *WorkerRelay) RelayIsSupportedLocally() bool {
@@ -212,7 +211,7 @@ func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
 }
 
 func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress string) string {
-	if w.IsController() {
+	if w.isController {
 		return myRelayAddress
 	}
 	return remoteRelayAddress

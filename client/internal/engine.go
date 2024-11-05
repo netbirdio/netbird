@@ -23,21 +23,25 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
-
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peer/guard"
+	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
-	"github.com/netbirdio/netbird/client/internal/wgproxy"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
+
+
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
@@ -140,8 +144,7 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	wgInterface    iface.IWGIface
-	wgProxyFactory *wgproxy.Factory
+	wgInterface iface.IWGIface
 
 	udpMux *bind.UniversalUDPMuxDefault
 
@@ -167,6 +170,8 @@ type Engine struct {
 	checks []*mgmProto.Checks
 
 	relayManager *relayClient.Manager
+	stateManager *statemanager.Manager
+	srWatcher *guard.SRWatcher
 }
 
 // Peer is an instance of the Connection Peer
@@ -214,7 +219,7 @@ func NewEngineWithProbes(
 	probes *ProbeHolder,
 	checks []*mgmProto.Checks,
 ) *Engine {
-	return &Engine{
+	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
 		signal:         signalClient,
@@ -233,6 +238,11 @@ func NewEngineWithProbes(
 		probes:         probes,
 		checks:         checks,
 	}
+	if path := statemanager.GetDefaultStatePath(); path != "" {
+		engine.stateManager = statemanager.New(path)
+	}
+
+	return engine
 }
 
 func (e *Engine) Stop() error {
@@ -249,6 +259,17 @@ func (e *Engine) Stop() error {
 		e.networkMonitor.Stop()
 	}
 	log.Info("Network monitor: stopped")
+
+	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
+	e.stopDNSServer()
+
+	if e.routeManager != nil {
+		e.routeManager.Stop(e.stateManager)
+	}
+
+	if e.srWatcher != nil {
+		e.srWatcher.Close()
+	}
 
 	err := e.removeAllPeers()
 	if err != nil {
@@ -269,6 +290,17 @@ func (e *Engine) Stop() error {
 
 	e.close()
 	log.Infof("stopped Netbird Engine")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := e.stateManager.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop state manager: %w", err)
+	}
+	if err := e.stateManager.PersistState(ctx); err != nil {
+		log.Errorf("failed to persist state: %v", err)
+	}
+
 	return nil
 }
 
@@ -291,9 +323,6 @@ func (e *Engine) Start() error {
 	}
 	e.wgInterface = wgIface
 
-	userspace := e.wgInterface.IsUserspaceBind()
-	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, userspace, e.config.WgPort)
-
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
 		if e.config.RosenpassPermissive {
@@ -311,6 +340,8 @@ func (e *Engine) Start() error {
 		}
 	}
 
+	e.stateManager.Start()
+
 	initialRoutes, dnsServer, err := e.newDnsServer()
 	if err != nil {
 		e.close()
@@ -319,7 +350,7 @@ func (e *Engine) Start() error {
 	e.dnsServer = dnsServer
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, e.relayManager, initialRoutes)
-	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
+	beforePeerHook, afterPeerHook, err := e.routeManager.Init(e.stateManager)
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
 	} else {
@@ -336,7 +367,7 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("create wg interface: %w", err)
 	}
 
-	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface)
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
 	if err != nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 	}
@@ -365,6 +396,18 @@ func (e *Engine) Start() error {
 		e.close()
 		return fmt.Errorf("initialize dns server: %w", err)
 	}
+
+	iceCfg := icemaker.Config{
+		StunTurn:             &e.stunTurn,
+		InterfaceBlackList:   e.config.IFaceBlackList,
+		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
+		UDPMux:               e.udpMux.UDPMuxDefault,
+		UDPMuxSrflx:          e.udpMux,
+		NATExternalIPs:       e.parseNATExternalIPMappings(),
+	}
+
+	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
+	e.srWatcher.Start()
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -619,7 +662,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	e.statusRecorder.UpdateLocalPeerState(peer.LocalPeerState{
 		IP:              e.config.WgAddr,
 		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
-		KernelInterface: iface.WireGuardModuleIsLoaded(),
+		KernelInterface: device.WireGuardModuleIsLoaded(),
 		FQDN:            conf.GetFqdn(),
 	})
 
@@ -704,6 +747,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
+	// Apply ACLs in the beginning to avoid security leaks
+	if e.acl != nil {
+		e.acl.ApplyFiltering(networkMap)
+	}
+
 	protoRoutes := networkMap.GetRoutes()
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
@@ -768,10 +816,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
 	if err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
-	}
-
-	if e.acl != nil {
-		e.acl.ApplyFiltering(networkMap)
 	}
 
 	e.networkSerial = serial
@@ -947,7 +991,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		LocalWgPort:     e.config.WgPort,
 		RosenpassPubKey: e.getRosenpassPubKey(),
 		RosenpassAddr:   e.getRosenpassAddr(),
-		ICEConfig: peer.ICEConfig{
+		ICEConfig: icemaker.Config{
 			StunTurn:             &e.stunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,
 			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
@@ -957,7 +1001,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		},
 	}
 
-	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.wgProxyFactory, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager)
+	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher)
 	if err != nil {
 		return nil, err
 	}
@@ -1108,24 +1152,12 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
-	if e.wgProxyFactory != nil {
-		if err := e.wgProxyFactory.Free(); err != nil {
-			log.Errorf("failed closing ebpf proxy: %s", err)
-		}
-	}
-
-	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	e.stopDNSServer()
-
-	if e.routeManager != nil {
-		e.routeManager.Stop()
-	}
-
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
+		e.wgInterface = nil
 	}
 
 	if !isNil(e.sshServer) {
@@ -1136,7 +1168,7 @@ func (e *Engine) close() {
 	}
 
 	if e.firewall != nil {
-		err := e.firewall.Reset()
+		err := e.firewall.Reset(e.stateManager)
 		if err != nil {
 			log.Warnf("failed to reset firewall: %s", err)
 		}
@@ -1164,21 +1196,29 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	var mArgs *iface.MobileIFaceArguments
+	opts := iface.WGIFaceOpts{
+		IFaceName:    e.config.WgIfaceName,
+		Address:      e.config.WgAddr,
+		WGPort:       e.config.WgPort,
+		WGPrivKey:    e.config.WgPrivateKey.String(),
+		MTU:          iface.DefaultMTU,
+		TransportNet: transportNet,
+		FilterFn:     e.addrViaRoutes,
+	}
+
 	switch runtime.GOOS {
 	case "android":
-		mArgs = &iface.MobileIFaceArguments{
+		opts.MobileArgs = &device.MobileIFaceArguments{
 			TunAdapter: e.mobileDep.TunAdapter,
 			TunFd:      int(e.mobileDep.FileDescriptor),
 		}
 	case "ios":
-		mArgs = &iface.MobileIFaceArguments{
+		opts.MobileArgs = &device.MobileIFaceArguments{
 			TunFd: int(e.mobileDep.FileDescriptor),
 		}
-	default:
 	}
 
-	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs, e.addrViaRoutes)
+	return iface.NewWGIFace(opts)
 }
 
 func (e *Engine) wgInterfaceCreate() (err error) {
@@ -1219,10 +1259,11 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder)
 		return nil, dnsServer, nil
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager)
 		if err != nil {
 			return nil, nil, err
 		}
+
 		return nil, dnsServer, nil
 	}
 }
@@ -1393,7 +1434,7 @@ func (e *Engine) startNetworkMonitor() {
 			}
 
 			// Set a new timer to debounce rapid network changes
-			debounceTimer = time.AfterFunc(1*time.Second, func() {
+			debounceTimer = time.AfterFunc(2*time.Second, func() {
 				// This function is called after the debounce period
 				mu.Lock()
 				defer mu.Unlock()
@@ -1424,6 +1465,11 @@ func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 }
 
 func (e *Engine) stopDNSServer() {
+	if e.dnsServer == nil {
+		return
+	}
+	e.dnsServer.Stop()
+	e.dnsServer = nil
 	err := fmt.Errorf("DNS server stopped")
 	nsGroupStates := e.statusRecorder.GetDNSStates()
 	for i := range nsGroupStates {
@@ -1431,10 +1477,6 @@ func (e *Engine) stopDNSServer() {
 		nsGroupStates[i].Error = err
 	}
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
-	if e.dnsServer != nil {
-		e.dnsServer.Stop()
-		e.dnsServer = nil
-	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.

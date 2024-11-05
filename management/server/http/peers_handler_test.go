@@ -13,16 +13,16 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/server"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
@@ -70,7 +70,10 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 			GetDNSDomainFunc: func() string {
 				return "netbird.selfhosted"
 			},
-			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
+				return claims.AccountId, claims.UserId, nil
+			},
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*server.Account, error) {
 				peersMap := make(map[string]*nbpeer.Peer)
 				for _, peer := range peers {
 					peersMap[peer.ID] = peer.Copy()
@@ -78,7 +81,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 
 				policy := &server.Policy{
 					ID:        "policy",
-					AccountID: claims.AccountId,
+					AccountID: accountID,
 					Name:      "policy",
 					Enabled:   true,
 					Rules: []*server.PolicyRule{
@@ -100,7 +103,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 				srvUser.IsServiceUser = true
 
 				account := &server.Account{
-					Id:     claims.AccountId,
+					Id:     accountID,
 					Domain: "hotmail.com",
 					Peers:  peersMap,
 					Users: map[string]*server.User{
@@ -111,7 +114,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 					Groups: map[string]*nbgroup.Group{
 						"group1": {
 							ID:        "group1",
-							AccountID: claims.AccountId,
+							AccountID: accountID,
 							Name:      "group1",
 							Issued:    "api",
 							Peers:     maps.Keys(peersMap),
@@ -132,7 +135,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 					},
 				}
 
-				return account, account.Users[claims.UserId], nil
+				return account, nil
 			},
 			HasConnectedChannelFunc: func(peerID string) bool {
 				statuses := make(map[string]struct{})
@@ -166,7 +169,6 @@ func TestGetPeers(t *testing.T) {
 	peer := &nbpeer.Peer{
 		ID:                     testPeerID,
 		Key:                    "key",
-		SetupKey:               "setupkey",
 		IP:                     net.ParseIP("100.64.0.1"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "PeerName",
@@ -279,9 +281,15 @@ func TestGetPeers(t *testing.T) {
 
 				// hardcode this check for now as we only have two peers in this suite
 				assert.Equal(t, len(respBody), 2)
-				assert.Equal(t, respBody[1].Connected, false)
 
-				got = respBody[0]
+				for _, peer := range respBody {
+					if peer.Id == testPeerID {
+						got = peer
+					} else {
+						assert.Equal(t, peer.Connected, false)
+					}
+				}
+
 			} else {
 				got = &api.Peer{}
 				err = json.Unmarshal(content, got)

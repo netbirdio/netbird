@@ -680,7 +680,7 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 func skipDetailByFilters(peerState *proto.PeerState, isConnected bool) bool {
 	statusEval := false
 	ipEval := false
-	nameEval := false
+	nameEval := true
 
 	if statusFilter != "" {
 		lowerStatusFilter := strings.ToLower(statusFilter)
@@ -700,11 +700,13 @@ func skipDetailByFilters(peerState *proto.PeerState, isConnected bool) bool {
 
 	if len(prefixNamesFilter) > 0 {
 		for prefixNameFilter := range prefixNamesFilterMap {
-			if !strings.HasPrefix(peerState.Fqdn, prefixNameFilter) {
-				nameEval = true
+			if strings.HasPrefix(peerState.Fqdn, prefixNameFilter) {
+				nameEval = false
 				break
 			}
 		}
+	} else {
+		nameEval = false
 	}
 
 	return statusEval || ipEval || nameEval
@@ -805,6 +807,9 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
 	if remoteIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Remote); err == nil {
 		peer.IceCandidateEndpoint.Remote = fmt.Sprintf("%s:%s", a.AnonymizeIPString(remoteIP), port)
 	}
+
+	peer.RelayAddress = a.AnonymizeURI(peer.RelayAddress)
+
 	for i, route := range peer.Routes {
 		peer.Routes[i] = a.AnonymizeIPString(route)
 	}

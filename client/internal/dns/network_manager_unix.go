@@ -16,6 +16,7 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbversion "github.com/netbirdio/netbird/version"
 )
 
@@ -53,6 +54,7 @@ var supportedNetworkManagerVersionConstraints = []string{
 type networkManagerDbusConfigurator struct {
 	dbusLinkObject dbus.ObjectPath
 	routingAll     bool
+	ifaceName      string
 }
 
 // the types below are based on dbus specification, each field is mapped to a dbus type
@@ -77,7 +79,7 @@ func (s networkManagerConnSettings) cleanDeprecatedSettings() {
 	}
 }
 
-func newNetworkManagerDbusConfigurator(wgInterface string) (hostManager, error) {
+func newNetworkManagerDbusConfigurator(wgInterface string) (*networkManagerDbusConfigurator, error) {
 	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
 	if err != nil {
 		return nil, fmt.Errorf("get nm dbus: %w", err)
@@ -93,6 +95,7 @@ func newNetworkManagerDbusConfigurator(wgInterface string) (hostManager, error) 
 
 	return &networkManagerDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
+		ifaceName:      wgInterface,
 	}, nil
 }
 
@@ -100,7 +103,7 @@ func (n *networkManagerDbusConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	connSettings, configVersion, err := n.getAppliedConnectionSettings()
 	if err != nil {
 		return fmt.Errorf("retrieving the applied connection settings, error: %w", err)
@@ -151,10 +154,12 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) er
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
 
-	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
-	// The file content itself is not important for network-manager restoration
-	if err := createUncleanShutdownIndicator(defaultResolvConfPath, networkManager, dnsIP.String()); err != nil {
-		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	state := &ShutdownState{
+		ManagerType: networkManager,
+		WgIface:     n.ifaceName,
+	}
+	if err := stateManager.UpdateState(state); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
 	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
@@ -169,10 +174,6 @@ func (n *networkManagerDbusConfigurator) restoreHostDNS() error {
 	// once the interface is gone network manager cleans all config associated with it
 	if err := n.deleteConnectionSettings(); err != nil {
 		return fmt.Errorf("delete connection settings: %w", err)
-	}
-
-	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	return nil

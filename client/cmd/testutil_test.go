@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -34,18 +33,12 @@ func startTestingServices(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	testDir := t.TempDir()
-	config.Datadir = testDir
-	err = util.CopyFileContents("../testdata/store.json", filepath.Join(testDir, "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	_, signalLis := startSignal(t)
 	signalAddr := signalLis.Addr().String()
 	config.Signal.URI = signalAddr
 
-	_, mgmLis := startManagement(t, config)
+	_, mgmLis := startManagement(t, config, "../testdata/store.sql")
 	mgmAddr := mgmLis.Addr().String()
 	return mgmAddr
 }
@@ -57,7 +50,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	srv, err := sig.NewServer(otel.Meter(""))
+	srv, err := sig.NewServer(context.Background(), otel.Meter(""))
 	require.NoError(t, err)
 
 	sigProto.RegisterSignalExchangeServer(s, srv)
@@ -70,7 +63,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 	return s, lis
 }
 
-func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Listener) {
+func startManagement(t *testing.T, config *mgmt.Config, testFile string) (*grpc.Server, net.Listener) {
 	t.Helper()
 
 	lis, err := net.Listen("tcp", ":0")
@@ -78,7 +71,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := mgmt.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := mgmt.NewTestStoreFromSQL(context.Background(), testFile, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -44,3 +44,8 @@ func (g *Group) Copy() *Group {
 	copy(group.Peers, g.Peers)
 	return group
 }
+
+// HasPeers checks if the group has any peers.
+func (g *Group) HasPeers() bool {
+	return len(g.Peers) > 0
+}

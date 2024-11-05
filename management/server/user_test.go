@@ -10,9 +10,12 @@ import (
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -59,8 +62,10 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.CreatedBy, mockUserID)
 
-	fileStore := am.Store.(*FileStore)
-	tokenID := fileStore.HashedPAT2TokenID[pat.HashedToken]
+	tokenID, err := am.Store.GetTokenIDByHashedToken(context.Background(), pat.HashedToken)
+	if err != nil {
+		t.Fatalf("Error when getting token ID by hashed token: %s", err)
+	}
 
 	if tokenID == "" {
 		t.Fatal("GetTokenIDByHashedToken failed after adding PAT")
@@ -68,11 +73,12 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.ID, tokenID)
 
-	userID := fileStore.TokenID2UserID[tokenID]
-	if userID == "" {
-		t.Fatal("GetUserByTokenId failed after adding PAT")
+	user, err := am.Store.GetUserByTokenID(context.Background(), tokenID)
+	if err != nil {
+		t.Fatalf("Error when getting user by token ID: %s", err)
 	}
-	assert.Equal(t, mockUserID, userID)
+
+	assert.Equal(t, mockUserID, user.Id)
 }
 
 func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
@@ -189,9 +195,12 @@ func TestUser_DeletePAT(t *testing.T) {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
 
-	assert.Nil(t, store.Accounts[mockAccountID].Users[mockUserID].PATs[mockTokenID1])
-	assert.Empty(t, store.HashedPAT2TokenID[mockToken1])
-	assert.Empty(t, store.TokenID2UserID[mockTokenID1])
+	account, err = store.GetAccount(context.Background(), mockAccountID)
+	if err != nil {
+		t.Fatalf("Error when getting account: %s", err)
+	}
+
+	assert.Nil(t, account.Users[mockUserID].PATs[mockTokenID1])
 }
 
 func TestUser_GetPAT(t *testing.T) {
@@ -199,7 +208,8 @@ func TestUser_GetPAT(t *testing.T) {
 	defer store.Close(context.Background())
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
-		Id: mockUserID,
+		Id:        mockUserID,
+		AccountID: mockAccountID,
 		PATs: map[string]*PersonalAccessToken{
 			mockTokenID1: {
 				ID:          mockTokenID1,
@@ -231,7 +241,8 @@ func TestUser_GetAllPATs(t *testing.T) {
 	defer store.Close(context.Background())
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
-		Id: mockUserID,
+		Id:        mockUserID,
+		AccountID: mockAccountID,
 		PATs: map[string]*PersonalAccessToken{
 			mockTokenID1: {
 				ID:          mockTokenID1,
@@ -348,13 +359,16 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		t.Fatalf("Error when creating service user: %s", err)
 	}
 
-	assert.Equal(t, 2, len(store.Accounts[mockAccountID].Users))
-	assert.NotNil(t, store.Accounts[mockAccountID].Users[user.ID])
-	assert.True(t, store.Accounts[mockAccountID].Users[user.ID].IsServiceUser)
-	assert.Equal(t, mockServiceUserName, store.Accounts[mockAccountID].Users[user.ID].ServiceUserName)
-	assert.Equal(t, UserRole(mockRole), store.Accounts[mockAccountID].Users[user.ID].Role)
-	assert.Equal(t, []string{"group1", "group2"}, store.Accounts[mockAccountID].Users[user.ID].AutoGroups)
-	assert.Equal(t, map[string]*PersonalAccessToken{}, store.Accounts[mockAccountID].Users[user.ID].PATs)
+	account, err = store.GetAccount(context.Background(), mockAccountID)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 2, len(account.Users))
+	assert.NotNil(t, account.Users[user.ID])
+	assert.True(t, account.Users[user.ID].IsServiceUser)
+	assert.Equal(t, mockServiceUserName, account.Users[user.ID].ServiceUserName)
+	assert.Equal(t, UserRole(mockRole), account.Users[user.ID].Role)
+	assert.Equal(t, []string{"group1", "group2"}, account.Users[user.ID].AutoGroups)
+	assert.Equal(t, map[string]*PersonalAccessToken{}, account.Users[user.ID].PATs)
 
 	assert.Zero(t, user.Email)
 	assert.True(t, user.IsServiceUser)
@@ -392,12 +406,15 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 		t.Fatalf("Error when creating user: %s", err)
 	}
 
+	account, err = store.GetAccount(context.Background(), mockAccountID)
+	assert.NoError(t, err)
+
 	assert.True(t, user.IsServiceUser)
-	assert.Equal(t, 2, len(store.Accounts[mockAccountID].Users))
-	assert.True(t, store.Accounts[mockAccountID].Users[user.ID].IsServiceUser)
-	assert.Equal(t, mockServiceUserName, store.Accounts[mockAccountID].Users[user.ID].ServiceUserName)
-	assert.Equal(t, UserRole(mockRole), store.Accounts[mockAccountID].Users[user.ID].Role)
-	assert.Equal(t, []string{"group1", "group2"}, store.Accounts[mockAccountID].Users[user.ID].AutoGroups)
+	assert.Equal(t, 2, len(account.Users))
+	assert.True(t, account.Users[user.ID].IsServiceUser)
+	assert.Equal(t, mockServiceUserName, account.Users[user.ID].ServiceUserName)
+	assert.Equal(t, UserRole(mockRole), account.Users[user.ID].Role)
+	assert.Equal(t, []string{"group1", "group2"}, account.Users[user.ID].AutoGroups)
 
 	assert.Equal(t, mockServiceUserName, user.Name)
 	assert.Equal(t, mockRole, user.Role)
@@ -548,12 +565,15 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 			err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockServiceUserID)
 			tt.assertErrFunc(t, err, tt.assertErrMessage)
 
+			account, err2 := store.GetAccount(context.Background(), mockAccountID)
+			assert.NoError(t, err2)
+
 			if err != nil {
-				assert.Equal(t, 2, len(store.Accounts[mockAccountID].Users))
-				assert.NotNil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+				assert.Equal(t, 2, len(account.Users))
+				assert.NotNil(t, account.Users[mockServiceUserID])
 			} else {
-				assert.Equal(t, 1, len(store.Accounts[mockAccountID].Users))
-				assert.Nil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+				assert.Equal(t, 1, len(account.Users))
+				assert.Nil(t, account.Users[mockServiceUserID])
 			}
 		})
 	}
@@ -796,7 +816,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			acc, err := am.GetAccountByUserOrAccountID(context.Background(), "", account.Id, "")
+			acc, err := am.Store.GetAccount(context.Background(), account.Id)
 			assert.NoError(t, err)
 
 			for _, id := range tc.expectedDeleted {
@@ -1246,4 +1266,166 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUserAccountPeersUpdate(t *testing.T) {
+	// account groups propagation is enabled
+	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
+	require.NoError(t, err)
+
+	policy := Policy{
+		ID:      "policy",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	}
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	require.NoError(t, err)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	// Creating a new regular user should not update account peers and not send peer update
+	t.Run("creating new regular user with no groups", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &User{
+			Id:        "regularUser1",
+			AccountID: account.Id,
+			Role:      UserRoleUser,
+			Issued:    UserIssuedAPI,
+		}, true)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// updating user with no linked peers should not update account peers and not send peer update
+	t.Run("updating user with no linked peers", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &User{
+			Id:        "regularUser1",
+			AccountID: account.Id,
+			Role:      UserRoleUser,
+			Issued:    UserIssuedAPI,
+		}, false)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// deleting user with no linked peers should not update account peers and not send peer update
+	t.Run("deleting user with no linked peers", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser1")
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// create a user and add new peer with the user
+	_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &User{
+		Id:        "regularUser2",
+		AccountID: account.Id,
+		Role:      UserRoleAdmin,
+		Issued:    UserIssuedAPI,
+	}, true)
+	require.NoError(t, err)
+
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	expectedPeerKey := key.PublicKey().String()
+	peer4, _, _, err := manager.AddPeer(context.Background(), "", "regularUser2", &nbpeer.Peer{
+		Key:  expectedPeerKey,
+		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+	})
+	require.NoError(t, err)
+
+	// updating user with linked peers should update account peers and send peer update
+	t.Run("updating user with linked peers", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &User{
+			Id:        "regularUser2",
+			AccountID: account.Id,
+			Role:      UserRoleAdmin,
+			Issued:    UserIssuedAPI,
+		}, false)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	peer4UpdMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer4.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer4.ID)
+	})
+
+	// deleting user with linked peers should update account peers and send peer update
+	t.Run("deleting user with linked peers", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, peer4UpdMsg)
+			close(done)
+		}()
+
+		err = manager.DeleteUser(context.Background(), account.Id, userID, "regularUser2")
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 }

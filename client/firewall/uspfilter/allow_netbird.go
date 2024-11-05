@@ -2,8 +2,10 @@
 
 package uspfilter
 
+import "github.com/netbirdio/netbird/client/internal/statemanager"
+
 // Reset firewall to the default state
-func (m *Manager) Reset() error {
+func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -11,7 +13,7 @@ func (m *Manager) Reset() error {
 	m.incomingRules = make(map[string]RuleSet)
 
 	if m.nativeFirewall != nil {
-		return m.nativeFirewall.Reset()
+		return m.nativeFirewall.Reset(stateManager)
 	}
 	return nil
 }

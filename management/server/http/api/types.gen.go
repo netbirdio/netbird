@@ -220,6 +220,12 @@ type AccountSettings struct {
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
 	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
 
+	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
+	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
+
+	// PeerInactivityExpirationEnabled Enables or disables peer inactivity expiration globally. After peer's session has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
+	PeerInactivityExpirationEnabled bool `json:"peer_inactivity_expiration_enabled"`
+
 	// PeerLoginExpiration Period of time after which peer login expires (seconds).
 	PeerLoginExpiration int `json:"peer_login_expiration"`
 
@@ -538,6 +544,9 @@ type Peer struct {
 	// Id Peer ID
 	Id string `json:"id"`
 
+	// InactivityExpirationEnabled Indicates whether peer inactivity expiration has been enabled or not
+	InactivityExpirationEnabled bool `json:"inactivity_expiration_enabled"`
+
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
@@ -613,6 +622,9 @@ type PeerBatch struct {
 	// Id Peer ID
 	Id string `json:"id"`
 
+	// InactivityExpirationEnabled Indicates whether peer inactivity expiration has been enabled or not
+	InactivityExpirationEnabled bool `json:"inactivity_expiration_enabled"`
+
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
@@ -677,10 +689,11 @@ type PeerNetworkRangeCheckAction string
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired       *bool  `json:"approval_required,omitempty"`
-	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
-	Name                   string `json:"name"`
-	SshEnabled             bool   `json:"ssh_enabled"`
+	ApprovalRequired            *bool  `json:"approval_required,omitempty"`
+	InactivityExpirationEnabled bool   `json:"inactivity_expiration_enabled"`
+	LoginExpirationEnabled      bool   `json:"login_expiration_enabled"`
+	Name                        string `json:"name"`
+	SshEnabled                  bool   `json:"ssh_enabled"`
 }
 
 // PersonalAccessToken defines model for PersonalAccessToken.
@@ -780,7 +793,10 @@ type PolicyRule struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Policy rule affected ports or it ranges list
+	// PortRanges Policy rule affected ports ranges list
+	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
+
+	// Ports Policy rule affected ports
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -816,7 +832,10 @@ type PolicyRuleMinimum struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Policy rule affected ports or it ranges list
+	// PortRanges Policy rule affected ports ranges list
+	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
+
+	// Ports Policy rule affected ports
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -852,7 +871,10 @@ type PolicyRuleUpdate struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Policy rule affected ports or it ranges list
+	// PortRanges Policy rule affected ports ranges list
+	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
+
+	// Ports Policy rule affected ports
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -935,6 +957,9 @@ type ProcessCheck struct {
 
 // Route defines model for Route.
 type Route struct {
+	// AccessControlGroups Access control group identifier associated with route.
+	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
+
 	// Description Route description
 	Description string `json:"description"`
 
@@ -977,6 +1002,9 @@ type Route struct {
 
 // RouteRequest defines model for RouteRequest.
 type RouteRequest struct {
+	// AccessControlGroups Access control group identifier associated with route.
+	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
+
 	// Description Route description
 	Description string `json:"description"`
 
@@ -1009,6 +1037,15 @@ type RouteRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+}
+
+// RulePortRange Policy rule affected ports range
+type RulePortRange struct {
+	// End The ending port of the range
+	End int `json:"end"`
+
+	// Start The starting port of the range
+	Start int `json:"start"`
 }
 
 // SetupKey defines model for SetupKey.
@@ -1064,7 +1101,7 @@ type SetupKeyRequest struct {
 	// Ephemeral Indicate that the peer will be ephemeral or not
 	Ephemeral *bool `json:"ephemeral,omitempty"`
 
-	// ExpiresIn Expiration time in seconds
+	// ExpiresIn Expiration time in seconds, 0 will mean the key never expires
 	ExpiresIn int `json:"expires_in"`
 
 	// Name Setup Key name

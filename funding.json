@@ -1,0 +1,126 @@
+{
+  "version": "v1.0.0",
+  "entity": {
+    "type": "organisation",
+    "role": "owner",
+    "name": "NetBird GmbH",
+    "email": "hello@netbird.io",
+    "phone": "",
+    "description": "NetBird GmbH is a Berlin-based software company specializing in the development of open-source network security solutions. Network security is utterly complex and expensive, accessible only to companies with multi-million dollar IT budgets. In contrast, there are millions of companies left behind. Our mission is to create an advanced network and cybersecurity platform that is both easy-to-use and affordable for teams of all sizes and budgets. By leveraging the open-source strategy and technological advancements, NetBird aims to set the industry standard for connecting and securing IT infrastructure.",
+    "webpageUrl": {
+      "url": "https://github.com/netbirdio"
+    }
+  },
+  "projects": [
+    {
+      "guid": "netbird",
+      "name": "NetBird",
+      "description": "NetBird is a configuration-free peer-to-peer private network and a centralized access control system combined in a single open-source platform. It makes it easy to create secure WireGuard-based private networks for your organization or home.",
+      "webpageUrl": {
+        "url": "https://github.com/netbirdio/netbird"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/netbirdio/netbird"
+      },
+      "licenses": [
+        "BSD-3"
+      ],
+      "tags": [
+        "network-security",
+        "vpn",
+        "developer-tools",
+        "ztna",
+        "zero-trust",
+        "remote-access",
+        "wireguard",
+        "peer-to-peer",
+        "private-networking",
+        "software-defined-networking"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/netbirdio",
+        "description": ""
+      },
+      {
+        "guid": "bank-transfer",
+        "type": "bank",
+        "address": "",
+        "description": "Contact us at hello@netbird.io for bank transfer details."
+      }
+    ],
+    "plans": [
+      {
+        "guid": "support-yearly",
+        "status": "active",
+        "name": "Support Open Source Development and Maintenance - Yearly",
+        "description": "This will help us partially cover the yearly cost of maintaining the open-source NetBird project.",
+        "amount": 100000,
+        "currency": "USD",
+        "frequency": "yearly",
+        "channels": [
+          "github-sponsors",
+          "bank-transfer"
+        ]
+      },
+      {
+        "guid": "support-one-time-year",
+        "status": "active",
+        "name": "Support Open Source Development and Maintenance - One Year",
+        "description": "This will help us partially cover the yearly cost of maintaining the open-source NetBird project.",
+        "amount": 100000,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": [
+          "github-sponsors",
+          "bank-transfer"
+        ]
+      },
+      {
+        "guid": "support-one-time-monthly",
+        "status": "active",
+        "name": "Support Open Source Development and Maintenance - Monthly",
+        "description": "This will help us partially cover the monthly cost of maintaining the open-source NetBird project.",
+        "amount": 10000,
+        "currency": "USD",
+        "frequency": "monthly",
+        "channels": [
+          "github-sponsors",
+          "bank-transfer"
+        ]
+      },
+      {
+        "guid": "support-monthly",
+        "status": "active",
+        "name": "Support Open Source Development and Maintenance - One Month",
+        "description": "This will help us partially cover the monthly cost of maintaining the open-source NetBird project.",
+        "amount": 10000,
+        "currency": "USD",
+        "frequency": "monthly",
+        "channels": [
+          "github-sponsors",
+          "bank-transfer"
+        ]
+      },
+      {
+        "guid": "goodwill",
+        "status": "active",
+        "name": "Goodwill Plan",
+        "description": "Pay anything you wish to show your goodwill for the project.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "monthly",
+        "channels": [
+          "github-sponsors",
+          "bank-transfer"
+        ]
+      }
+    ],
+    "history": null
+  }
+}

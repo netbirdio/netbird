@@ -14,14 +14,15 @@ import (
 const channelBufferSize = 100
 
 type UpdateMessage struct {
-	Update *proto.SyncResponse
+	Update     *proto.SyncResponse
+	NetworkMap *NetworkMap
 }
 
 type PeersUpdateManager struct {
 	// peerChannels is an update channel indexed by Peer.ID
 	peerChannels map[string]chan *UpdateMessage
 	// channelsMux keeps the mutex to access peerChannels
-	channelsMux *sync.Mutex
+	channelsMux *sync.RWMutex
 	// metrics provides method to collect application metrics
 	metrics telemetry.AppMetrics
 }
@@ -30,7 +31,7 @@ type PeersUpdateManager struct {
 func NewPeersUpdateManager(metrics telemetry.AppMetrics) *PeersUpdateManager {
 	return &PeersUpdateManager{
 		peerChannels: make(map[string]chan *UpdateMessage),
-		channelsMux:  &sync.Mutex{},
+		channelsMux:  &sync.RWMutex{},
 		metrics:      metrics,
 	}
 }
@@ -41,6 +42,7 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 	var found, dropped bool
 
 	p.channelsMux.Lock()
+
 	defer func() {
 		p.channelsMux.Unlock()
 		if p.metrics != nil {

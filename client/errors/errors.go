@@ -8,8 +8,8 @@ import (
 )
 
 func formatError(es []error) string {
-	if len(es) == 0 {
-		return fmt.Sprintf("0 error occurred:\n\t* %s", es[0])
+	if len(es) == 1 {
+		return fmt.Sprintf("1 error occurred:\n\t* %s", es[0])
 	}
 
 	points := make([]string, len(es))

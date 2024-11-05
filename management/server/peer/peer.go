@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"sort"
 	"time"
 )
 
@@ -16,8 +17,6 @@ type Peer struct {
 	AccountID string `json:"-" gorm:"index"`
 	// WireGuard public key
 	Key string `gorm:"index"`
-	// A setup key this peer was registered with
-	SetupKey string
 	// IP address of the Peer
 	IP net.IP `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
@@ -38,6 +37,8 @@ type Peer struct {
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
 	// Works with LastLogin
 	LoginExpirationEnabled bool
+
+	InactivityExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
 	// CreatedAt records the time the peer was created
@@ -107,6 +108,12 @@ type PeerSystemMeta struct { //nolint:revive
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	sort.Slice(p.NetworkAddresses, func(i, j int) bool {
+		return p.NetworkAddresses[i].Mac < p.NetworkAddresses[j].Mac
+	})
+	sort.Slice(other.NetworkAddresses, func(i, j int) bool {
+		return other.NetworkAddresses[i].Mac < other.NetworkAddresses[j].Mac
+	})
 	equalNetworkAddresses := slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
 		return addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP
 	})
@@ -114,6 +121,12 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		return false
 	}
 
+	sort.Slice(p.Files, func(i, j int) bool {
+		return p.Files[i].Path < p.Files[j].Path
+	})
+	sort.Slice(other.Files, func(i, j int) bool {
+		return other.Files[i].Path < other.Files[j].Path
+	})
 	equalFiles := slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
 		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
 	})
@@ -170,23 +183,23 @@ func (p *Peer) Copy() *Peer {
 		peerStatus = p.Status.Copy()
 	}
 	return &Peer{
-		ID:                     p.ID,
-		AccountID:              p.AccountID,
-		Key:                    p.Key,
-		SetupKey:               p.SetupKey,
-		IP:                     p.IP,
-		Meta:                   p.Meta,
-		Name:                   p.Name,
-		DNSLabel:               p.DNSLabel,
-		Status:                 peerStatus,
-		UserID:                 p.UserID,
-		SSHKey:                 p.SSHKey,
-		SSHEnabled:             p.SSHEnabled,
-		LoginExpirationEnabled: p.LoginExpirationEnabled,
-		LastLogin:              p.LastLogin,
-		CreatedAt:              p.CreatedAt,
-		Ephemeral:              p.Ephemeral,
-		Location:               p.Location,
+		ID:                          p.ID,
+		AccountID:                   p.AccountID,
+		Key:                         p.Key,
+		IP:                          p.IP,
+		Meta:                        p.Meta,
+		Name:                        p.Name,
+		DNSLabel:                    p.DNSLabel,
+		Status:                      peerStatus,
+		UserID:                      p.UserID,
+		SSHKey:                      p.SSHKey,
+		SSHEnabled:                  p.SSHEnabled,
+		LoginExpirationEnabled:      p.LoginExpirationEnabled,
+		LastLogin:                   p.LastLogin,
+		CreatedAt:                   p.CreatedAt,
+		Ephemeral:                   p.Ephemeral,
+		Location:                    p.Location,
+		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 	}
 }
 
@@ -217,6 +230,22 @@ func (p *Peer) MarkLoginExpired(expired bool) {
 		newStatus.Connected = false
 	}
 	p.Status = newStatus
+}
+
+// SessionExpired indicates whether the peer's session has expired or not.
+// If Peer.LastLogin plus the expiresIn duration has happened already; then session has expired.
+// Return true if a session has expired, false otherwise, and time left to expiration (negative when expired).
+// Session expiration can be disabled/enabled on a Peer level via Peer.LoginExpirationEnabled property.
+// Session expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled.
+// Only peers added by interactive SSO login can be expired.
+func (p *Peer) SessionExpired(expiresIn time.Duration) (bool, time.Duration) {
+	if !p.AddedWithSSOLogin() || !p.InactivityExpirationEnabled || p.Status.Connected {
+		return false, 0
+	}
+	expiresAt := p.Status.LastSeen.Add(expiresIn)
+	now := time.Now()
+	timeLeft := expiresAt.Sub(now)
+	return timeLeft <= 0, timeLeft
 }
 
 // LoginExpired indicates whether the peer's login has expired or not.

@@ -54,6 +54,14 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        peer_inactivity_expiration_enabled:
+          description: Enables or disables peer inactivity expiration globally. After peer's session has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
+          type: boolean
+          example: true
+        peer_inactivity_expiration:
+          description: Period of time of inactivity after which peer session expires (seconds).
+          type: integer
+          example: 43200
         regular_users_view_blocked:
           description: Allows blocking regular users from viewing parts of the system.
           type: boolean
@@ -81,6 +89,8 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+        - peer_inactivity_expiration_enabled
+        - peer_inactivity_expiration
         - regular_users_view_blocked
     AccountExtraSettings:
       type: object
@@ -243,6 +253,9 @@ components:
         login_expiration_enabled:
           type: boolean
           example: false
+        inactivity_expiration_enabled:
+          type: boolean
+          example: false
         approval_required:
           description: (Cloud only) Indicates whether peer needs approval
           type: boolean
@@ -251,6 +264,7 @@ components:
         - name
         - ssh_enabled
         - login_expiration_enabled
+        - inactivity_expiration_enabled
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -327,6 +341,10 @@ components:
               type: string
               format: date-time
               example: "2023-05-05T09:00:35.477782Z"
+            inactivity_expiration_enabled:
+              description: Indicates whether peer inactivity expiration has been enabled or not
+              type: boolean
+              example: false
             approval_required:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
@@ -354,6 +372,7 @@ components:
             - last_seen
             - login_expiration_enabled
             - login_expired
+            - inactivity_expiration_enabled
             - os
             - ssh_enabled
             - user_id
@@ -511,10 +530,9 @@ components:
           type: string
           example: reusable
         expires_in:
-          description: Expiration time in seconds
+          description: Expiration time in seconds, 0 will mean the key never expires
           type: integer
-          minimum: 86400
-          maximum: 31536000
+          minimum: 0
           example: 86400
         revoked:
           description: Setup key revocation status
@@ -727,17 +745,39 @@ components:
           enum: ["all", "tcp", "udp", "icmp"]
           example: "tcp"
         ports:
-          description: Policy rule affected ports or it ranges list
+          description: Policy rule affected ports
           type: array
           items:
             type: string
             example: "80"
+        port_ranges:
+          description: Policy rule affected ports ranges list
+          type: array
+          items:
+            $ref: '#/components/schemas/RulePortRange'
       required:
         - name
         - enabled
         - bidirectional
         - protocol
         - action
+
+    RulePortRange:
+      description: Policy rule affected ports range
+      type: object
+      properties:
+        start:
+          description: The starting port of the range
+          type: integer
+          example: 80
+        end:
+          description: The ending port of the range
+          type: integer
+          example: 320
+      required:
+        - start
+        - end
+
     PolicyRuleUpdate:
       allOf:
         - $ref: '#/components/schemas/PolicyRuleMinimum'
@@ -1106,6 +1146,12 @@ components:
           description: Indicate if the route should be kept after a domain doesn't resolve that IP anymore
           type: boolean
           example: true
+        access_control_groups:
+          description: Access control group identifier associated with route.
+          type: array
+          items:
+            type: string
+            example: "chacbco6lnnbn6cg5s91"
       required:
         - id
         - description
@@ -1963,6 +2009,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SetupKey'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Setup Key
+      description: Delete a Setup Key
+      tags: [ Setup Keys ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: keyId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a setup key
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

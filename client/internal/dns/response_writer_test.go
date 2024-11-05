@@ -9,7 +9,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
 
-	"github.com/netbirdio/netbird/iface/mocks"
+	"github.com/netbirdio/netbird/client/iface/mocks"
 )
 
 func TestResponseWriterLocalAddr(t *testing.T) {

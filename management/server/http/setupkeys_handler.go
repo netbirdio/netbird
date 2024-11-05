@@ -35,7 +35,7 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authCfg AuthCfg) 
 // CreateSetupKey is a POST requests that creates a new SetupKey
 func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -61,10 +61,8 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 
 	expiresIn := time.Duration(req.ExpiresIn) * time.Second
 
-	day := time.Hour * 24
-	year := day * 365
-	if expiresIn < day || expiresIn > year {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "expiresIn should be between 1 day and 365 days"), w)
+	if expiresIn < 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "expiresIn can not be in the past"), w)
 		return
 	}
 
@@ -76,20 +74,25 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 	if req.Ephemeral != nil {
 		ephemeral = *req.Ephemeral
 	}
-	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
-		req.AutoGroups, req.UsageLimit, user.Id, ephemeral)
+
+	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), accountID, req.Name, server.SetupKeyType(req.Type), expiresIn,
+		req.AutoGroups, req.UsageLimit, userID, ephemeral)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	writeSuccess(r.Context(), w, setupKey)
+	apiSetupKeys := toResponseBody(setupKey)
+	// for the creation we need to send the plain key
+	apiSetupKeys.Key = setupKey.Key
+
+	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
 }
 
 // GetSetupKey is a GET request to get a SetupKey by ID
 func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -98,11 +101,11 @@ func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid key ID"), w)
+		util.WriteError(r.Context(), status.NewInvalidKeyIDError(), w)
 		return
 	}
 
-	key, err := h.accountManager.GetSetupKey(r.Context(), account.Id, user.Id, keyID)
+	key, err := h.accountManager.GetSetupKey(r.Context(), accountID, userID, keyID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -114,7 +117,7 @@ func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 // UpdateSetupKey is a PUT request to update server.SetupKey
 func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -123,7 +126,7 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid key ID"), w)
+		util.WriteError(r.Context(), status.NewInvalidKeyIDError(), w)
 		return
 	}
 
@@ -150,7 +153,7 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	newKey.Name = req.Name
 	newKey.Id = keyID
 
-	newKey, err = h.accountManager.SaveSetupKey(r.Context(), account.Id, newKey, user.Id)
+	newKey, err = h.accountManager.SaveSetupKey(r.Context(), accountID, newKey, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -161,13 +164,13 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 // GetAllSetupKeys is a GET request that returns a list of SetupKey
 func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	setupKeys, err := h.accountManager.ListSetupKeys(r.Context(), account.Id, user.Id)
+	setupKeys, err := h.accountManager.ListSetupKeys(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -179,6 +182,30 @@ func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Reques
 	}
 
 	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
+}
+
+func (h *SetupKeysHandler) DeleteSetupKey(w http.ResponseWriter, r *http.Request) {
+	claims := h.claimsExtractor.FromRequestContext(r)
+	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	keyID := vars["keyId"]
+	if len(keyID) == 0 {
+		util.WriteError(r.Context(), status.NewInvalidKeyIDError(), w)
+		return
+	}
+
+	err = h.accountManager.DeleteSetupKey(r.Context(), accountID, userID, keyID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 func writeSuccess(ctx context.Context, w http.ResponseWriter, key *server.SetupKey) {
@@ -206,7 +233,7 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 
 	return &api.SetupKey{
 		Id:         key.Id,
-		Key:        key.Key,
+		Key:        key.KeySecret,
 		Name:       key.Name,
 		Expires:    key.ExpiresAt,
 		Type:       string(key.Type),

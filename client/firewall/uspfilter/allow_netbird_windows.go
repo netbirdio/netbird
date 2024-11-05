@@ -6,6 +6,8 @@ import (
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 type action string
@@ -17,7 +19,7 @@ const (
 )
 
 // Reset firewall to the default state
-func (m *Manager) Reset() error {
+func (m *Manager) Reset(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

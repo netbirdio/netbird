@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/client/iface"
 )
 
 func TestInitCommands(t *testing.T) {

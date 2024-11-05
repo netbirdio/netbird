@@ -14,6 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
@@ -21,7 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
-	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -30,14 +32,14 @@ import (
 
 // Manager is a route manager interface
 type Manager interface {
-	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
+	Init(*statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
 	EnableServerRouter(firewall firewall.Manager) error
-	Stop()
+	Stop(stateManager *statemanager.Manager)
 }
 
 // DefaultManager is the default instance of a route manager
@@ -87,10 +89,10 @@ func NewManager(
 	}
 
 	dm.routeRefCounter = refcounter.New(
-		func(prefix netip.Prefix, _ any) (any, error) {
-			return nil, sysOps.AddVPNRoute(prefix, wgInterface.ToInterface())
+		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
+			return struct{}{}, sysOps.AddVPNRoute(prefix, wgInterface.ToInterface())
 		},
-		func(prefix netip.Prefix, _ any) error {
+		func(prefix netip.Prefix, _ struct{}) error {
 			return sysOps.RemoveVPNRoute(prefix, wgInterface.ToInterface())
 		},
 	)
@@ -102,7 +104,7 @@ func NewManager(
 		},
 		func(prefix netip.Prefix, peerKey string) error {
 			if err := wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
-				if !errors.Is(err, iface.ErrPeerNotFound) && !errors.Is(err, iface.ErrAllowedIPNotFound) {
+				if !errors.Is(err, configurer.ErrPeerNotFound) && !errors.Is(err, configurer.ErrAllowedIPNotFound) {
 					return err
 				}
 				log.Tracef("Remove allowed IPs %s for %s: %v", prefix, peerKey, err)
@@ -119,12 +121,12 @@ func NewManager(
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (m *DefaultManager) Init(stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	if nbnet.CustomRoutingDisabled() {
 		return nil, nil, nil
 	}
 
-	if err := m.sysOps.CleanupRouting(); err != nil {
+	if err := m.sysOps.CleanupRouting(nil); err != nil {
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
 
@@ -135,7 +137,7 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 
 	ips := resolveURLsToIPs(initialAddresses)
 
-	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips)
+	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips, stateManager)
 	if err != nil {
 		return nil, nil, fmt.Errorf("setup routing: %w", err)
 	}
@@ -153,7 +155,7 @@ func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 }
 
 // Stop stops the manager watchers and clean firewall rules
-func (m *DefaultManager) Stop() {
+func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	m.stop()
 	if m.serverRouter != nil {
 		m.serverRouter.cleanUp()
@@ -171,7 +173,7 @@ func (m *DefaultManager) Stop() {
 	}
 
 	if !nbnet.CustomRoutingDisabled() {
-		if err := m.sysOps.CleanupRouting(); err != nil {
+		if err := m.sysOps.CleanupRouting(stateManager); err != nil {
 			log.Errorf("Error cleaning up routing: %v", err)
 		} else {
 			log.Info("Routing cleanup complete")
