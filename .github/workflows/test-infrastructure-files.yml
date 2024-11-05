@@ -39,6 +39,7 @@ jobs:
         env:
           MYSQL_USER: netbird
           MYSQL_PASSWORD: mysql
+          MYSQL_ROOT_PASSWORD: mysqlroot
           MYSQL_DATABASE: netbird
         options: >-
           --health-cmd "mysqladmin ping --silent"
