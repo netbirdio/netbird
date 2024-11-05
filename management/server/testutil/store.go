@@ -40,7 +40,7 @@ func CreateMyDB() (func(), error) {
 	ctx := context.Background()
 	c, err := mysql.Run(ctx, "mysql:5.7.34", testcontainers.WithWaitStrategy(
 		wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).WithStartupTimeout(15*time.Second)),
+			WithOccurrence(2).WithStartupTimeout(180*time.Second)),
 	)
 	if err != nil {
 		return nil, err
