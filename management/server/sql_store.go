@@ -1381,11 +1381,13 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	// TODO: This fix is accepted for now, but if we need to handle this more frequently
 	// we may need to reconsider changing the types.
 	query := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations)
-	if s.storeEngine == PostgresStoreEngine {
+
+	switch s.storeEngine {
+	case PostgresStoreEngine:
 		query = query.Order("json_array_length(peers::json) DESC")
-	} else if s.storeEngine == MysqlStoreEngine {
+	case MysqlStoreEngine:
 		query = query.Order("JSON_LENGTH(JSON_EXTRACT(peers, \"$\")) DESC")
-	} else {
+	default:
 		query = query.Order("json_array_length(peers) DESC")
 	}
 
