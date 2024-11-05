@@ -16,6 +16,9 @@ import (
 )
 
 func CreatePGDB() (func(), error) {
+
+	log.Printf("[DEBUG] CreatePGDB")
+
 	ctx := context.Background()
 	c, err := postgres.Run(ctx, "postgres:16-alpine", testcontainers.WithWaitStrategy(
 		wait.ForLog("database system is ready to accept connections").
@@ -31,6 +34,9 @@ func CreatePGDB() (func(), error) {
 }
 
 func CreateMyDB() (func(), error) {
+
+	log.Printf("[DEBUG] CreateMyDB")
+
 	ctx := context.Background()
 	c, err := mysql.Run(ctx, "mysql:5.7.34", testcontainers.WithWaitStrategy(
 		wait.ForLog("database system is ready to accept connections").

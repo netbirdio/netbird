@@ -280,6 +280,8 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		}
 	}
 
+	log.Printf("[DEBUG] Kind Type: %s", kind)
+
 	store, err := NewSqlStore(ctx, db, SqliteStoreEngine, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
@@ -289,6 +291,8 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 }
 
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (Store, func(), error) {
+
+	log.Printf("[DEBUG] Kind Type - 2: %s", kind)
 
 	if kind == PostgresStoreEngine {
 		cleanUp, err := testutil.CreatePGDB()
@@ -300,6 +304,8 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (
 		if !ok {
 			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 		}
+
+		log.Printf("[DEBUG] PostgresStoreEngine DSN: %s", dsn)
 
 		store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
 		if err != nil {
@@ -316,12 +322,11 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (
 		}
 
 		dsn, ok := os.LookupEnv(mysqlDsnEnv)
-
-		log.WithContext(ctx).Warnf("MysqlStoreEngine DSN: %s", mysqlDsnEnv)
-
 		if !ok {
 			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 		}
+
+		log.Printf("[DEBUG] MysqlStoreEngine DSN: %s", dsn)
 
 		store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
 		if err != nil {

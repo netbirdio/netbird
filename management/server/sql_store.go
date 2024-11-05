@@ -1383,6 +1383,8 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	query := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations)
 	if s.storeEngine == PostgresStoreEngine {
 		query = query.Order("json_array_length(peers::json) DESC")
+	} else if s.storeEngine == MysqlStoreEngine {
+		query = query.Order("JSON_LENGTH(JSON_EXTRACT(peers, \"$\")) DESC")
 	} else {
 		query = query.Order("json_array_length(peers) DESC")
 	}
