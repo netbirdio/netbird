@@ -42,11 +42,19 @@ func CreateMyDB() (func(), error) {
 		wait.ForLog("database system is ready to accept connections").
 			WithOccurrence(2).WithStartupTimeout(180*time.Second)),
 	)
+
+	log.Printf("[DEBUG] CreateMyDB - 2")
+
 	if err != nil {
+		log.Printf("[DEBUG] CreateMyDB Error: %s", err)
 		return nil, err
 	}
 
+	log.Printf("[DEBUG] CreateMyDB - 3")
+
 	talksConn, err := c.ConnectionString(ctx)
+
+	log.Printf("[DEBUG] CreateMyDB - ConnectionString: %s, Error: %s", talksConn, err)
 
 	return GetContextDB(ctx, c, talksConn, err, "NETBIRD_STORE_ENGINE_MYSQL_DSN")
 }
