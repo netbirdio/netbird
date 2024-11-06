@@ -245,11 +245,9 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey w
 }
 
 func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, sessionID string) {
-
-	bool1 := s.peersUpdateManager.CloseChannel(ctx, peer.ID, sessionID)
-	if bool1 {
+	ok := s.peersUpdateManager.CloseChannel(ctx, peer.ID, sessionID)
+	if ok {
 		_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
-
 		s.secretsManager.CancelRefresh(sessionID)
 		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 	}
