@@ -96,5 +96,5 @@ func remoteAddr(r *http.Request) string {
 	if r.Header.Get("X-Real-Ip") == "" || r.Header.Get("X-Real-Port") == "" {
 		return r.RemoteAddr
 	}
-	return r.Header.Get("X-Real-Ip") + ":" + r.Header.Get("X-Real-Port")
+	return fmt.Sprintf("%s:%s", r.Header.Get("X-Real-Ip"), r.Header.Get("X-Real-Port"))
 }
