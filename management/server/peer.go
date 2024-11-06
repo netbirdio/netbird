@@ -189,7 +189,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
 	}
 
-	update, err = am.integratedPeerValidator.ValidatePeer(ctx, update, peer, userID, accountID, am.GetDNSDomain(), account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	var requiresPeerUpdates bool
+	update, requiresPeerUpdates, err = am.integratedPeerValidator.ValidatePeer(ctx, update, peer, userID, accountID, am.GetDNSDomain(), account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +266,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if peerLabelUpdated {
+	if peerLabelUpdated || requiresPeerUpdates {
 		am.updateAccountPeers(ctx, account)
 	}
 
