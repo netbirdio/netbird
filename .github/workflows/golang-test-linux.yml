@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         arch: [ '386','amd64' ]
-        store: [ 'mysql' ]
+        store: [ 'sqlite', 'postgres', 'mysql' ]
     runs-on: ubuntu-22.04
     steps:
       - name: Install Go
