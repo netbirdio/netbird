@@ -36,7 +36,7 @@ import (
 const (
 	storeSqliteFileName        = "store.db"
 	idQueryCondition           = "id = ?"
-	keyQueryCondition          = "key = ?"
+	keyQueryCondition          = "`key` = ?"
 	accountAndIDQueryCondition = "account_id = ? and id = ?"
 	accountIDCondition         = "account_id = ?"
 	peerNotFoundFMT            = "peer %s not found"
