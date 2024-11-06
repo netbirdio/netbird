@@ -308,7 +308,7 @@ type UserInfo struct {
 	IsServiceUser        bool                                       `json:"is_service_user"`
 	IsBlocked            bool                                       `json:"is_blocked"`
 	NonDeletable         bool                                       `json:"non_deletable"`
-	LastLogin            time.Time                                  `json:"last_login"`
+	LastLogin            time.Time                                  `json:"last_login" gorm:"default:null"`
 	Issued               string                                     `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
 	Permissions          UserPermissions                            `json:"permissions"`
