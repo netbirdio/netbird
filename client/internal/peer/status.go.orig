@@ -134,13 +134,12 @@ type Status struct {
 	offlinePeers           []State
 	mgmAddress             string
 	signalAddress          string
-	wgIface                string
 	notifier               *notifier
 	rosenpassEnabled       bool
 	rosenpassPermissive    bool
 	nsGroupStates          []NSGroupState
 	resolvedDomainsStates  map[domain.Domain][]netip.Prefix
-	connStatusChangeNotify chan struct{}
+	aPeerConnStatusChanged chan struct{}
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -262,9 +261,9 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if connStatusChanged && d.connStatusChangeNotify != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
-		close(d.connStatusChangeNotify)
-		d.connStatusChangeNotify = nil
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
 	}
 
 	if skipNotification {
@@ -311,9 +310,9 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if connStatusChanged && d.connStatusChangeNotify != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
-		close(d.connStatusChangeNotify)
-		d.connStatusChangeNotify = nil
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
 	}
 
 	if skipNotification {
@@ -353,9 +352,9 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if connStatusChanged && d.connStatusChangeNotify != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
-		close(d.connStatusChangeNotify)
-		d.connStatusChangeNotify = nil
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
 	}
 
 	if skipNotification {
@@ -394,9 +393,9 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if connStatusChanged && d.connStatusChangeNotify != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
-		close(d.connStatusChangeNotify)
-		d.connStatusChangeNotify = nil
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
 	}
 
 	if skipNotification {
@@ -438,9 +437,9 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if connStatusChanged && d.connStatusChangeNotify != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
-		close(d.connStatusChangeNotify)
-		d.connStatusChangeNotify = nil
+	if connStatusChanged && d.aPeerConnStatusChanged != nil && (peerState.ConnStatus == StatusConnected || peerState.ConnStatus == StatusDisconnected) {
+		close(d.aPeerConnStatusChanged)
+		d.aPeerConnStatusChanged = nil
 	}
 
 	if skipNotification {
@@ -519,15 +518,15 @@ func (d *Status) FinishPeerListModifications() {
 	d.notifyPeerListChanged()
 }
 
-// GetsConnStatusChangeNotifier returns a change notifier channel for routing peer list
-func (d *Status) GetConnStatusChangeNotifier() <-chan struct{} {
+// GetPeersConnStatusChangeNotifier returns a change notifier channel for routing peer list
+func (d *Status) GetPeersConnStatusChangeNotifier() <-chan struct{} {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	if d.connStatusChangeNotify == nil {
+	if d.aPeerConnStatusChanged == nil {
 		ch := make(chan struct{})
-		d.connStatusChangeNotify = ch
+		d.aPeerConnStatusChanged = ch
 	}
-	return d.connStatusChangeNotify
+	return d.aPeerConnStatusChanged
 }
 
 // GetPeerStateChangeNotifier returns a change notifier channel for a peer
@@ -620,13 +619,6 @@ func (d *Status) UpdateRosenpass(rosenpassEnabled, rosenpassPermissive bool) {
 	defer d.mux.Unlock()
 	d.rosenpassPermissive = rosenpassPermissive
 	d.rosenpassEnabled = rosenpassEnabled
-}
-
-// UpdateWgIface updates wgIface
-func (d *Status) UpdateWgIface(wgIface string) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
-	d.wgIface = wgIface
 }
 
 // MarkSignalDisconnected sets SignalState to disconnected
@@ -801,13 +793,6 @@ func (d *Status) GetFullStatus() FullStatus {
 
 	fullStatus.Peers = append(fullStatus.Peers, d.offlinePeers...)
 	return fullStatus
-}
-
-// GetWgIface returns name of WireGuard iface
-func (d *Status) GetWgIface() string {
-	d.mux.Lock()
-	defer d.mux.Unlock()
-	return d.wgIface
 }
 
 // ClientStart will notify all listeners about the new service state

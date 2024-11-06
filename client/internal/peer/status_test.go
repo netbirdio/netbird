@@ -79,7 +79,7 @@ func TestStatus_UpdatePeerFQDN(t *testing.T) {
 
 func TestGetPeersConnStatusChangeNotifierLogic(t *testing.T) {
 	status := NewRecorder("https://mgm")
-	ch := status.GetPeersConnStatusChangeNotifier()
+	ch := status.GetConnStatusChangeNotifier()
 	assert.NotNil(t, ch, "channel shouldn't be nil")
 }
 
