@@ -1048,7 +1048,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 
 // NewMysqlStore creates a new MySQL store.
 func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	db, err := gorm.Open(mysql.Open(dsn), getGormConfig())
+	db, err := gorm.Open(mysql.Open(dsn + "?charset=utf8&parseTime=True"), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
