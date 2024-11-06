@@ -328,25 +328,30 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *A
 	}
 
 	routeResource := &route.Route{
-		ID:     "example route",
-		Groups: []string{groupForRoute.ID},
+		ID:        "example route",
+		AccountID: accountID,
+		Groups:    []string{groupForRoute.ID},
 	}
 
 	routePeerGroupResource := &route.Route{
 		ID:         "example route with peer groups",
+		AccountID:  accountID,
 		PeerGroups: []string{groupForRoute2.ID},
 	}
 
 	nameServerGroup := &nbdns.NameServerGroup{
-		ID:     "example name server group",
-		Groups: []string{groupForNameServerGroups.ID},
+		ID:        "example name server group",
+		AccountID: accountID,
+		Groups:    []string{groupForNameServerGroups.ID},
 	}
 
 	policy := &Policy{
-		ID: "example policy",
+		ID:        "example policy",
+		AccountID: accountID,
 		Rules: []*PolicyRule{
 			{
 				ID:           "example policy rule",
+				PolicyID:     "example policy",
 				Destinations: []string{groupForPolicies.ID},
 			},
 		},
@@ -354,35 +359,60 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *A
 
 	setupKey := &SetupKey{
 		Id:         "example setup key",
+		AccountID:  accountID,
 		AutoGroups: []string{groupForSetupKeys.ID},
 	}
 
 	user := &User{
 		Id:         "example user",
+		AccountID:  accountID,
 		AutoGroups: []string{groupForUsers.ID},
 	}
-	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain)
-	account.Routes[routeResource.ID] = routeResource
-	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
-	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
-	account.Policies = append(account.Policies, policy)
-	account.SetupKeys[setupKey.Id] = setupKey
-	account.Users[user.Id] = user
 
-	err := am.Store.SaveAccount(context.Background(), account)
+	err := newAccountWithId(context.Background(), am.Store, accountID, groupAdminUserID, domain)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute2)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForNameServerGroups)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForPolicies)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
+	err = am.Store.SaveRoute(context.Background(), LockingStrengthUpdate, routeResource)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	acc, err := am.Store.GetAccount(context.Background(), account.Id)
+	err = am.Store.SaveRoute(context.Background(), LockingStrengthUpdate, routePeerGroupResource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = am.Store.SaveNameServerGroup(context.Background(), LockingStrengthUpdate, nameServerGroup)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = am.Store.SavePolicy(context.Background(), LockingStrengthUpdate, policy)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = am.Store.SaveSetupKey(context.Background(), LockingStrengthUpdate, setupKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = am.Store.SaveUser(context.Background(), LockingStrengthUpdate, user)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = am.SaveGroups(context.Background(), accountID, groupAdminUserID, []*nbgroup.Group{
+		groupForRoute, groupForRoute2, groupForNameServerGroups, groupForPolicies,
+		groupForSetupKeys, groupForUsers, groupForUsers, groupForIntegration,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	acc, err := am.Store.GetAccount(context.Background(), accountID)
 	if err != nil {
 		return nil, nil, err
 	}

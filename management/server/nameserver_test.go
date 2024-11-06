@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -381,14 +382,14 @@ func TestCreateNameServerGroup(t *testing.T) {
 				t.Error("failed to create account manager")
 			}
 
-			account, err := initTestNSAccount(t, am)
+			accountID, err := initTestNSAccount(t, am)
 			if err != nil {
 				t.Error("failed to init testing account")
 			}
 
 			outNSGroup, err := am.CreateNameServerGroup(
 				context.Background(),
-				account.Id,
+				accountID,
 				testCase.inputArgs.name,
 				testCase.inputArgs.description,
 				testCase.inputArgs.nameServers,
@@ -609,20 +610,16 @@ func TestSaveNameServerGroup(t *testing.T) {
 				t.Error("failed to create account manager")
 			}
 
-			account, err := initTestNSAccount(t, am)
+			accountID, err := initTestNSAccount(t, am)
 			if err != nil {
 				t.Error("failed to init testing account")
 			}
 
-			account.NameServerGroups[testCase.existingNSGroup.ID] = testCase.existingNSGroup
-
-			err = am.Store.SaveAccount(context.Background(), account)
-			if err != nil {
-				t.Error("account should be saved")
-			}
+			testCase.existingNSGroup.AccountID = accountID
+			err = am.Store.SaveNameServerGroup(context.Background(), LockingStrengthUpdate, testCase.existingNSGroup)
+			require.NoError(t, err, "failed to save existing nameserver group")
 
 			var nsGroupToSave *nbdns.NameServerGroup
-
 			if !testCase.skipCopying {
 				nsGroupToSave = testCase.existingNSGroup.Copy()
 
@@ -651,7 +648,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 				}
 			}
 
-			err = am.SaveNameServerGroup(context.Background(), account.Id, userID, nsGroupToSave)
+			err = am.SaveNameServerGroup(context.Background(), accountID, userID, nsGroupToSave)
 
 			testCase.errFunc(t, err)
 
@@ -659,13 +656,8 @@ func TestSaveNameServerGroup(t *testing.T) {
 				return
 			}
 
-			account, err = am.Store.GetAccount(context.Background(), account.Id)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			savedNSGroup, saved := account.NameServerGroups[testCase.expectedNSGroup.ID]
-			require.True(t, saved)
+			savedNSGroup, err := am.Store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, testCase.expectedNSGroup.ID)
+			require.NoError(t, err, "failed to get saved nameserver group")
 
 			if !testCase.expectedNSGroup.IsEqual(savedNSGroup) {
 				t.Errorf("new nameserver group didn't match expected group:\nGot %#v\nExpected:%#v\n", savedNSGroup, testCase.expectedNSGroup)
@@ -703,32 +695,25 @@ func TestDeleteNameServerGroup(t *testing.T) {
 		t.Error("failed to create account manager")
 	}
 
-	account, err := initTestNSAccount(t, am)
+	accountID, err := initTestNSAccount(t, am)
 	if err != nil {
 		t.Error("failed to init testing account")
 	}
 
-	account.NameServerGroups[testingNSGroup.ID] = testingNSGroup
+	testingNSGroup.AccountID = accountID
+	err = am.Store.SaveNameServerGroup(context.Background(), LockingStrengthUpdate, testingNSGroup)
+	require.NoError(t, err, "failed to save nameserver group")
 
-	err = am.Store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Error("failed to save account")
-	}
-
-	err = am.DeleteNameServerGroup(context.Background(), account.Id, testingNSGroup.ID, userID)
+	err = am.DeleteNameServerGroup(context.Background(), accountID, testingNSGroup.ID, userID)
 	if err != nil {
 		t.Error("deleting nameserver group failed with error: ", err)
 	}
 
-	savedAccount, err := am.Store.GetAccount(context.Background(), account.Id)
-	if err != nil {
-		t.Error("failed to retrieve saved account with error: ", err)
-	}
-
-	_, found := savedAccount.NameServerGroups[testingNSGroup.ID]
-	if found {
-		t.Error("nameserver group shouldn't be found after delete")
-	}
+	_, err = am.Store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, testingNSGroup.ID)
+	require.NotNil(t, err)
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "error should be a status error")
+	assert.Equal(t, status.NotFound, sErr.Type(), "nameserver group shouldn't be found after delete")
 }
 
 func TestGetNameServerGroup(t *testing.T) {
@@ -738,12 +723,12 @@ func TestGetNameServerGroup(t *testing.T) {
 		t.Error("failed to create account manager")
 	}
 
-	account, err := initTestNSAccount(t, am)
+	accountID, err := initTestNSAccount(t, am)
 	if err != nil {
 		t.Error("failed to init testing account")
 	}
 
-	foundGroup, err := am.GetNameServerGroup(context.Background(), account.Id, testUserID, existingNSGroupID)
+	foundGroup, err := am.GetNameServerGroup(context.Background(), accountID, testUserID, existingNSGroupID)
 	if err != nil {
 		t.Error("getting existing nameserver group failed with error: ", err)
 	}
@@ -752,7 +737,7 @@ func TestGetNameServerGroup(t *testing.T) {
 		t.Error("got a nil group while getting nameserver group with ID")
 	}
 
-	_, err = am.GetNameServerGroup(context.Background(), account.Id, testUserID, "not existing")
+	_, err = am.GetNameServerGroup(context.Background(), accountID, testUserID, "not existing")
 	if err == nil {
 		t.Error("getting not existing nameserver group should return error, got nil")
 	}
@@ -784,8 +769,12 @@ func createNSStore(t *testing.T) (Store, error) {
 	return store, nil
 }
 
-func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (string, error) {
 	t.Helper()
+	accountID := "testingAcc"
+	userID := testUserID
+	domain := "example.com"
+
 	peer1 := &nbpeer.Peer{
 		Key:  nsGroupPeer1Key,
 		Name: "test-host1@netbird.io",
@@ -816,6 +805,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 	}
 	existingNSGroup := nbdns.NameServerGroup{
 		ID:          existingNSGroupID,
+		AccountID:   accountID,
 		Name:        existingNSGroupName,
 		Description: "",
 		NameServers: []nbdns.NameServer{
@@ -834,42 +824,42 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 		Enabled: true,
 	}
 
-	accountID := "testingAcc"
-	userID := testUserID
-	domain := "example.com"
-
-	account := newAccountWithId(context.Background(), accountID, userID, domain)
-
-	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
-
-	newGroup1 := &nbgroup.Group{
-		ID:   group1ID,
-		Name: group1ID,
-	}
-
-	newGroup2 := &nbgroup.Group{
-		ID:   group2ID,
-		Name: group2ID,
-	}
-
-	account.Groups[newGroup1.ID] = newGroup1
-	account.Groups[newGroup2.ID] = newGroup2
-
-	err := am.Store.SaveAccount(context.Background(), account)
+	err := newAccountWithId(context.Background(), am.Store, accountID, userID, domain)
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+
+	err = am.Store.SaveNameServerGroup(context.Background(), LockingStrengthUpdate, &existingNSGroup)
+	if err != nil {
+		return "", err
+	}
+
+	err = am.Store.SaveGroups(context.Background(), LockingStrengthUpdate, []*nbgroup.Group{
+		{
+			ID:        group1ID,
+			AccountID: accountID,
+			Name:      group1ID,
+		},
+		{
+			ID:        group2ID,
+			AccountID: accountID,
+			Name:      group2ID,
+		},
+	})
+	if err != nil {
+		return "", err
 	}
 
 	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer1)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer2)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return account, nil
+	return accountID, nil
 }
 
 func TestValidateDomain(t *testing.T) {

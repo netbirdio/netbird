@@ -962,7 +962,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountIDByUser(ctx context.Context,
 		}
 	}
 
-	return "", nil
+	return accountID, nil
 }
 
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return

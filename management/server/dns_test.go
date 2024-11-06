@@ -39,12 +39,12 @@ func TestGetDNSSettings(t *testing.T) {
 		t.Error("failed to create account manager")
 	}
 
-	account, err := initTestDNSAccount(t, am)
+	accountID, err := initTestDNSAccount(t, am)
 	if err != nil {
 		t.Fatal("failed to init testing account")
 	}
 
-	dnsSettings, err := am.GetDNSSettings(context.Background(), account.Id, dnsAdminUserID)
+	dnsSettings, err := am.GetDNSSettings(context.Background(), accountID, dnsAdminUserID)
 	if err != nil {
 		t.Fatalf("Got an error when trying to retrieve the DNS settings with an admin user, err: %s", err)
 	}
@@ -53,16 +53,12 @@ func TestGetDNSSettings(t *testing.T) {
 		t.Fatal("DNS settings for new accounts shouldn't return nil")
 	}
 
-	account.DNSSettings = DNSSettings{
+	err = am.Store.SaveDNSSettings(context.Background(), LockingStrengthUpdate, accountID, &DNSSettings{
 		DisabledManagementGroups: []string{group1ID},
-	}
+	})
+	require.NoError(t, err, "failed to update DNS settings")
 
-	err = am.Store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Error("failed to save testing account with new DNS settings")
-	}
-
-	dnsSettings, err = am.GetDNSSettings(context.Background(), account.Id, dnsAdminUserID)
+	dnsSettings, err = am.GetDNSSettings(context.Background(), accountID, dnsAdminUserID)
 	if err != nil {
 		t.Errorf("Got an error when trying to retrieve the DNS settings with an admin user, err: %s", err)
 	}
@@ -71,7 +67,7 @@ func TestGetDNSSettings(t *testing.T) {
 		t.Errorf("DNS settings should have one disabled mgmt group, groups: %s", dnsSettings.DisabledManagementGroups)
 	}
 
-	_, err = am.GetDNSSettings(context.Background(), account.Id, dnsRegularUserID)
+	_, err = am.GetDNSSettings(context.Background(), accountID, dnsRegularUserID)
 	if err == nil {
 		t.Errorf("An error should be returned when getting the DNS settings with a regular user")
 	}
@@ -126,12 +122,12 @@ func TestSaveDNSSettings(t *testing.T) {
 				t.Error("failed to create account manager")
 			}
 
-			account, err := initTestDNSAccount(t, am)
+			accountID, err := initTestDNSAccount(t, am)
 			if err != nil {
 				t.Error("failed to init testing account")
 			}
 
-			err = am.SaveDNSSettings(context.Background(), account.Id, testCase.userID, testCase.inputSettings)
+			err = am.SaveDNSSettings(context.Background(), accountID, testCase.userID, testCase.inputSettings)
 			if err != nil {
 				if testCase.shouldFail {
 					return
@@ -139,7 +135,7 @@ func TestSaveDNSSettings(t *testing.T) {
 				t.Error(err)
 			}
 
-			updatedAccount, err := am.Store.GetAccount(context.Background(), account.Id)
+			updatedAccount, err := am.Store.GetAccount(context.Background(), accountID)
 			if err != nil {
 				t.Errorf("should be able to retrieve updated account, got err: %s", err)
 			}
@@ -158,17 +154,17 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 		t.Error("failed to create account manager")
 	}
 
-	account, err := initTestDNSAccount(t, am)
+	accountID, err := initTestDNSAccount(t, am)
 	if err != nil {
 		t.Error("failed to init testing account")
 	}
 
-	peer1, err := account.FindPeerByPubKey(dnsPeer1Key)
+	peer1, err := am.Store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, dnsPeer1Key)
 	if err != nil {
 		t.Error("failed to init testing account")
 	}
 
-	peer2, err := account.FindPeerByPubKey(dnsPeer2Key)
+	peer2, err := am.Store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, dnsPeer2Key)
 	if err != nil {
 		t.Error("failed to init testing account")
 	}
@@ -179,11 +175,13 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 	require.True(t, newAccountDNSConfig.DNSConfig.ServiceEnable, "default DNS config should have local DNS service enabled")
 	require.Len(t, newAccountDNSConfig.DNSConfig.NameServerGroups, 0, "updated DNS config should have no nameserver groups since peer 1 is NS for the only existing NS group")
 
-	dnsSettings := account.DNSSettings.Copy()
+	accountDNSSettings, err := am.Store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err, "failed to get account DNS settings")
+
+	dnsSettings := accountDNSSettings.Copy()
 	dnsSettings.DisabledManagementGroups = append(dnsSettings.DisabledManagementGroups, dnsGroup1ID)
-	account.DNSSettings = dnsSettings
-	err = am.Store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
+	err = am.Store.SaveDNSSettings(context.Background(), LockingStrengthUpdate, accountID, &dnsSettings)
+	require.NoError(t, err, "failed to update DNS settings")
 
 	updatedAccountDNSConfig, err := am.GetNetworkMap(context.Background(), peer1.ID)
 	require.NoError(t, err)
@@ -222,7 +220,7 @@ func createDNSStore(t *testing.T) (Store, error) {
 	return store, nil
 }
 
-func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (string, error) {
 	t.Helper()
 	peer1 := &nbpeer.Peer{
 		Key:  dnsPeer1Key,
@@ -257,64 +255,65 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain)
-
-	account.Users[dnsRegularUserID] = &User{
-		Id:   dnsRegularUserID,
-		Role: UserRoleUser,
+	err := newAccountWithId(context.Background(), am.Store, dnsAccountID, dnsAdminUserID, domain)
+	if err != nil {
+		return "", err
 	}
 
-	err := am.Store.SaveAccount(context.Background(), account)
+	err = am.Store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
+		Id:        dnsRegularUserID,
+		AccountID: dnsAccountID,
+		Role:      UserRoleUser,
+	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	savedPeer1, _, _, err := am.AddPeer(context.Background(), "", dnsAdminUserID, peer1)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	_, _, _, err = am.AddPeer(context.Background(), "", dnsAdminUserID, peer2)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	account, err = am.Store.GetAccount(context.Background(), account.Id)
+	peer1, err = am.Store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, peer1.Key)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	peer1, err = account.FindPeerByPubKey(peer1.Key)
+	_, err = am.Store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, peer2.Key)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	_, err = account.FindPeerByPubKey(peer2.Key)
+	err = am.Store.SaveGroups(context.Background(), LockingStrengthUpdate, []*group.Group{
+		{
+			ID:        dnsGroup1ID,
+			AccountID: dnsAccountID,
+			Peers:     []string{peer1.ID},
+			Name:      dnsGroup1ID,
+		},
+		{
+			ID:        dnsGroup2ID,
+			AccountID: dnsAccountID,
+			Name:      dnsGroup2ID,
+		},
+	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	newGroup1 := &group.Group{
-		ID:    dnsGroup1ID,
-		Peers: []string{peer1.ID},
-		Name:  dnsGroup1ID,
-	}
-
-	newGroup2 := &group.Group{
-		ID:   dnsGroup2ID,
-		Name: dnsGroup2ID,
-	}
-
-	account.Groups[newGroup1.ID] = newGroup1
-	account.Groups[newGroup2.ID] = newGroup2
-
-	allGroup, err := account.GetGroupAll()
+	allGroup, err := am.Store.GetGroupByName(context.Background(), LockingStrengthShare, dnsAccountID, "All")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	account.NameServerGroups[dnsNSGroup1] = &dns.NameServerGroup{
-		ID:   dnsNSGroup1,
-		Name: "ns-group-1",
+	err = am.Store.SaveNameServerGroup(context.Background(), LockingStrengthUpdate, &dns.NameServerGroup{
+		ID:        dnsNSGroup1,
+		AccountID: dnsAccountID,
+		Name:      "ns-group-1",
 		NameServers: []dns.NameServer{{
 			IP:     netip.MustParseAddr(savedPeer1.IP.String()),
 			NSType: dns.UDPNameServerType,
@@ -323,14 +322,12 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		Primary: true,
 		Enabled: true,
 		Groups:  []string{allGroup.ID},
-	}
-
-	err = am.Store.SaveAccount(context.Background(), account)
+	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return am.Store.GetAccount(context.Background(), account.Id)
+	return dnsAccountID, nil
 }
 
 func generateTestData(size int) nbdns.Config {

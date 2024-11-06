@@ -45,7 +45,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	}
 
 	if err = am.validatePostureChecks(ctx, accountID, postureChecks); err != nil {
-		return status.Errorf(status.InvalidArgument, err.Error())
+		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
 	}
 
 	updateAccountPeers, err := am.arePostureCheckChangesAffectPeers(ctx, accountID, postureChecks.ID, isUpdate)

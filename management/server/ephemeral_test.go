@@ -7,35 +7,35 @@ import (
 	"time"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/stretchr/testify/require"
 )
 
 type MockStore struct {
 	Store
-	account *Account
+	accountID string
 }
 
-func (s *MockStore) GetAllAccounts(_ context.Context) []*Account {
-	return []*Account{s.account}
-}
+//func (s *MockStore) GetAllAccounts(_ context.Context) []*Account {
+//	return []*Account{s.account}
+//}
 
-func (s *MockStore) GetAccountByPeerID(_ context.Context, peerId string) (*Account, error) {
-	_, ok := s.account.Peers[peerId]
-	if ok {
-		return s.account, nil
-	}
-
-	return nil, status.NewPeerNotFoundError(peerId)
-}
+//func (s *MockStore) GetAccountByPeerID(_ context.Context, peerId string) (*Account, error) {
+//
+//	_, ok := s.account.Peers[peerId]
+//	if ok {
+//		return s.account, nil
+//	}
+//
+//	return nil, status.NewPeerNotFoundError(peerId)
+//}
 
 type MocAccountManager struct {
 	AccountManager
 	store *MockStore
 }
 
-func (a MocAccountManager) DeletePeer(_ context.Context, accountID, peerID, userID string) error {
-	delete(a.store.account.Peers, peerID)
-	return nil //nolint:nil
+func (a MocAccountManager) DeletePeer(_ context.Context, accountID, peerID, _ string) error {
+	return a.store.DeletePeer(context.Background(), LockingStrengthUpdate, accountID, peerID)
 }
 
 func TestNewManager(t *testing.T) {
@@ -44,23 +44,26 @@ func TestNewManager(t *testing.T) {
 		return startTime
 	}
 
-	store := &MockStore{}
+	store := &MockStore{
+		Store: newStore(t),
+	}
 	am := MocAccountManager{
 		store: store,
 	}
 
 	numberOfPeers := 5
 	numberOfEphemeralPeers := 3
-	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+	err := seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+	require.NoError(t, err, "failed to seed peers")
 
 	mgr := NewEphemeralManager(store, am)
 	mgr.loadEphemeralPeers(context.Background())
 	startTime = startTime.Add(ephemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
-	if len(store.account.Peers) != numberOfPeers {
-		t.Errorf("failed to cleanup ephemeral peers, expected: %d, result: %d", numberOfPeers, len(store.account.Peers))
-	}
+	peers, err := store.GetAccountPeers(context.Background(), LockingStrengthShare, store.accountID)
+	require.NoError(t, err, "failed to get account peers")
+	require.Equal(t, numberOfPeers, len(peers), "failed to cleanup ephemeral peers")
 }
 
 func TestNewManagerPeerConnected(t *testing.T) {
@@ -76,19 +79,23 @@ func TestNewManagerPeerConnected(t *testing.T) {
 
 	numberOfPeers := 5
 	numberOfEphemeralPeers := 3
-	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+	err := seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+	require.NoError(t, err, "failed to seed peers")
 
 	mgr := NewEphemeralManager(store, am)
 	mgr.loadEphemeralPeers(context.Background())
-	mgr.OnPeerConnected(context.Background(), store.account.Peers["ephemeral_peer_0"])
+
+	peer, err := am.store.GetPeerByID(context.Background(), LockingStrengthShare, store.accountID, "ephemeral_peer_0")
+	require.NoError(t, err, "failed to get peer")
+
+	mgr.OnPeerConnected(context.Background(), peer)
 
 	startTime = startTime.Add(ephemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
-	expected := numberOfPeers + 1
-	if len(store.account.Peers) != expected {
-		t.Errorf("failed to cleanup ephemeral peers, expected: %d, result: %d", expected, len(store.account.Peers))
-	}
+	peers, err := store.GetAccountPeers(context.Background(), LockingStrengthShare, store.accountID)
+	require.NoError(t, err, "failed to get account peers")
+	require.Equal(t, numberOfPeers+1, len(peers), "failed to cleanup ephemeral peers")
 }
 
 func TestNewManagerPeerDisconnected(t *testing.T) {
@@ -104,43 +111,64 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 
 	numberOfPeers := 5
 	numberOfEphemeralPeers := 3
-	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+	err := seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+	require.NoError(t, err, "failed to seed peers")
 
 	mgr := NewEphemeralManager(store, am)
 	mgr.loadEphemeralPeers(context.Background())
-	for _, v := range store.account.Peers {
-		mgr.OnPeerConnected(context.Background(), v)
 
+	peers, err := store.GetAccountPeers(context.Background(), LockingStrengthShare, store.accountID)
+	require.NoError(t, err, "failed to get account peers")
+	for _, v := range peers {
+		mgr.OnPeerConnected(context.Background(), v)
 	}
-	mgr.OnPeerDisconnected(context.Background(), store.account.Peers["ephemeral_peer_0"])
+
+	peer, err := am.store.GetPeerByID(context.Background(), LockingStrengthShare, store.accountID, "ephemeral_peer_0")
+	require.NoError(t, err, "failed to get peer")
+	mgr.OnPeerDisconnected(context.Background(), peer)
 
 	startTime = startTime.Add(ephemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
+	peers, err = store.GetAccountPeers(context.Background(), LockingStrengthShare, store.accountID)
+	require.NoError(t, err, "failed to get account peers")
 	expected := numberOfPeers + numberOfEphemeralPeers - 1
-	if len(store.account.Peers) != expected {
-		t.Errorf("failed to cleanup ephemeral peers, expected: %d, result: %d", expected, len(store.account.Peers))
-	}
+	require.Equal(t, expected, len(peers), "failed to cleanup ephemeral peers")
 }
 
-func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) {
-	store.account = newAccountWithId(context.Background(), "my account", "", "")
+func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) error {
+	accountID := "my account"
+	err := newAccountWithId(context.Background(), store, accountID, "", "")
+	if err != nil {
+		return err
+	}
+	store.accountID = accountID
 
 	for i := 0; i < numberOfPeers; i++ {
 		peerId := fmt.Sprintf("peer_%d", i)
 		p := &nbpeer.Peer{
 			ID:        peerId,
+			AccountID: accountID,
 			Ephemeral: false,
 		}
-		store.account.Peers[p.ID] = p
+		err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, p)
+		if err != nil {
+			return err
+		}
 	}
 
 	for i := 0; i < numberOfEphemeralPeers; i++ {
 		peerId := fmt.Sprintf("ephemeral_peer_%d", i)
 		p := &nbpeer.Peer{
 			ID:        peerId,
+			AccountID: accountID,
 			Ephemeral: true,
 		}
-		store.account.Peers[p.ID] = p
+		err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, p)
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
