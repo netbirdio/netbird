@@ -38,9 +38,9 @@ func CreateMyDB() (func(), error) {
 	log.Printf("[DEBUG] CreateMyDB")
 
 	ctx := context.Background()
-	c, err := mysql.Run(ctx, "mysql:5.7.34", testcontainers.WithWaitStrategyAndDeadline(180*time.Second,
+	c, err := mysql.Run(ctx, "mysql:8.0.36", testcontainers.WithWaitStrategyAndDeadline(30*time.Second,
 		wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).WithStartupTimeout(180*time.Second)),
+			WithOccurrence(2).WithStartupTimeout(30*time.Second)),
 	)
 
 	log.Printf("[DEBUG] CreateMyDB - 2")
