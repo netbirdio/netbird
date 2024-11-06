@@ -144,7 +144,7 @@ func (u *upstreamResolverBase) probeViaRouteMsg() {
 			break
 		}
 		err = fmt.Errorf("upstream nameserver %s not reachable via %s", upstream, u.statusRecorder.GetWgIface())
-		log.Warnf(err.Error())
+		log.Warn(err.Error())
 		errors = multierror.Append(err, errors)
 	}
 
