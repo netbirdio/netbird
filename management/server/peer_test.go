@@ -864,10 +864,14 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 				b.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*PeerUpdateChannel)
 
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = &PeerUpdateChannel{
+					peerID:    peerID,
+					channel:   make(chan *UpdateMessage, channelBufferSize),
+					sessionID: xid.New().String(),
+				}
 			}
 
 			manager.peersUpdateManager.peerChannels = peerChannels
@@ -1315,14 +1319,14 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 	})
 
 	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
 	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1340,7 +1344,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1365,7 +1369,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1383,7 +1387,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("updating peer label", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1417,7 +1421,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1443,7 +1447,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with linked group to policy", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1481,7 +1485,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1507,7 +1511,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with linked group to route", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1536,7 +1540,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1562,7 +1566,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with linked group to route", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 

@@ -313,7 +313,7 @@ func (am *DefaultAccountManager) deletePeers(ctx context.Context, account *Accou
 				},
 				NetworkMap: &NetworkMap{},
 			})
-		am.peersUpdateManager.CloseChannel(ctx, peer.ID)
+		am.peersUpdateManager.CloseChannel(ctx, peer.ID, SessionIdForceOverwrite)
 		am.StoreEvent(ctx, userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	}
 

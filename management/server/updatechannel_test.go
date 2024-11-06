@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/netbirdio/netbird/management/proto"
 )
 
@@ -13,7 +15,7 @@ import (
 func TestCreateChannel(t *testing.T) {
 	peer := "test-create"
 	peersUpdater := NewPeersUpdateManager(nil)
-	defer peersUpdater.CloseChannel(context.Background(), peer)
+	defer peersUpdater.CloseChannel(context.Background(), peer, "sessionID")
 
 	_ = peersUpdater.CreateChannel(context.Background(), peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
@@ -35,7 +37,7 @@ func TestSendUpdate(t *testing.T) {
 	}
 	peersUpdater.SendUpdate(context.Background(), peer, update1)
 	select {
-	case <-peersUpdater.peerChannels[peer]:
+	case <-peersUpdater.peerChannels[peer].channel:
 	default:
 		t.Error("Update wasn't send")
 	}
@@ -56,7 +58,7 @@ func TestSendUpdate(t *testing.T) {
 		select {
 		case <-timeout:
 			t.Error("timed out reading previously sent updates")
-		case updateReader := <-peersUpdater.peerChannels[peer]:
+		case updateReader := <-peersUpdater.peerChannels[peer].channel:
 			if updateReader.Update.NetworkMap.Serial == update2.Update.NetworkMap.Serial {
 				t.Error("got the update that shouldn't have been sent")
 			}
@@ -65,15 +67,50 @@ func TestSendUpdate(t *testing.T) {
 
 }
 
-func TestCloseChannel(t *testing.T) {
+func TestCloseChannel_WithCorrectSessionID(t *testing.T) {
 	peer := "test-close"
 	peersUpdater := NewPeersUpdateManager(nil)
-	_ = peersUpdater.CreateChannel(context.Background(), peer)
+	peerUpdates := peersUpdater.CreateChannel(context.Background(), peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
 	}
-	peersUpdater.CloseChannel(context.Background(), peer)
+
+	updateDB := peersUpdater.CloseChannel(context.Background(), peer, peerUpdates.sessionID)
 	if _, ok := peersUpdater.peerChannels[peer]; ok {
 		t.Error("Error closing the channel")
 	}
+
+	assert.Equal(t, true, updateDB)
+}
+
+func TestCloseChannel_WithWrongSessionID(t *testing.T) {
+	peer := "test-close"
+	peersUpdater := NewPeersUpdateManager(nil)
+	peersUpdater.CreateChannel(context.Background(), peer)
+	if _, ok := peersUpdater.peerChannels[peer]; !ok {
+		t.Error("Error creating the channel")
+	}
+
+	updateDB := peersUpdater.CloseChannel(context.Background(), peer, "wrongSessionID")
+	if _, ok := peersUpdater.peerChannels[peer]; !ok {
+		t.Error("Should not close channel with wrong session id")
+	}
+
+	assert.Equal(t, false, updateDB)
+}
+
+func TestCloseChannel_WithForceOverwrite(t *testing.T) {
+	peer := "test-close"
+	peersUpdater := NewPeersUpdateManager(nil)
+	peersUpdater.CreateChannel(context.Background(), peer)
+	if _, ok := peersUpdater.peerChannels[peer]; !ok {
+		t.Error("Error creating the channel")
+	}
+
+	updateDB := peersUpdater.CloseChannel(context.Background(), peer, SessionIdForceOverwrite)
+	if _, ok := peersUpdater.peerChannels[peer]; ok {
+		t.Error("Should close channel if forced")
+	}
+
+	assert.Equal(t, true, updateDB)
 }

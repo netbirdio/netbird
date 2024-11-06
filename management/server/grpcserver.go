@@ -194,31 +194,31 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
-func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, peerUpdates *PeerUpdateChannel, srv proto.ManagementService_SyncServer) error {
 	for {
 		select {
 		// condition when there are some updates
-		case update, open := <-updates:
+		case update, open := <-peerUpdates.channel:
 			if s.appMetrics != nil {
-				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
+				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(peerUpdates.channel) + 1)
 			}
 
 			if !open {
 				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, accountID, peer)
+				s.cancelPeerRoutines(ctx, accountID, peer, peerUpdates.sessionID)
 				return nil
 			}
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
 
-			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
+			if err := s.sendUpdate(ctx, accountID, peerKey, peer, peerUpdates.sessionID, update, srv); err != nil {
 				return err
 			}
 
 		// condition when client <-> server connection has been terminated
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
-			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.cancelPeerRoutines(ctx, accountID, peer)
+			log.WithContext(ctx).Debugf("stream of peer %s with session %s has been closed", peerKey.String(), peerUpdates.sessionID)
+			s.cancelPeerRoutines(ctx, accountID, peer, peerUpdates.sessionID)
 			return srv.Context().Err()
 		}
 	}
@@ -226,10 +226,10 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, sessionID string, update *UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer, sessionID)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = srv.SendMsg(&proto.EncryptedMessage{
@@ -237,18 +237,22 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey w
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer, sessionID)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
 	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
 	return nil
 }
 
-func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
-	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
-	s.secretsManager.CancelRefresh(peer.ID)
-	_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
-	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
+func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, sessionID string) {
+
+	bool1 := s.peersUpdateManager.CloseChannel(ctx, peer.ID, sessionID)
+	if bool1 {
+		_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
+
+		s.secretsManager.CancelRefresh(sessionID)
+		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
+	}
 }
 
 func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string, error) {

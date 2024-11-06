@@ -1807,7 +1807,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID, updMsg.sessionID)
 	})
 
 	// Creating a route with no routing peer and no peers in PeerGroups or Groups should not update account peers and not send peer update
@@ -1827,7 +1827,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1863,7 +1863,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1899,7 +1899,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	t.Run("creating route with a routing peer", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1924,7 +1924,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1942,7 +1942,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting route", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1978,7 +1978,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -2018,7 +2018,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 

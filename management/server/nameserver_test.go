@@ -960,7 +960,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 	})
 
 	// Creating a nameserver group with a distribution group no peers should not update account peers
@@ -968,7 +968,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("creating nameserver group with distribution group no peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -995,7 +995,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("saving nameserver group with distribution group no peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1013,7 +1013,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("creating nameserver group with distribution group has peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1039,7 +1039,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("saving nameserver group with distribution group has peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1069,7 +1069,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting nameserver group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 

@@ -10,12 +10,13 @@ import (
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -1297,14 +1298,14 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 	})
 
 	// Creating a new regular user should not update account peers and not send peer update
 	t.Run("creating new regular user with no groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1327,7 +1328,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("updating user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1350,7 +1351,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1387,7 +1388,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("updating user with linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -1408,14 +1409,14 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 
 	peer4UpdMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer4.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer4.ID)
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer4.ID, peer4UpdMsg.sessionID)
 	})
 
 	// deleting user with linked peers should update account peers and send peer update
 	t.Run("deleting user with linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, peer4UpdMsg)
+			peerShouldReceiveUpdate(t, peer4UpdMsg.channel)
 			close(done)
 		}()
 

@@ -1147,14 +1147,14 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message := <-updMsg.channel
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 2 {
 			t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
@@ -1174,14 +1174,14 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	manager, account, peer1, _, _ := setupNetworkMapTest(t)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message := <-updMsg.channel
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 0 {
 			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
@@ -1210,7 +1210,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	}
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 
 	policy := Policy{
 		Enabled: true,
@@ -1230,7 +1230,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message := <-updMsg.channel
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 2 {
 			t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
@@ -1277,14 +1277,14 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	}
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message := <-updMsg.channel
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 1 {
 			t.Errorf("mismatch peers count: 1 expected, got %v", len(networkMap.RemotePeers))
@@ -1303,7 +1303,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 
 	group := group.Group{
 		ID:    "groupA",
@@ -1339,7 +1339,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message := <-updMsg.channel
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 0 {
 			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))

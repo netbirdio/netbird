@@ -499,14 +499,14 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 	})
 
 	// Saving DNS settings with groups that have no peers should not trigger updates to account peers or send peer updates
 	t.Run("saving dns setting with unused groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -526,7 +526,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("creating dns setting with unused groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -559,7 +559,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -585,7 +585,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("saving dns setting with used groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -605,7 +605,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("removing group with no peers from dns settings", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -625,7 +625,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("removing group with peers from dns settings", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 

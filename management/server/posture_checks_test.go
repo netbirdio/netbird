@@ -147,7 +147,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID, updMsg.sessionID)
 	})
 
 	postureCheck := posture.Checks{
@@ -165,7 +165,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("saving unused posture check", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -183,7 +183,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("updating unused posture check", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -222,7 +222,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("linking posture check to policy with peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -251,7 +251,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -269,7 +269,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("removing posture check from policy", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -289,7 +289,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting unused posture check", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -328,7 +328,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
@@ -352,7 +352,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("updating linked posture check to policy where destination has peers but source does not", func(t *testing.T) {
 		updMsg1 := manager.peersUpdateManager.CreateChannel(context.Background(), peer2.ID)
 		t.Cleanup(func() {
-			manager.peersUpdateManager.CloseChannel(context.Background(), peer2.ID)
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer2.ID, updMsg1.sessionID)
 		})
 		policy = Policy{
 			ID:      "policyB",
@@ -375,7 +375,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg1.channel)
 			close(done)
 		}()
 
@@ -416,7 +416,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.channel)
 			close(done)
 		}()
 
