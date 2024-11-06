@@ -35,8 +35,6 @@ func CreatePGDB() (func(), error) {
 
 func CreateMyDB() (func(), error) {
 
-	log.Printf("[DEBUG] CreateMyDB")
-
 	ctx := context.Background()
 	c, err := mysql.Run(ctx,
 		"mysql:8.0.40",
@@ -46,13 +44,10 @@ func CreateMyDB() (func(), error) {
 	)
 
 	if err != nil {
-		log.Printf("[DEBUG] CreateMyDB Error: %s", err)
 		return nil, err
 	}
 
 	talksConn, err := c.ConnectionString(ctx)
-
-	log.Printf("[DEBUG] CreateMyDB - ConnectionString: %s, Error: %s", talksConn, err)
 
 	return GetContextDB(ctx, c, talksConn, err, "NETBIRD_STORE_ENGINE_MYSQL_DSN")
 }
