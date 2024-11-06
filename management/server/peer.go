@@ -234,6 +234,12 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
+	var sshChanged, peerLabelChanged, loginExpirationChanged, inactivityExpirationChanged bool
+
+	if peer.SSHEnabled != update.SSHEnabled {
+		peer.SSHEnabled = update.SSHEnabled
+		sshChanged = true
+	}
 	if peer.SSHEnabled != update.SSHEnabled {
 		peer.SSHEnabled = update.SSHEnabled
 		event := activity.PeerSSHEnabled
@@ -243,10 +249,9 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 	}
 
-	peerLabelUpdated := peer.Name != update.Name
-
-	if peerLabelUpdated {
+	if peer.Name != update.Name {
 		peer.Name = update.Name
+		peerLabelChanged = true
 
 		existingLabels, err := am.getPeerDNSLabels(ctx, accountID)
 		if err != nil {
@@ -259,20 +264,44 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 
 		peer.DNSLabel = newLabel
-
-		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	if peer.LoginExpirationEnabled != update.LoginExpirationEnabled {
-
 		if !peer.AddedWithSSOLogin() {
 			return nil, status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the login expiration can't be updated")
 		}
-
 		peer.LoginExpirationEnabled = update.LoginExpirationEnabled
+		loginExpirationChanged = true
+	}
 
+	if peer.InactivityExpirationEnabled != update.InactivityExpirationEnabled {
+		if !peer.AddedWithSSOLogin() {
+			return nil, status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the inactivity expiration can't be updated")
+		}
+		peer.InactivityExpirationEnabled = update.InactivityExpirationEnabled
+		inactivityExpirationChanged = true
+	}
+
+	if err = am.Store.SavePeer(ctx, LockingStrengthUpdate, accountID, peer); err != nil {
+		return nil, err
+	}
+
+	if sshChanged {
+		event := activity.PeerSSHEnabled
+		if !peer.SSHEnabled {
+			event = activity.PeerSSHDisabled
+		}
+		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+	}
+
+	if peerLabelChanged {
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
+		am.updateAccountPeers(ctx, accountID)
+	}
+
+	if loginExpirationChanged {
 		event := activity.PeerLoginExpirationEnabled
-		if !update.LoginExpirationEnabled {
+		if !peer.LoginExpirationEnabled {
 			event = activity.PeerLoginExpirationDisabled
 		}
 		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
@@ -282,15 +311,9 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 	}
 
-	if peer.InactivityExpirationEnabled != update.InactivityExpirationEnabled {
-		if !peer.AddedWithSSOLogin() {
-			return nil, status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the login expiration can't be updated")
-		}
-
-		peer.InactivityExpirationEnabled = update.InactivityExpirationEnabled
-
+	if inactivityExpirationChanged {
 		event := activity.PeerInactivityExpirationEnabled
-		if !update.InactivityExpirationEnabled {
+		if !peer.InactivityExpirationEnabled {
 			event = activity.PeerInactivityExpirationDisabled
 		}
 		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
@@ -298,14 +321,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
 			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
-	}
-
-	if err = am.Store.SavePeer(ctx, LockingStrengthUpdate, accountID, peer); err != nil {
-		return nil, err
-	}
-
-	if peerLabelUpdated {
-		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return peer, nil
