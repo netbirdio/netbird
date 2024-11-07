@@ -260,10 +260,9 @@ func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, p
 	unlock := s.AcquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
-	time.Sleep(30 * time.Second)
+	_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
 	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
 	s.secretsManager.CancelRefresh(peer.ID)
-	_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
 	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 }
 
