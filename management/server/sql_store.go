@@ -74,6 +74,10 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metr
 
 	log.Infof("Set max open db connections to %d", conns)
 
+	if storeEngine == MysqlStoreEngine {
+		sql.SetConnMaxLifetime(120)
+	}
+
 	if err := migrate(ctx, db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -1048,7 +1052,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 
 // NewMysqlStore creates a new MySQL store.
 func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	db, err := gorm.Open(mysql.Open(dsn + "?charset=utf8&parseTime=True"), getGormConfig())
+	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True"), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
