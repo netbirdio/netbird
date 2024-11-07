@@ -49,3 +49,8 @@ func (g *Group) Copy() *Group {
 func (g *Group) HasPeers() bool {
 	return len(g.Peers) > 0
 }
+
+// IsGroupAll checks if the group is a default "All" group.
+func (g *Group) IsGroupAll() bool {
+	return g.Name == "All"
+}
