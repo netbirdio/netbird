@@ -195,10 +195,13 @@ func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey stri
 func (c *clientNetwork) startPeersStatusChangeWatcher() {
 	for _, r := range c.routes {
 		_, found := c.routePeersNotifiers[r.Peer]
-		if !found {
-			c.routePeersNotifiers[r.Peer] = make(chan struct{})
-			go c.watchPeerStatusChanges(c.ctx, r.Peer, c.peerStateUpdate, c.routePeersNotifiers[r.Peer])
+		if found {
+			continue
 		}
+
+		closerChan := make(chan struct{})
+		c.routePeersNotifiers[r.Peer] = closerChan
+		go c.watchPeerStatusChanges(c.ctx, r.Peer, c.peerStateUpdate, closerChan)
 	}
 }
 
@@ -281,7 +284,7 @@ func (c *clientNetwork) addStateRoute() {
 	}
 
 	state.AddRoute(c.handler.String())
-	if err := c.statusRecorder.UpdatePeerState(state); err != nil {
+	if err := c.statusRecorder.UpdatePeerRouteState(state); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 }
@@ -294,7 +297,7 @@ func (c *clientNetwork) removeStateRoute() {
 	}
 
 	state.DeleteRoute(c.handler.String())
-	if err := c.statusRecorder.UpdatePeerState(state); err != nil {
+	if err := c.statusRecorder.UpdatePeerRouteState(state); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 }
