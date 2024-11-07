@@ -201,6 +201,8 @@ func isWellKnown(addr netip.Addr) bool {
 		"2606:4700:4700::1111", "2606:4700:4700::1001", // Cloudflare DNS IPv6
 		"9.9.9.9", "149.112.112.112", // Quad9 DNS IPv4
 		"2620:fe::fe", "2620:fe::9", // Quad9 DNS IPv6
+
+		"128.0.0.0", "8000::", // 2nd split subnet for default routes
 	}
 
 	if slices.Contains(wellKnown, addr.String()) {
