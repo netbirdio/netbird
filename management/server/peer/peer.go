@@ -40,7 +40,7 @@ type Peer struct {
 
 	InactivityExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
-	LastLogin time.Time `gorm:"default:null"`
+	LastLogin time.Time
 	// CreatedAt records the time the peer was created
 	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
@@ -51,7 +51,7 @@ type Peer struct {
 
 type PeerStatus struct { //nolint:revive
 	// LastSeen is the last time peer was connected to the management service
-	LastSeen time.Time `gorm:"default:null"`
+	LastSeen time.Time
 	// Connected indicates whether peer is connected to the management service or not
 	Connected bool
 	// LoginExpired

@@ -35,9 +35,12 @@ func CreatePGDB() (func(), error) {
 
 func CreateMyDB() (func(), error) {
 
+	mysqlConfigPath := "../../management/server/testdata/mysql.cnf"
+
 	ctx := context.Background()
 	c, err := mysql.Run(ctx,
 		"mysql:8.0.40",
+		mysql.WithConfigFile(mysqlConfigPath),
 		mysql.WithDatabase("netbird"),
 		mysql.WithUsername("netbird"),
 		mysql.WithPassword("mysql"),

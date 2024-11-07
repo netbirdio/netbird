@@ -308,7 +308,7 @@ type UserInfo struct {
 	IsServiceUser        bool                                       `json:"is_service_user"`
 	IsBlocked            bool                                       `json:"is_blocked"`
 	NonDeletable         bool                                       `json:"non_deletable"`
-	LastLogin            time.Time                                  `json:"last_login" gorm:"default:null"`
+	LastLogin            time.Time                                  `json:"last_login"`
 	Issued               string                                     `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
 	Permissions          UserPermissions                            `json:"permissions"`
@@ -1249,7 +1249,7 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 		account, err := am.Store.GetAccount(ctx, accountID)
 		if err != nil {
-			log.Errorf("failed getting account %s expiring peers", account.Id)
+			log.Errorf("failed getting account %s expiring peers", accountID)
 			return account.GetNextInactivePeerExpiration()
 		}
 
