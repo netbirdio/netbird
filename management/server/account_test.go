@@ -979,7 +979,6 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 }
 
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
-	b.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	claims := jwtclaims.AuthorizationClaims{
 		Domain:         "example.com",
 		UserId:         "pvt-domain-user",
