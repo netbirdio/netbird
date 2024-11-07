@@ -23,7 +23,7 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 	}
 
 	if !user.HasAdminPower() {
-		return nil, status.NewUnauthorizedToViewPostureChecksError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
@@ -41,7 +41,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	}
 
 	if !user.HasAdminPower() {
-		return status.NewUnauthorizedToViewPostureChecksError()
+		return status.NewAdminPermissionError()
 	}
 
 	if err = am.validatePostureChecks(ctx, accountID, postureChecks); err != nil {
@@ -116,7 +116,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 	}
 
 	if !user.HasAdminPower() {
-		return status.NewUnauthorizedToViewPostureChecksError()
+		return status.NewAdminPermissionError()
 	}
 
 	postureChecks, err := am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
@@ -159,7 +159,7 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 	}
 
 	if !user.HasAdminPower() {
-		return nil, status.NewUnauthorizedToViewPostureChecksError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)

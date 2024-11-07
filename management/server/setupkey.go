@@ -366,7 +366,7 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 	}
 
 	if user.IsRegularUser() {
-		return nil, status.NewUnauthorizedToViewSetupKeysError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	setupKeys, err := am.Store.GetAccountSetupKeys(ctx, LockingStrengthShare, accountID)
@@ -389,7 +389,7 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 	}
 
 	if user.IsRegularUser() {
-		return nil, status.NewUnauthorizedToViewSetupKeysError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	setupKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, keyID, accountID)
@@ -417,7 +417,7 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 	}
 
 	if user.IsRegularUser() {
-		return status.NewUnauthorizedToViewSetupKeysError()
+		return status.NewAdminPermissionError()
 	}
 
 	deletedSetupKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, keyID, accountID)

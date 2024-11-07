@@ -136,6 +136,7 @@ func ParseNameServerURL(nsURL string) (NameServer, error) {
 func (g *NameServerGroup) Copy() *NameServerGroup {
 	nsGroup := &NameServerGroup{
 		ID:                   g.ID,
+		AccountID:            g.AccountID,
 		Name:                 g.Name,
 		Description:          g.Description,
 		NameServers:          make([]NameServer, len(g.NameServers)),
@@ -156,6 +157,7 @@ func (g *NameServerGroup) Copy() *NameServerGroup {
 // IsEqual compares one nameserver group with the other
 func (g *NameServerGroup) IsEqual(other *NameServerGroup) bool {
 	return other.ID == g.ID &&
+		other.AccountID == g.AccountID &&
 		other.Name == g.Name &&
 		other.Description == g.Description &&
 		other.Primary == g.Primary &&

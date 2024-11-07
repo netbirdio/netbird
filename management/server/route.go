@@ -57,7 +57,7 @@ func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string,
 	}
 
 	if user.IsRegularUser() {
-		return nil, status.NewUnauthorizedToViewRoutesError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetRouteByID(ctx, LockingStrengthShare, accountID, string(routeID))
@@ -137,7 +137,7 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(ctx cont
 	// check that peerGroupIDs are not in any route peerGroups list
 	for _, groupID := range peerGroupIDs {
 		// we validated the group existence before entering this function, no need to check again.
-		group, err := am.Store.GetGroupByID(context.Background(), LockingStrengthShare, groupID, accountID)
+		group, err := am.Store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
 		if err != nil || group == nil {
 			return status.Errorf(status.InvalidArgument, "group with ID %s not found", peerID)
 		}
@@ -151,7 +151,7 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(ctx cont
 		// check that the peers from peerGroupIDs groups are not the same peers we saw in routesWithPrefix
 		for _, id := range group.Peers {
 			if _, ok := seenPeers[id]; ok {
-				peer, err := am.Store.GetPeerByID(context.Background(), LockingStrengthShare, peerID, accountID)
+				peer, err := am.Store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
 				if err != nil {
 					return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
@@ -217,6 +217,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 
 	var newRoute route.Route
 	newRoute.ID = route.ID(xid.New().String())
+	newRoute.AccountID = accountID
 
 	accountGroups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 	if err != nil {
@@ -393,6 +394,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	if err != nil {
 		return err
 	}
+	routeToSave.AccountID = accountID
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
@@ -472,7 +474,7 @@ func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, user
 	}
 
 	if user.IsRegularUser() {
-		return nil, status.NewUnauthorizedToViewRoutesError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetAccountRoutes(ctx, LockingStrengthShare, accountID)

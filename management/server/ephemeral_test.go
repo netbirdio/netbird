@@ -15,20 +15,6 @@ type MockStore struct {
 	accountID string
 }
 
-//func (s *MockStore) GetAllAccounts(_ context.Context) []*Account {
-//	return []*Account{s.account}
-//}
-
-//func (s *MockStore) GetAccountByPeerID(_ context.Context, peerId string) (*Account, error) {
-//
-//	_, ok := s.account.Peers[peerId]
-//	if ok {
-//		return s.account, nil
-//	}
-//
-//	return nil, status.NewPeerNotFoundError(peerId)
-//}
-
 type MocAccountManager struct {
 	AccountManager
 	store *MockStore
@@ -72,7 +58,9 @@ func TestNewManagerPeerConnected(t *testing.T) {
 		return startTime
 	}
 
-	store := &MockStore{}
+	store := &MockStore{
+		Store: newStore(t),
+	}
 	am := MocAccountManager{
 		store: store,
 	}
@@ -104,7 +92,9 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 		return startTime
 	}
 
-	store := &MockStore{}
+	store := &MockStore{
+		Store: newStore(t),
+	}
 	am := MocAccountManager{
 		store: store,
 	}
@@ -151,7 +141,7 @@ func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) 
 			AccountID: accountID,
 			Ephemeral: false,
 		}
-		err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, p)
+		err = store.AddPeerToAccount(context.Background(), p)
 		if err != nil {
 			return err
 		}
@@ -164,7 +154,7 @@ func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) 
 			AccountID: accountID,
 			Ephemeral: true,
 		}
-		err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, p)
+		err = store.AddPeerToAccount(context.Background(), p)
 		if err != nil {
 			return err
 		}

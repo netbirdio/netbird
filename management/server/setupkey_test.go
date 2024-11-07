@@ -30,14 +30,16 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 
 	err = manager.SaveGroups(context.Background(), accountID, userID, []*nbgroup.Group{
 		{
-			ID:    "group_1",
-			Name:  "group_name_1",
-			Peers: []string{},
+			ID:        "group_1",
+			AccountID: accountID,
+			Name:      "group_name_1",
+			Peers:     []string{},
 		},
 		{
-			ID:    "group_2",
-			Name:  "group_name_2",
-			Peers: []string{},
+			ID:        "group_2",
+			AccountID: accountID,
+			Name:      "group_name_2",
+			Peers:     []string{},
 		},
 	})
 	if err != nil {
@@ -80,7 +82,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	assert.Equal(t, userID, ev.InitiatorID)
 	assert.Equal(t, key.Id, ev.TargetID)
 
-	groupAll, err := manager.GetGroupByName(context.Background(), accountID, "All")
+	groupAll, err := manager.GetGroupByName(context.Background(), "All", accountID)
 	require.NoError(t, err)
 
 	// saving setup key with All group assigned to auto groups should return error
@@ -105,24 +107,26 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 	require.NoError(t, err, "failed to get or create account ID")
 
 	err = manager.SaveGroup(context.Background(), accountID, userID, &nbgroup.Group{
-		ID:    "group_1",
-		Name:  "group_name_1",
-		Peers: []string{},
+		ID:        "group_1",
+		AccountID: accountID,
+		Name:      "group_name_1",
+		Peers:     []string{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	err = manager.SaveGroup(context.Background(), accountID, userID, &nbgroup.Group{
-		ID:    "group_2",
-		Name:  "group_name_2",
-		Peers: []string{},
+		ID:        "group_2",
+		AccountID: accountID,
+		Name:      "group_name_2",
+		Peers:     []string{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	groupAll, err := manager.GetGroupByName(context.Background(), accountID, "All")
+	groupAll, err := manager.GetGroupByName(context.Background(), "All", accountID)
 	require.NoError(t, err)
 
 	type testCase struct {
@@ -378,20 +382,24 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		ID:        "groupA",
+		AccountID: account.Id,
+		Name:      "GroupA",
+		Peers:     []string{peer1.ID, peer2.ID, peer3.ID},
 	})
 	assert.NoError(t, err)
 
 	policy := Policy{
-		ID:      "policy",
-		Enabled: true,
+		ID:        "policy",
+		AccountID: account.Id,
+		Enabled:   true,
 		Rules: []*PolicyRule{
 			{
+				ID:            "Rule",
+				PolicyID:      "policy",
 				Enabled:       true,
 				Sources:       []string{"groupA"},
-				Destinations:  []string{"group"},
+				Destinations:  []string{"groupA"},
 				Bidirectional: true,
 				Action:        PolicyTrafficActionAccept,
 			},

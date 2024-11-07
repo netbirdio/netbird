@@ -42,7 +42,7 @@ func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, acco
 	}
 
 	if user.IsRegularUser() && settings.RegularUsersViewBlocked {
-		return status.NewUnauthorizedToViewGroupsError()
+		return status.NewAdminPermissionError()
 	}
 
 	return nil

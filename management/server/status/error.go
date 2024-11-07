@@ -131,10 +131,6 @@ func NewOwnerDeletePermissionError() error {
 	return Errorf(PermissionDenied, "can't delete a user with the owner role")
 }
 
-func NewUnauthorizedToViewServiceUsersError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view service users")
-}
-
 // NewServiceUserRoleInvalidError creates a new Error with InvalidArgument type for creating a service user with owner role
 func NewServiceUserRoleInvalidError() error {
 	return Errorf(InvalidArgument, "can't create a service user with owner role")
@@ -150,19 +146,6 @@ func NewSetupKeyNotFoundError(err error) error {
 	return Errorf(NotFound, "setup key not found: %s", err)
 }
 
-// NewUnauthorizedToViewSetupKeysError creates a new Error with Unauthorized type for an issue getting a setup key
-func NewUnauthorizedToViewSetupKeysError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view setup keys")
-}
-
-func NewGroupNotFoundError() error {
-	return Errorf(NotFound, "group not found")
-}
-
-func NewUnauthorizedToViewGroupsError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view groups")
-}
-
 func NewPATNotFoundError() error {
 	return Errorf(NotFound, "PAT not found")
 }
@@ -171,24 +154,8 @@ func NewGetPATFromStoreError() error {
 	return Errorf(Internal, "issue getting pat from store")
 }
 
-func NewUnauthorizedToViewPoliciesError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view policies")
-}
-
-func NewUnauthorizedToViewPostureChecksError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view posture checks")
-}
-
-func NewUnauthorizedToViewDNSSettingsError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view dns settings")
-}
-
 func NewUnauthorizedToViewNSGroupsError() error {
 	return Errorf(PermissionDenied, "only users with admin power can view name server groups")
-}
-
-func NewUnauthorizedToViewRoutesError() error {
-	return Errorf(PermissionDenied, "only users with admin power can view network routes")
 }
 
 // NewStoreContextCanceledError creates a new Error with Internal type for a canceled store context

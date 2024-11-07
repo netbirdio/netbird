@@ -91,7 +91,7 @@ func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID s
 	}
 
 	if user.IsRegularUser() {
-		return nil, status.NewUnauthorizedToViewDNSSettingsError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetAccountDNSSettings(ctx, LockingStrengthShare, accountID)
@@ -113,7 +113,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	}
 
 	if !user.HasAdminPower() {
-		return status.NewUnauthorizedToViewDNSSettingsError()
+		return status.NewAdminPermissionError()
 	}
 
 	oldSettings, err := am.Store.GetAccountDNSSettings(ctx, LockingStrengthUpdate, accountID)

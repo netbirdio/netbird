@@ -114,6 +114,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	if err != nil {
 		return err
 	}
+	nsGroupToSave.AccountID = accountID
 
 	if err = am.validateNameServerGroup(ctx, accountID, nsGroupToSave); err != nil {
 		return err

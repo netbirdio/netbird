@@ -832,24 +832,28 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 	err := manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
 		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{peer1.ID, peer3.ID},
+			ID:        "groupA",
+			AccountID: account.Id,
+			Name:      "GroupA",
+			Peers:     []string{peer1.ID, peer3.ID},
 		},
 		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{},
+			ID:        "groupB",
+			AccountID: account.Id,
+			Name:      "GroupB",
+			Peers:     []string{},
 		},
 		{
-			ID:    "groupC",
-			Name:  "GroupC",
-			Peers: []string{},
+			ID:        "groupC",
+			AccountID: account.Id,
+			Name:      "GroupC",
+			Peers:     []string{},
 		},
 		{
-			ID:    "groupD",
-			Name:  "GroupD",
-			Peers: []string{peer1.ID, peer2.ID},
+			ID:        "groupD",
+			AccountID: account.Id,
+			Name:      "GroupD",
+			Peers:     []string{peer1.ID, peer2.ID},
 		},
 	})
 	assert.NoError(t, err)
@@ -862,11 +866,13 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	// Saving policy with rule groups with no peers should not update account's peers and not send peer update
 	t.Run("saving policy with rule groups with no peers", func(t *testing.T) {
 		policy := Policy{
-			ID:      "policy-rule-groups-no-peers",
-			Enabled: true,
+			ID:        "policy-rule-groups-no-peers",
+			AccountID: account.Id,
+			Enabled:   true,
 			Rules: []*PolicyRule{
 				{
 					ID:            xid.New().String(),
+					PolicyID:      "policy-rule-groups-no-peers",
 					Enabled:       true,
 					Sources:       []string{"groupB"},
 					Destinations:  []string{"groupC"},
@@ -896,11 +902,13 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	// update account's peers and send peer update
 	t.Run("saving policy where source has peers but destination does not", func(t *testing.T) {
 		policy := Policy{
-			ID:      "policy-source-has-peers-destination-none",
-			Enabled: true,
+			ID:        "policy-source-has-peers-destination-none",
+			AccountID: account.Id,
+			Enabled:   true,
 			Rules: []*PolicyRule{
 				{
 					ID:            xid.New().String(),
+					PolicyID:      "policy-source-has-peers-destination-none",
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupB"},
@@ -931,11 +939,13 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	// update account's peers and send peer update
 	t.Run("saving policy where destination has peers but source does not", func(t *testing.T) {
 		policy := Policy{
-			ID:      "policy-destination-has-peers-source-none",
-			Enabled: true,
+			ID:        "policy-destination-has-peers-source-none",
+			AccountID: account.Id,
+			Enabled:   true,
 			Rules: []*PolicyRule{
 				{
 					ID:            xid.New().String(),
+					PolicyID:      "policy-destination-has-peers-source-none",
 					Enabled:       false,
 					Sources:       []string{"groupC"},
 					Destinations:  []string{"groupD"},
@@ -966,11 +976,13 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	// and send peer update
 	t.Run("saving policy with source and destination groups with peers", func(t *testing.T) {
 		policy := Policy{
-			ID:      "policy-source-destination-peers",
-			Enabled: true,
+			ID:        "policy-source-destination-peers",
+			AccountID: account.Id,
+			Enabled:   true,
 			Rules: []*PolicyRule{
 				{
 					ID:            xid.New().String(),
+					PolicyID:      "policy-source-destination-peers",
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupD"},
@@ -1000,11 +1012,13 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	// and send peer update
 	t.Run("disabling policy with source and destination groups with peers", func(t *testing.T) {
 		policy := Policy{
-			ID:      "policy-source-destination-peers",
-			Enabled: false,
+			ID:        "policy-source-destination-peers",
+			AccountID: account.Id,
+			Enabled:   false,
 			Rules: []*PolicyRule{
 				{
 					ID:            xid.New().String(),
+					PolicyID:      "policy-source-destination-peers",
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupD"},
@@ -1035,11 +1049,13 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("updating disabled policy with source and destination groups with peers", func(t *testing.T) {
 		policy := Policy{
 			ID:          "policy-source-destination-peers",
+			AccountID:   account.Id,
 			Description: "updated description",
 			Enabled:     false,
 			Rules: []*PolicyRule{
 				{
 					ID:            xid.New().String(),
+					PolicyID:      "policy-source-destination-peers",
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupA"},
@@ -1069,11 +1085,13 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	// and send peer update
 	t.Run("enabling policy with source and destination groups with peers", func(t *testing.T) {
 		policy := Policy{
-			ID:      "policy-source-destination-peers",
-			Enabled: true,
+			ID:        "policy-source-destination-peers",
+			AccountID: account.Id,
+			Enabled:   true,
 			Rules: []*PolicyRule{
 				{
 					ID:            xid.New().String(),
+					PolicyID:      "policy-source-destination-peers",
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupD"},

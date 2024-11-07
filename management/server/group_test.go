@@ -424,24 +424,28 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	err := manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
 		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{peer1.ID, peer2.ID},
+			ID:        "groupA",
+			AccountID: account.Id,
+			Name:      "GroupA",
+			Peers:     []string{peer1.ID, peer2.ID},
 		},
 		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{},
+			ID:        "groupB",
+			AccountID: account.Id,
+			Name:      "GroupB",
+			Peers:     []string{},
 		},
 		{
-			ID:    "groupC",
-			Name:  "GroupC",
-			Peers: []string{peer1.ID, peer3.ID},
+			ID:        "groupC",
+			AccountID: account.Id,
+			Name:      "GroupC",
+			Peers:     []string{peer1.ID, peer3.ID},
 		},
 		{
-			ID:    "groupD",
-			Name:  "GroupD",
-			Peers: []string{},
+			ID:        "groupD",
+			AccountID: account.Id,
+			Name:      "GroupD",
+			Peers:     []string{},
 		},
 	})
 	assert.NoError(t, err)
@@ -460,9 +464,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		}()
 
 		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{peer1.ID, peer2.ID},
+			ID:        "groupB",
+			AccountID: account.Id,
+			Name:      "GroupB",
+			Peers:     []string{peer1.ID, peer2.ID},
 		})
 		assert.NoError(t, err)
 
@@ -531,10 +536,13 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// adding a group to policy
 	err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
-		ID:      "policy",
-		Enabled: true,
+		ID:        "policy",
+		AccountID: account.Id,
+		Enabled:   true,
 		Rules: []*PolicyRule{
 			{
+				ID:            "rule",
+				PolicyID:      "policy",
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupA"},
@@ -554,9 +562,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		}()
 
 		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{peer1.ID, peer2.ID},
+			ID:        "groupA",
+			AccountID: account.Id,
+			Name:      "GroupA",
+			Peers:     []string{peer1.ID, peer2.ID},
 		})
 		assert.NoError(t, err)
 
@@ -623,9 +632,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		}()
 
 		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-			ID:    "groupC",
-			Name:  "GroupC",
-			Peers: []string{peer1.ID, peer3.ID},
+			ID:        "groupC",
+			AccountID: account.Id,
+			Name:      "GroupC",
+			Peers:     []string{peer1.ID, peer3.ID},
 		})
 		assert.NoError(t, err)
 
@@ -640,6 +650,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("saving group linked to route", func(t *testing.T) {
 		newRoute := route.Route{
 			ID:          "route",
+			AccountID:   account.Id,
 			Network:     netip.MustParsePrefix("192.168.0.0/16"),
 			NetID:       "superNet",
 			NetworkType: route.IPv4Network,
@@ -664,9 +675,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		}()
 
 		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+			ID:        "groupA",
+			AccountID: account.Id,
+			Name:      "GroupA",
+			Peers:     []string{peer1.ID, peer2.ID, peer3.ID},
 		})
 		assert.NoError(t, err)
 
@@ -691,9 +703,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		}()
 
 		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-			ID:    "groupD",
-			Name:  "GroupD",
-			Peers: []string{peer1.ID},
+			ID:        "groupD",
+			AccountID: account.Id,
+			Name:      "GroupD",
+			Peers:     []string{peer1.ID},
 		})
 		assert.NoError(t, err)
 

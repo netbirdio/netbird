@@ -409,7 +409,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 
 			// assign generated ID
 			testCase.expectedNSGroup.ID = outNSGroup.ID
-
+			testCase.expectedNSGroup.AccountID = accountID
 			if !testCase.expectedNSGroup.IsEqual(outNSGroup) {
 				t.Errorf("new nameserver group didn't match expected ns group:\nGot %#v\nExpected:%#v\n", outNSGroup, testCase.expectedNSGroup)
 			}
@@ -649,7 +649,6 @@ func TestSaveNameServerGroup(t *testing.T) {
 			}
 
 			err = am.SaveNameServerGroup(context.Background(), accountID, userID, nsGroupToSave)
-
 			testCase.errFunc(t, err)
 
 			if !testCase.shouldCreate {
@@ -659,6 +658,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 			savedNSGroup, err := am.Store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, testCase.expectedNSGroup.ID)
 			require.NoError(t, err, "failed to get saved nameserver group")
 
+			testCase.expectedNSGroup.AccountID = accountID
 			if !testCase.expectedNSGroup.IsEqual(savedNSGroup) {
 				t.Errorf("new nameserver group didn't match expected group:\nGot %#v\nExpected:%#v\n", savedNSGroup, testCase.expectedNSGroup)
 			}

@@ -231,7 +231,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	}
 
 	if !initiatorUser.HasAdminPower() {
-		return nil, status.NewUnauthorizedToViewServiceUsersError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	if role == UserRoleOwner {

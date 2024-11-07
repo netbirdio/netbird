@@ -461,7 +461,7 @@ func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.Clie
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    10 * time.Second,
-			Timeout: 2 * time.Second,
+			Timeout: 200 * time.Second,
 		}))
 	if err != nil {
 		return nil, nil, err

@@ -1438,10 +1438,13 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	// Adding peer to group linked with policy should update account peers and send peer update
 	t.Run("adding peer to group linked with policy", func(t *testing.T) {
 		err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
-			ID:      "policy",
-			Enabled: true,
+			ID:        "policy",
+			AccountID: account.Id,
+			Enabled:   true,
 			Rules: []*PolicyRule{
 				{
+					ID:            "rule",
+					PolicyID:      "policy",
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupA"},

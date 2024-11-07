@@ -171,6 +171,7 @@ type Policy struct {
 func (p *Policy) Copy() *Policy {
 	c := &Policy{
 		ID:                  p.ID,
+		AccountID:           p.AccountID,
 		Name:                p.Name,
 		Description:         p.Description,
 		Enabled:             p.Enabled,
@@ -347,7 +348,7 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 	}
 
 	if user.IsRegularUser() {
-		return nil, status.NewUnauthorizedToViewPoliciesError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetPolicyByID(ctx, LockingStrengthShare, accountID, policyID)
@@ -365,7 +366,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	}
 
 	if user.IsRegularUser() {
-		return status.NewUnauthorizedToViewPoliciesError()
+		return status.NewAdminPermissionError()
 	}
 
 	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
@@ -476,7 +477,7 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 	}
 
 	if user.IsRegularUser() {
-		return nil, status.NewUnauthorizedToViewPoliciesError()
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
