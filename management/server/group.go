@@ -59,7 +59,7 @@ func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID, us
 		return nil, err
 	}
 
-	return am.Store.GetAccountGroups(ctx, accountID)
+	return am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 }
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers

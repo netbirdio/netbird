@@ -2029,7 +2029,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		groups, err := transaction.GetAccountGroups(ctx, accountID)
+		groups, err := transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			return fmt.Errorf("error getting account groups: %w", err)
 		}
@@ -2059,7 +2059,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			groups, err = transaction.GetAccountGroups(ctx, accountID)
+			groups, err = transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 			if err != nil {
 				return fmt.Errorf("error getting account groups: %w", err)
 			}
