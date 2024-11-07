@@ -240,14 +240,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		peer.SSHEnabled = update.SSHEnabled
 		sshChanged = true
 	}
-	if peer.SSHEnabled != update.SSHEnabled {
-		peer.SSHEnabled = update.SSHEnabled
-		event := activity.PeerSSHEnabled
-		if !update.SSHEnabled {
-			event = activity.PeerSSHDisabled
-		}
-		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
-	}
 
 	if peer.Name != update.Name {
 		peer.Name = update.Name
