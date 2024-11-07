@@ -626,6 +626,8 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	s.oauthAuthFlow = oauthAuthFlow{}
+
 	if s.actCancel == nil {
 		return nil, fmt.Errorf("service is not up")
 	}

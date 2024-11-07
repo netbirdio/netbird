@@ -70,9 +70,17 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metr
 	if err != nil {
 		conns = runtime.NumCPU()
 	}
+
+	if storeEngine == SqliteStoreEngine {
+		if err == nil {
+			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
+		}
+		conns = 1
+	}
+
 	sql.SetMaxOpenConns(conns)
 
-	log.Infof("Set max open db connections to %d", conns)
+	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
 	if storeEngine == MysqlStoreEngine {
 		sql.SetConnMaxLifetime(120)
