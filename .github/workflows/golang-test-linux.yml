@@ -13,6 +13,7 @@ concurrency:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         arch: [ '386','amd64' ]
         store: [ 'mysql' ]
