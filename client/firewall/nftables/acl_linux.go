@@ -520,7 +520,7 @@ func (m *AclManager) addPreroutingRule(preroutingChain *nftables.Chain) {
 			},
 			&expr.Immediate{
 				Register: 1,
-				Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmark),
+				Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected),
 			},
 			&expr.Meta{
 				Key:            expr.MetaKeyMARK,
@@ -543,7 +543,7 @@ func (m *AclManager) addFwmarkToForward(chainFwFilter *nftables.Chain) {
 			&expr.Cmp{
 				Op:       expr.CmpOpEq,
 				Register: 1,
-				Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmark),
+				Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected),
 			},
 			&expr.Verdict{
 				Kind:  expr.VerdictJump,

@@ -11,8 +11,11 @@ import (
 
 const (
 	// NetbirdFwmark is the fwmark value used by Netbird via wireguard
-	NetbirdFwmark    = 0x1BD00
-	PreroutingFwmark = 0x1BD01
+	NetbirdFwmark = 0x1BD00
+
+	PreroutingFwmarkRedirected       = 0x1BD01
+	PreroutingFwmarkMasquerade       = 0x1BD11
+	PreroutingFwmarkMasqueradeReturn = 0x1BD12
 
 	envDisableCustomRouting = "NB_DISABLE_CUSTOM_ROUTING"
 )
