@@ -74,7 +74,7 @@ type User struct {
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
-	LastLogin time.Time `gorm:"default:null"`
+	LastLogin time.Time
 	// CreatedAt records the time the user was created
 	CreatedAt time.Time
 
