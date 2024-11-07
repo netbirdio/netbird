@@ -281,10 +281,6 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	return nil
 }
 
-func (c *clientNetwork) removeStateRoute() {
-
-}
-
 func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {
 	go func() {
 		c.routeUpdate <- update
