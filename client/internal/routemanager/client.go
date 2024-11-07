@@ -205,13 +205,16 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 	}
 }
 
-func (c *clientNetwork) removeRouteFromWireguardPeer() error {
-	c.removeStateRoute()
+func (c *clientNetwork) removeRouteFromWireGuardPeer() error {
+	var multiErr *multierror.Error
+	if err := c.statusRecorder.RemovePeerStateRoute(c.currentChosen.Peer, c.handler.String()); err != nil {
+		multiErr = multierror.Append(multiErr, fmt.Errorf("remove peer state route: %w", err))
+	}
 
 	if err := c.handler.RemoveAllowedIPs(); err != nil {
-		return fmt.Errorf("remove allowed IPs: %w", err)
+		multiErr = multierror.Append(multiErr, fmt.Errorf("remove allowed IPs: %w", err))
 	}
-	return nil
+	return nberrors.FormatErrorOrNil(multiErr)
 }
 
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
@@ -221,7 +224,7 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 
 	var merr *multierror.Error
 
-	if err := c.removeRouteFromWireguardPeer(); err != nil {
+	if err := c.removeRouteFromWireGuardPeer(); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove allowed IPs for peer %s: %w", c.currentChosen.Peer, err))
 	}
 	if err := c.handler.RemoveRoute(); err != nil {
@@ -260,7 +263,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		}
 	} else {
 		// Otherwise, remove the allowed IPs from the previous peer first
-		if err := c.removeRouteFromWireguardPeer(); err != nil {
+		if err := c.removeRouteFromWireGuardPeer(); err != nil {
 			return fmt.Errorf("remove allowed IPs for peer %s: %w", c.currentChosen.Peer, err)
 		}
 	}
@@ -271,35 +274,15 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		return fmt.Errorf("add allowed IPs for peer %s: %w", c.currentChosen.Peer, err)
 	}
 
-	c.addStateRoute()
-
+	err := c.statusRecorder.AddPeerStateRoute(c.currentChosen.Peer, c.handler.String())
+	if err != nil {
+		return fmt.Errorf("add peer state route: %w", err)
+	}
 	return nil
 }
 
-func (c *clientNetwork) addStateRoute() {
-	state, err := c.statusRecorder.GetPeer(c.currentChosen.Peer)
-	if err != nil {
-		log.Errorf("Failed to get peer state: %v", err)
-		return
-	}
-
-	state.AddRoute(c.handler.String())
-	if err := c.statusRecorder.UpdatePeerRouteState(state); err != nil {
-		log.Warnf("Failed to update peer state: %v", err)
-	}
-}
-
 func (c *clientNetwork) removeStateRoute() {
-	state, err := c.statusRecorder.GetPeer(c.currentChosen.Peer)
-	if err != nil {
-		log.Errorf("Failed to get peer state: %v", err)
-		return
-	}
 
-	state.DeleteRoute(c.handler.String())
-	if err := c.statusRecorder.UpdatePeerRouteState(state); err != nil {
-		log.Warnf("Failed to update peer state: %v", err)
-	}
 }
 
 func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {

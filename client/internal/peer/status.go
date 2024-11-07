@@ -262,27 +262,35 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	return nil
 }
 
-// UpdatePeerRouteState updates peer's route state. It operates with routes only, ignore other fields
-func (d *Status) UpdatePeerRouteState(receivedState State) error {
+func (d *Status) AddPeerStateRoute(peer string, route string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	peerState, ok := d.peers[receivedState.PubKey]
+	peerState, ok := d.peers[peer]
 	if !ok {
 		return errors.New("peer doesn't exist")
 	}
 
-	if receivedState.GetRoutes() != nil {
-		peerState.SetRoutes(receivedState.GetRoutes())
+	peerState.AddRoute(route)
+	d.peers[peer] = peerState
+
+	// todo: consider to make sense of this notification or not
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) RemovePeerStateRoute(peer string, route string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peer]
+	if !ok {
+		return errors.New("peer doesn't exist")
 	}
 
-	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	peerState.DeleteRoute(route)
+	d.peers[peer] = peerState
 
-	d.peers[receivedState.PubKey] = peerState
-
-	if skipNotification {
-		return nil
-	}
 	// todo: consider to make sense of this notification or not
 	d.notifyPeerListChanged()
 	return nil
