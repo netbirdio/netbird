@@ -421,7 +421,8 @@ func (s *SqlStore) SaveUsers(ctx context.Context, lockStrength LockingStrength, 
 
 // SaveUser saves the given user to the database.
 func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(user)
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Select(clause.Associations).Save(user)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save user to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save user to store")
@@ -502,15 +503,19 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 }
 
 func (s *SqlStore) DeleteUser(ctx context.Context, lockStrength LockingStrength, accountID, userID string) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&User{}, accountAndIDQueryCondition, accountID, userID)
-	if err := result.Error; err != nil {
-		log.WithContext(ctx).Errorf("failed to delete user from the store: %s", err)
-		return status.Errorf(status.Internal, "failed to user policy from store")
-	}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Delete(&PersonalAccessToken{}, "user_id = ?", userID)
+		if result.Error != nil {
+			return result.Error
+		}
 
-	if result.RowsAffected == 0 {
-		return status.NewUserNotFoundError(userID)
+		return tx.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Delete(&User{}, accountAndIDQueryCondition, accountID, userID).Error
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to delete user from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete user from store")
 	}
 
 	return nil
@@ -1412,6 +1417,16 @@ func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStreng
 	}
 
 	return policy, nil
+}
+
+func (s *SqlStore) CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Create(policy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create policy in the store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to create policy in the store")
+	}
+
+	return nil
 }
 
 // SavePolicy saves a policy to the database.

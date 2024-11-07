@@ -399,7 +399,12 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
-		if err = transaction.SavePolicy(ctx, LockingStrengthUpdate, policy); err != nil {
+		saveFunc := transaction.SavePolicy
+		if !isUpdate {
+			saveFunc = transaction.CreatePolicy
+		}
+
+		if err := saveFunc(ctx, LockingStrengthUpdate, policy); err != nil {
 			return fmt.Errorf("failed to save policy: %w", err)
 		}
 		return nil

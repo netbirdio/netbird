@@ -2430,16 +2430,17 @@ func newAccountWithId(ctx context.Context, store Store, accountID, userID, domai
 			return fmt.Errorf("failed to save group All: %w", err)
 		}
 
-		id := xid.New().String()
+		policyID := xid.New().String()
 		defaultPolicy := &Policy{
-			ID:          id,
+			ID:          policyID,
 			AccountID:   accountID,
 			Name:        DefaultPolicyName,
 			Description: DefaultPolicyDescription,
 			Enabled:     true,
 			Rules: []*PolicyRule{
 				{
-					ID:            id,
+					ID:            xid.New().String(),
+					PolicyID:      policyID,
 					Name:          DefaultRuleName,
 					Description:   DefaultRuleDescription,
 					Enabled:       true,
@@ -2451,7 +2452,7 @@ func newAccountWithId(ctx context.Context, store Store, accountID, userID, domai
 				},
 			},
 		}
-		if err := transaction.SavePolicy(ctx, LockingStrengthUpdate, defaultPolicy); err != nil {
+		if err := transaction.CreatePolicy(ctx, LockingStrengthUpdate, defaultPolicy); err != nil {
 			return fmt.Errorf("failed to save default policy: %w", err)
 		}
 

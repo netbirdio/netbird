@@ -69,7 +69,7 @@ type User struct {
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string                        `gorm:"serializer:json"`
 	PATs       map[string]*PersonalAccessToken `gorm:"-"`
-	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id"`
+	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP

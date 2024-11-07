@@ -88,6 +88,7 @@ func runLargeTest(t *testing.T, store Store) {
 
 		peer := &nbpeer.Peer{
 			ID:         peerID,
+			AccountID:  accountID,
 			Key:        peerID,
 			IP:         netIP,
 			Name:       peerID,
@@ -96,8 +97,8 @@ func runLargeTest(t *testing.T, store Store) {
 			Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 			SSHEnabled: false,
 		}
-		err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, peer)
-		assert.NoError(t, err, "failed to save peer")
+		err = store.AddPeerToAccount(context.Background(), peer)
+		assert.NoError(t, err, "failed to add peer")
 
 		err = store.AddPeerToAllGroup(context.Background(), accountID, peerID)
 		assert.NoError(t, err, "failed to add peer to all group")
@@ -237,12 +238,14 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	err = store.SaveSetupKey(context.Background(), LockingStrengthUpdate, setupKey)
 	require.NoError(t, err, "failed to save setup key")
 
-	err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, &nbpeer.Peer{
-		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	err = store.AddPeerToAccount(context.Background(), &nbpeer.Peer{
+		ID:        "testpeer",
+		Key:       "peerkey",
+		IP:        net.IP{127, 0, 0, 1},
+		AccountID: accountID,
+		Meta:      nbpeer.PeerSystemMeta{},
+		Name:      "peer name",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	})
 	require.NoError(t, err, "failed to save peer")
 
@@ -255,12 +258,14 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	err = store.SaveSetupKey(context.Background(), LockingStrengthUpdate, setupKey)
 	require.NoError(t, err, "failed to save setup key")
 
-	err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID2, &nbpeer.Peer{
-		Key:    "peerkey2",
-		IP:     net.IP{127, 0, 0, 2},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name 2",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	err = store.AddPeerToAccount(context.Background(), &nbpeer.Peer{
+		ID:        "testpeer2",
+		Key:       "peerkey2",
+		AccountID: accountID2,
+		IP:        net.IP{127, 0, 0, 2},
+		Meta:      nbpeer.PeerSystemMeta{},
+		Name:      "peer name 2",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	})
 	require.NoError(t, err, "failed to save peer")
 
@@ -312,12 +317,6 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	accountID := "account_id"
 	testUserID := "testuser"
 
-	user := NewAdminUser(testUserID)
-	user.PATs = map[string]*PersonalAccessToken{"testtoken": {
-		ID:   "testtoken",
-		Name: "test token",
-	}}
-
 	err = newAccountWithId(context.Background(), store, accountID, testUserID, "")
 	require.NoError(t, err)
 
@@ -326,12 +325,14 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	err = store.SaveSetupKey(context.Background(), LockingStrengthUpdate, setupKey)
 	require.NoError(t, err, "failed to save setup key")
 
-	err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, &nbpeer.Peer{
-		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	err = store.AddPeerToAccount(context.Background(), &nbpeer.Peer{
+		ID:        "testpeer",
+		Key:       "peerkey",
+		AccountID: accountID,
+		IP:        net.IP{127, 0, 0, 1},
+		Meta:      nbpeer.PeerSystemMeta{},
+		Name:      "peer name",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	})
 	require.NoError(t, err, "failed to save peer")
 
@@ -638,7 +639,7 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 
 	user, err := store.GetUserByPATID(context.Background(), LockingStrengthShare, id)
 	require.NoError(t, err)
-	require.Equal(t, id, user.PATs[id].ID)
+	require.Equal(t, "f4f6d672-63fb-11ec-90d6-0242ac120003", user.Id)
 
 	_, err = store.GetUserByPATID(context.Background(), LockingStrengthShare, "non-existing-id")
 	require.Error(t, err)
@@ -814,12 +815,14 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	err = store.SaveSetupKey(context.Background(), LockingStrengthUpdate, setupKey)
 	require.NoError(t, err, "failed to save setup key")
 
-	err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, &nbpeer.Peer{
-		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	err = store.AddPeerToAccount(context.Background(), &nbpeer.Peer{
+		ID:        "testpeer",
+		Key:       "peerkey",
+		IP:        net.IP{127, 0, 0, 1},
+		AccountID: accountID,
+		Meta:      nbpeer.PeerSystemMeta{},
+		Name:      "peer name",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	})
 	require.NoError(t, err, "failed to save peer")
 
@@ -833,12 +836,14 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	err = store.SaveSetupKey(context.Background(), LockingStrengthUpdate, setupKey)
 	require.NoError(t, err, "failed to save setup key")
 
-	err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID2, &nbpeer.Peer{
-		Key:    "peerkey2",
-		IP:     net.IP{127, 0, 0, 2},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name 2",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	err = store.AddPeerToAccount(context.Background(), &nbpeer.Peer{
+		ID:        "testpeer2",
+		Key:       "peerkey2",
+		AccountID: accountID2,
+		IP:        net.IP{127, 0, 0, 2},
+		Meta:      nbpeer.PeerSystemMeta{},
+		Name:      "peer name 2",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	})
 	require.NoError(t, err, "failed to save peer")
 
@@ -907,12 +912,14 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	err = store.SaveSetupKey(context.Background(), LockingStrengthUpdate, setupKey)
 	require.NoError(t, err, "failed to save setup key")
 
-	err = store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, &nbpeer.Peer{
-		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	err = store.AddPeerToAccount(context.Background(), &nbpeer.Peer{
+		ID:        "testingpeer",
+		AccountID: accountID,
+		Key:       "peerkey",
+		IP:        net.IP{127, 0, 0, 1},
+		Meta:      nbpeer.PeerSystemMeta{},
+		Name:      "peer name",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	})
 	require.NoError(t, err, "failed to save peer")
 

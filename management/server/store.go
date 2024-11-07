@@ -84,6 +84,7 @@ type Store interface {
 
 	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error)
 	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error)
+	CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
 	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
 	DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error
 
