@@ -72,14 +72,14 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metr
 
 	if storeEngine == SqliteStoreEngine {
 		if err == nil {
-			log.Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
+			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
 		}
 		conns = 1
 	}
 
 	sql.SetMaxOpenConns(conns)
 
-	log.Infof("Set max open db connections to %d", conns)
+	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
 	if err := migrate(ctx, db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
