@@ -150,7 +150,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 
-	unlock := s.AcquirePeerLockByUID(ctx, peerKey.String())
+	unlock := s.acquirePeerLockByUID(ctx, peerKey.String())
 	defer func() {
 		if unlock != nil {
 			unlock()
@@ -257,7 +257,7 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey w
 }
 
 func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
-	unlock := s.AcquirePeerLockByUID(ctx, peer.Key)
+	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
 	_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
@@ -289,7 +289,7 @@ func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string
 	return claims.UserId, nil
 }
 
-func (s *GRPCServer) AcquirePeerLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+func (s *GRPCServer) acquirePeerLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
 	log.WithContext(ctx).Tracef("acquiring peer lock for ID %s", uniqueID)
 
 	start := time.Now()
