@@ -22,6 +22,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -1395,6 +1396,50 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		case <-done:
 		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	t.Run("validator requires update", func(t *testing.T) {
+		requireUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *nbAccount.ExtraSettings) (*nbpeer.Peer, bool, error) {
+			return update, true, nil
+		}
+
+		manager.integratedPeerValidator = MocIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		_, err = manager.UpdatePeer(context.Background(), account.Id, userID, peer1)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	t.Run("validator requires no update", func(t *testing.T) {
+		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *nbAccount.ExtraSettings) (*nbpeer.Peer, bool, error) {
+			return update, false, nil
+		}
+
+		manager.integratedPeerValidator = MocIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		_, err = manager.UpdatePeer(context.Background(), account.Id, userID, peer1)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 
