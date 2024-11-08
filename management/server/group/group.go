@@ -54,3 +54,32 @@ func (g *Group) HasPeers() bool {
 func (g *Group) IsGroupAll() bool {
 	return g.Name == "All"
 }
+
+// AddPeer adds peerID to Peers if not already present,
+// returning true if added.
+func (g *Group) AddPeer(peerID string) bool {
+	if peerID == "" {
+		return false
+	}
+
+	for _, itemID := range g.Peers {
+		if itemID == peerID {
+			return false
+		}
+	}
+
+	g.Peers = append(g.Peers, peerID)
+	return true
+}
+
+// RemovePeer removes peerID from Peers if present,
+// returning true if removed.
+func (g *Group) RemovePeer(peerID string) bool {
+	for i, itemID := range g.Peers {
+		if itemID == peerID {
+			g.Peers = append(g.Peers[:i], g.Peers[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
