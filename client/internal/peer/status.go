@@ -67,7 +67,7 @@ func (s *State) DeleteRoute(network string) {
 func (s *State) GetRoutes() map[string]struct{} {
 	s.Mux.RLock()
 	defer s.Mux.RUnlock()
-	return s.routes
+	return maps.Clone(s.routes)
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -237,8 +237,9 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.IP = receivedState.IP
 	}
 
-	if receivedState.GetRoutes() != nil {
-		peerState.SetRoutes(receivedState.GetRoutes())
+	receivedRoutes := receivedState.GetRoutes()
+	if receivedRoutes != nil {
+		peerState.SetRoutes(receivedRoutes)
 	}
 
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
