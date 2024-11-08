@@ -432,7 +432,7 @@ func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountI
 	autoGroups := map[string]*nbgroup.Group{}
 
 	for _, groupID := range autoGroupIDs {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
+		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
 		if err != nil {
 			return nil, err
 		}

@@ -2100,7 +2100,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range addNewGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {
@@ -2113,7 +2113,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range removeOldGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {

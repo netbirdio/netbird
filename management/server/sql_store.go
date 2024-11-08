@@ -1196,7 +1196,7 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId 
 	result := s.db.WithContext(ctx).Where(accountAndIDQueryCondition, accountId, groupID).First(&group)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return status.Errorf(status.NotFound, "group not found for account")
+			return status.NewGroupNotFoundError(groupID)
 		}
 		if errors.Is(result.Error, context.Canceled) {
 			return status.NewStoreContextCanceledError(time.Since(startTime))
@@ -1358,7 +1358,7 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).First(&group, accountAndIDQueryCondition, accountID, groupID)
 	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "group not found")
+			return nil, status.NewGroupNotFoundError(groupID)
 		}
 		log.WithContext(ctx).Errorf("failed to get group from store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get group from store")
@@ -1383,7 +1383,7 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	result := query.First(&group, "account_id = ? AND name = ?", accountID, groupName)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "group not found")
+			return nil, status.NewGroupNotFoundError(groupName)
 		}
 		log.WithContext(ctx).Errorf("failed to get group by name from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get group by name from store")
@@ -1411,7 +1411,7 @@ func (s *SqlStore) DeleteGroup(ctx context.Context, lockStrength LockingStrength
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "group not found")
+		return status.NewGroupNotFoundError(groupID)
 	}
 
 	return nil

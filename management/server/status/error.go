@@ -135,3 +135,8 @@ func NewStoreContextCanceledError(duration time.Duration) error {
 func NewInvalidKeyIDError() error {
 	return Errorf(InvalidArgument, "invalid key ID")
 }
+
+// NewGroupNotFoundError creates a new Error with NotFound type for a missing group
+func NewGroupNotFoundError(groupID string) error {
+	return Errorf(NotFound, "group: %s not found", groupID)
+}
