@@ -1911,8 +1911,9 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	})
 	require.NoError(t, err, "unable to add peer")
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
-		PeerLoginExpiration:        time.Hour,
-		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpirationEnabled: false,
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 
