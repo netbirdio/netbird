@@ -218,25 +218,23 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 
 	err = agent.OnConnectionStateChange(func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
-		if state == ice.ConnectionStateConnected {
+		switch state {
+		case ice.ConnectionStateConnected:
 			w.lastKnownState = ice.ConnectionStateConnected
 			return
-		}
-		if state != ice.ConnectionStateFailed && state != ice.ConnectionStateDisconnected {
+		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected:
+			if w.lastKnownState != ice.ConnectionStateDisconnected {
+				w.lastKnownState = ice.ConnectionStateDisconnected
+				w.conn.OnStatusChanged(StatusDisconnected)
+			}
+			w.muxAgent.Lock()
+			agentCancel()
+			_ = w.agent.Close()
+			w.agent = nil
+			w.muxAgent.Unlock()
+		default:
 			return
 		}
-
-		if w.lastKnownState != ice.ConnectionStateDisconnected {
-			w.lastKnownState = ice.ConnectionStateDisconnected
-			w.conn.OnStatusChanged(StatusDisconnected)
-		}
-
-		w.muxAgent.Lock()
-		defer w.muxAgent.Unlock()
-
-		agentCancel()
-		_ = agent.Close()
-		w.agent = nil
 	})
 	if err != nil {
 		return nil, err
