@@ -122,13 +122,18 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 			tempScore = float64(metricDiff) * 10
 		}
 
-		// in some temporal cases, latency can be 0, so we set it to 1s to not block but try to avoid this route
-		latency := time.Second
+		// in some temporal cases, latency can be 0, so we set it to 999ms to not block but try to avoid this route
+		latency := 999 * time.Millisecond
 		if peerStatus.latency != 0 {
 			latency = peerStatus.latency
 		} else {
-			log.Warnf("peer %s has 0 latency", r.Peer)
+			log.Infof("peer %s has 0 latency, range %s", r.Peer, c.handler)
 		}
+
+		if latency > 1*time.Second {
+			latency = 999 * time.Millisecond
+		}
+
 		tempScore += 1 - latency.Seconds()
 
 		if !peerStatus.relayed {
