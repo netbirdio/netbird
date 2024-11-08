@@ -325,6 +325,7 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 		return nil
 	}
 
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
