@@ -331,7 +331,10 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return err
 	}
 
-	updateAccountPeers := isPeerInActiveGroup(account, peerID)
+	updateAccountPeers, err := am.isPeerInActiveGroup(ctx, account, peerID)
+	if err != nil {
+		return err
+	}
 
 	err = am.deletePeers(ctx, account, []string{peerID}, userID)
 	if err != nil {
@@ -594,9 +597,14 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error getting all group ID: %w", err)
 	}
-
 	groupsToAdd = append(groupsToAdd, allGroup.ID)
-	if areGroupChangesAffectPeers(account, groupsToAdd) {
+
+	newGroupsAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, accountID, groupsToAdd)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if newGroupsAffectsPeers {
 		am.updateAccountPeers(ctx, accountID)
 	}
 
@@ -1033,12 +1041,12 @@ func ConvertSliceToMap(existingLabels []string) map[string]struct{} {
 
 // IsPeerInActiveGroup checks if the given peer is part of a group that is used
 // in an active DNS, route, or ACL configuration.
-func isPeerInActiveGroup(account *Account, peerID string) bool {
+func (am *DefaultAccountManager) isPeerInActiveGroup(ctx context.Context, account *Account, peerID string) (bool, error) {
 	peerGroupIDs := make([]string, 0)
 	for _, group := range account.Groups {
 		if slices.Contains(group.Peers, peerID) {
 			peerGroupIDs = append(peerGroupIDs, group.ID)
 		}
 	}
-	return areGroupChangesAffectPeers(account, peerGroupIDs)
+	return areGroupChangesAffectPeers(ctx, am.Store, account.Id, peerGroupIDs)
 }
