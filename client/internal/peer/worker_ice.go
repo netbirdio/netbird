@@ -218,6 +218,10 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 
 	err = agent.OnConnectionStateChange(func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
+		if state == ice.ConnectionStateConnected {
+			w.lastKnownState = ice.ConnectionStateConnected
+			return
+		}
 		if state != ice.ConnectionStateFailed && state != ice.ConnectionStateDisconnected {
 			return
 		}
