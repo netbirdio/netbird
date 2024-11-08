@@ -57,6 +57,9 @@ type WorkerICE struct {
 
 	localUfrag string
 	localPwd   string
+
+	// we record the last known state of the ICE agent to avoid duplicate on disconnected events
+	lastKnownState ice.ConnectionState
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool, callBacks WorkerICECallbacks) (*WorkerICE, error) {
@@ -215,16 +218,21 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 
 	err = agent.OnConnectionStateChange(func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
-		if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
-			w.conn.OnStatusChanged(StatusDisconnected)
-
-			w.muxAgent.Lock()
-			agentCancel()
-			_ = agent.Close()
-			w.agent = nil
-
-			w.muxAgent.Unlock()
+		if state != ice.ConnectionStateFailed && state != ice.ConnectionStateDisconnected {
+			return
 		}
+
+		if w.lastKnownState != ice.ConnectionStateDisconnected {
+			w.lastKnownState = ice.ConnectionStateDisconnected
+			w.conn.OnStatusChanged(StatusDisconnected)
+		}
+
+		w.muxAgent.Lock()
+		defer w.muxAgent.Unlock()
+
+		agentCancel()
+		_ = agent.Close()
+		w.agent = nil
 	})
 	if err != nil {
 		return nil, err
