@@ -130,10 +130,12 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 			log.Infof("peer %s has 0 latency, range %s", r.Peer, c.handler)
 		}
 
+		// avoid negative tempScore on the higher latency calculation
 		if latency > 1*time.Second {
 			latency = 999 * time.Millisecond
 		}
 
+		// higher latency is worse score
 		tempScore += 1 - latency.Seconds()
 
 		if !peerStatus.relayed {
