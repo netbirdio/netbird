@@ -224,6 +224,9 @@ func Hash(s string) uint32 {
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType SetupKeyType,
 	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error) {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
@@ -233,7 +236,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	var groups []*nbgroup.Group
+	var groups map[string]*nbgroup.Group
 	var setupKey *SetupKey
 	var plainKey string
 
@@ -253,13 +256,9 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 	}
 
 	am.StoreEvent(ctx, userID, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
-	groupMap := make(map[string]*nbgroup.Group, len(groups))
-	for _, g := range groups {
-		groupMap[g.ID] = g
-	}
 
 	for _, g := range setupKey.AutoGroups {
-		group, ok := groupMap[g]
+		group, ok := groups[g]
 		if ok {
 			am.StoreEvent(ctx, userID, setupKey.Id, accountID, activity.GroupAddedToSetupKey,
 				map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": setupKey.Name})
@@ -281,6 +280,9 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.Errorf(status.InvalidArgument, "provided setup key to update is nil")
 	}
 
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
@@ -290,7 +292,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	var groups []*nbgroup.Group
+	var groups map[string]*nbgroup.Group
 	var oldKey *SetupKey
 	var newKey *SetupKey
 
@@ -326,13 +328,8 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		addedGroups := difference(newKey.AutoGroups, oldKey.AutoGroups)
 		removedGroups := difference(oldKey.AutoGroups, newKey.AutoGroups)
 
-		groupMap := make(map[string]*nbgroup.Group, len(groups))
-		for _, g := range groups {
-			groupMap[g.ID] = g
-		}
-
 		for _, g := range removedGroups {
-			group, ok := groupMap[g]
+			group, ok := groups[g]
 			if ok {
 				am.StoreEvent(ctx, userID, oldKey.Id, accountID, activity.GroupRemovedFromSetupKey,
 					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
@@ -340,7 +337,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		}
 
 		for _, g := range addedGroups {
-			group, ok := groupMap[g]
+			group, ok := groups[g]
 			if ok {
 				am.StoreEvent(ctx, userID, oldKey.Id, accountID, activity.GroupAddedToSetupKey,
 					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
@@ -431,8 +428,8 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 	return nil
 }
 
-func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountID string, autoGroupIDs []string) ([]*nbgroup.Group, error) {
-	autoGroups := make([]*nbgroup.Group, 0, len(autoGroupIDs))
+func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountID string, autoGroupIDs []string) (map[string]*nbgroup.Group, error) {
+	autoGroups := map[string]*nbgroup.Group{}
 
 	for _, groupID := range autoGroupIDs {
 		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
@@ -443,7 +440,7 @@ func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountI
 		if group.IsGroupAll() {
 			return nil, status.Errorf(status.InvalidArgument, "can't add 'All' group to the setup key")
 		}
-		autoGroups = append(autoGroups, group)
+		autoGroups[group.ID] = group
 	}
 
 	return autoGroups, nil
