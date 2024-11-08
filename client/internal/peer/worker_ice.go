@@ -227,11 +227,7 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 				w.lastKnownState = ice.ConnectionStateDisconnected
 				w.conn.OnStatusChanged(StatusDisconnected)
 			}
-			w.muxAgent.Lock()
-			agentCancel()
-			_ = w.agent.Close()
-			w.agent = nil
-			w.muxAgent.Unlock()
+			w.closeAgent(agentCancel)
 		default:
 			return
 		}
@@ -257,6 +253,15 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 	}
 
 	return agent, nil
+}
+
+func (w *WorkerICE) closeAgent(cancel context.CancelFunc) {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	cancel()
+	_ = w.agent.Close()
+	w.agent = nil
 }
 
 func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
