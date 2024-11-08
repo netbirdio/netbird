@@ -217,13 +217,19 @@ func (rm *Counter[Key, I, O]) Clear() {
 
 // MarshalJSON implements the json.Marshaler interface for Counter.
 func (rm *Counter[Key, I, O]) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
+	rm.refCountMu.Lock()
+	defer rm.refCountMu.Unlock()
+	rm.idMu.Lock()
+	defer rm.idMu.Unlock()
+
+	b, err := json.Marshal(struct {
 		RefCountMap map[Key]Ref[O]   `json:"refCountMap"`
 		IDMap       map[string][]Key `json:"idMap"`
 	}{
 		RefCountMap: rm.refCountMap,
 		IDMap:       rm.idMap,
 	})
+	return b, err
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface for Counter.
