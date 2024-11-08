@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -236,18 +236,20 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	var groups map[string]*nbgroup.Group
 	var setupKey *SetupKey
 	var plainKey string
+	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		groups, err = validateSetupKeyAutoGroups(ctx, transaction, accountID, autoGroups)
-		if err != nil {
+		if err = validateSetupKeyAutoGroups(ctx, transaction, accountID, autoGroups); err != nil {
 			return err
 		}
 
 		setupKey, plainKey = GenerateSetupKey(keyName, keyType, expiresIn, autoGroups, usageLimit, ephemeral)
 		setupKey.AccountID = accountID
+
+		events := am.prepareSetupKeyEvents(ctx, transaction, accountID, userID, autoGroups, nil, setupKey)
+		eventsToStore = append(eventsToStore, events...)
 
 		return transaction.SaveSetupKey(ctx, LockingStrengthUpdate, setupKey)
 	})
@@ -256,13 +258,8 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 	}
 
 	am.StoreEvent(ctx, userID, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
-
-	for _, g := range setupKey.AutoGroups {
-		group, ok := groups[g]
-		if ok {
-			am.StoreEvent(ctx, userID, setupKey.Id, accountID, activity.GroupAddedToSetupKey,
-				map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": setupKey.Name})
-		}
+	for _, storeEvent := range eventsToStore {
+		storeEvent()
 	}
 
 	// for the creation return the plain key to the caller
@@ -292,13 +289,12 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	var groups map[string]*nbgroup.Group
 	var oldKey *SetupKey
 	var newKey *SetupKey
+	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		groups, err = validateSetupKeyAutoGroups(ctx, transaction, accountID, keyToSave.AutoGroups)
-		if err != nil {
+		if err = validateSetupKeyAutoGroups(ctx, transaction, accountID, keyToSave.AutoGroups); err != nil {
 			return err
 		}
 
@@ -314,6 +310,12 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		newKey.Revoked = keyToSave.Revoked
 		newKey.UpdatedAt = time.Now().UTC()
 
+		addedGroups := difference(newKey.AutoGroups, oldKey.AutoGroups)
+		removedGroups := difference(oldKey.AutoGroups, newKey.AutoGroups)
+
+		events := am.prepareSetupKeyEvents(ctx, transaction, accountID, userID, addedGroups, removedGroups, oldKey)
+		eventsToStore = append(eventsToStore, events...)
+
 		return transaction.SaveSetupKey(ctx, LockingStrengthUpdate, newKey)
 	})
 	if err != nil {
@@ -324,26 +326,9 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		am.StoreEvent(ctx, userID, newKey.Id, accountID, activity.SetupKeyRevoked, newKey.EventMeta())
 	}
 
-	defer func() {
-		addedGroups := difference(newKey.AutoGroups, oldKey.AutoGroups)
-		removedGroups := difference(oldKey.AutoGroups, newKey.AutoGroups)
-
-		for _, g := range removedGroups {
-			group, ok := groups[g]
-			if ok {
-				am.StoreEvent(ctx, userID, oldKey.Id, accountID, activity.GroupRemovedFromSetupKey,
-					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
-			}
-		}
-
-		for _, g := range addedGroups {
-			group, ok := groups[g]
-			if ok {
-				am.StoreEvent(ctx, userID, oldKey.Id, accountID, activity.GroupAddedToSetupKey,
-					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
-			}
-		}
-	}()
+	for _, storeEvent := range eventsToStore {
+		storeEvent()
+	}
 
 	return newKey, nil
 }
@@ -412,7 +397,7 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 	var deletedSetupKey *SetupKey
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		deletedSetupKey, err = transaction.GetSetupKeyByID(ctx, LockingStrengthShare, keyID, accountID)
+		deletedSetupKey, err = transaction.GetSetupKeyByID(ctx, LockingStrengthShare, accountID, keyID)
 		if err != nil {
 			return err
 		}
@@ -428,20 +413,46 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 	return nil
 }
 
-func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountID string, autoGroupIDs []string) (map[string]*nbgroup.Group, error) {
-	autoGroups := map[string]*nbgroup.Group{}
-
+func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountID string, autoGroupIDs []string) error {
 	for _, groupID := range autoGroupIDs {
 		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		if group.IsGroupAll() {
-			return nil, status.Errorf(status.InvalidArgument, "can't add 'All' group to the setup key")
+			return status.Errorf(status.InvalidArgument, "can't add 'All' group to the setup key")
 		}
-		autoGroups[group.ID] = group
 	}
 
-	return autoGroups, nil
+	return nil
+}
+
+// prepareSetupKeyEvents prepares a list of event functions to be stored.
+func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, transaction Store, accountID, userID string, addedGroups, removedGroups []string, key *SetupKey) []func() {
+	var eventsToStore []func()
+
+	for _, g := range removedGroups {
+		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		if err != nil {
+			log.WithContext(ctx).Debugf("skipped adding group: %s GroupRemovedFromSetupKey activity: %v", g, err)
+			continue
+		}
+
+		meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
+		am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupRemovedFromSetupKey, meta)
+	}
+
+	for _, g := range addedGroups {
+		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		if err != nil {
+			log.WithContext(ctx).Debugf("skipped adding group: %s GroupAddedToSetupKey activity: %v", g, err)
+			continue
+		}
+
+		meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
+		am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupAddedToSetupKey, meta)
+	}
+
+	return eventsToStore
 }
