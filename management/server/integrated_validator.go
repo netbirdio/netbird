@@ -52,25 +52,22 @@ func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Con
 	return am.Store.SaveAccount(ctx, a)
 }
 
-func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error) {
-	if len(groups) == 0 {
+func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID string, groupIDs []string) (bool, error) {
+	if len(groupIDs) == 0 {
 		return true, nil
 	}
-	accountsGroups, err := am.ListGroups(ctx, accountId)
-	if err != nil {
-		return false, err
-	}
-	for _, group := range groups {
-		var found bool
-		for _, accountGroup := range accountsGroups {
-			if accountGroup.ID == group {
-				found = true
-				break
+
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		for _, groupID := range groupIDs {
+			_, err := transaction.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+			if err != nil {
+				return err
 			}
 		}
-		if !found {
-			return false, nil
-		}
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
