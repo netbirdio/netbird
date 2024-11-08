@@ -36,7 +36,8 @@ import (
 const (
 	storeSqliteFileName        = "store.db"
 	idQueryCondition           = "id = ?"
-	keyQueryCondition          = "`key` = ?"
+	keyQueryCondition          = "key = ?"
+	mysqlKeyQueryCondition     = "`key` = ?"
 	accountAndIDQueryCondition = "account_id = ? and id = ?"
 	accountIDCondition         = "account_id = ?"
 	peerNotFoundFMT            = "peer %s not found"
@@ -80,6 +81,12 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metr
 
 	sql.SetMaxOpenConns(conns)
 
+	if storeEngine == MysqlStoreEngine {
+		sql.SetConnMaxLifetime(time.Second * 120)
+		sql.SetConnMaxIdleTime(time.Second * 120)
+		sql.SetMaxIdleConns(conns)
+	}
+
 	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
 	if storeEngine == MysqlStoreEngine {
@@ -99,6 +106,15 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metr
 	}
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+}
+
+func GetKeyQueryCondition(s *SqlStore) string {
+
+	if s.storeEngine == MysqlStoreEngine {
+		return mysqlKeyQueryCondition
+	}
+
+	return keyQueryCondition
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
@@ -529,7 +545,7 @@ func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*
 	startTime := time.Now()
 
 	var key SetupKey
-	result := s.db.WithContext(ctx).Select("account_id").First(&key, keyQueryCondition, setupKey)
+	result := s.db.WithContext(ctx).Select("account_id").First(&key, GetKeyQueryCondition(s), setupKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -796,7 +812,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 	startTime := time.Now()
 
 	var peer nbpeer.Peer
-	result := s.db.WithContext(ctx).Select("account_id").First(&peer, keyQueryCondition, peerKey)
+	result := s.db.WithContext(ctx).Select("account_id").First(&peer, GetKeyQueryCondition(s), peerKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -819,7 +835,7 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string)
 
 	var peer nbpeer.Peer
 	var accountID string
-	result := s.db.WithContext(ctx).Model(&peer).Select("account_id").Where(keyQueryCondition, peerKey).First(&accountID)
+	result := s.db.WithContext(ctx).Model(&peer).Select("account_id").Where(GetKeyQueryCondition(s), peerKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -855,7 +871,7 @@ func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) 
 	startTime := time.Now()
 
 	var accountID string
-	result := s.db.WithContext(ctx).Model(&SetupKey{}).Select("account_id").Where(keyQueryCondition, setupKey).First(&accountID)
+	result := s.db.WithContext(ctx).Model(&SetupKey{}).Select("account_id").Where(GetKeyQueryCondition(s), setupKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -947,7 +963,7 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	startTime := time.Now()
 
 	var peer nbpeer.Peer
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).First(&peer, keyQueryCondition, peerKey)
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).First(&peer, GetKeyQueryCondition(s), peerKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "peer not found")
@@ -1060,7 +1076,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 
 // NewMysqlStore creates a new MySQL store.
 func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True"), getGormConfig())
+	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -1165,7 +1181,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 
 	var setupKey SetupKey
 	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		First(&setupKey, keyQueryCondition, key)
+		First(&setupKey, GetKeyQueryCondition(s), key)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "setup key not found")
