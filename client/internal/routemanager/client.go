@@ -215,15 +215,14 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 }
 
 func (c *clientNetwork) removeRouteFromWireGuardPeer() error {
-	var multiErr *multierror.Error
 	if err := c.statusRecorder.RemovePeerStateRoute(c.currentChosen.Peer, c.handler.String()); err != nil {
-		multiErr = multierror.Append(multiErr, fmt.Errorf("remove peer state route: %w", err))
+		log.Warnf("Failed to update peer state: %v", err)
 	}
 
 	if err := c.handler.RemoveAllowedIPs(); err != nil {
-		multiErr = multierror.Append(multiErr, fmt.Errorf("remove allowed IPs: %w", err))
+		return fmt.Errorf("remove allowed IPs: %w", err)
 	}
-	return nberrors.FormatErrorOrNil(multiErr)
+	return nil
 }
 
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
