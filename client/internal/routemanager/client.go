@@ -150,6 +150,8 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 		}
 	}
 
+	log.Debugf("chosen route: %s, chosen score: %f, current route: %s, current score: %f", chosen, chosenScore, currID, currScore)
+
 	switch {
 	case chosen == "":
 		var peers []string
