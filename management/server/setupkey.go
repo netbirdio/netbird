@@ -266,7 +266,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 // SaveSetupKey saves the provided SetupKey to the database overriding the existing one.
 // Due to the unique nature of a SetupKey certain properties must not be overwritten
 // (e.g. the key itself, creation date, ID, etc).
-// These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
+// These properties are overwritten: AutoGroups, Revoked (only from false to true), and the UpdatedAt. The rest is copied from the existing key.
 func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID string, keyToSave *SetupKey, userID string) (*SetupKey, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
@@ -299,7 +299,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.Errorf(status.InvalidArgument, "can't un-revoke a revoked setup key")
 	}
 
-	// only auto groups, revoked status, and name can be updated for now
+	// only auto groups, revoked status (from false to true) can be updated
 	newKey := oldKey.Copy()
 	newKey.AutoGroups = keyToSave.AutoGroups
 	newKey.Revoked = keyToSave.Revoked
