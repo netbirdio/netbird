@@ -1863,8 +1863,9 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	require.NoError(t, err, "unable to mark peer connected")
 
 	account, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
-		PeerLoginExpiration:        time.Hour,
-		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpirationEnabled: false,
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 
@@ -1911,8 +1912,9 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	})
 	require.NoError(t, err, "unable to add peer")
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
-		PeerLoginExpiration:        time.Hour,
-		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpirationEnabled: false,
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 
@@ -1980,8 +1982,9 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	}
 	// enabling PeerLoginExpirationEnabled should trigger the expiration job
 	account, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
-		PeerLoginExpiration:        time.Hour,
-		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpirationEnabled: false,
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 
@@ -1993,8 +1996,9 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 
 	// disabling PeerLoginExpirationEnabled should trigger cancel
 	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
-		PeerLoginExpiration:        time.Hour,
-		PeerLoginExpirationEnabled: false,
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      false,
+		PeerInactivityExpirationEnabled: false,
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 	failed = waitTimeout(wg, time.Second)
@@ -2011,8 +2015,9 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	require.NoError(t, err, "unable to create an account")
 
 	updated, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
-		PeerLoginExpiration:        time.Hour,
-		PeerLoginExpirationEnabled: false,
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      false,
+		PeerInactivityExpirationEnabled: false,
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
@@ -2025,14 +2030,16 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	assert.Equal(t, settings.PeerLoginExpiration, time.Hour)
 
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
-		PeerLoginExpiration:        time.Second,
-		PeerLoginExpirationEnabled: false,
+		PeerLoginExpiration:             time.Second,
+		PeerLoginExpirationEnabled:      false,
+		PeerInactivityExpirationEnabled: false,
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration less than one hour")
 
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
-		PeerLoginExpiration:        time.Hour * 24 * 181,
-		PeerLoginExpirationEnabled: false,
+		PeerLoginExpiration:             time.Hour * 24 * 181,
+		PeerLoginExpirationEnabled:      false,
+		PeerInactivityExpirationEnabled: false,
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
 }
