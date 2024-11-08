@@ -433,7 +433,7 @@ func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, tran
 	var eventsToStore []func()
 
 	for _, g := range removedGroups {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("skipped adding group: %s GroupRemovedFromSetupKey activity: %v", g, err)
 			continue
@@ -444,7 +444,7 @@ func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, tran
 	}
 
 	for _, g := range addedGroups {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("skipped adding group: %s GroupAddedToSetupKey activity: %v", g, err)
 			continue
