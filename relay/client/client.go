@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -449,11 +448,11 @@ func (c *Client) writeTo(connReference *Conn, id string, dstID []byte, payload [
 	conn, ok := c.conns[id]
 	c.mu.Unlock()
 	if !ok {
-		return 0, io.EOF
+		return 0, net.ErrClosed
 	}
 
 	if conn.conn != connReference {
-		return 0, io.EOF
+		return 0, net.ErrClosed
 	}
 
 	// todo: use buffer pool instead of create new transport msg.
@@ -508,7 +507,7 @@ func (c *Client) closeConn(connReference *Conn, id string) error {
 
 	container, ok := c.conns[id]
 	if !ok {
-		return fmt.Errorf("connection already closed")
+		return net.ErrClosed
 	}
 
 	if container.conn != connReference {

@@ -1,7 +1,6 @@
 package client
 
 import (
-	"io"
 	"net"
 	"time"
 )
@@ -40,7 +39,7 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 func (c *Conn) Read(b []byte) (n int, err error) {
 	msg, ok := <-c.messageChan
 	if !ok {
-		return 0, io.EOF
+		return 0, net.ErrClosed
 	}
 
 	n = copy(b, msg.Payload)
