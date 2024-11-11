@@ -1,6 +1,7 @@
 package routemanager
 
 import (
+	"fmt"
 	"net/netip"
 	"testing"
 	"time"
@@ -285,6 +286,26 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 			currentRoute:    "routeDoesntExistAnymore",
 			expectedRouteID: "route2",
 		},
+	}
+
+	// fill the test data with random routes
+	for _, tc := range testCases {
+		for i := 0; i < 50; i++ {
+			dummyRoute := &route.Route{
+				ID:     route.ID(fmt.Sprintf("dummy_p1_%d", i)),
+				Metric: route.MinMetric,
+				Peer:   "peer1",
+			}
+			tc.existingRoutes[dummyRoute.ID] = dummyRoute
+		}
+		for i := 0; i < 50; i++ {
+			dummyRoute := &route.Route{
+				ID:     route.ID(fmt.Sprintf("dummy_p2_%d", i)),
+				Metric: route.MinMetric,
+				Peer:   "peer2",
+			}
+			tc.existingRoutes[dummyRoute.ID] = dummyRoute
+		}
 	}
 
 	for _, tc := range testCases {
