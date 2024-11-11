@@ -765,7 +765,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		}
 	}
 
-	groups, err := am.Store.GetAccountGroups(ctx, accountID)
+	groups, err := am.Store.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}

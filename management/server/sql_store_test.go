@@ -1274,7 +1274,7 @@ func Test_DeleteSetupKeySuccessfully(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	setupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
-	err = store.DeleteSetupKey(context.Background(), accountID, setupKeyID)
+	err = store.DeleteSetupKey(context.Background(), LockingStrengthUpdate, accountID, setupKeyID)
 	require.NoError(t, err)
 
 	_, err = store.GetSetupKeyByID(context.Background(), LockingStrengthShare, setupKeyID, accountID)
@@ -1290,6 +1290,6 @@ func Test_DeleteSetupKeyFailsForNonExistingKey(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	nonExistingKeyID := "non-existing-key-id"
 
-	err = store.DeleteSetupKey(context.Background(), accountID, nonExistingKeyID)
+	err = store.DeleteSetupKey(context.Background(), LockingStrengthUpdate, accountID, nonExistingKeyID)
 	require.Error(t, err)
 }
