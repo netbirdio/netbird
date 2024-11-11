@@ -156,34 +156,41 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		})
 	}
 
+	modifiedPeers := slices.Concat(addedPeers, removedPeers)
+	peers, err := transaction.GetPeersByIDs(ctx, LockingStrengthShare, accountID, modifiedPeers)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get peers for group events: %v", err)
+		return nil
+	}
+
 	for _, peerID := range addedPeers {
-		peer, err := transaction.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
-		if err != nil {
-			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupAddedToPeer activity: %v", peerID, err)
+		peer, ok := peers[peerID]
+		if !ok {
+			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupAddedToPeer activity: peer not found in store", peerID)
 			continue
 		}
 
-		meta := map[string]any{
-			"group": newGroup.Name, "group_id": newGroup.ID,
-			"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
-		}
 		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{
+				"group": newGroup.Name, "group_id": newGroup.ID,
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+			}
 			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupAddedToPeer, meta)
 		})
 	}
 
 	for _, peerID := range removedPeers {
-		peer, err := transaction.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
-		if err != nil {
-			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupRemovedFromPeer activity: %v", peerID, err)
+		peer, ok := peers[peerID]
+		if !ok {
+			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupRemovedFromPeer activity: peer not found in store", peerID)
 			continue
 		}
 
-		meta := map[string]any{
-			"group": newGroup.Name, "group_id": newGroup.ID,
-			"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
-		}
 		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{
+				"group": newGroup.Name, "group_id": newGroup.ID,
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+			}
 			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupRemovedFromPeer, meta)
 		})
 	}

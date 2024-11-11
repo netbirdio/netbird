@@ -1095,6 +1095,23 @@ func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength
 	return peer, nil
 }
 
+// GetPeersByIDs retrieves peers by their IDs and account ID.
+func (s *SqlStore) GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&peers, accountAndIDsQueryCondition, accountID, peerIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peers by ID's from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers by ID's from the store")
+	}
+
+	peersMap := make(map[string]*nbpeer.Peer)
+	for _, peer := range peers {
+		peersMap[peer.ID] = peer
+	}
+
+	return peersMap, nil
+}
+
 func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Model(&Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
