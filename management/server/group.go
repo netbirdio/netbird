@@ -89,6 +89,10 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		return status.NewUserNotPartOfAccountError()
 	}
 
+	if user.IsRegularUser() {
+		return status.NewAdminPermissionError()
+	}
+
 	var eventsToStore []func()
 	var groupsToSave []*nbgroup.Group
 	var updateAccountPeers bool
@@ -213,6 +217,10 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 		return status.NewUserNotPartOfAccountError()
 	}
 
+	if user.IsRegularUser() {
+		return status.NewAdminPermissionError()
+	}
+
 	var group *nbgroup.Group
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
@@ -258,6 +266,10 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 	if user.AccountID != accountID {
 		return status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return status.NewAdminPermissionError()
 	}
 
 	var allErrors error
@@ -438,6 +450,11 @@ func validateDeleteGroup(ctx context.Context, transaction Store, group *nbgroup.
 		return &GroupLinkError{"user", linkedUser.Id}
 	}
 
+	return checkGroupLinkedToSettings(ctx, transaction, group)
+}
+
+// checkGroupLinkedToSettings verifies if a group is linked to any settings in the account.
+func checkGroupLinkedToSettings(ctx context.Context, transaction Store, group *nbgroup.Group) error {
 	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, LockingStrengthShare, group.AccountID)
 	if err != nil {
 		return err
@@ -452,10 +469,8 @@ func validateDeleteGroup(ctx context.Context, transaction Store, group *nbgroup.
 		return err
 	}
 
-	if settings.Extra != nil {
-		if slices.Contains(settings.Extra.IntegratedValidatorGroups, group.ID) {
-			return &GroupLinkError{"integrated validator", group.Name}
-		}
+	if settings.Extra != nil && slices.Contains(settings.Extra.IntegratedValidatorGroups, group.ID) {
+		return &GroupLinkError{"integrated validator", group.Name}
 	}
 
 	return nil
