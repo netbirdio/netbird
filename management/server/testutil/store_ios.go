@@ -3,6 +3,14 @@
 
 package testutil
 
-func CreatePostgresTestContainer() (func(), error) { return func() {}, nil }
+func CreatePostgresTestContainer() (func(), error) {
+	return func() {
+		// Empty function for Postgres
+	}, nil
+}
 
-func CreateMysqlTestContainer() (func(), error) { return func() {}, nil }
+func CreateMysqlTestContainer() (func(), error) {
+	return func() {
+		// Empty function for MySQL
+	}, nil
+}
