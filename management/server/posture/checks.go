@@ -7,8 +7,6 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-version"
-	"github.com/rs/xid"
-
 	"github.com/netbirdio/netbird/management/server/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -172,10 +170,6 @@ func NewChecksFromAPIPostureCheckUpdate(source api.PostureCheckUpdate, postureCh
 }
 
 func buildPostureCheck(postureChecksID string, name string, description string, checks api.Checks) (*Checks, error) {
-	if postureChecksID == "" {
-		postureChecksID = xid.New().String()
-	}
-
 	postureChecks := Checks{
 		ID:          postureChecksID,
 		Name:        name,

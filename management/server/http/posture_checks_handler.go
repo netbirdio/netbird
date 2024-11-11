@@ -169,7 +169,8 @@ func (p *PostureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks); err != nil {
+	postureChecks, err = p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks)
+	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
