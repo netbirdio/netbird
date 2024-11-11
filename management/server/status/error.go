@@ -3,7 +3,6 @@ package status
 import (
 	"errors"
 	"fmt"
-	"time"
 )
 
 const (

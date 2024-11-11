@@ -33,12 +33,13 @@ import (
 )
 
 const (
-	storeSqliteFileName        = "store.db"
-	idQueryCondition           = "id = ?"
-	keyQueryCondition          = "key = ?"
-	accountAndIDQueryCondition = "account_id = ? and id = ?"
-	accountIDCondition         = "account_id = ?"
-	peerNotFoundFMT            = "peer %s not found"
+	storeSqliteFileName         = "store.db"
+	idQueryCondition            = "id = ?"
+	keyQueryCondition           = "key = ?"
+	accountAndIDQueryCondition  = "account_id = ? and id = ?"
+	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
+	accountIDCondition          = "account_id = ?"
+	peerNotFoundFMT             = "peer %s not found"
 )
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
@@ -1095,10 +1096,11 @@ func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength
 }
 
 func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Model(&Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
 	if result.Error != nil {
-		return status.Errorf(status.Internal, "issue incrementing network serial count: %s", result.Error)
+		log.WithContext(ctx).Errorf("failed to increment network serial count in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to increment network serial count in store")
 	}
 	return nil
 }
@@ -1213,7 +1215,7 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 // GetGroupsByIDs retrieves groups by their IDs and account ID.
 func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*nbgroup.Group, error) {
 	var groups []*nbgroup.Group
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, "account_id = ? AND id in ?", accountID, groupIDs)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get groups by ID's from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from the store")
@@ -1256,7 +1258,7 @@ func (s *SqlStore) DeleteGroup(ctx context.Context, lockStrength LockingStrength
 // DeleteGroups deletes groups from the database.
 func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(strength)}).
-		Delete(&nbgroup.Group{}, " account_id = ? AND id IN ?", accountID, groupIDs)
+		Delete(&nbgroup.Group{}, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete groups from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete groups from store: %v", result.Error)
