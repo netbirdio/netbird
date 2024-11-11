@@ -1179,6 +1179,23 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	return &group, nil
 }
 
+// GetGroupsByIDs retrieves groups by their IDs and account ID.
+func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*nbgroup.Group, error) {
+	var groups []*nbgroup.Group
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, "account_id = ? AND id in ?", accountID, groupIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get groups by ID's from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from the store")
+	}
+
+	groupsMap := make(map[string]*nbgroup.Group)
+	for _, group := range groups {
+		groupsMap[group.ID] = group
+	}
+
+	return groupsMap, nil
+}
+
 // SaveGroup saves a group to the store.
 func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, group *nbgroup.Group) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(group)

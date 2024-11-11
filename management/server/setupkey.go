@@ -356,10 +356,6 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 		return nil, status.NewAdminPermissionError()
 	}
 
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
-	}
-
 	return am.Store.GetAccountSetupKeys(ctx, LockingStrengthShare, accountID)
 }
 
@@ -426,10 +422,15 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 }
 
 func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountID string, autoGroupIDs []string) error {
+	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, autoGroupIDs)
+	if err != nil {
+		return err
+	}
+
 	for _, groupID := range autoGroupIDs {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, groupID, accountID)
-		if err != nil {
-			return err
+		group, ok := groups[groupID]
+		if !ok {
+			return status.Errorf(status.NotFound, "group not found: %s", groupID)
 		}
 
 		if group.IsGroupAll() {
@@ -444,9 +445,16 @@ func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountI
 func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, transaction Store, accountID, userID string, addedGroups, removedGroups []string, key *SetupKey) []func() {
 	var eventsToStore []func()
 
+	modifiedGroups := append(addedGroups, removedGroups...)
+	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, modifiedGroups)
+	if err != nil {
+		log.WithContext(ctx).Errorf("issue getting groups for setup key events: %v", err)
+		return nil
+	}
+
 	for _, g := range removedGroups {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
-		if err != nil {
+		group, ok := groups[g]
+		if !ok {
 			log.WithContext(ctx).Debugf("skipped adding group: %s GroupRemovedFromSetupKey activity: %v", g, err)
 			continue
 		}
@@ -458,8 +466,8 @@ func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, tran
 	}
 
 	for _, g := range addedGroups {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
-		if err != nil {
+		group, ok := groups[g]
+		if !ok {
 			log.WithContext(ctx).Debugf("skipped adding group: %s GroupAddedToSetupKey activity: %v", g, err)
 			continue
 		}
