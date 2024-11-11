@@ -237,11 +237,6 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.IP = receivedState.IP
 	}
 
-	receivedRoutes := receivedState.GetRoutes()
-	if receivedRoutes != nil {
-		peerState.SetRoutes(receivedRoutes)
-	}
-
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
 
 	if receivedState.ConnStatus != peerState.ConnStatus {
