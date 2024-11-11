@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"hash/fnv"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -445,7 +446,7 @@ func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountI
 func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, transaction Store, accountID, userID string, addedGroups, removedGroups []string, key *SetupKey) []func() {
 	var eventsToStore []func()
 
-	modifiedGroups := append(addedGroups, removedGroups...)
+	modifiedGroups := slices.Concat(addedGroups, removedGroups)
 	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, modifiedGroups)
 	if err != nil {
 		log.WithContext(ctx).Errorf("issue getting groups for setup key events: %v", err)
