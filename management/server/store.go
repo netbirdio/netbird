@@ -291,7 +291,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (Store, func(), error) {
 
 	if kind == PostgresStoreEngine {
-		cleanUp, err := testutil.CreatePGDB()
+		cleanUp, err := testutil.CreatePostgresTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -310,7 +310,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (
 	}
 
 	if kind == MysqlStoreEngine {
-		cleanUp, err := testutil.CreateMyDB()
+		cleanUp, err := testutil.CreateMysqlTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
