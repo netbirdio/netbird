@@ -93,7 +93,7 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 
 	peerState.IP = ip
 
-	err := status.UpdatePeerState(peerState)
+	err := status.UpdatePeerRelayedStateToDisconnected(peerState)
 	assert.NoError(t, err, "shouldn't return error")
 
 	select {

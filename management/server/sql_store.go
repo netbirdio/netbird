@@ -33,12 +33,13 @@ import (
 )
 
 const (
-	storeSqliteFileName        = "store.db"
-	idQueryCondition           = "id = ?"
-	keyQueryCondition          = "key = ?"
-	accountAndIDQueryCondition = "account_id = ? and id = ?"
-	accountIDCondition         = "account_id = ?"
-	peerNotFoundFMT            = "peer %s not found"
+	storeSqliteFileName         = "store.db"
+	idQueryCondition            = "id = ?"
+	keyQueryCondition           = "key = ?"
+	accountAndIDQueryCondition  = "account_id = ? and id = ?"
+	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
+	accountIDCondition          = "account_id = ?"
+	peerNotFoundFMT             = "peer %s not found"
 )
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
@@ -485,9 +486,10 @@ func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*
 	result := s.db.Select("account_id").First(&key, keyQueryCondition, setupKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+			return nil, status.NewSetupKeyNotFoundError(setupKey)
 		}
-		return nil, status.NewSetupKeyNotFoundError(result.Error)
+		log.WithContext(ctx).Errorf("failed to get account by setup key from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get account by setup key from store")
 	}
 
 	if key.AccountID == "" {
@@ -570,7 +572,7 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 
 func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbgroup.Group, error) {
 	var groups []*nbgroup.Group
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountIDCondition, accountID)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountIDCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
@@ -756,9 +758,10 @@ func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) 
 	result := s.db.Model(&SetupKey{}).Select("account_id").Where(keyQueryCondition, setupKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+			return "", status.NewSetupKeyNotFoundError(setupKey)
 		}
-		return "", status.NewSetupKeyNotFoundError(result.Error)
+		log.WithContext(ctx).Errorf("failed to get account ID by setup key from store: %v", result.Error)
+		return "", status.Errorf(status.Internal, "failed to get account ID by setup key from store")
 	}
 
 	if accountID == "" {
@@ -985,9 +988,10 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 		First(&setupKey, keyQueryCondition, key)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "setup key not found")
+			return nil, status.NewSetupKeyNotFoundError(key)
 		}
-		return nil, status.NewSetupKeyNotFoundError(result.Error)
+		log.WithContext(ctx).Errorf("failed to get setup key by secret from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get setup key by secret from store")
 	}
 	return &setupKey, nil
 }
@@ -1005,7 +1009,7 @@ func (s *SqlStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "setup key not found")
+		return status.NewSetupKeyNotFoundError(setupKeyID)
 	}
 
 	return nil
@@ -1091,11 +1095,29 @@ func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength
 	return peer, nil
 }
 
+// GetPeersByIDs retrieves peers by their IDs and account ID.
+func (s *SqlStore) GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&peers, accountAndIDsQueryCondition, accountID, peerIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peers by ID's from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers by ID's from the store")
+	}
+
+	peersMap := make(map[string]*nbpeer.Peer)
+	for _, peer := range peers {
+		peersMap[peer.ID] = peer
+	}
+
+	return peersMap, nil
+}
+
 func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Model(&Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
 	if result.Error != nil {
-		return status.Errorf(status.Internal, "issue incrementing network serial count: %s", result.Error)
+		log.WithContext(ctx).Errorf("failed to increment network serial count in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to increment network serial count in store")
 	}
 	return nil
 }
@@ -1207,6 +1229,23 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	return &group, nil
 }
 
+// GetGroupsByIDs retrieves groups by their IDs and account ID.
+func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*nbgroup.Group, error) {
+	var groups []*nbgroup.Group
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountAndIDsQueryCondition, accountID, groupIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get groups by ID's from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from the store")
+	}
+
+	groupsMap := make(map[string]*nbgroup.Group)
+	for _, group := range groups {
+		groupsMap[group.ID] = group
+	}
+
+	return groupsMap, nil
+}
+
 // SaveGroup saves a group to the store.
 func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, group *nbgroup.Group) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(group)
@@ -1236,7 +1275,7 @@ func (s *SqlStore) DeleteGroup(ctx context.Context, lockStrength LockingStrength
 // DeleteGroups deletes groups from the database.
 func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(strength)}).
-		Delete(&nbgroup.Group{}, " account_id = ? AND id IN ?", accountID, groupIDs)
+		Delete(&nbgroup.Group{}, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete groups from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete groups from store: %v", result.Error)
@@ -1326,7 +1365,7 @@ func (s *SqlStore) GetRouteByID(ctx context.Context, lockStrength LockingStrengt
 // GetAccountSetupKeys retrieves setup keys for an account.
 func (s *SqlStore) GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error) {
 	var setupKeys []*SetupKey
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Find(&setupKeys, accountIDCondition, accountID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get setup keys from the store: %s", err)
@@ -1339,11 +1378,11 @@ func (s *SqlStore) GetAccountSetupKeys(ctx context.Context, lockStrength Locking
 // GetSetupKeyByID retrieves a setup key by its ID and account ID.
 func (s *SqlStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*SetupKey, error) {
 	var setupKey *SetupKey
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&setupKey, accountAndIDQueryCondition, accountID, setupKeyID)
 	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "setup key not found")
+			return nil, status.NewSetupKeyNotFoundError(setupKeyID)
 		}
 		log.WithContext(ctx).Errorf("failed to get setup key from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get setup key from store")
@@ -1354,8 +1393,7 @@ func (s *SqlStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStre
 
 // SaveSetupKey saves a setup key to the database.
 func (s *SqlStore) SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *SetupKey) error {
-	result := s.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).
-		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(setupKey)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(setupKey)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save setup key to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save setup key to store")
@@ -1366,15 +1404,14 @@ func (s *SqlStore) SaveSetupKey(ctx context.Context, lockStrength LockingStrengt
 
 // DeleteSetupKey deletes a setup key from the database.
 func (s *SqlStore) DeleteSetupKey(ctx context.Context, lockStrength LockingStrength, accountID, keyID string) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&SetupKey{}, accountAndIDQueryCondition, accountID, keyID)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Delete(&SetupKey{}, accountAndIDQueryCondition, accountID, keyID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete setup key from store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to delete setup key from store")
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "setup key not found")
+		return status.NewSetupKeyNotFoundError(keyID)
 	}
 
 	return nil

@@ -207,7 +207,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		c.statusRecorder.MarkSignalDisconnected(nil)
 		defer func() {
-			c.statusRecorder.MarkSignalDisconnected(state.err)
+			_, err := state.Status()
+			c.statusRecorder.MarkSignalDisconnected(err)
 		}()
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal

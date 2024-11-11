@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -100,7 +99,7 @@ func (c *Conn) isClosed() bool {
 
 func (c *Conn) ioErrHandling(err error) error {
 	if c.isClosed() {
-		return io.EOF
+		return net.ErrClosed
 	}
 
 	var wErr *websocket.CloseError
@@ -108,7 +107,7 @@ func (c *Conn) ioErrHandling(err error) error {
 		return err
 	}
 	if wErr.Code == websocket.StatusNormalClosure {
-		return io.EOF
+		return net.ErrClosed
 	}
 	return err
 }

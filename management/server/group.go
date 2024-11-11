@@ -89,6 +89,10 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		return status.NewUserNotPartOfAccountError()
 	}
 
+	if user.IsRegularUser() {
+		return status.NewAdminPermissionError()
+	}
+
 	var eventsToStore []func()
 	var groupsToSave []*nbgroup.Group
 	var updateAccountPeers bool
@@ -152,34 +156,41 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		})
 	}
 
+	modifiedPeers := slices.Concat(addedPeers, removedPeers)
+	peers, err := transaction.GetPeersByIDs(ctx, LockingStrengthShare, accountID, modifiedPeers)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get peers for group events: %v", err)
+		return nil
+	}
+
 	for _, peerID := range addedPeers {
-		peer, err := transaction.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
-		if err != nil {
-			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupAddedToPeer activity: %v", peerID, err)
+		peer, ok := peers[peerID]
+		if !ok {
+			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupAddedToPeer activity: peer not found in store", peerID)
 			continue
 		}
 
-		meta := map[string]any{
-			"group": newGroup.Name, "group_id": newGroup.ID,
-			"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
-		}
 		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{
+				"group": newGroup.Name, "group_id": newGroup.ID,
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+			}
 			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupAddedToPeer, meta)
 		})
 	}
 
 	for _, peerID := range removedPeers {
-		peer, err := transaction.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
-		if err != nil {
-			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupRemovedFromPeer activity: %v", peerID, err)
+		peer, ok := peers[peerID]
+		if !ok {
+			log.WithContext(ctx).Debugf("skipped adding peer: %s GroupRemovedFromPeer activity: peer not found in store", peerID)
 			continue
 		}
 
-		meta := map[string]any{
-			"group": newGroup.Name, "group_id": newGroup.ID,
-			"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
-		}
 		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{
+				"group": newGroup.Name, "group_id": newGroup.ID,
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+			}
 			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupRemovedFromPeer, meta)
 		})
 	}
@@ -211,6 +222,10 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 
 	if user.AccountID != accountID {
 		return status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return status.NewAdminPermissionError()
 	}
 
 	var group *nbgroup.Group
@@ -258,6 +273,10 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 	if user.AccountID != accountID {
 		return status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return status.NewAdminPermissionError()
 	}
 
 	var allErrors error
@@ -438,6 +457,11 @@ func validateDeleteGroup(ctx context.Context, transaction Store, group *nbgroup.
 		return &GroupLinkError{"user", linkedUser.Id}
 	}
 
+	return checkGroupLinkedToSettings(ctx, transaction, group)
+}
+
+// checkGroupLinkedToSettings verifies if a group is linked to any settings in the account.
+func checkGroupLinkedToSettings(ctx context.Context, transaction Store, group *nbgroup.Group) error {
 	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, LockingStrengthShare, group.AccountID)
 	if err != nil {
 		return err
@@ -452,10 +476,8 @@ func validateDeleteGroup(ctx context.Context, transaction Store, group *nbgroup.
 		return err
 	}
 
-	if settings.Extra != nil {
-		if slices.Contains(settings.Extra.IntegratedValidatorGroups, group.ID) {
-			return &GroupLinkError{"integrated validator", group.Name}
-		}
+	if settings.Extra != nil && slices.Contains(settings.Extra.IntegratedValidatorGroups, group.ID) {
+		return &GroupLinkError{"integrated validator", group.Name}
 	}
 
 	return nil
