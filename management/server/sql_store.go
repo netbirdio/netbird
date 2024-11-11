@@ -570,7 +570,7 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, accountID string) ([]*Us
 
 func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbgroup.Group, error) {
 	var groups []*nbgroup.Group
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountIDCondition, accountID)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountIDCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
@@ -1221,7 +1221,7 @@ func (s *SqlStore) GetRouteByID(ctx context.Context, lockStrength LockingStrengt
 // GetAccountSetupKeys retrieves setup keys for an account.
 func (s *SqlStore) GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error) {
 	var setupKeys []*SetupKey
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Find(&setupKeys, accountIDCondition, accountID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get setup keys from the store: %s", err)
@@ -1234,7 +1234,7 @@ func (s *SqlStore) GetAccountSetupKeys(ctx context.Context, lockStrength Locking
 // GetSetupKeyByID retrieves a setup key by its ID and account ID.
 func (s *SqlStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*SetupKey, error) {
 	var setupKey *SetupKey
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&setupKey, accountAndIDQueryCondition, accountID, setupKeyID)
 	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1249,8 +1249,7 @@ func (s *SqlStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStre
 
 // SaveSetupKey saves a setup key to the database.
 func (s *SqlStore) SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *SetupKey) error {
-	result := s.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).
-		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(setupKey)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(setupKey)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save setup key to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save setup key to store")
@@ -1261,8 +1260,7 @@ func (s *SqlStore) SaveSetupKey(ctx context.Context, lockStrength LockingStrengt
 
 // DeleteSetupKey deletes a setup key from the database.
 func (s *SqlStore) DeleteSetupKey(ctx context.Context, lockStrength LockingStrength, accountID, keyID string) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&SetupKey{}, accountAndIDQueryCondition, accountID, keyID)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Delete(&SetupKey{}, accountAndIDQueryCondition, accountID, keyID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete setup key from store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to delete setup key from store")
