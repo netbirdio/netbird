@@ -149,7 +149,7 @@ func (h *RoutesHandler) validateRoute(req api.PostApiRoutesJSONRequestBody) erro
 	}
 
 	if req.Peer == nil && req.PeerGroups == nil {
-		return status.Errorf(status.InvalidArgument, "either 'peer' or 'peers_group' should be provided")
+		return status.Errorf(status.InvalidArgument, "either 'peer' or 'peer_groups' should be provided")
 	}
 
 	if req.Peer != nil && req.PeerGroups != nil {

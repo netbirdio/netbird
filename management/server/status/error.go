@@ -103,8 +103,8 @@ func NewPeerLoginExpiredError() error {
 }
 
 // NewSetupKeyNotFoundError creates a new Error with NotFound type for a missing setup key
-func NewSetupKeyNotFoundError(err error) error {
-	return Errorf(NotFound, "setup key not found: %s", err)
+func NewSetupKeyNotFoundError(setupKeyID string) error {
+	return Errorf(NotFound, "setup key: %s not found", setupKeyID)
 }
 
 func NewGetAccountFromStoreError(err error) error {
@@ -124,11 +124,6 @@ func NewGetUserFromStoreError() error {
 // NewAdminPermissionError creates a new Error with PermissionDenied type for actions requiring admin role.
 func NewAdminPermissionError() error {
 	return Errorf(PermissionDenied, "admin role required to perform this action")
-}
-
-// NewStoreContextCanceledError creates a new Error with Internal type for a canceled store context
-func NewStoreContextCanceledError(duration time.Duration) error {
-	return Errorf(Internal, "store access: context canceled after %v", duration)
 }
 
 // NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key

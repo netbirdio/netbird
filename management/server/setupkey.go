@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"hash/fnv"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -236,6 +237,10 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
+	if user.IsRegularUser() {
+		return nil, status.NewAdminPermissionError()
+	}
+
 	var setupKey *SetupKey
 	var plainKey string
 	var eventsToStore []func()
@@ -287,6 +292,10 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 
 	if user.AccountID != accountID {
 		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewAdminPermissionError()
 	}
 
 	var oldKey *SetupKey
@@ -414,10 +423,15 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 }
 
 func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountID string, autoGroupIDs []string) error {
+	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, autoGroupIDs)
+	if err != nil {
+		return err
+	}
+
 	for _, groupID := range autoGroupIDs {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
-		if err != nil {
-			return err
+		group, ok := groups[groupID]
+		if !ok {
+			return status.Errorf(status.NotFound, "group not found: %s", groupID)
 		}
 
 		if group.IsGroupAll() {
@@ -432,26 +446,37 @@ func validateSetupKeyAutoGroups(ctx context.Context, transaction Store, accountI
 func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, transaction Store, accountID, userID string, addedGroups, removedGroups []string, key *SetupKey) []func() {
 	var eventsToStore []func()
 
+	modifiedGroups := slices.Concat(addedGroups, removedGroups)
+	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, modifiedGroups)
+	if err != nil {
+		log.WithContext(ctx).Errorf("issue getting groups for setup key events: %v", err)
+		return nil
+	}
+
 	for _, g := range removedGroups {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
-		if err != nil {
+		group, ok := groups[g]
+		if !ok {
 			log.WithContext(ctx).Debugf("skipped adding group: %s GroupRemovedFromSetupKey activity: %v", g, err)
 			continue
 		}
 
-		meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
-		am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupRemovedFromSetupKey, meta)
+		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
+			am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupRemovedFromSetupKey, meta)
+		})
 	}
 
 	for _, g := range addedGroups {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
-		if err != nil {
+		group, ok := groups[g]
+		if !ok {
 			log.WithContext(ctx).Debugf("skipped adding group: %s GroupAddedToSetupKey activity: %v", g, err)
 			continue
 		}
 
-		meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
-		am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupAddedToSetupKey, meta)
+		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
+			am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupAddedToSetupKey, meta)
+		})
 	}
 
 	return eventsToStore
