@@ -103,8 +103,8 @@ func NewPeerLoginExpiredError() error {
 }
 
 // NewSetupKeyNotFoundError creates a new Error with NotFound type for a missing setup key
-func NewSetupKeyNotFoundError(err error) error {
-	return Errorf(NotFound, "setup key not found: %s", err)
+func NewSetupKeyNotFoundError(setupKeyID string) error {
+	return Errorf(NotFound, "setup key: %s not found", setupKeyID)
 }
 
 func NewGetAccountFromStoreError(err error) error {

@@ -485,9 +485,10 @@ func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*
 	result := s.db.Select("account_id").First(&key, keyQueryCondition, setupKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+			return nil, status.NewSetupKeyNotFoundError(setupKey)
 		}
-		return nil, status.NewSetupKeyNotFoundError(result.Error)
+		log.WithContext(ctx).Errorf("failed to get account by setup key from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get account by setup key from store")
 	}
 
 	if key.AccountID == "" {
@@ -756,9 +757,10 @@ func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) 
 	result := s.db.Model(&SetupKey{}).Select("account_id").Where(keyQueryCondition, setupKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+			return "", status.NewSetupKeyNotFoundError(setupKey)
 		}
-		return "", status.NewSetupKeyNotFoundError(result.Error)
+		log.WithContext(ctx).Errorf("failed to get account ID by setup key from store: %v", result.Error)
+		return "", status.Errorf(status.Internal, "failed to get account ID by setup key from store")
 	}
 
 	if accountID == "" {
@@ -986,9 +988,10 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 		First(&setupKey, keyQueryCondition, key)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "setup key not found")
+			return nil, status.NewSetupKeyNotFoundError(key)
 		}
-		return nil, status.NewSetupKeyNotFoundError(result.Error)
+		log.WithContext(ctx).Errorf("failed to get setup key by secret from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get setup key by secret from store")
 	}
 	return &setupKey, nil
 }
@@ -1006,7 +1009,7 @@ func (s *SqlStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "setup key not found")
+		return status.NewSetupKeyNotFoundError(setupKeyID)
 	}
 
 	return nil
@@ -1255,7 +1258,7 @@ func (s *SqlStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStre
 		First(&setupKey, accountAndIDQueryCondition, accountID, setupKeyID)
 	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "setup key not found")
+			return nil, status.NewSetupKeyNotFoundError(setupKeyID)
 		}
 		log.WithContext(ctx).Errorf("failed to get setup key from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get setup key from store")
@@ -1284,7 +1287,7 @@ func (s *SqlStore) DeleteSetupKey(ctx context.Context, lockStrength LockingStren
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "setup key not found")
+		return status.NewSetupKeyNotFoundError(keyID)
 	}
 
 	return nil
