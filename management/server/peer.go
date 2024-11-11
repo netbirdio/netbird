@@ -166,7 +166,7 @@ func (am *DefaultAccountManager) updatePeerStatusAndLocation(ctx context.Context
 
 	account.UpdatePeer(peer)
 
-	log.WithContext(ctx).Debugf("saving peer status for peer %s is connected: %t", peer.ID, connected)
+	log.WithContext(ctx).Tracef("saving peer status for peer %s is connected: %t", peer.ID, connected)
 
 	err := am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
 	if err != nil {
@@ -656,7 +656,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 	updated := peer.UpdateMetaIfNew(sync.Meta)
 	if updated {
-		log.WithContext(ctx).Debugf("peer %s metadata updated", peer.ID)
+		log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 		err = am.Store.SavePeer(ctx, account.Id, peer)
 		if err != nil {
 			return nil, nil, nil, err
