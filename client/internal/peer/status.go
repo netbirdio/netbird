@@ -237,10 +237,6 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.IP = receivedState.IP
 	}
 
-	if receivedState.GetRoutes() != nil {
-		peerState.SetRoutes(receivedState.GetRoutes())
-	}
-
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
 
 	if receivedState.ConnStatus != peerState.ConnStatus {
@@ -261,12 +257,40 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) AddPeerStateRoute(peer string, route string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peer]
+	if !ok {
+		return errors.New("peer doesn't exist")
 	}
 
+	peerState.AddRoute(route)
+	d.peers[peer] = peerState
+
+	// todo: consider to make sense of this notification or not
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) RemovePeerStateRoute(peer string, route string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peer]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.DeleteRoute(route)
+	d.peers[peer] = peerState
+
+	// todo: consider to make sense of this notification or not
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -301,12 +325,7 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
-	}
-
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -334,12 +353,7 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
-	}
-
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -366,12 +380,7 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
-	}
-
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -401,12 +410,7 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
-	}
-
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -477,11 +481,14 @@ func (d *Status) FinishPeerListModifications() {
 func (d *Status) GetPeerStateChangeNotifier(peer string) <-chan struct{} {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+
 	ch, found := d.changeNotify[peer]
-	if !found || ch == nil {
-		ch = make(chan struct{})
-		d.changeNotify[peer] = ch
+	if found {
+		return ch
 	}
+
+	ch = make(chan struct{})
+	d.changeNotify[peer] = ch
 	return ch
 }
 
@@ -753,6 +760,17 @@ func (d *Status) RemoveConnectionListener() {
 
 func (d *Status) onConnectionChanged() {
 	d.notifier.updateServerStates(d.managementState, d.signalState)
+}
+
+// notifyPeerStateChangeListeners notifies route manager about the change in peer state
+func (d *Status) notifyPeerStateChangeListeners(peerID string) {
+	ch, found := d.changeNotify[peerID]
+	if !found {
+		return
+	}
+
+	close(ch)
+	delete(d.changeNotify, peerID)
 }
 
 func (d *Status) notifyPeerListChanged() {
