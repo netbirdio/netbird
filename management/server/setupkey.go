@@ -236,6 +236,10 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
+	if user.IsRegularUser() {
+		return nil, status.NewAdminPermissionError()
+	}
+
 	var setupKey *SetupKey
 	var plainKey string
 	var eventsToStore []func()
@@ -287,6 +291,10 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 
 	if user.AccountID != accountID {
 		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewAdminPermissionError()
 	}
 
 	var oldKey *SetupKey
@@ -342,6 +350,10 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 
 	if user.AccountID != accountID {
 		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewAdminPermissionError()
 	}
 
 	if user.IsRegularUser() {
@@ -439,8 +451,10 @@ func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, tran
 			continue
 		}
 
-		meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
-		am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupRemovedFromSetupKey, meta)
+		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
+			am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupRemovedFromSetupKey, meta)
+		})
 	}
 
 	for _, g := range addedGroups {
@@ -450,8 +464,10 @@ func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, tran
 			continue
 		}
 
-		meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
-		am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupAddedToSetupKey, meta)
+		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": key.Name}
+			am.StoreEvent(ctx, userID, key.Id, accountID, activity.GroupAddedToSetupKey, meta)
+		})
 	}
 
 	return eventsToStore
