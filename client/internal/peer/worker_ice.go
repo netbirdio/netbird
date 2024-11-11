@@ -197,8 +197,7 @@ func (w *WorkerICE) Close() {
 		return
 	}
 
-	err := w.agent.Close()
-	if err != nil {
+	if err := w.agent.Close(); err != nil {
 		w.log.Warnf("failed to close ICE agent: %s", err)
 	}
 }
@@ -260,7 +259,9 @@ func (w *WorkerICE) closeAgent(cancel context.CancelFunc) {
 	defer w.muxAgent.Unlock()
 
 	cancel()
-	_ = w.agent.Close()
+	if err := w.agent.Close(); err != nil {
+		w.log.Warnf("failed to close ICE agent: %s", err)
+	}
 	w.agent = nil
 }
 
