@@ -103,6 +103,11 @@ func (u *User) IsAdminOrServiceUser() bool {
 	return u.HasAdminPower() || u.IsServiceUser
 }
 
+// IsRegularUser checks if the user is a regular user.
+func (u *User) IsRegularUser() bool {
+	return !u.HasAdminPower() && !u.IsServiceUser
+}
+
 // ToUserInfo converts a User object to a UserInfo object.
 func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo, error) {
 	autoGroups := u.AutoGroups

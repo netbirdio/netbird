@@ -70,9 +70,10 @@ type Store interface {
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
-	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
+	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbgroup.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*nbgroup.Group, error)
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error)
+	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*nbgroup.Group, error)
 	SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*nbgroup.Group) error
 	SaveGroup(ctx context.Context, lockStrength LockingStrength, group *nbgroup.Group) error
 
@@ -96,7 +97,9 @@ type Store interface {
 	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error)
 	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
 	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error)
-	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, setupKeyID string, accountID string) (*SetupKey, error)
+	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*SetupKey, error)
+	SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *SetupKey) error
+	DeleteSetupKey(ctx context.Context, lockStrength LockingStrength, accountID, keyID string) error
 
 	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
 	GetRouteByID(ctx context.Context, lockStrength LockingStrength, routeID string, accountID string) (*route.Route, error)
@@ -124,7 +127,6 @@ type Store interface {
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
-	DeleteSetupKey(ctx context.Context, accountID, keyID string) error
 }
 
 type StoreEngine string

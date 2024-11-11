@@ -103,17 +103,27 @@ func NewPeerLoginExpiredError() error {
 }
 
 // NewSetupKeyNotFoundError creates a new Error with NotFound type for a missing setup key
-func NewSetupKeyNotFoundError(err error) error {
-	return Errorf(NotFound, "setup key not found: %s", err)
+func NewSetupKeyNotFoundError(setupKeyID string) error {
+	return Errorf(NotFound, "setup key: %s not found", setupKeyID)
 }
 
 func NewGetAccountFromStoreError(err error) error {
 	return Errorf(Internal, "issue getting account from store: %s", err)
 }
 
+// NewUserNotPartOfAccountError creates a new Error with PermissionDenied type for a user not being part of an account
+func NewUserNotPartOfAccountError() error {
+	return Errorf(PermissionDenied, "user is not part of this account")
+}
+
 // NewGetUserFromStoreError creates a new Error with Internal type for an issue getting user from store
 func NewGetUserFromStoreError() error {
 	return Errorf(Internal, "issue getting user from store")
+}
+
+// NewAdminPermissionError creates a new Error with PermissionDenied type for actions requiring admin role.
+func NewAdminPermissionError() error {
+	return Errorf(PermissionDenied, "admin role required to perform this action")
 }
 
 // NewStoreContextCanceledError creates a new Error with Internal type for a canceled store context
@@ -124,9 +134,4 @@ func NewStoreContextCanceledError(duration time.Duration) error {
 // NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key
 func NewInvalidKeyIDError() error {
 	return Errorf(InvalidArgument, "invalid key ID")
-}
-
-// NewUnauthorizedToViewSetupKeysError creates a new Error with Unauthorized type for an issue getting a setup key
-func NewUnauthorizedToViewSetupKeysError() error {
-	return Errorf(Unauthorized, "only users with admin power can view setup keys")
 }
