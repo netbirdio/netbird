@@ -61,7 +61,9 @@ func (p *program) Start(svc service.Service) error {
 		}
 		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
 
+		p.serverInstanceMu.Lock()
 		p.serverInstance = serverInstance
+		p.serverInstanceMu.Unlock()
 
 		log.Printf("started daemon server: %v", split[1])
 		if err := p.serv.Serve(listen); err != nil {
@@ -72,6 +74,7 @@ func (p *program) Start(svc service.Service) error {
 }
 
 func (p *program) Stop(srv service.Service) error {
+	p.serverInstanceMu.Lock()
 	if p.serverInstance != nil {
 		in := new(proto.DownRequest)
 		_, err := p.serverInstance.Down(p.ctx, in)
@@ -79,6 +82,7 @@ func (p *program) Stop(srv service.Service) error {
 			log.Errorf("failed to stop daemon: %v", err)
 		}
 	}
+	p.serverInstanceMu.Unlock()
 
 	p.cancel()
 

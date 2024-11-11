@@ -67,7 +67,7 @@ func (s *State) DeleteRoute(network string) {
 func (s *State) GetRoutes() map[string]struct{} {
 	s.Mux.RLock()
 	defer s.Mux.RUnlock()
-	return s.routes
+	return maps.Clone(s.routes)
 }
 
 // LocalPeerState contains the latest state of the local peer
