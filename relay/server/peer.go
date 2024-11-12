@@ -16,6 +16,8 @@ import (
 
 const (
 	bufferSize = 8820
+
+	errCloseConn = "failed to close connection to peer: %s"
 )
 
 // Peer represents a peer connection
@@ -48,7 +50,7 @@ func NewPeer(metrics *metrics.Metrics, id []byte, conn net.Conn, store *Store) *
 func (p *Peer) Work() {
 	defer func() {
 		if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			p.log.Errorf("failed to close connection to peer: %s", err)
+			p.log.Errorf(errCloseConn, err)
 		}
 	}()
 
@@ -103,7 +105,7 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 	case messages.MsgTypeClose:
 		p.log.Infof("peer exited gracefully")
 		if err := p.conn.Close(); err != nil {
-			log.Errorf("failed to close connection to peer: %s", err)
+			log.Errorf(errCloseConn, err)
 		}
 	default:
 		p.log.Warnf("received unexpected message type: %s", msgType)
@@ -127,9 +129,8 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 		p.log.Errorf("failed to send close message to peer: %s", p.String())
 	}
 
-	err = p.conn.Close()
-	if err != nil {
-		p.log.Errorf("failed to close connection to peer: %s", err)
+	if err := p.conn.Close(); err != nil {
+		p.log.Errorf(errCloseConn, err)
 	}
 }
 
@@ -138,7 +139,7 @@ func (p *Peer) Close() {
 	defer p.connMu.Unlock()
 
 	if err := p.conn.Close(); err != nil {
-		p.log.Errorf("failed to close connection to peer: %s", err)
+		p.log.Errorf(errCloseConn, err)
 	}
 }
 
