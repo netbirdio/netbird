@@ -96,9 +96,12 @@ func (p *PeersUpdateManager) closeChannel(ctx context.Context, peerID string) {
 	if channel, ok := p.peerChannels[peerID]; ok {
 		delete(p.peerChannels, peerID)
 		close(channel)
+
+		log.WithContext(ctx).Debugf("closed updates channel of a peer %s", peerID)
+		return
 	}
 
-	log.WithContext(ctx).Debugf("closed updates channel of a peer %s", peerID)
+	log.WithContext(ctx).Debugf("closing updates channel: peer %s has no channel", peerID)
 }
 
 // CloseChannels closes updates channel for each given peer

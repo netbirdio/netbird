@@ -110,13 +110,15 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, account *Account) error {
 	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to find peer by pub key: %w", err)
 	}
 
 	expired, err := am.updatePeerStatusAndLocation(ctx, peer, connected, realIP, account)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update peer status and location: %w", err)
 	}
+
+	log.WithContext(ctx).Debugf("mark peer %s connected: %t", peer.ID, connected)
 
 	if peer.AddedWithSSOLogin() {
 		if peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
@@ -168,7 +170,7 @@ func (am *DefaultAccountManager) updatePeerStatusAndLocation(ctx context.Context
 
 	err := am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to save peer status: %w", err)
 	}
 
 	return oldStatus.LoginExpired, nil
@@ -590,7 +592,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error getting account: %w", err)
+		return nil, nil, nil, status.NewGetAccountError(err)
 	}
 
 	allGroup, err := account.GetGroupAll()
@@ -648,7 +650,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	if peer.UserID != "" {
 		user, err := account.FindUser(peer.UserID)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, fmt.Errorf("failed to get user: %w", err)
 		}
 
 		err = checkIfPeerOwnerIsBlocked(peer, user)
@@ -665,7 +667,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	if updated {
 		err = am.Store.SavePeer(ctx, account.Id, peer)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, fmt.Errorf("failed to save peer: %w", err)
 		}
 
 		if sync.UpdateAccountPeers {
@@ -675,7 +677,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 	peerNotValid, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to validate peer: %w", err)
 	}
 
 	var postureChecks []*posture.Checks
@@ -693,7 +695,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 	validPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to get validated peers: %w", err)
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 

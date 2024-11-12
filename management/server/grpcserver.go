@@ -180,6 +180,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
 	if err != nil {
+		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
 		return mapError(ctx, err)
 	}
 
@@ -207,6 +208,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
 func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
 	for {
 		select {
 		// condition when there are some updates
@@ -260,10 +262,15 @@ func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, p
 	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
-	_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
+	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
+	}
 	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
 	s.secretsManager.CancelRefresh(peer.ID)
 	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
+
+	log.WithContext(ctx).Tracef("peer %s has been disconnected", peer.Key)
 }
 
 func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string, error) {
