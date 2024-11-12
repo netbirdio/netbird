@@ -1381,9 +1381,6 @@ func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength Lockin
 func (s *SqlStore) SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(postureCheck)
 	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
-			return status.Errorf(status.InvalidArgument, "name should be unique")
-		}
 		log.WithContext(ctx).Errorf("failed to save posture checks to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save posture checks to store")
 	}
