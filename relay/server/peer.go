@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"io"
+	"errors"
 	"net"
 	"sync"
 	"time"
@@ -57,7 +57,7 @@ func (p *Peer) Work() {
 	for {
 		n, err := p.conn.Read(buf)
 		if err != nil {
-			if err != io.EOF {
+			if !errors.Is(err, net.ErrClosed) {
 				p.log.Errorf("failed to read message: %s", err)
 			}
 			return
