@@ -1596,17 +1596,17 @@ func TestSqlStore_GetPostureChecksByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peer, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, tt.postureChecksID)
+			postureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, tt.postureChecksID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
 				require.True(t, ok)
 				require.Equal(t, sErr.Type(), status.NotFound)
-				require.Nil(t, peer)
+				require.Nil(t, postureChecks)
 			} else {
 				require.NoError(t, err)
-				require.NotNil(t, peer)
-				require.Equal(t, tt.postureChecksID, peer.ID)
+				require.NotNil(t, postureChecks)
+				require.Equal(t, tt.postureChecksID, postureChecks.ID)
 			}
 		})
 	}
