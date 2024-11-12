@@ -609,12 +609,12 @@ func (am *DefaultAccountManager) anyGroupHasPeers(account *Account, groupIDs []s
 
 // anyGroupHasPeers checks if any of the given groups in the account have peers.
 func anyGroupHasPeers(ctx context.Context, transaction Store, accountID string, groupIDs []string) (bool, error) {
-	for _, groupID := range groupIDs {
-		group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
-		if err != nil {
-			return false, err
-		}
+	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, groupIDs)
+	if err != nil {
+		return false, err
+	}
 
+	for _, group := range groups {
 		if group.HasPeers() {
 			return true, nil
 		}
