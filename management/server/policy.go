@@ -521,12 +521,12 @@ func validatePolicy(ctx context.Context, transaction Store, accountID string, po
 		policy.AccountID = accountID
 	}
 
-	groups, err := transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
+	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, policy.ruleGroups())
 	if err != nil {
 		return err
 	}
 
-	postureChecks, err := transaction.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
+	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, LockingStrengthShare, accountID, policy.SourcePostureChecks)
 	if err != nil {
 		return err
 	}
@@ -629,15 +629,10 @@ func (a *Account) getPostureChecks(postureChecksID string) *posture.Checks {
 }
 
 // getValidPostureCheckIDs filters and returns only the valid posture check IDs from the provided list.
-func getValidPostureCheckIDs(postureChecks []*posture.Checks, postureChecksIds []string) []string {
-	validPostureCheckIDs := make(map[string]struct{})
-	for _, check := range postureChecks {
-		validPostureCheckIDs[check.ID] = struct{}{}
-	}
-
+func getValidPostureCheckIDs(postureChecks map[string]*posture.Checks, postureChecksIds []string) []string {
 	validIDs := make([]string, 0, len(postureChecksIds))
 	for _, id := range postureChecksIds {
-		if _, exists := validPostureCheckIDs[id]; exists {
+		if _, exists := postureChecks[id]; exists {
 			validIDs = append(validIDs, id)
 		}
 	}
@@ -646,15 +641,10 @@ func getValidPostureCheckIDs(postureChecks []*posture.Checks, postureChecksIds [
 }
 
 // getValidGroupIDs filters and returns only the valid group IDs from the provided list.
-func getValidGroupIDs(groups []*nbgroup.Group, groupIDs []string) []string {
-	validGroupIDs := make(map[string]struct{})
-	for _, group := range groups {
-		validGroupIDs[group.ID] = struct{}{}
-	}
-
+func getValidGroupIDs(groups map[string]*nbgroup.Group, groupIDs []string) []string {
 	validIDs := make([]string, 0, len(groupIDs))
 	for _, id := range groupIDs {
-		if _, exists := validGroupIDs[id]; exists {
+		if _, exists := groups[id]; exists {
 			validIDs = append(validIDs, id)
 		}
 	}

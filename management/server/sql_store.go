@@ -1234,8 +1234,8 @@ func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStren
 	var groups []*nbgroup.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to get groups by ID's from the store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from the store")
+		log.WithContext(ctx).Errorf("failed to get groups by ID's from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from store")
 	}
 
 	groupsMap := make(map[string]*nbgroup.Group)
@@ -1375,6 +1375,23 @@ func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength Lockin
 	}
 
 	return postureCheck, nil
+}
+
+// GetPostureChecksByIDs retrieves posture checks by their IDs and account ID.
+func (s *SqlStore) GetPostureChecksByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, postureChecksIDs []string) (map[string]*posture.Checks, error) {
+	var postureChecks []*posture.Checks
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&postureChecks, accountAndIDsQueryCondition, accountID, postureChecksIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get posture checks by ID's from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get posture checks by ID's from store")
+	}
+
+	postureChecksMap := make(map[string]*posture.Checks)
+	for _, postureCheck := range postureChecks {
+		postureChecksMap[postureCheck.ID] = postureCheck
+	}
+
+	return postureChecksMap, nil
 }
 
 // SavePostureChecks saves a posture checks to the database.
