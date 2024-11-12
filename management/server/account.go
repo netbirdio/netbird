@@ -113,7 +113,7 @@ type AccountManager interface {
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error)
-	SavePolicy(ctx context.Context, accountID, userID string, policy *Policy, isUpdate bool) error
+	SavePolicy(ctx context.Context, accountID, userID string, policy *Policy) (*Policy, error)
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
 	ListPolicies(ctx context.Context, accountID, userID string) ([]*Policy, error)
 	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
