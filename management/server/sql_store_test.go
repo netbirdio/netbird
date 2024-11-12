@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1561,6 +1562,140 @@ func TestSqlStore_GetPeersByIDs(t *testing.T) {
 			peers, err := store.GetPeersByIDs(context.Background(), LockingStrengthShare, accountID, tt.peerIDs)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_GetPostureChecksByID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	tests := []struct {
+		name            string
+		postureChecksID string
+		expectError     bool
+	}{
+		{
+			name:            "retrieve existing posture checks",
+			postureChecksID: "csplshq7qv948l48f7t0",
+			expectError:     false,
+		},
+		{
+			name:            "retrieve non-existing posture checks",
+			postureChecksID: "non-existing",
+			expectError:     true,
+		},
+		{
+			name:            "retrieve with empty posture checks ID",
+			postureChecksID: "",
+			expectError:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peer, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, tt.postureChecksID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, peer)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, peer)
+				require.Equal(t, tt.postureChecksID, peer.ID)
+			}
+		})
+	}
+}
+
+func TestSqlStore_SavePostureChecks(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	postureChecks := &posture.Checks{
+		ID:        "posture-checks-id",
+		AccountID: accountID,
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{
+				MinVersion: "0.31.0",
+			},
+			OSVersionCheck: &posture.OSVersionCheck{
+				Ios: &posture.MinVersionCheck{
+					MinVersion: "13.0.1",
+				},
+				Linux: &posture.MinKernelVersionCheck{
+					MinKernelVersion: "5.3.3-dev",
+				},
+			},
+			GeoLocationCheck: &posture.GeoLocationCheck{
+				Locations: []posture.Location{
+					{
+						CountryCode: "DE",
+						CityName:    "Berlin",
+					},
+				},
+				Action: posture.CheckActionAllow,
+			},
+		},
+	}
+	err = store.SavePostureChecks(context.Background(), LockingStrengthUpdate, postureChecks)
+	require.NoError(t, err)
+
+	savePostureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, "posture-checks-id")
+	require.NoError(t, err)
+	require.Equal(t, savePostureChecks, postureChecks)
+}
+
+func TestSqlStore_DeletePostureChecks(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	tests := []struct {
+		name            string
+		postureChecksID string
+		expectError     bool
+	}{
+		{
+			name:            "delete existing posture checks",
+			postureChecksID: "csplshq7qv948l48f7t0",
+			expectError:     false,
+		},
+		{
+			name:            "delete non-existing posture checks",
+			postureChecksID: "non-existing-posture-checks-id",
+			expectError:     true,
+		},
+		{
+			name:            "delete with empty posture checks ID",
+			postureChecksID: "",
+			expectError:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err = store.DeletePostureChecks(context.Background(), LockingStrengthUpdate, accountID, tt.postureChecksID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+			} else {
+				require.NoError(t, err)
+				group, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, tt.postureChecksID)
+				require.Error(t, err)
+				require.Nil(t, group)
+			}
 		})
 	}
 }
