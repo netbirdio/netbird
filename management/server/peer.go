@@ -589,7 +589,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error getting account: %w", err)
+		return nil, nil, nil, status.NewGetAccountError(err)
 	}
 
 	allGroup, err := account.GetGroupAll()
