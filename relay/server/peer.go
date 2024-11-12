@@ -46,6 +46,12 @@ func NewPeer(metrics *metrics.Metrics, id []byte, conn net.Conn, store *Store) *
 // It manages the protocol (healthcheck, transport, close). Read the message and determine the message type and handle
 // the message accordingly.
 func (p *Peer) Work() {
+	defer func() {
+		if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			p.log.Errorf("failed to close connection to peer: %s", err)
+		}
+	}()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
