@@ -2129,7 +2129,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	if settings.GroupsPropagationEnabled {
 		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
-			return fmt.Errorf("error getting account: %w", err)
+			return status.NewGetAccountError(err)
 		}
 
 		if areGroupChangesAffectPeers(account, addNewGroups) || areGroupChangesAffectPeers(account, removeOldGroups) {
@@ -2290,12 +2290,12 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, status.NewGetAccountError(err)
 	}
 
 	peer, netMap, postureChecks, err := am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("error syncing peer: %w", err)
 	}
 
 	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, account)
@@ -2314,7 +2314,7 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
-		return err
+		return status.NewGetAccountError(err)
 	}
 
 	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, account)

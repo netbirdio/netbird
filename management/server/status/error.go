@@ -135,3 +135,8 @@ func NewStoreContextCanceledError(duration time.Duration) error {
 func NewInvalidKeyIDError() error {
 	return Errorf(InvalidArgument, "invalid key ID")
 }
+
+// NewGetAccountError creates a new Error with Internal type for an issue getting account
+func NewGetAccountError(err error) error {
+	return Errorf(Internal, "error getting account: %s", err)
+}
