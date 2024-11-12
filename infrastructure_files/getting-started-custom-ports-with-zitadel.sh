@@ -662,7 +662,7 @@ EOF
 
 renderTurnServerConf() {
   cat <<EOF
-listening-port={$TURN_LISTENING_PORT}
+listening-port=$TURN_LISTENING_PORT
 $TURN_EXTERNAL_IP_CONFIG
 tls-listening-port=5349
 min-port=$TURN_MIN_PORT
@@ -686,14 +686,14 @@ renderManagementJson() {
     "Stuns": [
         {
             "Proto": "udp",
-            "URI": "stun:$NETBIRD_DOMAIN:{$TURN_LISTENING_PORT}"
+            "URI": "stun:$NETBIRD_DOMAIN:$TURN_LISTENING_PORT"
         }
     ],
     "TURNConfig": {
         "Turns": [
             {
                 "Proto": "udp",
-                "URI": "turn:$NETBIRD_DOMAIN:{$TURN_LISTENING_PORT}",
+                "URI": "turn:$NETBIRD_DOMAIN:$TURN_LISTENING_PORT",
                 "Username": "$TURN_USER",
                 "Password": "$TURN_PASSWORD"
             }
