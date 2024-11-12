@@ -1214,12 +1214,11 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 
 	defaultRule := rules[0]
 	newPolicy := defaultRule.Copy()
-	newPolicy.ID = xid.New().String()
 	newPolicy.Name = "peer1 only"
 	newPolicy.Rules[0].Sources = []string{newGroup.ID}
 	newPolicy.Rules[0].Destinations = []string{newGroup.ID}
 
-	err = am.SavePolicy(context.Background(), account.Id, userID, newPolicy, false)
+	_, err = am.SavePolicy(context.Background(), account.Id, userID, newPolicy)
 	require.NoError(t, err)
 
 	err = am.DeletePolicy(context.Background(), account.Id, defaultRule.ID, userID)

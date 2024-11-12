@@ -390,8 +390,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	policy := Policy{
-		ID:      "policy",
+	policy := &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -403,7 +402,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 			},
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)

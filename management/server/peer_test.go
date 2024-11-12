@@ -283,14 +283,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	var (
 		group1 nbgroup.Group
 		group2 nbgroup.Group
-		policy Policy
 	)
 
 	group1.ID = xid.New().String()
 	group2.ID = xid.New().String()
 	group1.Name = "src"
 	group2.Name = "dst"
-	policy.ID = xid.New().String()
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
@@ -305,18 +303,20 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 
-	policy.Name = "test"
-	policy.Enabled = true
-	policy.Rules = []*PolicyRule{
-		{
-			Enabled:       true,
-			Sources:       []string{group1.ID},
-			Destinations:  []string{group2.ID},
-			Bidirectional: true,
-			Action:        PolicyTrafficActionAccept,
+	policy := &Policy{
+		Name:    "test",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{group1.ID},
+				Destinations:  []string{group2.ID},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	policy, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -364,7 +364,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	}
 
 	policy.Enabled = false
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -1445,8 +1445,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to group linked with policy should update account peers and send peer update
 	t.Run("adding peer to group linked with policy", func(t *testing.T) {
-		err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
-			ID:      "policy",
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
@@ -1457,7 +1456,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 					Action:        PolicyTrafficActionAccept,
 				},
 			},
-		}, false)
+		})
 		require.NoError(t, err)
 
 		done := make(chan struct{})
