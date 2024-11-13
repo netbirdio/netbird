@@ -12,29 +12,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-var eventActivityIsEnabled = 0
-
 func isEnabled() bool {
-
-	if eventActivityIsEnabled == 1 {
-		return true
-	}
-
-	if eventActivityIsEnabled == 2 {
-		return false
-	}
-
-	response := os.Getenv("NB_EVENT_ACTIVITY_ENABLED")
-
-	if response == "" || response == "true" || response == "1" || response == "True" {
-		eventActivityIsEnabled = 1
-	} else {
-		eventActivityIsEnabled = 2
-	}
-
-	log.Printf("response NB_EVENT_ACTIVITY_ENABLED: %s, eventActivityIsEnabled: %d", response, eventActivityIsEnabled)
-
-	return isEnabled()
+	response := os.Getenv("NB_EVENT_ACTIVITY_LOG_ENABLED")
+	return response == "" || response == "true"
 }
 
 // GetEvents returns a list of activity events of an account
