@@ -1855,3 +1855,66 @@ func TestSqlStore_DeletePolicy(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, policy)
 }
+
+func TestSqlStore_GetDNSSettings(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		accountID   string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing account dns settings",
+			accountID:   "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing account dns settings",
+			accountID:   "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve dns settings with empty account ID",
+			accountID:   "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dnsSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, tt.accountID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, dnsSettings)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, dnsSettings)
+			}
+		})
+	}
+}
+
+func TestSqlStore_SaveDNSSettings(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	dnsSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+
+	dnsSettings.DisabledManagementGroups = []string{"groupA", "groupB"}
+	err = store.SaveDNSSettings(context.Background(), LockingStrengthUpdate, accountID, dnsSettings)
+	require.NoError(t, err)
+
+	saveDNSSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Equal(t, saveDNSSettings, dnsSettings)
+}
