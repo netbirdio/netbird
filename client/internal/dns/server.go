@@ -326,9 +326,13 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// persist dns state right away
 	ctx, cancel := context.WithTimeout(s.ctx, 3*time.Second)
 	defer cancel()
-	if err := s.stateManager.PersistState(ctx); err != nil {
-		log.Errorf("Failed to persist dns state: %v", err)
-	}
+
+	// don't block
+	go func() {
+		if err := s.stateManager.PersistState(ctx); err != nil {
+			log.Errorf("Failed to persist dns state: %v", err)
+		}
+	}()
 
 	if s.searchDomainNotifier != nil {
 		s.searchDomainNotifier.onNewSearchDomains(s.SearchDomains())
