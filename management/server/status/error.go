@@ -149,3 +149,8 @@ func NewPostureChecksNotFoundError(postureChecksID string) error {
 func NewPolicyNotFoundError(policyID string) error {
 	return Errorf(NotFound, "policy: %s not found", policyID)
 }
+
+// NewNameServerGroupNotFoundError creates a new Error with NotFound type for a missing name server group
+func NewNameServerGroupNotFoundError(nsGroupID string) error {
+	return Errorf(NotFound, "nameserver group: %s not found", nsGroupID)
+}
