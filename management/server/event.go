@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -10,6 +11,31 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 )
+
+var eventActivityIsEnabled = 0
+
+func isEnabled() bool {
+
+	if eventActivityIsEnabled == 1 {
+		return true
+	}
+
+	if eventActivityIsEnabled == 2 {
+		return false
+	}
+
+	response := os.Getenv("NB_EVENT_ACTIVITY_ENABLED")
+
+	if response == "" || response == "true" || response == "1" || response == "True" {
+		eventActivityIsEnabled = 1
+	} else {
+		eventActivityIsEnabled = 2
+	}
+
+	log.Printf("response NB_EVENT_ACTIVITY_ENABLED: %s, eventActivityIsEnabled: %d", response, eventActivityIsEnabled)
+
+	return isEnabled()
+}
 
 // GetEvents returns a list of activity events of an account
 func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error) {
@@ -57,19 +83,20 @@ func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userI
 
 func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 
-	go func() {
-		_, err := am.eventStore.Save(ctx, &activity.Event{
-			Timestamp:   time.Now().UTC(),
-			Activity:    activityID,
-			InitiatorID: initiatorID,
-			TargetID:    targetID,
-			AccountID:   accountID,
-			Meta:        meta,
-		})
-		if err != nil {
-			// todo add metric
-			log.WithContext(ctx).Errorf("received an error while storing an activity event, error: %s", err)
-		}
-	}()
-
+	if isEnabled() {
+		go func() {
+			_, err := am.eventStore.Save(ctx, &activity.Event{
+				Timestamp:   time.Now().UTC(),
+				Activity:    activityID,
+				InitiatorID: initiatorID,
+				TargetID:    targetID,
+				AccountID:   accountID,
+				Meta:        meta,
+			})
+			if err != nil {
+				// todo add metric
+				log.WithContext(ctx).Errorf("received an error while storing an activity event, error: %s", err)
+			}
+		}()
+	}
 }
