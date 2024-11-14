@@ -95,13 +95,13 @@ func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
 func writeJson(ctx context.Context, file string, obj interface{}, configDir string, configFileName string) error {
 	// Check context before expensive operations
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return fmt.Errorf("write json start: %w", ctx.Err())
 	}
 
 	// make it pretty
 	bs, err := json.MarshalIndent(obj, "", "    ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal: %w", err)
 	}
 
 	return writeBytes(ctx, file, err, configDir, configFileName, bs)
@@ -109,7 +109,7 @@ func writeJson(ctx context.Context, file string, obj interface{}, configDir stri
 
 func writeBytes(ctx context.Context, file string, err error, configDir string, configFileName string, bs []byte) error {
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return fmt.Errorf("write bytes start: %w", ctx.Err())
 	}
 
 	tempFile, err := os.CreateTemp(configDir, ".*"+configFileName)
@@ -145,7 +145,7 @@ func writeBytes(ctx context.Context, file string, err error, configDir string, c
 
 	// Check context again
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return fmt.Errorf("after temp file: %w", ctx.Err())
 	}
 
 	if err = os.Rename(tempFileName, file); err != nil {
