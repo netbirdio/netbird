@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -120,9 +121,8 @@ func writeBytes(ctx context.Context, file string, err error, configDir string, c
 	tempFileName := tempFile.Name()
 
 	if deadline, ok := ctx.Deadline(); ok {
-		if err := tempFile.SetDeadline(deadline); err != nil {
-			//if err := tempFile.SetDeadline(deadline); err != nil && !errors.Is(err, os.ErrNoDeadline) {
-			log.Warnf("failed to set write deadline: %v", err)
+		if err := tempFile.SetDeadline(deadline); err != nil && !errors.Is(err, os.ErrNoDeadline) {
+			log.Warnf("failed to set deadline: %v", err)
 		}
 	}
 
