@@ -7,7 +7,6 @@ import (
 	"time"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
 )
 
 type MockStore struct {
@@ -15,17 +14,14 @@ type MockStore struct {
 	account *Account
 }
 
-func (s *MockStore) GetAllAccounts(_ context.Context) []*Account {
-	return []*Account{s.account}
-}
-
-func (s *MockStore) GetAccountByPeerID(_ context.Context, peerId string) (*Account, error) {
-	_, ok := s.account.Peers[peerId]
-	if ok {
-		return s.account, nil
+func (s *MockStore) GetAllEphemeralPeers(_ context.Context, _ LockingStrength) ([]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	for _, v := range s.account.Peers {
+		if v.Ephemeral {
+			peers = append(peers, v)
+		}
 	}
-
-	return nil, status.NewPeerNotFoundError(peerId)
+	return peers, nil
 }
 
 type MocAccountManager struct {
