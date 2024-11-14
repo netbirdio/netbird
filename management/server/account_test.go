@@ -1472,7 +1472,6 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	userID := "account_creator"
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
 		t.Fatal(err)
@@ -1501,7 +1500,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	err = manager.DeletePeer(context.Background(), account.Id, peerKey, userID)
+	err = manager.DeletePeer(context.Background(), account.Id, peer.ID, userID)
 	if err != nil {
 		return
 	}
@@ -1523,7 +1522,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	assert.Equal(t, peer.Name, ev.Meta["name"])
 	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
 	assert.Equal(t, userID, ev.InitiatorID)
-	assert.Equal(t, peer.IP.String(), ev.TargetID)
+	assert.Equal(t, peer.ID, ev.TargetID)
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
@@ -1853,13 +1852,10 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
-	account, err := manager.Store.GetAccount(context.Background(), accountID)
-	require.NoError(t, err, "unable to get the account")
-
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
-	account, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	account, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1927,11 +1923,8 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	accountID, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
-	account, err := manager.Store.GetAccount(context.Background(), accountID)
-	require.NoError(t, err, "unable to get the account")
-
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1962,7 +1955,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err, "unable to get the account")
 
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
