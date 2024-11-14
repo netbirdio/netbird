@@ -301,7 +301,7 @@ func marshalWithPanicRecovery(v any) ([]byte, error) {
 				err = fmt.Errorf("panic during marshal: %v", r)
 			}
 		}()
-		bs, err = json.MarshalIndent(v, "", "    ")
+		bs, err = json.Marshal(v)
 	}()
 
 	return bs, err
