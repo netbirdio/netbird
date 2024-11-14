@@ -1068,7 +1068,15 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId 
 
 // GetUserPeers retrieves peers for a user.
 func (s *SqlStore) GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error) {
-	return getRecords[*nbpeer.Peer](s.db.Where("user_id = ?", userID), lockStrength, accountID)
+	var peers []*nbpeer.Peer
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&peers, "account_id = ? AND user_id = ?", accountID, userID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peers from store")
+	}
+
+	return peers, nil
 }
 
 func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {
@@ -1110,6 +1118,85 @@ func (s *SqlStore) GetPeersByIDs(ctx context.Context, lockStrength LockingStreng
 	}
 
 	return peersMap, nil
+}
+
+// GetAccountPeerDNSLabels retrieves all unique DNS labels for peers associated with a specified account.
+func (s *SqlStore) GetAccountPeerDNSLabels(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
+	var labels []string
+
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&nbpeer.Peer{}).
+		Where(accountIDCondition, accountID).Pluck("dns_label", &labels)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "no peers found for the account")
+		}
+		log.WithContext(ctx).Errorf("error when getting dns labels from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting dns labels from store")
+	}
+
+	return labels, nil
+}
+
+// GetAccountPeersWithExpiration retrieves a list of peers that have login expiration enabled and added by a user.
+func (s *SqlStore) GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Where("login_expiration_enabled = ? AND user_id IS NOT NULL AND user_id != ''", true).
+		Find(&peers, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with expiration from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers with expiration from store")
+	}
+
+	return peers, nil
+}
+
+// GetAccountPeersWithInactivity retrieves a list of peers that have login expiration enabled and added by a user.
+func (s *SqlStore) GetAccountPeersWithInactivity(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Where("inactivity_expiration_enabled = ? AND user_id IS NOT NULL AND user_id != ''", true).
+		Find(&peers, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with inactivity from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers with inactivity from store")
+	}
+
+	return peers, nil
+}
+
+// GetAllEphemeralPeers retrieves all peers with Ephemeral set to true across all accounts, optimized for batch processing.
+func (s *SqlStore) GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error) {
+	var allEphemeralPeers, batchPeers []*nbpeer.Peer
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Where("ephemeral = ?", true).
+		FindInBatches(&batchPeers, 1000, func(tx *gorm.DB, batch int) error {
+			allEphemeralPeers = append(allEphemeralPeers, batchPeers...)
+			return nil
+		})
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to retrieve ephemeral peers: %s", result.Error)
+		return nil, fmt.Errorf("failed to retrieve ephemeral peers")
+	}
+
+	return allEphemeralPeers, nil
+}
+
+// DeletePeer removes a peer from the store.
+func (s *SqlStore) DeletePeer(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&nbpeer.Peer{}, accountAndIDQueryCondition, accountID, peerID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete peer from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete peer from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "peer not found")
+	}
+
+	return nil
 }
 
 func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error {
