@@ -179,7 +179,7 @@ func (m *Manager) PersistState(ctx context.Context) error {
 		return nil
 	}
 
-	bs, err := json.MarshalIndent(m.states, "", "    ")
+	bs, err := marshalWithPanicRecovery(m.states)
 	if err != nil {
 		return fmt.Errorf("marshal states: %w", err)
 	}
@@ -289,4 +289,20 @@ func (m *Manager) PerformCleanup() error {
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+func marshalWithPanicRecovery(v any) ([]byte, error) {
+	var bs []byte
+	var err error
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during marshal: %v", r)
+			}
+		}()
+		bs, err = json.MarshalIndent(v, "", "    ")
+	}()
+
+	return bs, err
 }
