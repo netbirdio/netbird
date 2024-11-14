@@ -14,6 +14,19 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func WriteBytesWithRestrictedPermission(ctx context.Context, file string, bs []byte) error {
+	configDir, configFileName, err := prepareConfigFileDir(file)
+	if err != nil {
+		return fmt.Errorf("prepare config file dir: %w", err)
+	}
+
+	if err = EnforcePermission(file); err != nil {
+		return fmt.Errorf("enfore permission: %w", err)
+	}
+
+	return writeBytes(ctx, file, err, configDir, configFileName, bs)
+}
+
 // WriteJsonWithRestrictedPermission writes JSON config object to a file. Enforces permission on the parent directory
 func WriteJsonWithRestrictedPermission(ctx context.Context, file string, obj interface{}) error {
 	configDir, configFileName, err := prepareConfigFileDir(file)
@@ -91,6 +104,10 @@ func writeJson(ctx context.Context, file string, obj interface{}, configDir stri
 		return err
 	}
 
+	return writeBytes(ctx, file, err, configDir, configFileName, bs)
+}
+
+func writeBytes(ctx context.Context, file string, err error, configDir string, configFileName string, bs []byte) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

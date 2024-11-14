@@ -179,14 +179,18 @@ func (m *Manager) PersistState(ctx context.Context) error {
 		return nil
 	}
 
+	bs, err := json.MarshalIndent(m.states, "", "    ")
+	if err != nil {
+		return fmt.Errorf("marshal states: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	done := make(chan error, 1)
-
 	start := time.Now()
 	go func() {
-		done <- util.WriteJsonWithRestrictedPermission(ctx, m.filePath, m.states)
+		done <- util.WriteBytesWithRestrictedPermission(ctx, m.filePath, bs)
 	}()
 
 	select {
