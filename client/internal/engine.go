@@ -38,7 +38,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 
-
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -171,7 +170,7 @@ type Engine struct {
 
 	relayManager *relayClient.Manager
 	stateManager *statemanager.Manager
-	srWatcher *guard.SRWatcher
+	srWatcher    *guard.SRWatcher
 }
 
 // Peer is an instance of the Connection Peer
@@ -641,6 +640,10 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
+	if e.wgInterface == nil {
+		return errors.New("wireguard interface is not initialized")
+	}
+
 	if e.wgInterface.Address().String() != conf.Address {
 		oldAddr := e.wgInterface.Address().String()
 		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
