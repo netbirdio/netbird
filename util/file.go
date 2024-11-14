@@ -114,14 +114,26 @@ func writeBytes(ctx context.Context, file string, err error, configDir string, c
 
 	tempFile, err := os.CreateTemp(configDir, ".*"+configFileName)
 	if err != nil {
-		return err
+		return fmt.Errorf("create temp: %w", err)
 	}
 
 	tempFileName := tempFile.Name()
-	// closing file ops as windows doesn't allow to move it
-	err = tempFile.Close()
+
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := tempFile.SetDeadline(deadline); err != nil {
+			//if err := tempFile.SetDeadline(deadline); err != nil && !errors.Is(err, os.ErrNoDeadline) {
+			log.Warnf("failed to set write deadline: %v", err)
+		}
+	}
+
+	_, err = tempFile.Write(bs)
 	if err != nil {
-		return err
+		_ = tempFile.Close()
+		return fmt.Errorf("write: %w", err)
+	}
+
+	if err = tempFile.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", tempFileName, err)
 	}
 
 	defer func() {
@@ -131,19 +143,13 @@ func writeBytes(ctx context.Context, file string, err error, configDir string, c
 		}
 	}()
 
-	err = os.WriteFile(tempFileName, bs, 0600)
-	if err != nil {
-		return err
-	}
-
 	// Check context again
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
-	err = os.Rename(tempFileName, file)
-	if err != nil {
-		return err
+	if err = os.Rename(tempFileName, file); err != nil {
+		return fmt.Errorf("move %s to %s: %w", tempFileName, file, err)
 	}
 
 	return nil
