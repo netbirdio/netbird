@@ -300,12 +300,12 @@ func (s *SqlStore) GetInstallationID() string {
 	return installation.InstallationIDValue
 }
 
-func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
+func (s *SqlStore) SavePeer(ctx context.Context, lockStrength LockingStrength, accountID string, peer *nbpeer.Peer) error {
 	// To maintain data integrity, we create a copy of the peer's to prevent unintended updates to other fields.
 	peerCopy := peer.Copy()
 	peerCopy.AccountID = accountID
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Transaction(func(tx *gorm.DB) error {
 		// check if peer exists before saving
 		var peerID string
 		result := tx.Model(&nbpeer.Peer{}).Select("id").Find(&peerID, accountAndIDQueryCondition, accountID, peer.ID)
@@ -355,7 +355,7 @@ func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID 
 	return nil
 }
 
-func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
+func (s *SqlStore) SavePeerStatus(ctx context.Context, lockStrength LockingStrength, accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
 
@@ -363,7 +363,7 @@ func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.Pe
 		"peer_status_last_seen", "peer_status_connected",
 		"peer_status_login_expired", "peer_status_required_approval",
 	}
-	result := s.db.Model(&nbpeer.Peer{}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&nbpeer.Peer{}).
 		Select(fieldsToUpdate).
 		Where(accountAndIDQueryCondition, accountID, peerID).
 		Updates(&peerCopy)
@@ -378,14 +378,14 @@ func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.Pe
 	return nil
 }
 
-func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+func (s *SqlStore) SavePeerLocation(ctx context.Context, lockStrength LockingStrength, accountID string, peerWithLocation *nbpeer.Peer) error {
 	// To maintain data integrity, we create a copy of the peer's location to prevent unintended updates to other fields.
 	var peerCopy nbpeer.Peer
 	// Since the location field has been migrated to JSON serialization,
 	// updating the struct ensures the correct data format is inserted into the database.
 	peerCopy.Location = peerWithLocation.Location
 
-	result := s.db.Model(&nbpeer.Peer{}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&nbpeer.Peer{}).
 		Where(accountAndIDQueryCondition, accountID, peerWithLocation.ID).
 		Updates(peerCopy)
 
@@ -740,9 +740,10 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string)
 	return accountID, nil
 }
 
-func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
+func (s *SqlStore) GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error) {
 	var accountID string
-	result := s.db.Model(&User{}).Select("account_id").Where(idQueryCondition, userID).First(&accountID)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&User{}).
+		Select("account_id").Where(idQueryCondition, userID).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -1064,6 +1065,18 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId 
 	}
 
 	return nil
+}
+
+// GetAccountPeers retrieves peers for an account.
+func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+	var peers []*nbpeer.Peer
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&peers, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get peers from store")
+	}
+
+	return peers, nil
 }
 
 // GetUserPeers retrieves peers for a user.
