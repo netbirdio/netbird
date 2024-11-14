@@ -76,11 +76,7 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 }
 
 func (r *SysOps) updateState(stateManager *statemanager.Manager) {
-	state := getState(stateManager)
-
-	state.Counter = r.refCounter
-
-	if err := stateManager.UpdateState(state); err != nil {
+	if err := stateManager.UpdateState((*ShutdownState)(r.refCounter)); err != nil {
 		log.Errorf("failed to update state: %v", err)
 	}
 }
