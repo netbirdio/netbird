@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/miekg/dns"
 	"github.com/mitchellh/hashstructure/v2"
@@ -323,13 +322,9 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		log.Error(err)
 	}
 
-	// persist dns state right away
-	ctx, cancel := context.WithTimeout(s.ctx, 3*time.Second)
-	defer cancel()
-
-	// don't block
 	go func() {
-		if err := s.stateManager.PersistState(ctx); err != nil {
+		// persist dns state right away
+		if err := s.stateManager.PersistState(s.ctx); err != nil {
 			log.Errorf("Failed to persist dns state: %v", err)
 		}
 	}()
@@ -537,12 +532,11 @@ func (s *DefaultServer) upstreamCallbacks(
 			l.Errorf("Failed to apply nameserver deactivation on the host: %v", err)
 		}
 
-		// persist dns state right away
-		ctx, cancel := context.WithTimeout(s.ctx, 3*time.Second)
-		defer cancel()
-		if err := s.stateManager.PersistState(ctx); err != nil {
-			l.Errorf("Failed to persist dns state: %v", err)
-		}
+		go func() {
+			if err := s.stateManager.PersistState(s.ctx); err != nil {
+				l.Errorf("Failed to persist dns state: %v", err)
+			}
+		}()
 
 		if runtime.GOOS == "android" && nsGroup.Primary && len(s.hostsDNSHolder.get()) > 0 {
 			s.addHostRootZone()

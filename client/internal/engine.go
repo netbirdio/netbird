@@ -38,7 +38,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 
-
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -297,7 +296,7 @@ func (e *Engine) Stop() error {
 	if err := e.stateManager.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop state manager: %w", err)
 	}
-	if err := e.stateManager.PersistState(ctx); err != nil {
+	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
