@@ -157,7 +157,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		engineCtx, cancel := context.WithCancel(c.ctx)
 		defer func() {
-			c.statusRecorder.MarkManagementDisconnected(state.err)
+			_, err := state.Status()
+			c.statusRecorder.MarkManagementDisconnected(err)
 			c.statusRecorder.CleanLocalPeerState()
 			cancel()
 		}()
