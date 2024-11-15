@@ -22,7 +22,7 @@ func WriteBytesWithRestrictedPermission(ctx context.Context, file string, bs []b
 	}
 
 	if err = EnforcePermission(file); err != nil {
-		return fmt.Errorf("enfore permission: %w", err)
+		return fmt.Errorf("enforce permission: %w", err)
 	}
 
 	return writeBytes(ctx, file, err, configDir, configFileName, bs)
