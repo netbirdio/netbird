@@ -23,6 +23,7 @@ type Listener struct {
 
 	server   *http.Server
 	acceptFn func(conn net.Conn)
+	log      *log.Entry
 }
 
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
@@ -87,6 +88,8 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	log.Infof("WS client connected from: %s", rAddr)
 
 	conn := NewConn(wsConn, lAddr, rAddr)
 	l.acceptFn(conn)

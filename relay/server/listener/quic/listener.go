@@ -3,6 +3,7 @@ package quic
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 
@@ -37,22 +38,18 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	for {
 		session, err := listener.Accept(context.Background())
 		if err != nil {
-			// Check if the listener was closed intentionally
-			if err.Error() == "server closed" {
+			if errors.Is(err, quic.ErrServerClosed) {
 				return nil
 			}
+
 			log.Errorf("Failed to accept QUIC session: %v", err)
 			continue
 		}
 
-		// Handle each session in a separate goroutine
-		go l.handleSession(session)
+		log.Infof("QUIC client connected from: %s", session.RemoteAddr())
+		conn := NewConn(session)
+		l.acceptFn(conn)
 	}
-}
-
-func (l *Listener) handleSession(session quic.Connection) {
-	conn := NewConn(session)
-	l.acceptFn(conn)
 }
 
 func (l *Listener) Shutdown(ctx context.Context) error {
@@ -61,8 +58,7 @@ func (l *Listener) Shutdown(ctx context.Context) error {
 	}
 
 	log.Infof("stopping QUIC listener")
-	err := l.listener.Close()
-	if err != nil {
+	if err := l.listener.Close(); err != nil {
 		return fmt.Errorf("listener shutdown failed: %v", err)
 	}
 	log.Infof("QUIC listener stopped")

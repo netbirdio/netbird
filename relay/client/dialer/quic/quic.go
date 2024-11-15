@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -35,9 +36,12 @@ func Dial(address string) (net.Conn, error) {
 		EnableDatagrams: true,
 	}
 
+	// todo add support for custom dialer
+
 	session, err := quic.DialAddr(ctx, quicURL, tlsConf, quicConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial QUIC server '%s': %v", quicURL, err)
+		log.Errorf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
+		return nil, err
 	}
 
 	conn := NewConn(session, address)

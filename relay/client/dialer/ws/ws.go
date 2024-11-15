@@ -32,8 +32,6 @@ func Dial(address string) (net.Conn, error) {
 	}
 	parsedURL.Path = ws.URLPath
 
-	log.Infof("------ Dialing to Relay server: %s", wsURL)
-
 	wsConn, resp, err := websocket.Dial(context.Background(), parsedURL.String(), opts)
 	if err != nil {
 		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)

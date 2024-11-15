@@ -2,11 +2,11 @@ package quic
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"time"
 
 	"github.com/quic-go/quic-go"
+	log "github.com/sirupsen/logrus"
 )
 
 type QuicAddr struct {
@@ -36,22 +36,21 @@ func NewConn(session quic.Connection, serverAddress string) net.Conn {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
-	// Use the QUIC stream's Read method directly
 	dgram, err := c.session.ReceiveDatagram(c.ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read from QUIC stream: %v", err)
+		log.Errorf("failed to read from QUIC session: %v", err)
+		return 0, err
 	}
 
-	// Copy data to b, ensuring we don’t exceed the size of b
 	n = copy(b, dgram)
 	return n, nil
 }
 
 func (c *Conn) Write(b []byte) (int, error) {
-	// Use the QUIC stream's Write method directly
 	err := c.session.SendDatagram(b)
 	if err != nil {
-		return 0, fmt.Errorf("failed to write to QUIC stream: %v", err)
+		log.Errorf("failed to write to QUIC stream: %v", err)
+		return 0, err
 	}
 	return len(b), nil
 }
