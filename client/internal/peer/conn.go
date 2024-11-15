@@ -442,7 +442,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 
 	if conn.iceP2PIsActive() {
 		conn.log.Debugf("do not switch to relay because current priority is: %v", conn.currentConnPriority)
-		conn.wgProxyRelay = wgProxy
+		conn.setRelayedProxy(wgProxy)
 		conn.statusRelay.Set(StatusConnected)
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 		return
@@ -465,7 +465,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 	wgConfigWorkaround()
 	conn.currentConnPriority = connPriorityRelay
 	conn.statusRelay.Set(StatusConnected)
-	conn.wgProxyRelay = wgProxy
+	conn.setRelayedProxy(wgProxy)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 	conn.log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr)
@@ -734,6 +734,15 @@ func (conn *Conn) logTraceConnState() {
 	} else {
 		conn.log.Tracef("connectivity guard check, ice state: %s", conn.statusICE)
 	}
+}
+
+func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
+	if conn.wgProxyRelay != nil {
+		if err := conn.wgProxyRelay.CloseConn(); err != nil {
+			conn.log.Warnf("failed to close deprecated wg proxy conn: %v", err)
+		}
+	}
+	conn.wgProxyRelay = proxy
 }
 
 func isController(config ConnConfig) bool {

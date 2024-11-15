@@ -15,7 +15,7 @@ import (
 )
 
 // WriteJsonWithRestrictedPermission writes JSON config object to a file. Enforces permission on the parent directory
-func WriteJsonWithRestrictedPermission(file string, obj interface{}) error {
+func WriteJsonWithRestrictedPermission(ctx context.Context, file string, obj interface{}) error {
 	configDir, configFileName, err := prepareConfigFileDir(file)
 	if err != nil {
 		return err
@@ -26,18 +26,18 @@ func WriteJsonWithRestrictedPermission(file string, obj interface{}) error {
 		return err
 	}
 
-	return writeJson(file, obj, configDir, configFileName)
+	return writeJson(ctx, file, obj, configDir, configFileName)
 }
 
 // WriteJson writes JSON config object to a file creating parent directories if required
 // The output JSON is pretty-formatted
-func WriteJson(file string, obj interface{}) error {
+func WriteJson(ctx context.Context, file string, obj interface{}) error {
 	configDir, configFileName, err := prepareConfigFileDir(file)
 	if err != nil {
 		return err
 	}
 
-	return writeJson(file, obj, configDir, configFileName)
+	return writeJson(ctx, file, obj, configDir, configFileName)
 }
 
 // DirectWriteJson writes JSON config object to a file creating parent directories if required without creating a temporary file
@@ -79,12 +79,20 @@ func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
 	return nil
 }
 
-func writeJson(file string, obj interface{}, configDir string, configFileName string) error {
+func writeJson(ctx context.Context, file string, obj interface{}, configDir string, configFileName string) error {
+	// Check context before expensive operations
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	// make it pretty
 	bs, err := json.MarshalIndent(obj, "", "    ")
 	if err != nil {
 		return err
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
 	tempFile, err := os.CreateTemp(configDir, ".*"+configFileName)
@@ -109,6 +117,11 @@ func writeJson(file string, obj interface{}, configDir string, configFileName st
 	err = os.WriteFile(tempFileName, bs, 0600)
 	if err != nil {
 		return err
+	}
+
+	// Check context again
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
 	err = os.Rename(tempFileName, file)

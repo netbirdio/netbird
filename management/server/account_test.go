@@ -29,14 +29,18 @@ import (
 )
 
 type MocIntegratedValidator struct {
+	ValidatePeerFunc func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error)
 }
 
 func (a MocIntegratedValidator) ValidateExtraSettings(_ context.Context, newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
 	return nil
 }
 
-func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
-	return update, nil
+func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error) {
+	if a.ValidatePeerFunc != nil {
+		return a.ValidatePeerFunc(context.Background(), update, peer, userID, accountID, dnsDomain, peersGroup, extraSettings)
+	}
+	return update, false, nil
 }
 func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
@@ -976,6 +980,110 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 	if err == nil {
 		t.Fatal(fmt.Errorf("expected to get an error when trying to get deleted account, got %v", getAccount))
 	}
+}
+
+func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
+	claims := jwtclaims.AuthorizationClaims{
+		Domain:         "example.com",
+		UserId:         "pvt-domain-user",
+		DomainCategory: PrivateCategory,
+	}
+
+	publicClaims := jwtclaims.AuthorizationClaims{
+		Domain:         "test.com",
+		UserId:         "public-domain-user",
+		DomainCategory: PublicCategory,
+	}
+
+	am, err := createManager(b)
+	if err != nil {
+		b.Fatal(err)
+		return
+	}
+	id, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	pid, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	users := genUsers("priv", 100)
+
+	acc, err := am.Store.GetAccount(context.Background(), id)
+	if err != nil {
+		b.Fatal(err)
+	}
+	acc.Users = users
+
+	err = am.Store.SaveAccount(context.Background(), acc)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	userP := genUsers("pub", 100)
+
+	pacc, err := am.Store.GetAccount(context.Background(), pid)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	pacc.Users = userP
+
+	err = am.Store.SaveAccount(context.Background(), pacc)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.Run("public without account ID", func(b *testing.B) {
+		//b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("private without account ID", func(b *testing.B) {
+		//b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("private with account ID", func(b *testing.B) {
+		claims.AccountId = id
+		//b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+}
+
+func genUsers(p string, n int) map[string]*User {
+	users := map[string]*User{}
+	now := time.Now()
+	for i := 0; i < n; i++ {
+		users[fmt.Sprintf("%s-%d", p, i)] = &User{
+			Id:         fmt.Sprintf("%s-%d", p, i),
+			Role:       UserRoleAdmin,
+			LastLogin:  now,
+			CreatedAt:  now,
+			Issued:     "api",
+			AutoGroups: []string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"},
+		}
+	}
+	return users
 }
 
 func TestAccountManager_AddPeer(t *testing.T) {
@@ -2665,7 +2773,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		groups, err := manager.Store.GetAccountGroups(context.Background(), "accountID")
+		groups, err := manager.Store.GetAccountGroups(context.Background(), LockingStrengthShare, "accountID")
 		assert.NoError(t, err)
 		assert.Len(t, groups, 3, "new group3 should be added")
 

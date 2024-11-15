@@ -17,6 +17,7 @@ import (
 const (
 	ForwardingFormatPrefix = "netbird-fwd-"
 	ForwardingFormat       = "netbird-fwd-%s-%t"
+	PreroutingFormat       = "netbird-prerouting-%s-%t"
 	NatFormat              = "netbird-nat-%s-%t"
 )
 
