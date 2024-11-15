@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"io"
@@ -39,7 +40,7 @@ func TestConfigJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 
-			err := WriteJson(tmpDir+"/testconfig.json", tt.config)
+			err := WriteJson(context.Background(), tmpDir+"/testconfig.json", tt.config)
 			require.NoError(t, err)
 
 			read, err := ReadJson(tmpDir+"/testconfig.json", &TestConfig{})
@@ -73,7 +74,7 @@ func TestCopyFileContents(t *testing.T) {
 			src := tmpDir + "/copytest_src"
 			dst := tmpDir + "/copytest_dst"
 
-			err := WriteJson(src, tt.srcContent)
+			err := WriteJson(context.Background(), src, tt.srcContent)
 			require.NoError(t, err)
 
 			err = CopyFileContents(src, dst)
@@ -127,7 +128,7 @@ func TestHandleConfigFileWithoutFullPath(t *testing.T) {
 				_ = os.Remove(cfgFile)
 			}()
 
-			err := WriteJson(cfgFile, tt.config)
+			err := WriteJson(context.Background(), cfgFile, tt.config)
 			require.NoError(t, err)
 
 			read, err := ReadJson(cfgFile, &TestConfig{})
