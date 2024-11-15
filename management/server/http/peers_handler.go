@@ -192,10 +192,8 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	groupsMap := map[string]*nbgroup.Group{}
 	groups, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
-	if groups != nil {
-		for _, group := range groups {
-			groupsMap[group.ID] = group
-		}
+	for _, group := range groups {
+		groupsMap[group.ID] = group
 	}
 
 	respBody := make([]*api.PeerBatch, 0, len(peers))
