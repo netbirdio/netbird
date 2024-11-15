@@ -161,7 +161,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	return nil
 }
 
-// prepareGroupEvents prepares a list of event functions to be stored.
+// prepareDNSSettingsEvents prepares a list of event functions to be stored.
 func (am *DefaultAccountManager) prepareDNSSettingsEvents(ctx context.Context, transaction Store, accountID, userID string, addedGroups, removedGroups []string) []func() {
 	var eventsToStore []func()
 
