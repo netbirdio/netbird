@@ -12,9 +12,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -312,15 +313,15 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 			return err
 		}
 
-	if oldKey.Revoked && !keyToSave.Revoked {
-		return nil, status.Errorf(status.InvalidArgument, "can't un-revoke a revoked setup key")
-	}
+		if oldKey.Revoked && !keyToSave.Revoked {
+			return status.Errorf(status.InvalidArgument, "can't un-revoke a revoked setup key")
+		}
 
-	// only auto groups, revoked status (from false to true) can be updated
-	newKey = oldKey.Copy()
-	newKey.AutoGroups = keyToSave.AutoGroups
-	newKey.Revoked = keyToSave.Revoked
-	newKey.UpdatedAt = time.Now().UTC()
+		// only auto groups, revoked status (from false to true) can be updated
+		newKey = oldKey.Copy()
+		newKey.AutoGroups = keyToSave.AutoGroups
+		newKey.Revoked = keyToSave.Revoked
+		newKey.UpdatedAt = time.Now().UTC()
 
 		addedGroups := difference(newKey.AutoGroups, oldKey.AutoGroups)
 		removedGroups := difference(oldKey.AutoGroups, newKey.AutoGroups)
