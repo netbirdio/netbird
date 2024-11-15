@@ -453,14 +453,14 @@ func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, tran
 	modifiedGroups := slices.Concat(addedGroups, removedGroups)
 	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, modifiedGroups)
 	if err != nil {
-		log.WithContext(ctx).Errorf("issue getting groups for setup key events: %v", err)
+		log.WithContext(ctx).Debugf("failed to get groups for setup key events: %v", err)
 		return nil
 	}
 
 	for _, g := range removedGroups {
 		group, ok := groups[g]
 		if !ok {
-			log.WithContext(ctx).Debugf("skipped adding group: %s GroupRemovedFromSetupKey activity: %v", g, err)
+			log.WithContext(ctx).Debugf("skipped adding group: %s GroupRemovedFromSetupKey activity: group not found", g)
 			continue
 		}
 
@@ -473,7 +473,7 @@ func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, tran
 	for _, g := range addedGroups {
 		group, ok := groups[g]
 		if !ok {
-			log.WithContext(ctx).Debugf("skipped adding group: %s GroupAddedToSetupKey activity: %v", g, err)
+			log.WithContext(ctx).Debugf("skipped adding group: %s GroupAddedToSetupKey activity: group not found", g)
 			continue
 		}
 

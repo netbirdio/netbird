@@ -3,7 +3,6 @@ package status
 import (
 	"errors"
 	"fmt"
-	"time"
 )
 
 const (
@@ -126,11 +125,6 @@ func NewAdminPermissionError() error {
 	return Errorf(PermissionDenied, "admin role required to perform this action")
 }
 
-// NewStoreContextCanceledError creates a new Error with Internal type for a canceled store context
-func NewStoreContextCanceledError(duration time.Duration) error {
-	return Errorf(Internal, "store access: context canceled after %v", duration)
-}
-
 // NewInvalidKeyIDError creates a new Error with InvalidArgument type for an issue getting a setup key
 func NewInvalidKeyIDError() error {
 	return Errorf(InvalidArgument, "invalid key ID")
@@ -139,4 +133,9 @@ func NewInvalidKeyIDError() error {
 // NewGetAccountError creates a new Error with Internal type for an issue getting account
 func NewGetAccountError(err error) error {
 	return Errorf(Internal, "error getting account: %s", err)
+}
+
+// NewGroupNotFoundError creates a new Error with NotFound type for a missing group
+func NewGroupNotFoundError(groupID string) error {
+	return Errorf(NotFound, "group: %s not found", groupID)
 }
