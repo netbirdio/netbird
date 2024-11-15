@@ -1413,11 +1413,13 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
-	group := group.Group{
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	}
+	})
+
+	require.NoError(t, err, "failed to save group")
 
 	policy := Policy{
 		Enabled: true,
@@ -1460,7 +1462,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		return
 	}
 
-	if err := manager.DeleteGroup(context.Background(), account.Id, "", group.ID); err != nil {
+	if err := manager.DeleteGroup(context.Background(), account.Id, userID, "groupA"); err != nil {
 		t.Errorf("delete group: %v", err)
 		return
 	}
@@ -2714,7 +2716,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 0)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
 		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
@@ -2734,7 +2736,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "group1", "accountID")
+		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
 		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
 	})

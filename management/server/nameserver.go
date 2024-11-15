@@ -71,7 +71,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	}
 
 	if anyGroupHasPeers(account, newNSGroup.Groups) {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
@@ -106,7 +106,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	}
 
 	if areNameServerGroupChangesAffectPeers(account, nsGroupToSave, oldNSGroup) {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
@@ -136,7 +136,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	}
 
 	if anyGroupHasPeers(account, nsGroup.Groups) {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
