@@ -184,14 +184,26 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	respBody := make([]*api.PeerBatch, 0, len(account.Peers))
-	for _, peer := range account.Peers {
+	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	groupsMap := map[string]*nbgroup.Group{}
+	groups, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
+	for _, group := range groups {
+		groupsMap[group.ID] = group
+	}
+
+	respBody := make([]*api.PeerBatch, 0, len(peers))
+	for _, peer := range peers {
 		peerToReturn, err := h.checkPeerStatus(peer)
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
-		groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
+		groupMinimumInfo := toGroupsInfo(groupsMap, peer.ID)
 
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}
@@ -304,7 +316,7 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 }
 
 func toGroupsInfo(groups map[string]*nbgroup.Group, peerID string) []api.GroupMinimum {
-	var groupsInfo []api.GroupMinimum
+	groupsInfo := []api.GroupMinimum{}
 	groupsChecked := make(map[string]struct{})
 	for _, group := range groups {
 		_, ok := groupsChecked[group.ID]
