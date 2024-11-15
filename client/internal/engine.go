@@ -297,7 +297,7 @@ func (e *Engine) Stop() error {
 	if err := e.stateManager.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop state manager: %w", err)
 	}
-	if err := e.stateManager.PersistState(ctx); err != nil {
+	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
