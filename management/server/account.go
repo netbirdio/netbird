@@ -2319,7 +2319,7 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 
 	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, account)
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
+		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
 
 	return nil
@@ -2334,6 +2334,9 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 
 	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer unlock()
+
+	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer unlockPeer()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
