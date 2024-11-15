@@ -62,7 +62,7 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 			return nexthop, err
 		},
 		func(prefix netip.Prefix, nexthop Nexthop) error {
-			// remove from state even if we have trouble removing it from the route table
+			// update state even if we have trouble removing it from the route table
 			// it could be already gone
 			r.updateState(stateManager)
 
@@ -75,12 +75,9 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 	return r.setupHooks(initAddresses)
 }
 
+// updateState updates state on every change so it will be persisted regularly
 func (r *SysOps) updateState(stateManager *statemanager.Manager) {
-	state := getState(stateManager)
-
-	state.Counter = r.refCounter
-
-	if err := stateManager.UpdateState(state); err != nil {
+	if err := stateManager.UpdateState((*ShutdownState)(r.refCounter)); err != nil {
 		log.Errorf("failed to update state: %v", err)
 	}
 }
@@ -531,15 +528,4 @@ func isVpnRoute(addr netip.Addr, vpnRoutes []netip.Prefix, localRoutes []netip.P
 
 	// Return true if the longest matching prefix is from vpnRoutes
 	return isVpn, longestPrefix
-}
-
-func getState(stateManager *statemanager.Manager) *ShutdownState {
-	var shutdownState *ShutdownState
-	if state := stateManager.GetState(shutdownState); state != nil {
-		shutdownState = state.(*ShutdownState)
-	} else {
-		shutdownState = &ShutdownState{}
-	}
-
-	return shutdownState
 }
