@@ -137,11 +137,6 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.Name == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "setup key name field is invalid: %s", req.Name), w)
-		return
-	}
-
 	if req.AutoGroups == nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "setup key AutoGroups field is invalid"), w)
 		return
@@ -150,7 +145,6 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	newKey := &server.SetupKey{}
 	newKey.AutoGroups = req.AutoGroups
 	newKey.Revoked = req.Revoked
-	newKey.Name = req.Name
 	newKey.Id = keyID
 
 	newKey, err = h.accountManager.SaveSetupKey(r.Context(), accountID, newKey, userID)
