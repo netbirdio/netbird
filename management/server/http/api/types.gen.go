@@ -1098,23 +1098,8 @@ type SetupKeyRequest struct {
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
-	// Ephemeral Indicate that the peer will be ephemeral or not
-	Ephemeral *bool `json:"ephemeral,omitempty"`
-
-	// ExpiresIn Expiration time in seconds, 0 will mean the key never expires
-	ExpiresIn int `json:"expires_in"`
-
-	// Name Setup Key name
-	Name string `json:"name"`
-
 	// Revoked Setup key revocation status
 	Revoked bool `json:"revoked"`
-
-	// Type Setup key type, one-off for single time usage and reusable
-	Type string `json:"type"`
-
-	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
-	UsageLimit int `json:"usage_limit"`
 }
 
 // User defines model for User.

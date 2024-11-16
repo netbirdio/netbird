@@ -494,7 +494,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 
 	return nil
@@ -835,7 +835,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if account.Settings.GroupsPropagationEnabled && areUsersLinkedToPeers(account, userIDs) {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -1132,7 +1132,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 	return nil
 }
@@ -1240,7 +1240,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	}
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	for targetUserID, meta := range deletedUsersMeta {

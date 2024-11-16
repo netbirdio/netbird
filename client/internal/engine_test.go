@@ -1006,6 +1006,99 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 	}
 }
 
+func Test_CheckFilesEqual(t *testing.T) {
+	testCases := []struct {
+		name         string
+		inputChecks1 []*mgmtProto.Checks
+		inputChecks2 []*mgmtProto.Checks
+		expectedBool bool
+	}{
+		{
+			name: "Equal Files In Equal Order Should Return True",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+			},
+			expectedBool: true,
+		},
+		{
+			name: "Equal Files In Reverse Order Should Return True",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile2",
+						"testfile1",
+					},
+				},
+			},
+			expectedBool: true,
+		},
+		{
+			name: "Unequal Files Should Return False",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile3",
+					},
+				},
+			},
+			expectedBool: false,
+		},
+		{
+			name: "Compared With Empty Should Return False",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{},
+				},
+			},
+			expectedBool: false,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := isChecksEqual(testCase.inputChecks1, testCase.inputChecks2)
+			assert.Equal(t, testCase.expectedBool, result, "result should match expected bool")
+		})
+	}
+}
+
 func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int, mgmtAddr string, signalAddr string) (*Engine, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {

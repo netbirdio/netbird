@@ -16,6 +16,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/util"
 )
 
 // State interface defines the methods that all state types must implement
@@ -73,15 +74,15 @@ func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.cancel != nil {
-		m.cancel()
+	if m.cancel == nil {
+		return nil
+	}
+	m.cancel()
 
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-m.done:
-			return nil
-		}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-m.done:
 	}
 
 	return nil
@@ -178,25 +179,18 @@ func (m *Manager) PersistState(ctx context.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	bs, err := marshalWithPanicRecovery(m.states)
+	if err != nil {
+		return fmt.Errorf("marshal states: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	done := make(chan error, 1)
-
+	start := time.Now()
 	go func() {
-		data, err := json.MarshalIndent(m.states, "", "  ")
-		if err != nil {
-			done <- fmt.Errorf("marshal states: %w", err)
-			return
-		}
-
-		// nolint:gosec
-		if err := os.WriteFile(m.filePath, data, 0640); err != nil {
-			done <- fmt.Errorf("write state file: %w", err)
-			return
-		}
-
-		done <- nil
+		done <- util.WriteBytesWithRestrictedPermission(ctx, m.filePath, bs)
 	}()
 
 	select {
@@ -208,7 +202,7 @@ func (m *Manager) PersistState(ctx context.Context) error {
 		}
 	}
 
-	log.Debugf("persisted shutdown states: %v", maps.Keys(m.dirty))
+	log.Debugf("persisted shutdown states: %v, took %v", maps.Keys(m.dirty), time.Since(start))
 
 	clear(m.dirty)
 
@@ -295,4 +289,20 @@ func (m *Manager) PerformCleanup() error {
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+func marshalWithPanicRecovery(v any) ([]byte, error) {
+	var bs []byte
+	var err error
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during marshal: %v", r)
+			}
+		}()
+		bs, err = json.Marshal(v)
+	}()
+
+	return bs, err
 }
