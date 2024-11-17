@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -12,8 +13,11 @@ import (
 )
 
 const (
-	connectionTimeout    = 30 * time.Second
 	maxConcurrentServers = 7
+)
+
+var (
+	connectionTimeout = 30 * time.Second
 )
 
 type connResult struct {
@@ -24,20 +28,22 @@ type connResult struct {
 
 type ServerPicker struct {
 	TokenStore *auth.TokenStore
+	ServerURLs atomic.Value
 	PeerID     string
 }
 
-func (sp *ServerPicker) PickServer(parentCtx context.Context, urls []string) (*Client, error) {
+func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, connectionTimeout)
 	defer cancel()
 
-	totalServers := len(urls)
+	totalServers := len(sp.ServerURLs.Load().([]string))
 
 	connResultChan := make(chan connResult, totalServers)
 	successChan := make(chan connResult, 1)
 	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
 
-	for _, url := range urls {
+	log.Debugf("pick server from list: %v", sp.ServerURLs.Load().([]string))
+	for _, url := range sp.ServerURLs.Load().([]string) {
 		// todo check if we have a successful connection so we do not need to connect to other servers
 		concurrentLimiter <- struct{}{}
 		go func(url string) {
@@ -78,7 +84,7 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 	for numOfResults := 0; numOfResults < cap(resultChan); numOfResults++ {
 		cr := <-resultChan
 		if cr.Err != nil {
-			log.Debugf("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
+			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
 			continue
 		}
 		log.Infof("connected to Relay server: %s", cr.Url)
