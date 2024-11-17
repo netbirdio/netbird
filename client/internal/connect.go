@@ -230,7 +230,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 		c.statusRecorder.MarkSignalConnected()
 
 		relayURLs, token := parseRelayInfo(loginResp)
-		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		relayManager := relayClient.NewManager(engineCtx, []string{"rels://temp-relay-quic.relay.netbird.io:443"}, myPrivateKey.PublicKey().String())
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {

@@ -26,8 +26,8 @@ func Dial(address string) (net.Conn, error) {
 	defer cancel()
 
 	tlsConf := &tls.Config{
-		InsecureSkipVerify: true,                      // Set to true only for testing
-		NextProtos:         []string{"netbird-relay"}, // Ensure this matches the server's ALPN
+		InsecureSkipVerify: true,           // Set to true only for testing
+		NextProtos:         []string{"h2"}, // Ensure this matches the server's ALPN
 	}
 
 	quicConfig := &quic.Config{

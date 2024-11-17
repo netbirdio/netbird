@@ -11,6 +11,7 @@ import (
 
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/client/dialer/quic"
+	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
 )
@@ -259,7 +260,14 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := quic.Dial(c.connectionURL)
+	var conn net.Conn
+	var err error
+	if c.connectionURL == "rels://temp-relay-quic.relay.netbird.io:443" {
+		log.Infof("connecting to relay server %s using quic protocol", c.connectionURL)
+		conn, err = quic.Dial(c.connectionURL)
+	} else {
+		conn, err = ws.Dial(c.connectionURL)
+	}
 	if err != nil {
 		return err
 	}
