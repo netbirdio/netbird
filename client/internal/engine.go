@@ -547,7 +547,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 				return fmt.Errorf("update relay token: %w", err)
 			}
 
-			e.relayManager.UpdateServerURLs(relayMsg.Urls)
+			e.relayManager.UpdateServerURLs([]string{"rels://temp-relay-quic.relay.netbird.io:443"})
 
 			// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
 			// We can ignore all errors because the guard will manage the reconnection retries.
