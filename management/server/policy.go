@@ -532,7 +532,7 @@ func validatePolicy(ctx context.Context, transaction Store, accountID string, po
 	for i, rule := range policy.Rules {
 		ruleCopy := rule.Copy()
 		if ruleCopy.ID == "" {
-			ruleCopy.ID = xid.New().String()
+			ruleCopy.ID = policy.ID // TODO: when policy can contain multiple rules, need refactor
 			ruleCopy.PolicyID = policy.ID
 		}
 

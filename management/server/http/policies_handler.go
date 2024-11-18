@@ -128,7 +128,7 @@ func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID 
 		Description: req.Description,
 	}
 	for _, rule := range req.Rules {
-		ruleID := policyID // TODO: when policy can contain multiple rules, need refactor
+		var ruleID string
 		if rule.Id != nil {
 			ruleID = *rule.Id
 		}
