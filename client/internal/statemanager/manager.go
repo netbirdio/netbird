@@ -16,6 +16,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/util"
 )
 
 // State interface defines the methods that all state types must implement
@@ -178,25 +179,14 @@ func (m *Manager) PersistState(ctx context.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	done := make(chan error, 1)
 
+	start := time.Now()
 	go func() {
-		data, err := json.MarshalIndent(m.states, "", "  ")
-		if err != nil {
-			done <- fmt.Errorf("marshal states: %w", err)
-			return
-		}
-
-		// nolint:gosec
-		if err := os.WriteFile(m.filePath, data, 0640); err != nil {
-			done <- fmt.Errorf("write state file: %w", err)
-			return
-		}
-
-		done <- nil
+		done <- util.WriteJsonWithRestrictedPermission(ctx, m.filePath, m.states)
 	}()
 
 	select {
@@ -208,7 +198,7 @@ func (m *Manager) PersistState(ctx context.Context) error {
 		}
 	}
 
-	log.Debugf("persisted shutdown states: %v", maps.Keys(m.dirty))
+	log.Debugf("persisted shutdown states: %v, took %v", maps.Keys(m.dirty), time.Since(start))
 
 	clear(m.dirty)
 

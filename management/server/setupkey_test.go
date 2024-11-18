@@ -56,11 +56,9 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	}
 
 	autoGroups := []string{"group_1", "group_2"}
-	newKeyName := "my-new-test-key"
 	revoked := true
 	newKey, err := manager.SaveSetupKey(context.Background(), account.Id, &SetupKey{
 		Id:         key.Id,
-		Name:       newKeyName,
 		Revoked:    revoked,
 		AutoGroups: autoGroups,
 	}, userID)
@@ -68,7 +66,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertKey(t, newKey, newKeyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
+	assertKey(t, newKey, keyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
 		key.Id, time.Now().UTC(), autoGroups, true)
 
 	// check the corresponding events that should have been generated
@@ -76,7 +74,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 
 	assert.NotNil(t, ev)
 	assert.Equal(t, account.Id, ev.AccountID)
-	assert.Equal(t, newKeyName, ev.Meta["name"])
+	assert.Equal(t, keyName, ev.Meta["name"])
 	assert.Equal(t, fmt.Sprint(key.Type), fmt.Sprint(ev.Meta["type"]))
 	assert.NotEmpty(t, ev.Meta["key"])
 	assert.Equal(t, userID, ev.InitiatorID)
@@ -89,7 +87,6 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	autoGroups = append(autoGroups, groupAll.ID)
 	_, err = manager.SaveSetupKey(context.Background(), account.Id, &SetupKey{
 		Id:         key.Id,
-		Name:       newKeyName,
 		Revoked:    revoked,
 		AutoGroups: autoGroups,
 	}, userID)
@@ -447,4 +444,32 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
+}
+
+func TestDefaultAccountManager_CreateSetupKey_ShouldNotAllowToUpdateRevokedKey(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "testingUser"
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key, err := manager.CreateSetupKey(context.Background(), account.Id, "testName", SetupKeyReusable, time.Hour, nil, SetupKeyUnlimitedUsage, userID, false)
+	assert.NoError(t, err)
+
+	// revoke the key
+	updateKey := key.Copy()
+	updateKey.Revoked = true
+	_, err = manager.SaveSetupKey(context.Background(), account.Id, updateKey, userID)
+	assert.NoError(t, err)
+
+	// re-activate revoked key
+	updateKey.Revoked = false
+	_, err = manager.SaveSetupKey(context.Background(), account.Id, updateKey, userID)
+	assert.Error(t, err, "should not allow to update revoked key")
+
 }

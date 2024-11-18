@@ -1278,7 +1278,7 @@ func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, a
 		Delete(&nbgroup.Group{}, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete groups from store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to delete groups from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete groups from store")
 	}
 
 	return nil

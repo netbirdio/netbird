@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"slices"
 
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/route"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
@@ -27,11 +28,6 @@ func (e *GroupLinkError) Error() string {
 
 // CheckGroupPermissions validates if a user has the necessary permissions to view groups
 func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
-	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
-	if err != nil {
-		return err
-	}
-
 	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
 	if err != nil {
 		return err
@@ -41,7 +37,7 @@ func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, acco
 		return status.NewUserNotPartOfAccountError()
 	}
 
-	if user.IsRegularUser() && settings.RegularUsersViewBlocked {
+	if user.IsRegularUser() {
 		return status.NewAdminPermissionError()
 	}
 
@@ -215,48 +211,9 @@ func difference(a, b []string) []string {
 
 // DeleteGroup object of the peers.
 func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, userID, groupID string) error {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
-	if err != nil {
-		return err
-	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
-	}
-
-	var group *nbgroup.Group
-
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		group, err = transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
-		if err != nil {
-			return err
-		}
-
-		if group.IsGroupAll() {
-			return status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed")
-		}
-
-		if err = validateDeleteGroup(ctx, transaction, group, userID); err != nil {
-			return err
-		}
-
-		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
-			return err
-		}
-
-		return transaction.DeleteGroup(ctx, LockingStrengthUpdate, accountID, groupID)
-	})
-	if err != nil {
-		return err
-	}
-
-	am.StoreEvent(ctx, userID, groupID, accountID, activity.GroupDeleted, group.EventMeta())
-
-	return nil
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+	return am.DeleteGroups(ctx, accountID, userID, []string{groupID})
 }
 
 // DeleteGroups deletes groups from an account.
@@ -285,13 +242,14 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		for _, groupID := range groupIDs {
-			group, err := transaction.GetGroupByID(ctx, LockingStrengthShare, accountID, groupID)
+			group, err := transaction.GetGroupByID(ctx, LockingStrengthUpdate, accountID, groupID)
 			if err != nil {
+				allErrors = errors.Join(allErrors, err)
 				continue
 			}
 
 			if err := validateDeleteGroup(ctx, transaction, group, userID); err != nil {
-				allErrors = errors.Join(allErrors, fmt.Errorf("failed to delete group %s: %w", groupID, err))
+				allErrors = errors.Join(allErrors, err)
 				continue
 			}
 
@@ -318,12 +276,15 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	var group *nbgroup.Group
 	var updateAccountPeers bool
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthUpdate, accountID, groupID)
 		if err != nil {
 			return err
 		}
@@ -356,12 +317,15 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	var group *nbgroup.Group
 	var updateAccountPeers bool
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthUpdate, accountID, groupID)
 		if err != nil {
 			return err
 		}
@@ -430,11 +394,15 @@ func validateDeleteGroup(ctx context.Context, transaction Store, group *nbgroup.
 	if group.Issued == nbgroup.GroupIssuedIntegration {
 		executingUser, err := transaction.GetUserByUserID(ctx, LockingStrengthShare, userID)
 		if err != nil {
-			return status.Errorf(status.NotFound, "user not found")
+			return err
 		}
 		if executingUser.Role != UserRoleAdmin || !executingUser.IsServiceUser {
 			return status.Errorf(status.PermissionDenied, "only service users with admin power can delete integration group")
 		}
+	}
+
+	if group.IsGroupAll() {
+		return status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed")
 	}
 
 	if isLinked, linkedRoute := isGroupLinkedToRoute(ctx, transaction, group.AccountID, group.ID); isLinked {

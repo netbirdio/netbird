@@ -208,7 +208,7 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 		{
 			name:            "delete non-existent group",
 			groupIDs:        []string{"non-existent-group"},
-			expectedDeleted: []string{"non-existent-group"},
+			expectedReasons: []string{"group: non-existent-group not found"},
 		},
 		{
 			name:               "delete multiple groups with mixed results",

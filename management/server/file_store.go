@@ -223,7 +223,7 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 // It is recommended to call it with locking FileStore.mux
 func (s *FileStore) persist(ctx context.Context, file string) error {
 	start := time.Now()
-	err := util.WriteJson(file, s)
+	err := util.WriteJson(context.Background(), file, s)
 	if err != nil {
 		return err
 	}
