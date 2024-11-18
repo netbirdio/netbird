@@ -392,7 +392,7 @@ func TestSqlite_SavePeer(t *testing.T) {
 		IP:     net.IP{127, 0, 0, 1},
 		Meta:   nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
 		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().Local()},
 	}
 	ctx := context.Background()
 	err = store.SavePeer(ctx, LockingStrengthUpdate, account.Id, peer)
@@ -418,8 +418,11 @@ func TestSqlite_SavePeer(t *testing.T) {
 	require.NoError(t, err)
 
 	actual := account.Peers[peer.ID]
-	assert.Equal(t, updatedPeer.Status, actual.Status)
 	assert.Equal(t, updatedPeer.Meta, actual.Meta)
+	assert.Equal(t, updatedPeer.Status.Connected, actual.Status.Connected)
+	assert.Equal(t, updatedPeer.Status.LoginExpired, actual.Status.LoginExpired)
+	assert.Equal(t, updatedPeer.Status.RequiresApproval, actual.Status.RequiresApproval)
+	assert.WithinDurationf(t, updatedPeer.Status.LastSeen, actual.Status.LastSeen, time.Millisecond, "LastSeen should be equal")
 }
 
 func TestSqlite_SavePeerStatus(t *testing.T) {
@@ -431,7 +434,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// save status of non-existing peer
-	newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()}
+	newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().Local()}
 	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
@@ -445,7 +448,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 		IP:     net.IP{127, 0, 0, 1},
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().Local()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)
@@ -458,7 +461,10 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	actual := account.Peers["testpeer"].Status
-	assert.Equal(t, newStatus, *actual)
+	assert.Equal(t, newStatus.Connected, actual.Connected)
+	assert.Equal(t, newStatus.LoginExpired, actual.LoginExpired)
+	assert.Equal(t, newStatus.RequiresApproval, actual.RequiresApproval)
+	assert.WithinDurationf(t, newStatus.LastSeen, actual.LastSeen, time.Millisecond, "LastSeen should be equal")
 
 	newStatus.Connected = true
 
@@ -469,7 +475,10 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	actual = account.Peers["testpeer"].Status
-	assert.Equal(t, newStatus, *actual)
+	assert.Equal(t, newStatus.Connected, actual.Connected)
+	assert.Equal(t, newStatus.LoginExpired, actual.LoginExpired)
+	assert.Equal(t, newStatus.RequiresApproval, actual.RequiresApproval)
+	assert.WithinDurationf(t, newStatus.LastSeen, actual.LastSeen, time.Millisecond, "LastSeen should be equal")
 }
 
 func TestSqlite_SavePeerLocation(t *testing.T) {
