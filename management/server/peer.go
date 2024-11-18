@@ -1226,7 +1226,7 @@ func getPeerGroupIDs(ctx context.Context, transaction Store, accountID string, p
 }
 
 func getPeerDNSLabels(ctx context.Context, transaction Store, accountID string) (lookupMap, error) {
-	dnsLabels, err := transaction.GetAccountPeerDNSLabels(ctx, LockingStrengthShare, accountID)
+	dnsLabels, err := transaction.GetPeerLabelsInAccount(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}

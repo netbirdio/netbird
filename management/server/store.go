@@ -95,7 +95,6 @@ type Store interface {
 	DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error
 
 	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string) ([]string, error)
-	GetAccountPeerDNSLabels(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error)
 	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
 	AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error

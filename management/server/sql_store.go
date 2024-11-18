@@ -1147,23 +1147,6 @@ func (s *SqlStore) GetPeersByIDs(ctx context.Context, lockStrength LockingStreng
 	return peersMap, nil
 }
 
-// GetAccountPeerDNSLabels retrieves all unique DNS labels for peers associated with a specified account.
-func (s *SqlStore) GetAccountPeerDNSLabels(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
-	var labels []string
-
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&nbpeer.Peer{}).
-		Where(accountIDCondition, accountID).Pluck("dns_label", &labels)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "no peers found for the account")
-		}
-		log.WithContext(ctx).Errorf("error when getting dns labels from the store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "issue getting dns labels from store")
-	}
-
-	return labels, nil
-}
-
 // GetAccountPeersWithExpiration retrieves a list of peers that have login expiration enabled and added by a user.
 func (s *SqlStore) GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
