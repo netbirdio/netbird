@@ -19,6 +19,10 @@
     <br>
     <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-2p5zwhm4g-8fHollzrQa5y4PZF5AEpvQ">
         <img src="https://img.shields.io/badge/slack-@netbird-red.svg?logo=slack"/>
+     </a>  
+     <br>
+    <a href="https://gurubase.io/g/netbird">
+        <img src="https://img.shields.io/badge/Gurubase-Ask%20NetBird%20Guru-006BFF"/>
      </a>    
   </p>
 </div>

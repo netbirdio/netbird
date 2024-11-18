@@ -16,6 +16,7 @@ import (
 
 var (
 	relayCleanupInterval = 60 * time.Second
+	keepUnusedServerTime = 5 * time.Second
 
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
@@ -27,10 +28,13 @@ type RelayTrack struct {
 	sync.RWMutex
 	relayClient *Client
 	err         error
+	created     time.Time
 }
 
 func NewRelayTrack() *RelayTrack {
-	return &RelayTrack{}
+	return &RelayTrack{
+		created: time.Now(),
+	}
 }
 
 type OnServerCloseListener func()
@@ -302,6 +306,18 @@ func (m *Manager) cleanUpUnusedRelays() {
 
 	for addr, rt := range m.relayClients {
 		rt.Lock()
+		// if the connection failed to the server the relay client will be nil
+		// but the instance will be kept in the relayClients until the next locking
+		if rt.err != nil {
+			rt.Unlock()
+			continue
+		}
+
+		if time.Since(rt.created) <= keepUnusedServerTime {
+			rt.Unlock()
+			continue
+		}
+
 		if rt.relayClient.HasConns() {
 			rt.Unlock()
 			continue

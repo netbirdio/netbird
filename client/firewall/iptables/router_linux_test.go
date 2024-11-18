@@ -3,17 +3,18 @@
 package iptables
 
 import (
+	"fmt"
 	"net/netip"
 	"os/exec"
 	"testing"
 
 	"github.com/coreos/go-iptables/iptables"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 func isIptablesSupported() bool {
@@ -34,14 +35,24 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	require.NoError(t, manager.init(nil))
 
 	defer func() {
-		_ = manager.Reset()
+		assert.NoError(t, manager.Reset(), "shouldn't return error")
 	}()
 
-	require.Len(t, manager.rules, 2, "should have created rules map")
+	// Now 5 rules:
+	// 1. established rule in forward chain
+	// 2. jump rule to NAT chain
+	// 3. jump rule to PRE chain
+	// 4. static outbound masquerade rule
+	// 5. static return masquerade rule
+	require.Len(t, manager.rules, 5, "should have created rules map")
 
-	exists, err := manager.iptablesClient.Exists(tableNat, chainPOSTROUTING, manager.rules[ipv4Nat]...)
+	exists, err := manager.iptablesClient.Exists(tableNat, chainPOSTROUTING, "-j", chainRTNAT)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainPOSTROUTING)
-	require.True(t, exists, "postrouting rule should exist")
+	require.True(t, exists, "postrouting jump rule should exist")
+
+	exists, err = manager.iptablesClient.Exists(tableMangle, chainPREROUTING, "-j", chainRTPRE)
+	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainPREROUTING)
+	require.True(t, exists, "prerouting jump rule should exist")
 
 	pair := firewall.RouterPair{
 		ID:          "abc",
@@ -49,22 +60,15 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		Destination: netip.MustParsePrefix("100.100.100.0/24"),
 		Masquerade:  true,
 	}
-	forward4Rule := []string{"-s", pair.Source.String(), "-d", pair.Destination.String(), "-j", routingFinalForwardJump}
 
-	err = manager.iptablesClient.Insert(tableFilter, chainRTFWD, 1, forward4Rule...)
-	require.NoError(t, err, "inserting rule should not return error")
-
-	nat4Rule := genRuleSpec(routingFinalNatJump, pair.Source, pair.Destination, ifaceMock.Name(), false)
-
-	err = manager.iptablesClient.Insert(tableNat, chainRTNAT, 1, nat4Rule...)
-	require.NoError(t, err, "inserting rule should not return error")
+	err = manager.AddNatRule(pair)
+	require.NoError(t, err, "adding NAT rule should not return error")
 
 	err = manager.Reset()
 	require.NoError(t, err, "shouldn't return error")
 }
 
 func TestIptablesManager_AddNatRule(t *testing.T) {
-
 	if !isIptablesSupported() {
 		t.SkipNow()
 	}
@@ -79,52 +83,66 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			require.NoError(t, manager.init(nil))
 
 			defer func() {
-				err := manager.Reset()
-				if err != nil {
-					log.Errorf("failed to reset iptables manager: %s", err)
-				}
+				assert.NoError(t, manager.Reset(), "shouldn't return error")
 			}()
 
 			err = manager.AddNatRule(testCase.InputPair)
-			require.NoError(t, err, "forwarding pair should be inserted")
+			require.NoError(t, err, "marking rule should be inserted")
 
 			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
-			natRule := genRuleSpec(routingFinalNatJump, testCase.InputPair.Source, testCase.InputPair.Destination, ifaceMock.Name(), false)
-
-			exists, err := iptablesClient.Exists(tableNat, chainRTNAT, natRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
-			if testCase.InputPair.Masquerade {
-				require.True(t, exists, "nat rule should be created")
-				foundNatRule, foundNat := manager.rules[natRuleKey]
-				require.True(t, foundNat, "nat rule should exist in the map")
-				require.Equal(t, natRule[:4], foundNatRule[:4], "stored nat rule should match")
-			} else {
-				require.False(t, exists, "nat rule should not be created")
-				_, foundNat := manager.rules[natRuleKey]
-				require.False(t, foundNat, "nat rule should not exist in the map")
+			markingRule := []string{
+				"-i", ifaceMock.Name(),
+				"-m", "conntrack",
+				"--ctstate", "NEW",
+				"-s", testCase.InputPair.Source.String(),
+				"-d", testCase.InputPair.Destination.String(),
+				"-j", "MARK", "--set-mark",
+				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 			}
 
-			inNatRuleKey := firewall.GenKey(firewall.NatFormat, firewall.GetInversePair(testCase.InputPair))
-			inNatRule := genRuleSpec(routingFinalNatJump, firewall.GetInversePair(testCase.InputPair).Source, firewall.GetInversePair(testCase.InputPair).Destination, ifaceMock.Name(), true)
-
-			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, inNatRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
+			exists, err := iptablesClient.Exists(tableMangle, chainRTPRE, markingRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPRE)
 			if testCase.InputPair.Masquerade {
-				require.True(t, exists, "income nat rule should be created")
-				foundNatRule, foundNat := manager.rules[inNatRuleKey]
-				require.True(t, foundNat, "income nat rule should exist in the map")
-				require.Equal(t, inNatRule[:4], foundNatRule[:4], "stored income nat rule should match")
+				require.True(t, exists, "marking rule should be created")
+				foundRule, found := manager.rules[natRuleKey]
+				require.True(t, found, "marking rule should exist in the map")
+				require.Equal(t, markingRule, foundRule, "stored marking rule should match")
 			} else {
-				require.False(t, exists, "nat rule should not be created")
-				_, foundNat := manager.rules[inNatRuleKey]
-				require.False(t, foundNat, "income nat rule should not exist in the map")
+				require.False(t, exists, "marking rule should not be created")
+				_, found := manager.rules[natRuleKey]
+				require.False(t, found, "marking rule should not exist in the map")
+			}
+
+			// Check inverse rule
+			inversePair := firewall.GetInversePair(testCase.InputPair)
+			inverseRuleKey := firewall.GenKey(firewall.NatFormat, inversePair)
+			inverseMarkingRule := []string{
+				"!", "-i", ifaceMock.Name(),
+				"-m", "conntrack",
+				"--ctstate", "NEW",
+				"-s", inversePair.Source.String(),
+				"-d", inversePair.Destination.String(),
+				"-j", "MARK", "--set-mark",
+				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
+			}
+
+			exists, err = iptablesClient.Exists(tableMangle, chainRTPRE, inverseMarkingRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPRE)
+			if testCase.InputPair.Masquerade {
+				require.True(t, exists, "inverse marking rule should be created")
+				foundRule, found := manager.rules[inverseRuleKey]
+				require.True(t, found, "inverse marking rule should exist in the map")
+				require.Equal(t, inverseMarkingRule, foundRule, "stored inverse marking rule should match")
+			} else {
+				require.False(t, exists, "inverse marking rule should not be created")
+				_, found := manager.rules[inverseRuleKey]
+				require.False(t, found, "inverse marking rule should not exist in the map")
 			}
 		})
 	}
 }
 
 func TestIptablesManager_RemoveNatRule(t *testing.T) {
-
 	if !isIptablesSupported() {
 		t.SkipNow()
 	}
@@ -137,42 +155,52 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 			defer func() {
-				_ = manager.Reset()
+				assert.NoError(t, manager.Reset(), "shouldn't return error")
 			}()
 
-			require.NoError(t, err, "shouldn't return error")
-
-			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
-			natRule := genRuleSpec(routingFinalNatJump, testCase.InputPair.Source, testCase.InputPair.Destination, ifaceMock.Name(), false)
-
-			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, natRule...)
-			require.NoError(t, err, "inserting rule should not return error")
-
-			inNatRuleKey := firewall.GenKey(firewall.NatFormat, firewall.GetInversePair(testCase.InputPair))
-			inNatRule := genRuleSpec(routingFinalNatJump, firewall.GetInversePair(testCase.InputPair).Source, firewall.GetInversePair(testCase.InputPair).Destination, ifaceMock.Name(), true)
-
-			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, inNatRule...)
-			require.NoError(t, err, "inserting rule should not return error")
-
-			err = manager.Reset()
-			require.NoError(t, err, "shouldn't return error")
+			err = manager.AddNatRule(testCase.InputPair)
+			require.NoError(t, err, "should add NAT rule without error")
 
 			err = manager.RemoveNatRule(testCase.InputPair)
 			require.NoError(t, err, "shouldn't return error")
 
-			exists, err := iptablesClient.Exists(tableNat, chainRTNAT, natRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
-			require.False(t, exists, "nat rule should not exist")
+			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
+			markingRule := []string{
+				"-i", ifaceMock.Name(),
+				"-m", "conntrack",
+				"--ctstate", "NEW",
+				"-s", testCase.InputPair.Source.String(),
+				"-d", testCase.InputPair.Destination.String(),
+				"-j", "MARK", "--set-mark",
+				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
+			}
+
+			exists, err := iptablesClient.Exists(tableMangle, chainRTPRE, markingRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPRE)
+			require.False(t, exists, "marking rule should not exist")
 
 			_, found := manager.rules[natRuleKey]
-			require.False(t, found, "nat rule should exist in the manager map")
+			require.False(t, found, "marking rule should not exist in the manager map")
 
-			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, inNatRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
-			require.False(t, exists, "income nat rule should not exist")
+			// Check inverse rule removal
+			inversePair := firewall.GetInversePair(testCase.InputPair)
+			inverseRuleKey := firewall.GenKey(firewall.NatFormat, inversePair)
+			inverseMarkingRule := []string{
+				"!", "-i", ifaceMock.Name(),
+				"-m", "conntrack",
+				"--ctstate", "NEW",
+				"-s", inversePair.Source.String(),
+				"-d", inversePair.Destination.String(),
+				"-j", "MARK", "--set-mark",
+				fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasqueradeReturn),
+			}
 
-			_, found = manager.rules[inNatRuleKey]
-			require.False(t, found, "income nat rule should exist in the manager map")
+			exists, err = iptablesClient.Exists(tableMangle, chainRTPRE, inverseMarkingRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainRTPRE)
+			require.False(t, exists, "inverse marking rule should not exist")
+
+			_, found = manager.rules[inverseRuleKey]
+			require.False(t, found, "inverse marking rule should not exist in the map")
 		})
 	}
 }

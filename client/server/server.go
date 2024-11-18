@@ -97,6 +97,10 @@ func (s *Server) Start() error {
 	defer s.mutex.Unlock()
 	state := internal.CtxGetState(s.rootCtx)
 
+	if err := handlePanicLog(); err != nil {
+		log.Warnf("failed to redirect stderr: %v", err)
+	}
+
 	if err := restoreResidualState(s.rootCtx); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
@@ -621,6 +625,8 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	s.oauthAuthFlow = oauthAuthFlow{}
 
 	if s.actCancel == nil {
 		return nil, fmt.Errorf("service is not up")

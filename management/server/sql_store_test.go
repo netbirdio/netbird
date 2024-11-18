@@ -14,11 +14,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	route2 "github.com/netbirdio/netbird/route"
 
@@ -1181,7 +1180,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 			t.Fatal("failed to save group")
 			return err
 		}
-		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthUpdate, group.ID, group.AccountID)
+		group, err = transaction.GetGroupByID(context.Background(), LockingStrengthUpdate, group.AccountID, group.ID)
 		if err != nil {
 			t.Fatal("failed to get group")
 			return err
@@ -1201,7 +1200,7 @@ func TestSqlite_GetAccoundUsers(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	account, err := store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err)
-	users, err := store.GetAccountUsers(context.Background(), accountID)
+	users, err := store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
 	require.NoError(t, err)
 	require.Len(t, users, len(account.Users))
 }
@@ -1260,9 +1259,9 @@ func TestSqlite_GetGroupByName(t *testing.T) {
 	}
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	group, err := store.GetGroupByName(context.Background(), LockingStrengthShare, "All", accountID)
+	group, err := store.GetGroupByName(context.Background(), LockingStrengthShare, accountID, "All")
 	require.NoError(t, err)
-	require.Equal(t, "All", group.Name)
+	require.True(t, group.IsGroupAll())
 }
 
 func Test_DeleteSetupKeySuccessfully(t *testing.T) {
@@ -1274,7 +1273,7 @@ func Test_DeleteSetupKeySuccessfully(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	setupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
-	err = store.DeleteSetupKey(context.Background(), accountID, setupKeyID)
+	err = store.DeleteSetupKey(context.Background(), LockingStrengthUpdate, accountID, setupKeyID)
 	require.NoError(t, err)
 
 	_, err = store.GetSetupKeyByID(context.Background(), LockingStrengthShare, setupKeyID, accountID)
@@ -1290,6 +1289,278 @@ func Test_DeleteSetupKeyFailsForNonExistingKey(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	nonExistingKeyID := "non-existing-key-id"
 
-	err = store.DeleteSetupKey(context.Background(), accountID, nonExistingKeyID)
+	err = store.DeleteSetupKey(context.Background(), LockingStrengthUpdate, accountID, nonExistingKeyID)
 	require.Error(t, err)
+}
+
+func TestSqlStore_GetGroupsByIDs(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	tests := []struct {
+		name          string
+		groupIDs      []string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve existing groups by existing IDs",
+			groupIDs:      []string{"cfefqs706sqkneg59g4g", "cfefqs706sqkneg59g3g"},
+			expectedCount: 2,
+		},
+		{
+			name:          "empty group IDs list",
+			groupIDs:      []string{},
+			expectedCount: 0,
+		},
+		{
+			name:          "non-existing group IDs",
+			groupIDs:      []string{"nonexistent1", "nonexistent2"},
+			expectedCount: 0,
+		},
+		{
+			name:          "mixed existing and non-existing group IDs",
+			groupIDs:      []string{"cfefqs706sqkneg59g4g", "nonexistent"},
+			expectedCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			groups, err := store.GetGroupsByIDs(context.Background(), LockingStrengthShare, accountID, tt.groupIDs)
+			require.NoError(t, err)
+			require.Len(t, groups, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_SaveGroup(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	group := &nbgroup.Group{
+		ID:        "group-id",
+		AccountID: accountID,
+		Issued:    "api",
+		Peers:     []string{"peer1", "peer2"},
+	}
+	err = store.SaveGroup(context.Background(), LockingStrengthUpdate, group)
+	require.NoError(t, err)
+
+	savedGroup, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, "group-id")
+	require.NoError(t, err)
+	require.Equal(t, savedGroup, group)
+}
+
+func TestSqlStore_SaveGroups(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	groups := []*nbgroup.Group{
+		{
+			ID:        "group-1",
+			AccountID: accountID,
+			Issued:    "api",
+			Peers:     []string{"peer1", "peer2"},
+		},
+		{
+			ID:        "group-2",
+			AccountID: accountID,
+			Issued:    "integration",
+			Peers:     []string{"peer3", "peer4"},
+		},
+	}
+	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, groups)
+	require.NoError(t, err)
+}
+
+func TestSqlStore_DeleteGroup(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	tests := []struct {
+		name        string
+		groupID     string
+		expectError bool
+	}{
+		{
+			name:        "delete existing group",
+			groupID:     "cfefqs706sqkneg59g4g",
+			expectError: false,
+		},
+		{
+			name:        "delete non-existing group",
+			groupID:     "non-existing-group-id",
+			expectError: true,
+		},
+		{
+			name:        "delete with empty group ID",
+			groupID:     "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := store.DeleteGroup(context.Background(), LockingStrengthUpdate, accountID, tt.groupID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+			} else {
+				require.NoError(t, err)
+
+				group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, tt.groupID)
+				require.Error(t, err)
+				require.Nil(t, group)
+			}
+		})
+	}
+}
+
+func TestSqlStore_DeleteGroups(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	tests := []struct {
+		name        string
+		groupIDs    []string
+		expectError bool
+	}{
+		{
+			name:        "delete multiple existing groups",
+			groupIDs:    []string{"cfefqs706sqkneg59g4g", "cfefqs706sqkneg59g3g"},
+			expectError: false,
+		},
+		{
+			name:        "delete non-existing groups",
+			groupIDs:    []string{"non-existing-id-1", "non-existing-id-2"},
+			expectError: false,
+		},
+		{
+			name:        "delete with empty group IDs list",
+			groupIDs:    []string{},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := store.DeleteGroups(context.Background(), LockingStrengthUpdate, accountID, tt.groupIDs)
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+
+				for _, groupID := range tt.groupIDs {
+					group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+					require.Error(t, err)
+					require.Nil(t, group)
+				}
+			}
+		})
+	}
+}
+
+func TestSqlStore_GetPeerByID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	tests := []struct {
+		name        string
+		peerID      string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing peer",
+			peerID:      "cfefqs706sqkneg59g4g",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing peer",
+			peerID:      "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve with empty peer ID",
+			peerID:      "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, tt.peerID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, peer)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, peer)
+				require.Equal(t, tt.peerID, peer.ID)
+			}
+		})
+	}
+}
+
+func TestSqlStore_GetPeersByIDs(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	tests := []struct {
+		name          string
+		peerIDs       []string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve existing peers by existing IDs",
+			peerIDs:       []string{"cfefqs706sqkneg59g4g", "cfeg6sf06sqkneg59g50"},
+			expectedCount: 2,
+		},
+		{
+			name:          "empty peer IDs list",
+			peerIDs:       []string{},
+			expectedCount: 0,
+		},
+		{
+			name:          "non-existing peer IDs",
+			peerIDs:       []string{"nonexistent1", "nonexistent2"},
+			expectedCount: 0,
+		},
+		{
+			name:          "mixed existing and non-existing peer IDs",
+			peerIDs:       []string{"cfeg6sf06sqkneg59g50", "nonexistent"},
+			expectedCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetPeersByIDs(context.Background(), LockingStrengthShare, accountID, tt.peerIDs)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
 }

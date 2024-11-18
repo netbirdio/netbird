@@ -377,7 +377,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -405,7 +405,9 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	am.updateAccountPeers(ctx, account)
+	if anyGroupHasPeers(account, policy.ruleGroups()) {
+		am.updateAccountPeers(ctx, accountID)
+	}
 
 	return nil
 }

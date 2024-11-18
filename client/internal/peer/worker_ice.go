@@ -57,6 +57,9 @@ type WorkerICE struct {
 
 	localUfrag string
 	localPwd   string
+
+	// we record the last known state of the ICE agent to avoid duplicate on disconnected events
+	lastKnownState ice.ConnectionState
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool, callBacks WorkerICECallbacks) (*WorkerICE, error) {
@@ -194,8 +197,7 @@ func (w *WorkerICE) Close() {
 		return
 	}
 
-	err := w.agent.Close()
-	if err != nil {
+	if err := w.agent.Close(); err != nil {
 		w.log.Warnf("failed to close ICE agent: %s", err)
 	}
 }
@@ -215,15 +217,18 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 
 	err = agent.OnConnectionStateChange(func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
-		if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
-			w.conn.OnStatusChanged(StatusDisconnected)
-
-			w.muxAgent.Lock()
-			agentCancel()
-			_ = agent.Close()
-			w.agent = nil
-
-			w.muxAgent.Unlock()
+		switch state {
+		case ice.ConnectionStateConnected:
+			w.lastKnownState = ice.ConnectionStateConnected
+			return
+		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected:
+			if w.lastKnownState != ice.ConnectionStateDisconnected {
+				w.lastKnownState = ice.ConnectionStateDisconnected
+				w.conn.OnStatusChanged(StatusDisconnected)
+			}
+			w.closeAgent(agentCancel)
+		default:
+			return
 		}
 	})
 	if err != nil {
@@ -247,6 +252,17 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 	}
 
 	return agent, nil
+}
+
+func (w *WorkerICE) closeAgent(cancel context.CancelFunc) {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	cancel()
+	if err := w.agent.Close(); err != nil {
+		w.log.Warnf("failed to close ICE agent: %s", err)
+	}
+	w.agent = nil
 }
 
 func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {

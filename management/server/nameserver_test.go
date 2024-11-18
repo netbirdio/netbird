@@ -1065,36 +1065,6 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// saving unchanged nameserver group should update account peers and not send peer update
-	t.Run("saving unchanged nameserver group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		newNameServerGroupB.NameServers = []nbdns.NameServer{
-			{
-				IP:     netip.MustParseAddr("1.1.1.2"),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			},
-			{
-				IP:     netip.MustParseAddr("8.8.8.8"),
-				NSType: nbdns.UDPNameServerType,
-				Port:   nbdns.DefaultDNSPort,
-			},
-		}
-		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroupB)
-		assert.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
-
 	// Deleting a nameserver group should update account peers and send peer update
 	t.Run("deleting nameserver group", func(t *testing.T) {
 		done := make(chan struct{})

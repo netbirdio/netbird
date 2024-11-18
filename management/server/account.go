@@ -110,7 +110,6 @@ type AccountManager interface {
 	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
-	ListGroups(ctx context.Context, accountId string) ([]*nbgroup.Group, error)
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error)
@@ -1187,20 +1186,25 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, account *Account, oldSettings, newSettings *Settings, userID, accountID string) error {
-	if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
-		event := activity.AccountPeerInactivityExpirationEnabled
-		if !newSettings.PeerInactivityExpirationEnabled {
-			event = activity.AccountPeerInactivityExpirationDisabled
-			am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
-		} else {
+
+	if newSettings.PeerInactivityExpirationEnabled {
+		if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
+			oldSettings.PeerInactivityExpiration = newSettings.PeerInactivityExpiration
+
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
 			am.checkAndSchedulePeerInactivityExpiration(ctx, account)
 		}
-		am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
-	}
-
-	if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
-		am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+	} else {
+		if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
+			event := activity.AccountPeerInactivityExpirationEnabled
+			if !newSettings.PeerInactivityExpirationEnabled {
+				event = activity.AccountPeerInactivityExpirationDisabled
+				am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+			} else {
+				am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+			}
+			am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
+		}
 	}
 
 	return nil
@@ -1249,7 +1253,7 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 		account, err := am.Store.GetAccount(ctx, accountID)
 		if err != nil {
-			log.Errorf("failed getting account %s expiring peers", account.Id)
+			log.Errorf("failed getting account %s expiring peers", accountID)
 			return account.GetNextInactivePeerExpiration()
 		}
 
@@ -1435,7 +1439,7 @@ func isNil(i idp.Manager) bool {
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
-		accountUsers, err := am.Store.GetAccountUsers(ctx, accountID)
+		accountUsers, err := am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			return err
 		}
@@ -2029,7 +2033,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		groups, err := transaction.GetAccountGroups(ctx, accountID)
+		groups, err := transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			return fmt.Errorf("error getting account groups: %w", err)
 		}
@@ -2059,7 +2063,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			groups, err = transaction.GetAccountGroups(ctx, accountID)
+			groups, err = transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
 			if err != nil {
 				return fmt.Errorf("error getting account groups: %w", err)
 			}
@@ -2083,7 +2087,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error saving groups: %w", err)
 			}
 
-			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
@@ -2101,7 +2105,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range addNewGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {
@@ -2114,7 +2118,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range removeOldGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, g, accountID)
+		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {
@@ -2127,14 +2131,19 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	if settings.GroupsPropagationEnabled {
-		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		removedGroupAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, accountID, removeOldGroups)
 		if err != nil {
-			return fmt.Errorf("error getting account: %w", err)
+			return err
 		}
 
-		if areGroupChangesAffectPeers(account, addNewGroups) || areGroupChangesAffectPeers(account, removeOldGroups) {
+		newGroupsAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, accountID, addNewGroups)
+		if err != nil {
+			return err
+		}
+
+		if removedGroupAffectsPeers || newGroupsAffectsPeers {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			am.updateAccountPeers(ctx, account)
+			am.updateAccountPeers(ctx, accountID)
 		}
 	}
 
@@ -2290,12 +2299,12 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, status.NewGetAccountError(err)
 	}
 
 	peer, netMap, postureChecks, err := am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("error syncing peer: %w", err)
 	}
 
 	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, account)
@@ -2314,12 +2323,12 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
-		return err
+		return status.NewGetAccountError(err)
 	}
 
 	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, account)
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
+		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
 
 	return nil
@@ -2334,6 +2343,9 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 
 	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer unlock()
+
+	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer unlockPeer()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -2398,12 +2410,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context,
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	updatedAccount, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account %s: %v", accountID, err)
-		return
-	}
-	am.updateAccountPeers(ctx, updatedAccount)
+	am.updateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {

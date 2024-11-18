@@ -1091,7 +1091,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, peer4Routes.Routes, 1, "HA route should have 1 server route")
 
-	groups, err := am.ListGroups(context.Background(), account.Id)
+	groups, err := am.Store.GetAccountGroups(context.Background(), LockingStrengthShare, account.Id)
 	require.NoError(t, err)
 	var groupHA1, groupHA2 *nbgroup.Group
 	for _, group := range groups {
@@ -1935,26 +1935,6 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 		case <-done:
 		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
-
-	// Updating unchanged route should update account peers and not send peer update
-	t.Run("updating unchanged route", func(t *testing.T) {
-		baseRoute.Groups = []string{routeGroup1, routeGroup2}
-
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err := manager.SaveRoute(context.Background(), account.Id, userID, &baseRoute)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
 

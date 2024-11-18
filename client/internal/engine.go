@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -296,7 +297,7 @@ func (e *Engine) Stop() error {
 	if err := e.stateManager.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop state manager: %w", err)
 	}
-	if err := e.stateManager.PersistState(ctx); err != nil {
+	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
@@ -649,6 +650,10 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
+	if e.wgInterface == nil {
+		return errors.New("wireguard interface is not initialized")
+	}
+
 	if e.wgInterface.Address().String() != conf.Address {
 		oldAddr := e.wgInterface.Address().String()
 		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
@@ -1489,6 +1494,17 @@ func (e *Engine) stopDNSServer() {
 
 // isChecksEqual checks if two slices of checks are equal.
 func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
+	for _, check := range checks {
+		sort.Slice(check.Files, func(i, j int) bool {
+			return check.Files[i] < check.Files[j]
+		})
+	}
+	for _, oCheck := range oChecks {
+		sort.Slice(oCheck.Files, func(i, j int) bool {
+			return oCheck.Files[i] < oCheck.Files[j]
+		})
+	}
+
 	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
 		return slices.Equal(checks.Files, oChecks.Files)
 	})

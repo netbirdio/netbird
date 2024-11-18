@@ -2,6 +2,7 @@ package bind
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -94,7 +95,10 @@ func (p *ProxyBind) close() error {
 
 	p.Bind.RemoveEndpoint(p.wgAddr)
 
-	return p.remoteConn.Close()
+	if rErr := p.remoteConn.Close(); rErr != nil && !errors.Is(rErr, net.ErrClosed) {
+		return rErr
+	}
+	return nil
 }
 
 func (p *ProxyBind) proxyToLocal(ctx context.Context) {
@@ -104,8 +108,8 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 		}
 	}()
 
-	buf := make([]byte, 1500)
 	for {
+		buf := make([]byte, 1500)
 		n, err := p.remoteConn.Read(buf)
 		if err != nil {
 			if ctx.Err() != nil {

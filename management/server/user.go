@@ -9,14 +9,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -101,6 +103,11 @@ func (u *User) HasAdminPower() bool {
 // IsAdminOrServiceUser checks if the user has admin power or is a service user.
 func (u *User) IsAdminOrServiceUser() bool {
 	return u.HasAdminPower() || u.IsServiceUser
+}
+
+// IsRegularUser checks if the user is a regular user.
+func (u *User) IsRegularUser() bool {
+	return !u.HasAdminPower() && !u.IsServiceUser
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
@@ -487,7 +494,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 
 	return nil
@@ -828,7 +835,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if account.Settings.GroupsPropagationEnabled && areUsersLinkedToPeers(account, userIDs) {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -1100,6 +1107,9 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, account *Account, peers []*nbpeer.Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
+		// nolint:staticcheck
+		ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.Key)
+
 		if peer.Status.LoginExpired {
 			continue
 		}
@@ -1107,8 +1117,11 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		peer.MarkLoginExpired(true)
 		account.UpdatePeer(peer)
 		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
-			return err
+			return fmt.Errorf("failed saving peer status for peer %s: %s", peer.ID, err)
 		}
+
+		log.WithContext(ctx).Tracef("mark peer %s login expired", peer.ID)
+
 		am.StoreEvent(
 			ctx,
 			peer.UserID, peer.ID, account.Id,
@@ -1119,7 +1132,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 	return nil
 }
@@ -1227,7 +1240,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	}
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	for targetUserID, meta := range deletedUsersMeta {
