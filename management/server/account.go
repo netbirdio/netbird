@@ -2390,8 +2390,8 @@ func (am *DefaultAccountManager) GetAccountIDForPeerKey(ctx context.Context, pee
 	return am.Store.GetAccountIDByPeerPubKey(ctx, peerKey)
 }
 
-func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpeer.Peer, settings *Settings) (bool, error) {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, peer.UserID)
+func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction Store, peer *nbpeer.Peer, settings *Settings) (bool, error) {
+	user, err := transaction.GetUserByUserID(ctx, LockingStrengthShare, peer.UserID)
 	if err != nil {
 		return false, err
 	}
@@ -2402,7 +2402,7 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpee
 	}
 
 	if peerLoginExpired(ctx, peer, settings) {
-		err = am.handleExpiredPeer(ctx, user, peer)
+		err = am.handleExpiredPeer(ctx, transaction, user, peer)
 		if err != nil {
 			return false, err
 		}

@@ -524,6 +524,10 @@ func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorU
 		storeEvent()
 	}
 
+	for _, peer := range peers {
+		account.DeletePeer(peer.ID)
+	}
+
 	return hadPeers, nil
 }
 

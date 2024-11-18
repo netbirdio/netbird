@@ -50,6 +50,7 @@ type Store interface {
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
+	GetAccountIDByPeerID(ctx context.Context, lockStrength LockingStrength, peerID string) (string, error)
 	GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error)
 	GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) // todo use key hash later
 	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
