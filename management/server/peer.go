@@ -213,7 +213,10 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	var settings *Settings
 	var peerGroupList []string
 	var requiresPeerUpdates bool
-	var newLabel string
+	var peerLabelChanged bool
+	var sshChanged bool
+	var loginExpirationChanged bool
+	var inactivityExpirationChanged bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		peer, err = transaction.GetPeerByID(ctx, LockingStrengthUpdate, accountID, update.ID)
@@ -226,7 +229,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			return err
 		}
 
-		peerGroupList, err = getPeerGroupIDs(ctx, am.Store, accountID, update.ID)
+		peerGroupList, err = getPeerGroupIDs(ctx, transaction, accountID, update.ID)
 		if err != nil {
 			return err
 		}
@@ -242,46 +245,41 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 				return err
 			}
 
-			newLabel, err = getPeerHostLabel(update.Name, existingLabels)
+			newLabel, err := getPeerHostLabel(update.Name, existingLabels)
 			if err != nil {
 				return err
 			}
 
+			peer.Name = update.Name
 			peer.DNSLabel = newLabel
+			peerLabelChanged = true
+		}
+
+		if peer.SSHEnabled != update.SSHEnabled {
+			peer.SSHEnabled = update.SSHEnabled
+			sshChanged = true
+		}
+
+		if peer.LoginExpirationEnabled != update.LoginExpirationEnabled {
+			if !peer.AddedWithSSOLogin() {
+				return status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the login expiration can't be updated")
+			}
+			peer.LoginExpirationEnabled = update.LoginExpirationEnabled
+			loginExpirationChanged = true
+		}
+
+		if peer.InactivityExpirationEnabled != update.InactivityExpirationEnabled {
+			if !peer.AddedWithSSOLogin() {
+				return status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the inactivity expiration can't be updated")
+			}
+			peer.InactivityExpirationEnabled = update.InactivityExpirationEnabled
+			inactivityExpirationChanged = true
 		}
 
 		return transaction.SavePeer(ctx, LockingStrengthUpdate, accountID, peer)
 	})
 	if err != nil {
 		return nil, err
-	}
-
-	var sshChanged, peerLabelChanged, loginExpirationChanged, inactivityExpirationChanged bool
-
-	if peer.SSHEnabled != update.SSHEnabled {
-		peer.SSHEnabled = update.SSHEnabled
-		sshChanged = true
-	}
-
-	if peer.Name != update.Name {
-		peer.Name = update.Name
-		peerLabelChanged = true
-	}
-
-	if peer.LoginExpirationEnabled != update.LoginExpirationEnabled {
-		if !peer.AddedWithSSOLogin() {
-			return nil, status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the login expiration can't be updated")
-		}
-		peer.LoginExpirationEnabled = update.LoginExpirationEnabled
-		loginExpirationChanged = true
-	}
-
-	if peer.InactivityExpirationEnabled != update.InactivityExpirationEnabled {
-		if !peer.AddedWithSSOLogin() {
-			return nil, status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the inactivity expiration can't be updated")
-		}
-		peer.InactivityExpirationEnabled = update.InactivityExpirationEnabled
-		inactivityExpirationChanged = true
 	}
 
 	if sshChanged {
@@ -783,7 +781,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 			}
 		}
 
-		peerGroupIDs, err := getPeerGroupIDs(ctx, am.Store, accountID, peer.ID)
+		peerGroupIDs, err := getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
 		if err != nil {
 			return err
 		}
