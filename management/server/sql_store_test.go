@@ -378,11 +378,6 @@ func TestSqlite_GetAccount(t *testing.T) {
 }
 
 func TestSqlite_SavePeer(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
-	}
-
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -428,11 +423,6 @@ func TestSqlite_SavePeer(t *testing.T) {
 }
 
 func TestSqlite_SavePeerStatus(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
-	}
-
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -483,11 +473,6 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 }
 
 func TestSqlite_SavePeerLocation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
-	}
-
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -2048,4 +2033,140 @@ func TestSqlStore_DeleteNameServerGroup(t *testing.T) {
 	nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroupID)
 	require.Error(t, err)
 	require.Nil(t, nsGroup)
+}
+
+func TestSqlStore_GetAccountPeers(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve peers by existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 4,
+		},
+		{
+			name:          "non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+
+}
+
+func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve peers with expiration by existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 1,
+		},
+		{
+			name:          "non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_GetAccountPeersWithInactivity(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve peers with inactivity by existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 1,
+		},
+		{
+			name:          "non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetAccountPeersWithInactivity(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_GetAllEphemeralPeers(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/storev1.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	peers, err := store.GetAllEphemeralPeers(context.Background(), LockingStrengthShare)
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	require.True(t, peers[0].Ephemeral)
+}
+
+func TestSqlStore_DeletePeer(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	peerID := "csrnkiq7qv9d8aitqd50"
+
+	err = store.DeletePeer(context.Background(), LockingStrengthUpdate, accountID, peerID)
+	require.NoError(t, err)
+
+	peer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
+	require.Error(t, err)
+	require.Nil(t, peer)
 }
