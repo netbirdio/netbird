@@ -55,7 +55,7 @@ type ruleParams struct {
 
 // isLegacy determines whether to use the legacy routing setup
 func isLegacy() bool {
-	return os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled()
+	return os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled() || os.Getenv(nbnet.EnvSkipSocketMark) == "true"
 }
 
 // setIsLegacy sets the legacy routing setup
