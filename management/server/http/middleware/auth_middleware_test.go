@@ -33,7 +33,8 @@ var testAccount = &server.Account{
 	Domain: domain,
 	Users: map[string]*server.User{
 		userID: {
-			Id: userID,
+			Id:        userID,
+			AccountID: accountID,
 			PATs: map[string]*server.PersonalAccessToken{
 				tokenID: {
 					ID:             tokenID,
@@ -49,11 +50,11 @@ var testAccount = &server.Account{
 	},
 }
 
-func mockGetAccountFromPAT(_ context.Context, token string) (*server.Account, *server.User, *server.PersonalAccessToken, error) {
+func mockGetAccountInfoFromPAT(_ context.Context, token string) (user *server.User, pat *server.PersonalAccessToken, domain string, category string, err error) {
 	if token == PAT {
-		return testAccount, testAccount.Users[userID], testAccount.Users[userID].PATs[tokenID], nil
+		return testAccount.Users[userID], testAccount.Users[userID].PATs[tokenID], testAccount.Domain, testAccount.DomainCategory, nil
 	}
-	return nil, nil, nil, fmt.Errorf("PAT invalid")
+	return nil, nil, "", "", fmt.Errorf("PAT invalid")
 }
 
 func mockValidateAndParseToken(_ context.Context, token string) (*jwt.Token, error) {
@@ -165,7 +166,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 	)
 
 	authMiddleware := NewAuthMiddleware(
-		mockGetAccountFromPAT,
+		mockGetAccountInfoFromPAT,
 		mockValidateAndParseToken,
 		mockMarkPATUsed,
 		mockCheckUserAccessByJWTGroups,
