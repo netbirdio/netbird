@@ -13,6 +13,7 @@ type AccountManagerMetrics struct {
 	updateAccountPeersDurationMs metric.Float64Histogram
 	getPeerNetworkMapDurationMs  metric.Float64Histogram
 	networkMapObjectCount        metric.Int64Histogram
+	peerMetaUpdateCount          metric.Int64Counter
 }
 
 // NewAccountManagerMetrics creates an instance of AccountManagerMetrics
@@ -44,11 +45,17 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		return nil, err
 	}
 
+	peerMetaUpdateCount, err := meter.Int64Counter("management.account.peer.meta.update.counter", metric.WithUnit("1"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &AccountManagerMetrics{
 		ctx:                          ctx,
 		getPeerNetworkMapDurationMs:  getPeerNetworkMapDurationMs,
 		updateAccountPeersDurationMs: updateAccountPeersDurationMs,
 		networkMapObjectCount:        networkMapObjectCount,
+		peerMetaUpdateCount:          peerMetaUpdateCount,
 	}, nil
 
 }
@@ -66,4 +73,9 @@ func (metrics *AccountManagerMetrics) CountGetPeerNetworkMapDuration(duration ti
 // CountNetworkMapObjects counts the number of network map objects
 func (metrics *AccountManagerMetrics) CountNetworkMapObjects(count int64) {
 	metrics.networkMapObjectCount.Record(metrics.ctx, count)
+}
+
+// CountPeerMetUpdate counts the number of peer meta updates
+func (metrics *AccountManagerMetrics) CountPeerMetUpdate() {
+	metrics.peerMetaUpdateCount.Add(metrics.ctx, 1)
 }
