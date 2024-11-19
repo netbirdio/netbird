@@ -401,32 +401,26 @@ func (s *SqlStore) SavePeerLocation(ctx context.Context, lockStrength LockingStr
 }
 
 // SaveUsers saves the given list of users to the database.
-// It updates existing users if a conflict occurs.
-func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
-	usersToSave := make([]User, 0, len(users))
-	for _, user := range users {
-		user.AccountID = accountID
-		for id, pat := range user.PATs {
-			pat.ID = id
-			user.PATsG = append(user.PATsG, *pat)
-		}
-		usersToSave = append(usersToSave, *user)
-	}
-	err := s.db.Session(&gorm.Session{FullSaveAssociations: true}).
-		Clauses(clause.OnConflict{UpdateAll: true}).
-		Create(&usersToSave).Error
-	if err != nil {
-		return status.Errorf(status.Internal, "failed to save users to store: %v", err)
+func (s *SqlStore) SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*User) error {
+	if len(users) == 0 {
+		return nil
 	}
 
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&users)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save users to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save users to store")
+	}
 	return nil
 }
 
 // SaveUser saves the given user to the database.
 func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error {
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(user)
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Select(clause.Associations).Save(user)
 	if result.Error != nil {
-		return status.Errorf(status.Internal, "failed to save user to store: %v", result.Error)
+		log.WithContext(ctx).Errorf("failed to save user to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save user to store")
 	}
 	return nil
 }
@@ -513,30 +507,17 @@ func (s *SqlStore) GetTokenIDByHashedToken(ctx context.Context, hashedToken stri
 	return token.ID, nil
 }
 
-func (s *SqlStore) GetUserByTokenID(ctx context.Context, tokenID string) (*User, error) {
-	var token PersonalAccessToken
-	result := s.db.First(&token, idQueryCondition, tokenID)
+func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*User, error) {
+	var user User
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Joins("JOIN personal_access_tokens ON personal_access_tokens.user_id = users.id").
+		Where("personal_access_tokens.id = ?", patID).First(&user)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+			return nil, status.NewPATNotFoundError(patID)
 		}
-		log.WithContext(ctx).Errorf("error when getting token from the store: %s", result.Error)
-		return nil, status.NewGetAccountFromStoreError(result.Error)
-	}
-
-	if token.UserID == "" {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
-	}
-
-	var user User
-	result = s.db.Preload("PATsG").First(&user, idQueryCondition, token.UserID)
-	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
-	}
-
-	user.PATs = make(map[string]*PersonalAccessToken, len(user.PATsG))
-	for _, pat := range user.PATsG {
-		user.PATs[pat.ID] = pat.Copy()
+		log.WithContext(ctx).Errorf("failed to get token user from the store: %s", result.Error)
+		return nil, status.NewGetUserFromStoreError()
 	}
 
 	return &user, nil
@@ -554,6 +535,25 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 	}
 
 	return &user, nil
+}
+
+func (s *SqlStore) DeleteUser(ctx context.Context, lockStrength LockingStrength, accountID, userID string) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Delete(&PersonalAccessToken{}, "user_id = ?", userID)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		return tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Delete(&User{}, accountAndIDQueryCondition, accountID, userID).Error
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to delete user from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete user from store")
+	}
+
+	return nil
 }
 
 func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*User, error) {
@@ -863,6 +863,20 @@ func (s *SqlStore) GetAccountSettings(ctx context.Context, lockStrength LockingS
 		return nil, status.Errorf(status.Internal, "issue getting settings from store: %s", err)
 	}
 	return accountSettings.Settings, nil
+}
+
+func (s *SqlStore) GetAccountCreatedBy(ctx context.Context, lockStrength LockingStrength, accountID string) (string, error) {
+	var createdBy string
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Select("created_by").First(&createdBy, idQueryCondition, accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.NewAccountNotFoundError(accountID)
+		}
+		return "", status.NewGetAccountFromStoreError(result.Error)
+	}
+
+	return createdBy, nil
 }
 
 // SaveUserLastLogin stores the last login time for a user in DB.
@@ -1681,6 +1695,97 @@ func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStre
 
 	if result.RowsAffected == 0 {
 		return status.NewAccountNotFoundError(accountID)
+	}
+
+	return nil
+}
+
+// GetPATByHashedToken returns a PersonalAccessToken by its hashed token.
+func (s *SqlStore) GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*PersonalAccessToken, error) {
+	var pat PersonalAccessToken
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).First(&pat, "hashed_token = ?", hashedToken)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewPATNotFoundError(hashedToken)
+		}
+		log.WithContext(ctx).Errorf("failed to get pat by hash from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get pat by hash from store")
+	}
+
+	return &pat, nil
+}
+
+// GetPATByID retrieves a personal access token by its ID and user ID.
+func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, userID string, patID string) (*PersonalAccessToken, error) {
+	var pat PersonalAccessToken
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&pat, "id = ? AND user_id = ?", patID, userID)
+	if err := result.Error; err != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewPATNotFoundError(patID)
+		}
+		log.WithContext(ctx).Errorf("failed to get pat from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get pat from store")
+	}
+
+	return &pat, nil
+}
+
+// GetUserPATs retrieves personal access tokens for a user.
+func (s *SqlStore) GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*PersonalAccessToken, error) {
+	var pats []*PersonalAccessToken
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&pats, "user_id = ?", userID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get user pat's from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get user pat's from store")
+	}
+
+	return pats, nil
+}
+
+// MarkPATUsed marks a personal access token as used.
+func (s *SqlStore) MarkPATUsed(ctx context.Context, lockStrength LockingStrength, patID string) error {
+	patCopy := PersonalAccessToken{
+		LastUsed: time.Now().UTC(),
+	}
+
+	fieldsToUpdate := []string{"last_used"}
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Select(fieldsToUpdate).
+		Where(idQueryCondition, patID).Updates(&patCopy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark pat as used: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark pat as used")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewPATNotFoundError(patID)
+	}
+
+	return nil
+}
+
+// SavePAT saves a personal access token to the database.
+func (s *SqlStore) SavePAT(ctx context.Context, lockStrength LockingStrength, pat *PersonalAccessToken) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(pat)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save pat to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save pat to store")
+	}
+
+	return nil
+}
+
+// DeletePAT deletes a personal access token from the database.
+func (s *SqlStore) DeletePAT(ctx context.Context, lockStrength LockingStrength, userID, patID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&PersonalAccessToken{}, "user_id = ? AND id = ?", userID, patID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete pat from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete pat from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewPATNotFoundError(patID)
 	}
 
 	return nil

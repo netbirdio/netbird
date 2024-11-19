@@ -159,3 +159,18 @@ func NewPolicyNotFoundError(policyID string) error {
 func NewNameServerGroupNotFoundError(nsGroupID string) error {
 	return Errorf(NotFound, "nameserver group: %s not found", nsGroupID)
 }
+
+// NewServiceUserRoleInvalidError creates a new Error with InvalidArgument type for creating a service user with owner role
+func NewServiceUserRoleInvalidError() error {
+	return Errorf(InvalidArgument, "can't create a service user with owner role")
+}
+
+// NewOwnerDeletePermissionError creates a new Error with PermissionDenied type for attempting
+// to delete a user with the owner role.
+func NewOwnerDeletePermissionError() error {
+	return Errorf(PermissionDenied, "can't delete a user with the owner role")
+}
+
+func NewPATNotFoundError(patID string) error {
+	return Errorf(NotFound, "PAT: %s not found", patID)
+}
