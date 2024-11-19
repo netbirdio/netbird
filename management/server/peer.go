@@ -667,6 +667,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 	updated := peer.UpdateMetaIfNew(sync.Meta)
 	if updated {
+		am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 		account.Peers[peer.ID] = peer
 		log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 		err = am.Store.SavePeer(ctx, account.Id, peer)
@@ -801,6 +802,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 
 	updated := peer.UpdateMetaIfNew(login.Meta)
 	if updated {
+		am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 		shouldStorePeer = true
 	}
 
