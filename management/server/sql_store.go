@@ -846,7 +846,7 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).First(&peer, keyQueryCondition, peerKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "peer not found")
+			return nil, status.NewPeerNotFoundError(peerKey)
 		}
 		return nil, status.Errorf(status.Internal, "issue getting peer from store: %s", result.Error)
 	}
@@ -1121,7 +1121,7 @@ func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength
 		First(&peer, accountAndIDQueryCondition, accountID, peerID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "peer not found")
+			return nil, status.NewPeerNotFoundError(peerID)
 		}
 		log.WithContext(ctx).Errorf("failed to get peer from store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
@@ -1203,7 +1203,7 @@ func (s *SqlStore) DeletePeer(ctx context.Context, lockStrength LockingStrength,
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "peer not found")
+		return status.NewPeerNotFoundError(peerID)
 	}
 
 	return nil
