@@ -406,7 +406,7 @@ func (s *SqlStore) SaveUsers(ctx context.Context, lockStrength LockingStrength, 
 		return nil
 	}
 
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&users)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&users)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save users to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save users to store")
@@ -416,8 +416,7 @@ func (s *SqlStore) SaveUsers(ctx context.Context, lockStrength LockingStrength, 
 
 // SaveUser saves the given user to the database.
 func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Select(clause.Associations).Save(user)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(user)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save user to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save user to store")
@@ -525,8 +524,7 @@ func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStren
 
 func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error) {
 	var user User
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Preload(clause.Associations).First(&user, idQueryCondition, userID)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).First(&user, idQueryCondition, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewUserNotFoundError(userID)
@@ -1192,7 +1190,7 @@ func (s *SqlStore) GetAccountPeersWithInactivity(ctx context.Context, lockStreng
 // GetAllEphemeralPeers retrieves all peers with Ephemeral set to true across all accounts, optimized for batch processing.
 func (s *SqlStore) GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error) {
 	var allEphemeralPeers, batchPeers []*nbpeer.Peer
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Where("ephemeral = ?", true).
 		FindInBatches(&batchPeers, 1000, func(tx *gorm.DB, batch int) error {
 			allEphemeralPeers = append(allEphemeralPeers, batchPeers...)
@@ -1209,7 +1207,7 @@ func (s *SqlStore) GetAllEphemeralPeers(ctx context.Context, lockStrength Lockin
 
 // DeletePeer removes a peer from the store.
 func (s *SqlStore) DeletePeer(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Delete(&nbpeer.Peer{}, accountAndIDQueryCondition, accountID, peerID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer from the store: %s", err)
@@ -1601,7 +1599,7 @@ func (s *SqlStore) DeleteSetupKey(ctx context.Context, lockStrength LockingStren
 // GetAccountNameServerGroups retrieves name server groups for an account.
 func (s *SqlStore) GetAccountNameServerGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbdns.NameServerGroup, error) {
 	var nsGroups []*nbdns.NameServerGroup
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&nsGroups, accountIDCondition, accountID)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&nsGroups, accountIDCondition, accountID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get name server groups from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get name server groups from store")
@@ -1613,7 +1611,7 @@ func (s *SqlStore) GetAccountNameServerGroups(ctx context.Context, lockStrength 
 // GetNameServerGroupByID retrieves a name server group by its ID and account ID.
 func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 	var nsGroup *nbdns.NameServerGroup
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&nsGroup, accountAndIDQueryCondition, accountID, nsGroupID)
 	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1628,7 +1626,7 @@ func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength Lock
 
 // SaveNameServerGroup saves a name server group to the database.
 func (s *SqlStore) SaveNameServerGroup(ctx context.Context, lockStrength LockingStrength, nameServerGroup *nbdns.NameServerGroup) error {
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(nameServerGroup)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(nameServerGroup)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save name server group to the store: %s", err)
 		return status.Errorf(status.Internal, "failed to save name server group to store")
@@ -1703,7 +1701,7 @@ func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStre
 // GetPATByHashedToken returns a PersonalAccessToken by its hashed token.
 func (s *SqlStore) GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*PersonalAccessToken, error) {
 	var pat PersonalAccessToken
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).First(&pat, "hashed_token = ?", hashedToken)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).First(&pat, "hashed_token = ?", hashedToken)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewPATNotFoundError(hashedToken)
@@ -1718,7 +1716,7 @@ func (s *SqlStore) GetPATByHashedToken(ctx context.Context, lockStrength Locking
 // GetPATByID retrieves a personal access token by its ID and user ID.
 func (s *SqlStore) GetPATByID(ctx context.Context, lockStrength LockingStrength, userID string, patID string) (*PersonalAccessToken, error) {
 	var pat PersonalAccessToken
-	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&pat, "id = ? AND user_id = ?", patID, userID)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
