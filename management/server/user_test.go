@@ -73,7 +73,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.ID, tokenID)
 
-	user, err := am.Store.GetUserByTokenID(context.Background(), tokenID)
+	user, err := am.Store.GetUserByPATID(context.Background(), LockingStrengthShare, tokenID)
 	if err != nil {
 		t.Fatalf("Error when getting user by token ID: %s", err)
 	}

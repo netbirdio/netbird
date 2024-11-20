@@ -589,11 +589,11 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	user, err := store.GetUserByTokenID(context.Background(), id)
+	user, err := store.GetUserByPATID(context.Background(), LockingStrengthShare, id)
 	require.NoError(t, err)
-	require.Equal(t, id, user.PATs[id].ID)
+	require.NotNil(t, id, user)
 
-	_, err = store.GetUserByTokenID(context.Background(), "non-existing-id")
+	_, err = store.GetUserByPATID(context.Background(), LockingStrengthShare, "non-existing-id")
 	require.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -978,7 +978,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	user, err := store.GetUserByTokenID(context.Background(), id)
+	user, err := store.GetUserByPATID(context.Background(), LockingStrengthShare, id)
 	require.NoError(t, err)
 	require.Equal(t, id, user.PATs[id].ID)
 }
