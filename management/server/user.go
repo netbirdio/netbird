@@ -711,7 +711,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 				updateAccountPeers = true
 			}
 
-			updatedUserInfo, err := getUserInfo(ctx, am, updatedUser, accountID)
+			updatedUserInfo, err := am.getUserInfo(ctx, transaction, updatedUser, accountID)
 			if err != nil {
 				return fmt.Errorf("failed to get user info: %w", err)
 			}
@@ -891,8 +891,8 @@ func handleOwnerRoleTransfer(ctx context.Context, transaction Store, initiatorUs
 // getUserInfo retrieves the UserInfo for a given User and Account.
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
-func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, accountID string) (*UserInfo, error) {
-	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+func (am *DefaultAccountManager) getUserInfo(ctx context.Context, transaction Store, user *User, accountID string) (*UserInfo, error) {
+	settings, err := transaction.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
