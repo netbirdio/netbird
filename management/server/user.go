@@ -805,14 +805,16 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			expiredPeers = append(expiredPeers, blockedPeers...)
 		}
 
+		peerGroupsAdded := make(map[string][]string)
+		peerGroupsRemoved := make(map[string][]string)
 		if update.AutoGroups != nil && account.Settings.GroupsPropagationEnabled {
 			removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
 			// need force update all auto groups in any case they will not be duplicated
-			account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
-			account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
+			peerGroupsAdded = account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
+			peerGroupsRemoved = account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
 		}
 
-		events := am.prepareUserUpdateEvents(ctx, initiatorUser.Id, oldUser, newUser, account, transferredOwnerRole)
+		events := am.prepareUserUpdateEvents(ctx, initiatorUser.Id, oldUser, newUser, account, transferredOwnerRole, peerGroupsAdded, peerGroupsRemoved)
 		eventsToStore = append(eventsToStore, events...)
 
 		updatedUserInfo, err := getUserInfo(ctx, am, newUser, account)
@@ -846,7 +848,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 }
 
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
-func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, transferredOwnerRole bool) []func() {
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, transferredOwnerRole bool, peerGroupsAdded, peerGroupsRemoved map[string][]string) []func() {
 	var eventsToStore []func()
 
 	if oldUser.IsBlocked() != newUser.IsBlocked() {
@@ -887,12 +889,39 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, in
 				log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 			}
 		}
+		for groupID, peerIDs := range peerGroupsRemoved {
+			group := account.GetGroup(groupID)
+			for _, peerID := range peerIDs {
+				peer := account.GetPeer(peerID)
+				eventsToStore = append(eventsToStore, func() {
+					meta := map[string]any{
+						"group": group.Name, "group_id": group.ID,
+						"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+					}
+					am.StoreEvent(ctx, activity.SystemInitiator, peer.ID, account.Id, activity.GroupRemovedFromPeer, meta)
+				})
+			}
+		}
+
 		for _, g := range addedGroups {
 			group := account.GetGroup(g)
 			if group != nil {
 				eventsToStore = append(eventsToStore, func() {
 					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupAddedToUser,
 						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+				})
+			}
+		}
+		for groupID, peerIDs := range peerGroupsAdded {
+			group := account.GetGroup(groupID)
+			for _, peerID := range peerIDs {
+				peer := account.GetPeer(peerID)
+				eventsToStore = append(eventsToStore, func() {
+					meta := map[string]any{
+						"group": group.Name, "group_id": group.ID,
+						"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+					}
+					am.StoreEvent(ctx, activity.SystemInitiator, peer.ID, account.Id, activity.GroupAddedToPeer, meta)
 				})
 			}
 		}
