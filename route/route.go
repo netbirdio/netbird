@@ -88,18 +88,18 @@ type Route struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `gorm:"index"`
 	// Network and Domains are mutually exclusive
-	Network     netip.Prefix `gorm:"serializer:json"`
-	Domains     domain.List  `gorm:"serializer:json"`
-	KeepRoute   bool
-	NetID       NetID
-	Description string
-	Peer        string
-	PeerGroups  []string `gorm:"serializer:json"`
-	NetworkType NetworkType
-	Masquerade  bool
-	Metric      int
-	Enabled     bool
-	Groups      []string `gorm:"serializer:json"`
+	Network             netip.Prefix `gorm:"serializer:json"`
+	Domains             domain.List  `gorm:"serializer:json"`
+	KeepRoute           bool
+	NetID               NetID
+	Description         string
+	Peer                string
+	PeerGroups          []string `gorm:"serializer:json"`
+	NetworkType         NetworkType
+	Masquerade          bool
+	Metric              int
+	Enabled             bool
+	Groups              []string `gorm:"serializer:json"`
 	AccessControlGroups []string `gorm:"serializer:json"`
 }
 
@@ -111,19 +111,20 @@ func (r *Route) EventMeta() map[string]any {
 // Copy copies a route object
 func (r *Route) Copy() *Route {
 	route := &Route{
-		ID:          r.ID,
-		Description: r.Description,
-		NetID:       r.NetID,
-		Network:     r.Network,
-		Domains:     slices.Clone(r.Domains),
-		KeepRoute:   r.KeepRoute,
-		NetworkType: r.NetworkType,
-		Peer:        r.Peer,
-		PeerGroups:  slices.Clone(r.PeerGroups),
-		Metric:      r.Metric,
-		Masquerade:  r.Masquerade,
-		Enabled:     r.Enabled,
-		Groups:      slices.Clone(r.Groups),
+		ID:                  r.ID,
+		AccountID:           r.AccountID,
+		Description:         r.Description,
+		NetID:               r.NetID,
+		Network:             r.Network,
+		Domains:             slices.Clone(r.Domains),
+		KeepRoute:           r.KeepRoute,
+		NetworkType:         r.NetworkType,
+		Peer:                r.Peer,
+		PeerGroups:          slices.Clone(r.PeerGroups),
+		Metric:              r.Metric,
+		Masquerade:          r.Masquerade,
+		Enabled:             r.Enabled,
+		Groups:              slices.Clone(r.Groups),
 		AccessControlGroups: slices.Clone(r.AccessControlGroups),
 	}
 	return route
@@ -149,7 +150,7 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.Masquerade == r.Masquerade &&
 		other.Enabled == r.Enabled &&
 		slices.Equal(r.Groups, other.Groups) &&
-		slices.Equal(r.PeerGroups, other.PeerGroups)&&
+		slices.Equal(r.PeerGroups, other.PeerGroups) &&
 		slices.Equal(r.AccessControlGroups, other.AccessControlGroups)
 }
 
