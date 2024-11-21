@@ -93,7 +93,7 @@ func NewPeerNotPartOfAccountError() error {
 
 // NewUserNotFoundError creates a new Error with NotFound type for a missing user
 func NewUserNotFoundError(userKey string) error {
-	return Errorf(NotFound, "user not found: %s", userKey)
+	return Errorf(NotFound, "user: %s not found", userKey)
 }
 
 // NewPeerNotRegisteredError creates a new Error with NotFound type for a missing peer

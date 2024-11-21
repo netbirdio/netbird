@@ -539,13 +539,13 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
-	}
-
-	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
+	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
 	if err != nil {
 		return nil, err
+	}
+
+	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
+		return nil, status.NewAdminPermissionError()
 	}
 
 	pat, err := CreateNewPAT(tokenName, expiresIn, targetUserID, initiatorUser.Id)
