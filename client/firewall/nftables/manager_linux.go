@@ -351,7 +351,9 @@ func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {
 				Register: 1,
 				Data:     ifname(m.wgIface.Name()),
 			},
-			&expr.Verdict{},
+			&expr.Verdict{
+				Kind: expr.VerdictAccept,
+			},
 		},
 		UserData: []byte(allowNetbirdInputRuleID),
 	}
