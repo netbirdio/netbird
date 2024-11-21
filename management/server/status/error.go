@@ -174,3 +174,7 @@ func NewOwnerDeletePermissionError() error {
 func NewPATNotFoundError(patID string) error {
 	return Errorf(NotFound, "PAT: %s not found", patID)
 }
+
+func NewRouteNotFoundError(routeID string) error {
+	return Errorf(NotFound, "route: %s not found", routeID)
+}
