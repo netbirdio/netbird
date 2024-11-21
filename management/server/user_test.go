@@ -786,7 +786,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 		{
 			name:               "Delete non-existent user",
 			userIDs:            []string{"non-existent-user"},
-			expectedReasons:    []string{"target user: non-existent-user not found"},
+			expectedReasons:    []string{"user: non-existent-user not found"},
 			expectedNotDeleted: []string{},
 		},
 		{
