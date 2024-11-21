@@ -73,7 +73,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.ID, tokenID)
 
-	user, err := am.Store.GetUserByTokenID(context.Background(), tokenID)
+	user, err := am.Store.GetUserByPATID(context.Background(), LockingStrengthShare, tokenID)
 	if err != nil {
 		t.Fatalf("Error when getting user by token ID: %s", err)
 	}
@@ -786,7 +786,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 		{
 			name:               "Delete non-existent user",
 			userIDs:            []string{"non-existent-user"},
-			expectedReasons:    []string{"target user: non-existent-user not found"},
+			expectedReasons:    []string{"user: non-existent-user not found"},
 			expectedNotDeleted: []string{},
 		},
 		{
