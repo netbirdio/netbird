@@ -70,7 +70,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 				return claims.AccountId, claims.UserId, nil
 			},
 		},
-		geolocationManager: &geolocation.GeolocationImpl{},
+		geolocationManager: &geolocation.geolocationImpl{},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
