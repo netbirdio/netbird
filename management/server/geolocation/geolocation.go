@@ -21,7 +21,7 @@ type Geolocation interface {
 	Stop() error
 }
 
-type GeolocationImpl struct {
+type geolocationImpl struct {
 	mmdbPath   string
 	mux        sync.RWMutex
 	db         *maxminddb.Reader
@@ -93,7 +93,7 @@ func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool) (Geolo
 		return nil, err
 	}
 
-	geo := &GeolocationImpl{
+	geo := &geolocationImpl{
 		mmdbPath:   mmdbPath,
 		mux:        sync.RWMutex{},
 		db:         db,
@@ -120,7 +120,7 @@ func openDB(mmdbPath string) (*maxminddb.Reader, error) {
 	return db, nil
 }
 
-func (gl *GeolocationImpl) Lookup(ip net.IP) (*Record, error) {
+func (gl *geolocationImpl) Lookup(ip net.IP) (*Record, error) {
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
 
@@ -134,7 +134,7 @@ func (gl *GeolocationImpl) Lookup(ip net.IP) (*Record, error) {
 }
 
 // GetAllCountries retrieves a list of all countries.
-func (gl *GeolocationImpl) GetAllCountries() ([]Country, error) {
+func (gl *geolocationImpl) GetAllCountries() ([]Country, error) {
 	allCountries, err := gl.locationDB.GetAllCountries()
 	if err != nil {
 		return nil, err
@@ -150,7 +150,7 @@ func (gl *GeolocationImpl) GetAllCountries() ([]Country, error) {
 }
 
 // GetCitiesByCountry retrieves a list of cities in a specific country based on the country's ISO code.
-func (gl *GeolocationImpl) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+func (gl *geolocationImpl) GetCitiesByCountry(countryISOCode string) ([]City, error) {
 	allCities, err := gl.locationDB.GetCitiesByCountry(countryISOCode)
 	if err != nil {
 		return nil, err
@@ -165,7 +165,7 @@ func (gl *GeolocationImpl) GetCitiesByCountry(countryISOCode string) ([]City, er
 	return cities, nil
 }
 
-func (gl *GeolocationImpl) Stop() error {
+func (gl *geolocationImpl) Stop() error {
 	close(gl.stopCh)
 	if gl.db != nil {
 		if err := gl.db.Close(); err != nil {

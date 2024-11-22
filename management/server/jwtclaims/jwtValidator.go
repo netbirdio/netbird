@@ -76,8 +76,8 @@ type JWTValidator interface {
 	ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error)
 }
 
-// JWTValidatorImpl struct to handle token validation and parsing
-type JWTValidatorImpl struct {
+// jwtValidatorImpl struct to handle token validation and parsing
+type jwtValidatorImpl struct {
 	options Options
 }
 
@@ -142,13 +142,13 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 		options.UserProperty = "user"
 	}
 
-	return &JWTValidatorImpl{
+	return &jwtValidatorImpl{
 		options: options,
 	}, nil
 }
 
 // ValidateAndParse validates the token and returns the parsed token
-func (m *JWTValidatorImpl) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+func (m *jwtValidatorImpl) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// Check if it was required
