@@ -114,8 +114,9 @@ func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string) error 
 }
 
 func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
-
+	// just a dummy
 }
 
 func (MocIntegratedValidator) Stop(_ context.Context) {
+	// just a dummy
 }

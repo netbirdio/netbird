@@ -24,7 +24,7 @@ func TestGeoLite_Lookup(t *testing.T) {
 	db, err := openDB(filename)
 	assert.NoError(t, err)
 
-	geo := &Geolocation{
+	geo := &GeolocationImpl{
 		mux:    sync.RWMutex{},
 		db:     db,
 		stopCh: make(chan struct{}),
