@@ -62,7 +62,7 @@ func isSocketMarkDisabled() bool {
 		return true
 	}
 
-	if SkipSocketMar() {
+	if SkipSocketMark() {
 		return true
 	}
 	return false

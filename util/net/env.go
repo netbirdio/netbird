@@ -20,7 +20,7 @@ func CustomRoutingDisabled() bool {
 	return os.Getenv(envDisableCustomRouting) == "true"
 }
 
-func SkipSocketMar() bool {
+func SkipSocketMark() bool {
 	if skipSocketMark := os.Getenv(envSkipSocketMark); skipSocketMark == "true" {
 		log.Info("%s is set to true, skipping SO_MARK", envSkipSocketMark)
 		return true
