@@ -72,13 +72,17 @@ type JSONWebKey struct {
 	X5c []string `json:"x5c"`
 }
 
-// JWTValidator struct to handle token validation and parsing
-type JWTValidator struct {
+type JWTValidator interface {
+	ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error)
+}
+
+// JWTValidatorImpl struct to handle token validation and parsing
+type JWTValidatorImpl struct {
 	options Options
 }
 
 // NewJWTValidator constructor
-func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (*JWTValidator, error) {
+func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (JWTValidator, error) {
 	keys, err := getPemKeys(ctx, keysLocation)
 	if err != nil {
 		return nil, err
@@ -138,13 +142,13 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 		options.UserProperty = "user"
 	}
 
-	return &JWTValidator{
+	return &JWTValidatorImpl{
 		options: options,
 	}, nil
 }
 
 // ValidateAndParse validates the token and returns the parsed token
-func (m *JWTValidator) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+func (m *JWTValidatorImpl) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// Check if it was required
@@ -311,3 +315,15 @@ func getMaxAgeFromCacheHeader(ctx context.Context, cacheControl string) int {
 	return 0
 }
 
+type JwtValidatorMock struct{}
+
+func (j *JwtValidatorMock) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+	claimMaps := jwt.MapClaims{}
+	claimMaps[UserIDClaim] = "testUserId"
+	claimMaps[AccountIDSuffix] = "testAccountId"
+	claimMaps[DomainIDSuffix] = "test.com"
+	claimMaps[DomainCategorySuffix] = "private"
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
+
+	return jwtToken, nil
+}

@@ -21,12 +21,12 @@ var (
 // GeolocationsHandler is a handler that returns locations.
 type GeolocationsHandler struct {
 	accountManager     server.AccountManager
-	geolocationManager *geolocation.Geolocation
+	geolocationManager geolocation.Geolocation
 	claimsExtractor    *jwtclaims.ClaimsExtractor
 }
 
 // NewGeolocationsHandlerHandler creates a new Geolocations handler
-func NewGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *GeolocationsHandler {
+func NewGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager geolocation.Geolocation, authCfg AuthCfg) *GeolocationsHandler {
 	return &GeolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,

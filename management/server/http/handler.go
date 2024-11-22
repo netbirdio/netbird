@@ -31,7 +31,7 @@ type AuthCfg struct {
 type apiHandler struct {
 	Router             *mux.Router
 	AccountManager     s.AccountManager
-	geolocationManager *geolocation.Geolocation
+	geolocationManager geolocation.Geolocation
 	AuthCfg            AuthCfg
 }
 
@@ -40,7 +40,7 @@ type emptyObject struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg, integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
+func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg, integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
