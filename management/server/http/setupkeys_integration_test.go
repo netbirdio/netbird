@@ -25,6 +25,7 @@ import (
 const (
 	testAccountId = "testUserId"
 	testUserId    = "testAccountId"
+	testPeerId    = "testPeerId"
 
 	newKeyName = "newKey"
 	expiresIn  = 3600
@@ -82,7 +83,14 @@ func Test_SetupKeys_Create_Success(t *testing.T) {
 
 			metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 
-			peersUpdateManager := &server.PeersUpdateManager{}
+			peersUpdateManager := server.NewPeersUpdateManager(nil)
+			updMsg := peersUpdateManager.CreateChannel(context.Background(), testPeerId)
+			done := make(chan struct{})
+			go func() {
+				peerShouldNotReceiveUpdate(t, updMsg)
+				close(done)
+			}()
+
 			geoMock := &geolocation.GeolocationMock{}
 			validatorMock := server.MocIntegratedValidator{}
 			am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics)
@@ -133,6 +141,12 @@ func Test_SetupKeys_Create_Success(t *testing.T) {
 			}
 
 			validateCreatedKey(t, tc.expectedSetupKey, toResponseBody(key))
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
 		})
 	}
 }
@@ -161,4 +175,28 @@ func validateCreatedKey(t *testing.T, expectedKey *api.SetupKey, got *api.SetupK
 	}
 
 	assert.Equal(t, expectedKey, got)
+}
+
+func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *server.UpdateMessage) {
+	t.Helper()
+	select {
+	case msg := <-updateMessage:
+		t.Errorf("Unexpected message received: %+v", msg)
+	case <-time.After(500 * time.Millisecond):
+		return
+	}
+}
+
+func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *server.UpdateMessage, expected *server.UpdateMessage) {
+	t.Helper()
+
+	select {
+	case msg := <-updateMessage:
+		if msg == nil {
+			t.Errorf("Received nil update message, expected valid message")
+		}
+		assert.Equal(t, expected, msg)
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Timed out waiting for update message")
+	}
 }

@@ -18,7 +18,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -27,47 +26,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 )
-
-type MocIntegratedValidator struct {
-	ValidatePeerFunc func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error)
-}
-
-func (a MocIntegratedValidator) ValidateExtraSettings(_ context.Context, newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
-	return nil
-}
-
-func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error) {
-	if a.ValidatePeerFunc != nil {
-		return a.ValidatePeerFunc(context.Background(), update, peer, userID, accountID, dnsDomain, peersGroup, extraSettings)
-	}
-	return update, false, nil
-}
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
-	validatedPeers := make(map[string]struct{})
-	for _, peer := range peers {
-		validatedPeers[peer.ID] = struct{}{}
-	}
-	return validatedPeers, nil
-}
-
-func (MocIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
-	return peer
-}
-
-func (MocIntegratedValidator) IsNotValidPeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
-	return false, false, nil
-}
-
-func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
-
-}
-
-func (MocIntegratedValidator) Stop(_ context.Context) {
-}
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
 	t.Helper()
@@ -1038,7 +996,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	}
 
 	b.Run("public without account ID", func(b *testing.B) {
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
 			if err != nil {
@@ -1048,7 +1006,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	})
 
 	b.Run("private without account ID", func(b *testing.B) {
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
 			if err != nil {
@@ -1059,7 +1017,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 
 	b.Run("private with account ID", func(b *testing.B) {
 		claims.AccountId = id
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
 			if err != nil {
