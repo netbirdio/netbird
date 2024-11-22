@@ -223,7 +223,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		updateAccountPeers, err = areRouteChangesAffectPeers(ctx, am.Store, newRoute)
+		updateAccountPeers, err = areRouteChangesAffectPeers(ctx, transaction, newRoute)
 		if err != nil {
 			return err
 		}
@@ -368,6 +368,10 @@ func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, user
 }
 
 func validateRoute(ctx context.Context, transaction Store, accountID string, routeToSave *route.Route) error {
+	if routeToSave == nil {
+		return status.Errorf(status.InvalidArgument, "route provided is nil")
+	}
+
 	if err := validateRouteProperties(routeToSave); err != nil {
 		return err
 	}
