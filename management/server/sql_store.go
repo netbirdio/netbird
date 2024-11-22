@@ -1711,6 +1711,22 @@ func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStre
 	return nil
 }
 
+// SaveAccountSettings stores the account settings in DB.
+func (s *SqlStore) SaveAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *Settings) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Select("*").Where(idQueryCondition, accountID).Updates(&AccountSettings{Settings: settings})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save account settings to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save account settings to store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+
+	return nil
+}
+
 // GetPATByHashedToken returns a PersonalAccessToken by its hashed token.
 func (s *SqlStore) GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*PersonalAccessToken, error) {
 	var pat PersonalAccessToken

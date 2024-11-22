@@ -100,13 +100,13 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
 	}
 
-	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
+	updatedSettings, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	resp := toAccountResponse(updatedAccount.Id, updatedAccount.Settings)
+	resp := toAccountResponse(accountID, updatedSettings)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }

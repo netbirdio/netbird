@@ -133,7 +133,7 @@ type AccountManager interface {
 	GetDNSSettings(ctx context.Context, accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Account, error)
+	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Settings, error)
 	LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
 	SyncPeer(ctx context.Context, sync PeerSync, accountID string) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
@@ -1122,7 +1122,20 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
 // Returns an updated Account
-func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Account, error) {
+func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Settings, error) {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if !user.HasAdminPower() {
+		return nil, status.NewAdminPermissionError()
+	}
+
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -1132,29 +1145,46 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
+	var oldSettings *Settings
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		oldSettings, err = transaction.GetAccountSettings(ctx, LockingStrengthUpdate, accountID)
+		if err != nil {
+			return err
+		}
+
+		if err = am.validateExtraSettings(ctx, transaction, newSettings, oldSettings, userID, accountID); err != nil {
+			return err
+		}
+
+		return transaction.SaveAccountSettings(ctx, LockingStrengthUpdate, accountID, newSettings)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
+
+	return newSettings, nil
+}
+
+// validateExtraSettings validates the extra settings of the account.
+func (am *DefaultAccountManager) validateExtraSettings(ctx context.Context, transaction Store, newSettings, oldSettings *Settings, userID, accountID string) error {
+	peers, err := transaction.GetAccountPeers(ctx, LockingStrengthShare, accountID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	if !user.HasAdminPower() {
-		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	peersMap := make(map[string]*nbpeer.Peer, len(peers))
+	for _, peer := range peers {
+		peersMap[peer.ID] = peer
 	}
 
-	err = am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID)
-	if err != nil {
-		return nil, err
-	}
+	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, peersMap, userID, accountID)
+}
 
-	oldSettings := account.Settings
+func (am *DefaultAccountManager) handlePeerLoginExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) {
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
 		if !newSettings.PeerLoginExpirationEnabled {
@@ -1170,23 +1200,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 	}
-
-	err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	updatedAccount := account.UpdateSettings(newSettings)
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return nil, err
-	}
-
-	return updatedAccount, nil
 }
 
-func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) error {
+func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) {
 	if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
 		event := activity.AccountPeerInactivityExpirationEnabled
 		if !newSettings.PeerInactivityExpirationEnabled {
@@ -1202,8 +1218,6 @@ func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 	}
-
-	return nil
 }
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
@@ -2412,8 +2426,12 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 		return nil, err
 	}
 
-	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
-		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
