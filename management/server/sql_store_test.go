@@ -2662,3 +2662,13 @@ func TestSqlStore_SaveAccountSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, settings, saveSettings)
 }
+
+func TestSqlStore_GetTotalAccounts(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	totalAccounts, err := store.GetTotalAccounts(context.Background(), LockingStrengthShare)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), totalAccounts)
+}

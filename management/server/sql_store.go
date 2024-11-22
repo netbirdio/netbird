@@ -877,6 +877,17 @@ func (s *SqlStore) GetAccountCreatedBy(ctx context.Context, lockStrength Locking
 	return createdBy, nil
 }
 
+func (s *SqlStore) GetTotalAccounts(ctx context.Context, lockStrength LockingStrength) (int64, error) {
+	var count int64
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).Count(&count)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get total accounts from store: %s", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to get total accounts from store")
+	}
+
+	return count, nil
+}
+
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error {
 	var user User
