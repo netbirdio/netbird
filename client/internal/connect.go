@@ -232,6 +232,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		relayURLs, token := parseRelayInfo(loginResp)
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
 				if err := relayManager.UpdateToken(token); err != nil {
@@ -242,9 +243,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 			log.Infof("connecting to the Relay service(s): %s", strings.Join(relayURLs, ", "))
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
-				return wrapErr(err)
 			}
-			c.statusRecorder.SetRelayMgr(relayManager)
 		}
 
 		peerConfig := loginResp.GetPeerConfig()

@@ -676,25 +676,23 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	// extend the list of stun, turn servers with relay address
 	relayStates := slices.Clone(d.relayStates)
 
-	var relayState relay.ProbeResult
-
 	// if the server connection is not established then we will use the general address
 	// in case of connection we will use the instance specific address
 	instanceAddr, err := d.relayMgr.RelayInstanceAddress()
 	if err != nil {
 		// TODO add their status
-		if errors.Is(err, relayClient.ErrRelayClientNotConnected) {
-			for _, r := range d.relayMgr.ServerURLs() {
-				relayStates = append(relayStates, relay.ProbeResult{
-					URI: r,
-				})
-			}
-			return relayStates
+		for _, r := range d.relayMgr.ServerURLs() {
+			relayStates = append(relayStates, relay.ProbeResult{
+				URI: r,
+				Err: err,
+			})
 		}
-		relayState.Err = err
+		return relayStates
 	}
 
-	relayState.URI = instanceAddr
+	relayState := relay.ProbeResult{
+		URI: instanceAddr,
+	}
 	return append(relayStates, relayState)
 }
 
