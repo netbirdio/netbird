@@ -2589,3 +2589,76 @@ func TestSqlStore_DeleteRoute(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, route)
 }
+
+func TestSqlStore_GetAccountSettings(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		accountID   string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing account settings",
+			accountID:   "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing account settings",
+			accountID:   "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve account settings with empty account ID",
+			accountID:   "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings, err := store.GetAccountSettings(context.Background(), LockingStrengthShare, tt.accountID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, settings)
+			} else {
+				require.NoError(t, err)
+				require.False(t, settings.RegularUsersViewBlocked)
+				require.False(t, settings.JWTGroupsEnabled)
+				require.False(t, settings.GroupsPropagationEnabled)
+				require.False(t, settings.PeerInactivityExpirationEnabled)
+				require.False(t, settings.PeerLoginExpirationEnabled)
+				require.False(t, settings.Extra.PeerApprovalEnabled)
+				require.Equal(t, time.Duration(86400000000000), settings.PeerLoginExpiration)
+				require.Equal(t, time.Duration(0), settings.PeerInactivityExpiration)
+				require.Len(t, settings.Extra.IntegratedValidatorGroups, 0)
+			}
+		})
+	}
+}
+
+func TestSqlStore_SaveAccountSettings(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	settings, err := store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+
+	settings.Extra.IntegratedValidatorGroups = []string{"groupA"}
+	settings.RegularUsersViewBlocked = true
+	settings.PeerInactivityExpiration = 30 * time.Minute
+	err = store.SaveAccountSettings(context.Background(), LockingStrengthUpdate, accountID, settings)
+	require.NoError(t, err)
+
+	saveSettings, err := store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Equal(t, settings, saveSettings)
+}
