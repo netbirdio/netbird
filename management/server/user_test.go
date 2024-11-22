@@ -53,7 +53,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
@@ -97,7 +97,7 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
@@ -119,7 +119,7 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
@@ -142,7 +142,7 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockWrongExpiresIn)
@@ -161,7 +161,7 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockEmptyTokenName, mockExpiresIn)
@@ -188,7 +188,7 @@ func TestUser_DeletePAT(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	err = am.DeletePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenID1)
@@ -225,7 +225,7 @@ func TestUser_GetPAT(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	pat, err := am.GetPAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenID1)
@@ -262,7 +262,7 @@ func TestUser_GetAllPATs(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	pats, err := am.GetAllPATs(context.Background(), mockAccountID, mockUserID, mockUserID)
@@ -352,7 +352,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	user, err := am.createServiceUser(context.Background(), mockAccountID, mockUserID, mockRole, mockServiceUserName, false, []string{"group1", "group2"})
@@ -393,7 +393,7 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	user, err := am.CreateUser(context.Background(), mockAccountID, mockUserID, &UserInfo{
@@ -435,7 +435,7 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	_, err = am.CreateUser(context.Background(), mockAccountID, mockUserID, &UserInfo{
@@ -460,7 +460,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:        store,
-		EventStore:   &activity.InMemoryEventStore{},
+		eventStore:   &activity.InMemoryEventStore{},
 		cacheLoading: map[string]chan struct{}{},
 	}
 
@@ -560,7 +560,7 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 
 			am := DefaultAccountManager{
 				Store:      store,
-				EventStore: &activity.InMemoryEventStore{},
+				eventStore: &activity.InMemoryEventStore{},
 			}
 
 			err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockServiceUserID)
@@ -592,7 +592,7 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockUserID)
@@ -640,7 +640,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:                   store,
-		EventStore:              &activity.InMemoryEventStore{},
+		eventStore:              &activity.InMemoryEventStore{},
 		integratedPeerValidator: MocIntegratedValidator{},
 	}
 
@@ -744,7 +744,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:                   store,
-		EventStore:              &activity.InMemoryEventStore{},
+		eventStore:              &activity.InMemoryEventStore{},
 		integratedPeerValidator: MocIntegratedValidator{},
 	}
 
@@ -846,7 +846,7 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	claims := jwtclaims.AuthorizationClaims{
@@ -877,7 +877,7 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	users, err := am.ListUsers(context.Background(), mockAccountID)
@@ -959,7 +959,7 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 
 			am := DefaultAccountManager{
 				Store:      store,
-				EventStore: &activity.InMemoryEventStore{},
+				eventStore: &activity.InMemoryEventStore{},
 			}
 
 			users, err := am.ListUsers(context.Background(), mockAccountID)
@@ -998,7 +998,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:        store,
-		EventStore:   &activity.InMemoryEventStore{},
+		eventStore:   &activity.InMemoryEventStore{},
 		idpManager:   &idp.GoogleWorkspaceManager{}, // empty manager
 		cacheLoading: map[string]chan struct{}{},
 		cacheManager: cache.New[[]*idp.UserData](
@@ -1057,7 +1057,7 @@ func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	users, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
@@ -1086,7 +1086,7 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 
 	am := DefaultAccountManager{
 		Store:      store,
-		EventStore: &activity.InMemoryEventStore{},
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	users, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockServiceUserID)

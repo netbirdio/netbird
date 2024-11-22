@@ -166,7 +166,7 @@ type DefaultAccountManager struct {
 	cacheManager         cache.CacheInterface[[]*idp.UserData]
 	externalCacheManager ExternalCacheManager
 	ctx                  context.Context
-	EventStore           activity.Store
+	eventStore           activity.Store
 	geo                  geolocation.Geolocation
 
 	requestBuffer *AccountRequestBuffer
@@ -1055,7 +1055,7 @@ func BuildManager(
 		cacheMux:                 sync.Mutex{},
 		cacheLoading:             map[string]chan struct{}{},
 		dnsDomain:                dnsDomain,
-		EventStore:               eventStore,
+		eventStore:               eventStore,
 		peerLoginExpiry:          NewDefaultScheduler(),
 		peerInactivityExpiry:     NewDefaultScheduler(),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,

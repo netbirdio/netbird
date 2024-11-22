@@ -14,7 +14,7 @@ func generateAndStoreEvents(t *testing.T, manager *DefaultAccountManager, typ ac
 	accountID string, count int) {
 	t.Helper()
 	for i := 0; i < count; i++ {
-		_, err := manager.EventStore.Save(context.Background(), &activity.Event{
+		_, err := manager.eventStore.Save(context.Background(), &activity.Event{
 			Timestamp:   time.Now().UTC(),
 			Activity:    typ,
 			InitiatorID: initiatorID,
@@ -41,7 +41,7 @@ func TestDefaultAccountManager_GetEvents(t *testing.T) {
 			return
 		}
 		assert.Len(t, events, 0)
-		_ = manager.EventStore.Close(context.Background()) //nolint
+		_ = manager.eventStore.Close(context.Background()) //nolint
 	})
 
 	t.Run("get events", func(t *testing.T) {
@@ -52,7 +52,7 @@ func TestDefaultAccountManager_GetEvents(t *testing.T) {
 		}
 
 		assert.Len(t, events, 10)
-		_ = manager.EventStore.Close(context.Background()) //nolint
+		_ = manager.eventStore.Close(context.Background()) //nolint
 	})
 
 	t.Run("get events without duplicates", func(t *testing.T) {
@@ -62,6 +62,6 @@ func TestDefaultAccountManager_GetEvents(t *testing.T) {
 			return
 		}
 		assert.Len(t, events, 1)
-		_ = manager.EventStore.Close(context.Background()) //nolint
+		_ = manager.eventStore.Close(context.Background()) //nolint
 	})
 }

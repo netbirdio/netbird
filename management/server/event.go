@@ -30,7 +30,7 @@ func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userI
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view events")
 	}
 
-	events, err := am.EventStore.Get(ctx, accountID, 0, 10000, true)
+	events, err := am.eventStore.Get(ctx, accountID, 0, 10000, true)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userI
 func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 
 	go func() {
-		_, err := am.EventStore.Save(ctx, &activity.Event{
+		_, err := am.eventStore.Save(ctx, &activity.Event{
 			Timestamp:   time.Now().UTC(),
 			Activity:    activityID,
 			InitiatorID: initiatorID,

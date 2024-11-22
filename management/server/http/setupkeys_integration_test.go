@@ -81,11 +81,16 @@ func Test_SetupKeys_Create_Success(t *testing.T) {
 			t.Cleanup(cleanup)
 
 			metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
-			am := server.DefaultAccountManager{
-				Store:      store,
-				EventStore: &activity.InMemoryEventStore{},
+
+			peersUpdateManager := &server.PeersUpdateManager{}
+			geoMock := &geolocation.GeolocationMock{}
+			validatorMock := server.MocIntegratedValidator{}
+			am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics)
+			if err != nil {
+				t.Fatalf("Failed to create manager: %v", err)
 			}
-			apiHandler, err := APIHandler(context.Background(), &am, &geolocation.GeolocationMock{}, &jwtclaims.JwtValidatorMock{}, metrics, AuthCfg{}, server.MocIntegratedValidator{})
+
+			apiHandler, err := APIHandler(context.Background(), am, geoMock, &jwtclaims.JwtValidatorMock{}, metrics, AuthCfg{}, validatorMock)
 			if err != nil {
 				t.Fatalf("Failed to create API handler: %v", err)
 			}
