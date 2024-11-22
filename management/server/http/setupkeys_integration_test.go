@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,14 +28,19 @@ const (
 	testAccountId = "testUserId"
 	testUserId    = "testAccountId"
 	testPeerId    = "testPeerId"
+	testGroupId   = "testGroupId"
+	testKeyId     = "testKeyId"
 
-	newKeyName = "newKey"
-	expiresIn  = 3600
+	newKeyName   = "newKey"
+	newGroupId   = "newGroupId"
+	expiresIn    = 3600
+	revokedKeyId = "revokedKeyId"
+	expiredKeyId = "expiredKeyId"
 
 	existingKeyName = "existingKey"
 )
 
-func Test_SetupKeys(t *testing.T) {
+func Test_SetupKeys_Create(t *testing.T) {
 	truePointer := true
 	tt := []struct {
 		name             string
@@ -149,15 +156,15 @@ func Test_SetupKeys(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
-				AutoGroups: []string{"testGroup"},
+				AutoGroups: []string{testGroupId},
 				ExpiresIn:  expiresIn,
 				Name:       newKeyName,
 				Type:       "reusable",
-				UsageLimit: 0,
+				UsageLimit: 1,
 			},
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{"testGroup"},
+				AutoGroups: []string{testGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
@@ -217,6 +224,35 @@ func Test_SetupKeys(t *testing.T) {
 			expectedStatus:   http.StatusUnprocessableEntity,
 			expectedResponse: nil,
 		},
+		{
+			name:        "Create Setup Key",
+			requestType: http.MethodPost,
+			requestPath: "/api/setup-keys",
+			requestBody: &api.CreateSetupKeyRequest{
+				AutoGroups: nil,
+				ExpiresIn:  expiresIn,
+				Name:       newKeyName,
+				Type:       "reusable",
+				UsageLimit: 0,
+			},
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       newKeyName,
+				Revoked:    false,
+				State:      "valid",
+				Type:       "reusable",
+				UpdatedAt:  time.Now(),
+				UsageLimit: 0,
+				UsedTimes:  0,
+				Valid:      true,
+			},
+		},
 	}
 
 	for _, tc := range tt {
@@ -250,6 +286,600 @@ func Test_SetupKeys(t *testing.T) {
 			}
 
 			validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+	}
+}
+
+func Test_SetupKeys_Update(t *testing.T) {
+	tt := []struct {
+		name             string
+		expectedStatus   int
+		expectedResponse *api.SetupKey
+		requestBody      *api.SetupKeyRequest
+		requestType      string
+		requestPath      string
+		requestId        string
+	}{
+		{
+			name:        "Add existing Group to existing Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   testKeyId,
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{testGroupId, newGroupId},
+				Revoked:    false,
+			},
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId, newGroupId},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    false,
+				State:      "valid",
+				Type:       "one-off",
+				UpdatedAt:  time.Now(),
+				UsageLimit: 1,
+				UsedTimes:  0,
+				Valid:      true,
+			},
+		},
+		{
+			name:        "Add non-existing Group to existing Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   testKeyId,
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{testGroupId, "someGroupId"},
+				Revoked:    false,
+			},
+			expectedStatus:   http.StatusUnprocessableEntity,
+			expectedResponse: nil,
+		},
+		{
+			name:        "Add existing Group to non-existing Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   "someId",
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{testGroupId, newGroupId},
+				Revoked:    false,
+			},
+			expectedStatus:   http.StatusNotFound,
+			expectedResponse: nil,
+		},
+		{
+			name:        "Remove existing Group from existing Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   testKeyId,
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{},
+				Revoked:    false,
+			},
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    false,
+				State:      "valid",
+				Type:       "one-off",
+				UpdatedAt:  time.Now(),
+				UsageLimit: 1,
+				UsedTimes:  0,
+				Valid:      true,
+			},
+		},
+		{
+			name:        "Remove existing Group to non-existing Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   "someID",
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{},
+				Revoked:    false,
+			},
+			expectedStatus:   http.StatusNotFound,
+			expectedResponse: nil,
+		},
+		{
+			name:        "Revoke existing valid Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   testKeyId,
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{testGroupId},
+				Revoked:    true,
+			},
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    true,
+				State:      "revoked",
+				Type:       "one-off",
+				UpdatedAt:  time.Now(),
+				UsageLimit: 1,
+				UsedTimes:  0,
+				Valid:      false,
+			},
+		},
+		{
+			name:        "Revoke existing revoked Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   revokedKeyId,
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{testGroupId},
+				Revoked:    true,
+			},
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    true,
+				State:      "revoked",
+				Type:       "reusable",
+				UpdatedAt:  time.Now(),
+				UsageLimit: 3,
+				UsedTimes:  0,
+				Valid:      false,
+			},
+		},
+		{
+			name:        "Un-Revoke existing revoked Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   revokedKeyId,
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{testGroupId},
+				Revoked:    false,
+			},
+			expectedStatus:   http.StatusUnprocessableEntity,
+			expectedResponse: nil,
+		},
+		{
+			name:        "Revoke existing expired Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/{id}",
+			requestId:   expiredKeyId,
+			requestBody: &api.SetupKeyRequest{
+				AutoGroups: []string{testGroupId},
+				Revoked:    true,
+			},
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  true,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    true,
+				State:      "expired",
+				Type:       "reusable",
+				UpdatedAt:  time.Now(),
+				UsageLimit: 5,
+				UsedTimes:  1,
+				Valid:      false,
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+
+			body, err := json.Marshal(tc.requestBody)
+			if err != nil {
+				t.Fatalf("Failed to marshal request body: %v", err)
+			}
+
+			req := buildRequest(t, body, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1))
+
+			recorder := httptest.NewRecorder()
+
+			apiHandler.ServeHTTP(recorder, req)
+
+			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
+			if noResponseExpected {
+				return
+			}
+			got := &api.SetupKey{}
+			if err := json.Unmarshal(content, &got); err != nil {
+				t.Fatalf("Sent content is not in correct json format; %v", err)
+			}
+
+			validateCreatedKey(t, tc.expectedResponse, got)
+
+			key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+			if err != nil {
+				return
+			}
+
+			validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+	}
+}
+
+func Test_SetupKeys_Get(t *testing.T) {
+	tt := []struct {
+		name             string
+		expectedStatus   int
+		expectedResponse *api.SetupKey
+		requestType      string
+		requestPath      string
+		requestId        string
+	}{
+		{
+			name:           "Get existing valid Setup Key",
+			requestType:    http.MethodGet,
+			requestPath:    "/api/setup-keys/{id}",
+			requestId:      testKeyId,
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    false,
+				State:      "valid",
+				Type:       "one-off",
+				UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+				UsageLimit: 1,
+				UsedTimes:  0,
+				Valid:      true,
+			},
+		},
+		{
+			name:           "Get existing expired Setup Key",
+			requestType:    http.MethodGet,
+			requestPath:    "/api/setup-keys/{id}",
+			requestId:      expiredKeyId,
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  true,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    false,
+				State:      "expired",
+				Type:       "reusable",
+				UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+				UsageLimit: 5,
+				UsedTimes:  1,
+				Valid:      false,
+			},
+		},
+		{
+			name:           "Get existing revoked Setup Key",
+			requestType:    http.MethodGet,
+			requestPath:    "/api/setup-keys/{id}",
+			requestId:      revokedKeyId,
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    true,
+				State:      "revoked",
+				Type:       "reusable",
+				UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+				UsageLimit: 3,
+				UsedTimes:  0,
+				Valid:      false,
+			},
+		},
+		{
+			name:             "Get non-existing Setup Key",
+			requestType:      http.MethodGet,
+			requestPath:      "/api/setup-keys/{id}",
+			requestId:        "someId",
+			expectedStatus:   http.StatusNotFound,
+			expectedResponse: nil,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+
+			req := buildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1))
+
+			recorder := httptest.NewRecorder()
+
+			apiHandler.ServeHTTP(recorder, req)
+
+			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
+			if noResponseExpected {
+				return
+			}
+			got := &api.SetupKey{}
+			if err := json.Unmarshal(content, &got); err != nil {
+				t.Fatalf("Sent content is not in correct json format; %v", err)
+			}
+
+			validateCreatedKey(t, tc.expectedResponse, got)
+
+			key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+			if err != nil {
+				return
+			}
+
+			validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+	}
+}
+
+func Test_SetupKeys_GetAll(t *testing.T) {
+	tt := []struct {
+		name             string
+		expectedStatus   int
+		expectedResponse []*api.SetupKey
+		requestType      string
+		requestPath      string
+	}{
+		{
+			name:           "Get all Setup Keys",
+			requestType:    http.MethodGet,
+			requestPath:    "/api/setup-keys",
+			expectedStatus: http.StatusOK,
+			expectedResponse: []*api.SetupKey{
+				{
+					AutoGroups: []string{testGroupId},
+					Ephemeral:  false,
+					Expires:    time.Time{},
+					Id:         "",
+					Key:        "",
+					LastUsed:   time.Time{},
+					Name:       existingKeyName,
+					Revoked:    false,
+					State:      "valid",
+					Type:       "one-off",
+					UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+					UsageLimit: 1,
+					UsedTimes:  0,
+					Valid:      true,
+				},
+				{
+					AutoGroups: []string{testGroupId},
+					Ephemeral:  false,
+					Expires:    time.Time{},
+					Id:         "",
+					Key:        "",
+					LastUsed:   time.Time{},
+					Name:       existingKeyName,
+					Revoked:    true,
+					State:      "revoked",
+					Type:       "reusable",
+					UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+					UsageLimit: 3,
+					UsedTimes:  0,
+					Valid:      false,
+				},
+				{
+					AutoGroups: []string{testGroupId},
+					Ephemeral:  true,
+					Expires:    time.Time{},
+					Id:         "",
+					Key:        "",
+					LastUsed:   time.Time{},
+					Name:       existingKeyName,
+					Revoked:    false,
+					State:      "expired",
+					Type:       "reusable",
+					UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+					UsageLimit: 5,
+					UsedTimes:  1,
+					Valid:      false,
+				},
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+
+			req := buildRequest(t, []byte{}, tc.requestType, tc.requestPath)
+
+			recorder := httptest.NewRecorder()
+
+			apiHandler.ServeHTTP(recorder, req)
+
+			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
+			if noResponseExpected {
+				return
+			}
+			got := []api.SetupKey{}
+			if err := json.Unmarshal(content, &got); err != nil {
+				t.Fatalf("Sent content is not in correct json format; %v", err)
+			}
+
+			sort.Slice(got, func(i, j int) bool {
+				return got[i].UsageLimit < got[j].UsageLimit
+			})
+
+			sort.Slice(tc.expectedResponse, func(i, j int) bool {
+				return tc.expectedResponse[i].UsageLimit < tc.expectedResponse[j].UsageLimit
+			})
+
+			for i, _ := range tc.expectedResponse {
+				validateCreatedKey(t, tc.expectedResponse[i], &got[i])
+
+				key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got[i].Id)
+				if err != nil {
+					return
+				}
+
+				validateCreatedKey(t, tc.expectedResponse[i], toResponseBody(key))
+			}
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			}
+		})
+	}
+}
+
+func Test_SetupKeys_Delete(t *testing.T) {
+	tt := []struct {
+		name             string
+		expectedStatus   int
+		expectedResponse *api.SetupKey
+		requestType      string
+		requestPath      string
+		requestId        string
+	}{
+		{
+			name:           "Delete existing valid Setup Key",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/setup-keys/{id}",
+			requestId:      testKeyId,
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    false,
+				State:      "valid",
+				Type:       "one-off",
+				UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+				UsageLimit: 1,
+				UsedTimes:  0,
+				Valid:      true,
+			},
+		},
+		{
+			name:           "Delete existing expired Setup Key",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/setup-keys/{id}",
+			requestId:      expiredKeyId,
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  true,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    false,
+				State:      "expired",
+				Type:       "reusable",
+				UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+				UsageLimit: 5,
+				UsedTimes:  1,
+				Valid:      false,
+			},
+		},
+		{
+			name:           "Delete existing revoked Setup Key",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/setup-keys/{id}",
+			requestId:      revokedKeyId,
+			expectedStatus: http.StatusOK,
+			expectedResponse: &api.SetupKey{
+				AutoGroups: []string{testGroupId},
+				Ephemeral:  false,
+				Expires:    time.Time{},
+				Id:         "",
+				Key:        "",
+				LastUsed:   time.Time{},
+				Name:       existingKeyName,
+				Revoked:    true,
+				State:      "revoked",
+				Type:       "reusable",
+				UpdatedAt:  time.Date(2021, time.August, 19, 20, 46, 20, 5936822, time.Local),
+				UsageLimit: 3,
+				UsedTimes:  0,
+				Valid:      false,
+			},
+		},
+		{
+			name:             "Delete non-existing Setup Key",
+			requestType:      http.MethodDelete,
+			requestPath:      "/api/setup-keys/{id}",
+			requestId:        "someId",
+			expectedStatus:   http.StatusNotFound,
+			expectedResponse: nil,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+
+			req := buildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1))
+
+			recorder := httptest.NewRecorder()
+
+			apiHandler.ServeHTTP(recorder, req)
+
+			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
+			if noResponseExpected {
+				return
+			}
+			got := &api.SetupKey{}
+			if err := json.Unmarshal(content, &got); err != nil {
+				t.Fatalf("Sent content is not in correct json format; %v", err)
+			}
+
+			_, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+			assert.Errorf(t, err, "Expected error when trying to get deleted key")
 
 			select {
 			case <-done:
@@ -327,18 +957,20 @@ func readResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedSta
 func validateCreatedKey(t *testing.T, expectedKey *api.SetupKey, got *api.SetupKey) {
 	t.Helper()
 
-	if got.Expires.After(time.Now().Add(-1*time.Minute)) && got.Expires.Before(time.Now().Add(expiresIn*time.Second)) {
+	if got.Expires.After(time.Now().Add(-1*time.Minute)) && got.Expires.Before(time.Now().Add(expiresIn*time.Second)) ||
+		got.Expires.After(time.Date(2300, 01, 01, 0, 0, 0, 0, time.Local)) ||
+		got.Expires.Before(time.Date(1950, 01, 01, 0, 0, 0, 0, time.Local)) {
 		got.Expires = time.Time{}
 		expectedKey.Expires = time.Time{}
 	}
 
 	if got.Id == "" {
-		t.Error("Expected key to have an ID")
+		t.Fatalf("Expected key to have an ID")
 	}
 	got.Id = ""
 
 	if got.Key == "" {
-		t.Error("Expected key to have a key")
+		t.Fatalf("Expected key to have a key")
 	}
 	got.Key = ""
 

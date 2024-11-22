@@ -305,7 +305,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = validateSetupKeyAutoGroups(ctx, transaction, accountID, keyToSave.AutoGroups); err != nil {
-			return err
+			return status.Errorf(status.InvalidArgument, "invalid auto groups: %v", err)
 		}
 
 		oldKey, err = transaction.GetSetupKeyByID(ctx, LockingStrengthShare, accountID, keyToSave.Id)
