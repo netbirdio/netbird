@@ -22,7 +22,7 @@ func CustomRoutingDisabled() bool {
 
 func SkipSocketMark() bool {
 	if skipSocketMark := os.Getenv(envSkipSocketMark); skipSocketMark == "true" {
-		log.Info("%s is set to true, skipping SO_MARK", envSkipSocketMark)
+		log.Infof("%s is set to true, skipping SO_MARK", envSkipSocketMark)
 		return true
 	}
 	return false
