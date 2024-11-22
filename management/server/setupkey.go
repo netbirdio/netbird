@@ -248,7 +248,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		if err = validateSetupKeyAutoGroups(ctx, transaction, accountID, autoGroups); err != nil {
-			return err
+			return status.Errorf(status.InvalidArgument, "invalid auto groups: %v", err)
 		}
 
 		setupKey, plainKey = GenerateSetupKey(keyName, keyType, expiresIn, autoGroups, usageLimit, ephemeral)
