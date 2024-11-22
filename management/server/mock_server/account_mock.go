@@ -89,7 +89,7 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc                  func(ctx context.Context, accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc                 func(ctx context.Context, accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                         func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error)
+	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Settings, error)
 	LoginPeerFunc                       func(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	SyncPeerFunc                        func(ctx context.Context, sync server.PeerSync, accountID string) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	InviteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
@@ -672,7 +672,7 @@ func (am *MockAccountManager) GetPeer(ctx context.Context, accountID, peerID, us
 }
 
 // UpdateAccountSettings mocks UpdateAccountSettings of the AccountManager interface
-func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
+func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Settings, error) {
 	if am.UpdateAccountSettingsFunc != nil {
 		return am.UpdateAccountSettingsFunc(ctx, accountID, userID, newSettings)
 	}
