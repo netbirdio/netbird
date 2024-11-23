@@ -965,7 +965,9 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(user *User, groups []*nbgro
 }
 
 // UserGroupsAddToPeers adds groups to all peers of user
-func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
+func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) map[string][]string {
+	groupUpdates := make(map[string][]string)
+
 	userPeers := make(map[string]struct{})
 	for pid, peer := range a.Peers {
 		if peer.UserID == userID {
@@ -978,6 +980,8 @@ func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
 		if !ok {
 			continue
 		}
+
+		oldPeers := group.Peers
 
 		groupPeers := make(map[string]struct{})
 		for _, pid := range group.Peers {
@@ -992,16 +996,25 @@ func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
 		for pid := range groupPeers {
 			group.Peers = append(group.Peers, pid)
 		}
+
+		groupUpdates[gid] = difference(group.Peers, oldPeers)
 	}
+
+	return groupUpdates
 }
 
 // UserGroupsRemoveFromPeers removes groups from all peers of user
-func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
+func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) map[string][]string {
+	groupUpdates := make(map[string][]string)
+
 	for _, gid := range groups {
 		group, ok := a.Groups[gid]
 		if !ok || group.Name == "All" {
 			continue
 		}
+
+		oldPeers := group.Peers
+
 		update := make([]string, 0, len(group.Peers))
 		for _, pid := range group.Peers {
 			peer, ok := a.Peers[pid]
@@ -1013,7 +1026,10 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 			}
 		}
 		group.Peers = update
+		groupUpdates[gid] = difference(oldPeers, group.Peers)
 	}
+
+	return groupUpdates
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1175,6 +1191,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
+	err = am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("groups propagation failed: %w", err)
+	}
+
 	updatedAccount := account.UpdateSettings(newSettings)
 
 	err = am.Store.SaveAccount(ctx, account)
@@ -1183,6 +1204,19 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	return updatedAccount, nil
+}
+
+func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) error {
+	if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled {
+		if newSettings.GroupsPropagationEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationEnabled, nil)
+			// Todo: retroactively add user groups to all peers
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationDisabled, nil)
+		}
+	}
+
+	return nil
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, account *Account, oldSettings, newSettings *Settings, userID, accountID string) error {

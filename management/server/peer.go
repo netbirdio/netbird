@@ -667,6 +667,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 	updated := peer.UpdateMetaIfNew(sync.Meta)
 	if updated {
+		am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
+		account.Peers[peer.ID] = peer
 		log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 		err = am.Store.SavePeer(ctx, account.Id, peer)
 		if err != nil {
@@ -800,6 +802,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 
 	updated := peer.UpdateMetaIfNew(login.Meta)
 	if updated {
+		am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 		shouldStorePeer = true
 	}
 
@@ -988,6 +991,12 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, accountID string) {
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send out updates to peers: %v", err)
+		return
+	}
+
 	start := time.Now()
 	defer func() {
 		if am.metrics != nil {
@@ -995,11 +1004,6 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 		}
 	}()
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send out updates to peers: %v", err)
-		return
-	}
 	peers := account.GetPeers()
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)

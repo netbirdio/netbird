@@ -439,17 +439,13 @@ components:
               example: 5
           required:
             - accessible_peers_count
-    SetupKey:
+    SetupKeyBase:
       type: object
       properties:
         id:
           description: Setup Key ID
           type: string
           example: 2531583362
-        key:
-          description: Setup Key value
-          type: string
-          example: A616097E-FCF0-48FA-9354-CA4A61142761
         name:
           description: Setup key name identifier
           type: string
@@ -518,6 +514,28 @@ components:
         - updated_at
         - usage_limit
         - ephemeral
+    SetupKeyClear:
+      allOf:
+        - $ref: '#/components/schemas/SetupKeyBase'
+        - type: object
+          properties:
+            key:
+              description: Setup Key as plain text
+              type: string
+              example: A616097E-FCF0-48FA-9354-CA4A61142761
+          required:
+            - key
+    SetupKey:
+      allOf:
+        - $ref: '#/components/schemas/SetupKeyBase'
+        - type: object
+          properties:
+            key:
+              description: Setup Key as secret
+              type: string
+              example: A6160****
+          required:
+            - key
     SetupKeyRequest:
       type: object
       properties:
@@ -1918,7 +1936,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SetupKey'
+                $ref: '#/components/schemas/SetupKeyClear'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
