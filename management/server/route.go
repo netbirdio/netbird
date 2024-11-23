@@ -421,25 +421,32 @@ func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string,
 
 		for _, accessGroup := range route.AccessControlGroups {
 			policies := getAllRoutePoliciesFromGroups(a, []string{accessGroup})
-			for _, policy := range policies {
-				if !policy.Enabled {
-					continue
-				}
-
-				for _, rule := range policy.Rules {
-					if !rule.Enabled {
-						continue
-					}
-
-					rulePeers := a.getRulePeers(rule, peerID, distributionPeers, validatedPeersMap)
-					rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, firewallRuleDirectionIN)
-					routesFirewallRules = append(routesFirewallRules, rules...)
-				}
-			}
+			rules := a.getRouteFirewallRules(ctx, peerID, policies, route, validatedPeersMap, distributionPeers)
+			routesFirewallRules = append(routesFirewallRules, rules...)
 		}
 	}
 
 	return routesFirewallRules
+}
+
+func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, policies []*Policy, route *route.Route, validatedPeersMap map[string]struct{}, distributionPeers map[string]struct{}) []*RouteFirewallRule {
+	fwRules := make([]*RouteFirewallRule, 0)
+	for _, policy := range policies {
+		if !policy.Enabled {
+			continue
+		}
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			rulePeers := a.getRulePeers(rule, peerID, distributionPeers, validatedPeersMap)
+			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, firewallRuleDirectionIN)
+			fwRules = append(fwRules, rules...)
+		}
+	}
+	return fwRules
 }
 
 func (a *Account) getRulePeers(rule *PolicyRule, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
