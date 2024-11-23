@@ -130,11 +130,6 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 				return publicKey, nil
 			}
 
-			if err != nil {
-				log.WithContext(ctx).Errorf("getPublicKey error: %s", err)
-				return nil, err
-			}
-
 			msg := fmt.Sprintf("getPublicKey error: %s", err)
 			if errors.Is(err, keyNotFound) && !idpSignkeyRefreshEnabled {
 				msg = fmt.Sprintf("getPublicKey error: %s. You can enable key refresh by setting HttpServerConfig.IdpSignKeyRefreshEnabled to true in your management.json file and restart the service", err)
