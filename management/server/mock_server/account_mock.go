@@ -22,9 +22,9 @@ import (
 )
 
 type MockAccountManager struct {
-	GetOrCreateAccountByUserFunc func(ctx context.Context, userId, domain string) (*server.Account, error)
-	GetAccountFunc               func(ctx context.Context, accountID string) (*server.Account, error)
-	CreateSetupKeyFunc           func(ctx context.Context, accountId string, keyName string, keyType server.SetupKeyType,
+	GetOrCreateAccountIDByUserFunc func(ctx context.Context, userId, domain string) (string, error)
+	GetAccountFunc                 func(ctx context.Context, accountID string) (*server.Account, error)
+	CreateSetupKeyFunc             func(ctx context.Context, accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*server.SetupKey, error)
 	GetSetupKeyFunc                     func(ctx context.Context, accountID, userID, keyID string) (*server.SetupKey, error)
 	AccountExistsFunc                   func(ctx context.Context, accountID string) (bool, error)
@@ -176,16 +176,16 @@ func (am *MockAccountManager) DeletePeer(ctx context.Context, accountID, peerID,
 	return status.Errorf(codes.Unimplemented, "method DeletePeer is not implemented")
 }
 
-// GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
-func (am *MockAccountManager) GetOrCreateAccountByUser(
+// GetOrCreateAccountIDByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
+func (am *MockAccountManager) GetOrCreateAccountIDByUser(
 	ctx context.Context, userId, domain string,
-) (*server.Account, error) {
-	if am.GetOrCreateAccountByUserFunc != nil {
-		return am.GetOrCreateAccountByUserFunc(ctx, userId, domain)
+) (string, error) {
+	if am.GetOrCreateAccountIDByUserFunc != nil {
+		return am.GetOrCreateAccountIDByUserFunc(ctx, userId, domain)
 	}
-	return nil, status.Errorf(
+	return "", status.Errorf(
 		codes.Unimplemented,
-		"method GetOrCreateAccountByUser is not implemented",
+		"method GetOrCreateAccountIDByUser is not implemented",
 	)
 }
 

@@ -332,24 +332,27 @@ func (s *SqlStore) SavePeer(ctx context.Context, lockStrength LockingStrength, a
 	return nil
 }
 
-func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error {
+func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, lockStrength LockingStrength, accountID string, domain string, category string, isPrimaryDomain *bool) error {
 	accountCopy := Account{
-		Domain:                 domain,
-		DomainCategory:         category,
-		IsDomainPrimaryAccount: isPrimaryDomain,
+		Domain:         domain,
+		DomainCategory: category,
 	}
 
-	fieldsToUpdate := []string{"domain", "domain_category", "is_domain_primary_account"}
-	result := s.db.Model(&Account{}).
-		Select(fieldsToUpdate).
-		Where(idQueryCondition, accountID).
-		Updates(&accountCopy)
+	fieldsToUpdate := []string{"domain", "domain_category"}
+	if isPrimaryDomain != nil {
+		accountCopy.IsDomainPrimaryAccount = *isPrimaryDomain
+		fieldsToUpdate = append(fieldsToUpdate, "is_domain_primary_account")
+	}
+
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).Select(fieldsToUpdate).
+		Where(idQueryCondition, accountID).Updates(&accountCopy)
 	if result.Error != nil {
-		return result.Error
+		log.WithContext(ctx).Errorf("failed to update account domain attributes in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update account domain attributes in store")
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "account %s", accountID)
+		return status.NewAccountNotFoundError(accountID)
 	}
 
 	return nil
@@ -1725,6 +1728,15 @@ func (s *SqlStore) SaveAccountSettings(ctx context.Context, lockStrength Locking
 		return status.NewAccountNotFoundError(accountID)
 	}
 
+	return nil
+}
+
+func (s *SqlStore) CreateAccount(ctx context.Context, lockStrength LockingStrength, account *Account) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Create(&account)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save new account in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save new account in store")
+	}
 	return nil
 }
 
