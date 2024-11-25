@@ -92,17 +92,6 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 		return r.setupRefCounter(initAddresses, stateManager)
 	}
 
-	if err = addRoutingTableName(); err != nil {
-		log.Errorf("Error adding routing table name: %v", err)
-	}
-
-	originalValues, err := sysctl.Setup(r.wgInterface)
-	if err != nil {
-		log.Errorf("Error setting up sysctl: %v", err)
-		sysctlFailed = true
-	}
-	originalSysctl = originalValues
-
 	defer func() {
 		if err != nil {
 			if cleanErr := r.CleanupRouting(stateManager); cleanErr != nil {
@@ -122,6 +111,17 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}
 	}
+
+	if err = addRoutingTableName(); err != nil {
+		log.Errorf("Error adding routing table name: %v", err)
+	}
+
+	originalValues, err := sysctl.Setup(r.wgInterface)
+	if err != nil {
+		log.Errorf("Error setting up sysctl: %v", err)
+		sysctlFailed = true
+	}
+	originalSysctl = originalValues
 
 	return nil, nil, nil
 }
