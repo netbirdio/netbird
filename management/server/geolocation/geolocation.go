@@ -267,20 +267,20 @@ func cleanupMaxMindDatabases(ctx context.Context, dataDir string, mmdbFile strin
 	return nil
 }
 
-type GeolocationMock struct{}
+type Mock struct{}
 
-func (g *GeolocationMock) Lookup(ip net.IP) (*Record, error) {
+func (g *Mock) Lookup(ip net.IP) (*Record, error) {
 	return &Record{}, nil
 }
 
-func (g *GeolocationMock) GetAllCountries() ([]Country, error) {
+func (g *Mock) GetAllCountries() ([]Country, error) {
 	return []Country{}, nil
 }
 
-func (g *GeolocationMock) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+func (g *Mock) GetCitiesByCountry(countryISOCode string) ([]City, error) {
 	return []City{}, nil
 }
 
-func (g *GeolocationMock) Stop() error {
+func (g *Mock) Stop() error {
 	return nil
 }

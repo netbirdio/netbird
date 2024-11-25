@@ -1166,7 +1166,7 @@ func buildApiBlackBoxWithDBState(t *testing.T, sqlFile string, expectedPeerUpdat
 		close(done)
 	}()
 
-	geoMock := &geolocation.GeolocationMock{}
+	geoMock := &geolocation.Mock{}
 	validatorMock := server.MocIntegratedValidator{}
 	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics)
 	if err != nil {
