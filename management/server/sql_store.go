@@ -1305,12 +1305,57 @@ func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStreng
 
 // GetAccountPostureChecks retrieves posture checks for an account.
 func (s *SqlStore) GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error) {
-	return getRecords[*posture.Checks](s.db, lockStrength, accountID)
+	var postureChecks []*posture.Checks
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&postureChecks, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get posture checks from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get posture checks from store")
+	}
+
+	return postureChecks, nil
 }
 
 // GetPostureChecksByID retrieves posture checks by their ID and account ID.
-func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, postureCheckID string, accountID string) (*posture.Checks, error) {
-	return getRecordByID[posture.Checks](s.db, lockStrength, postureCheckID, accountID)
+func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) (*posture.Checks, error) {
+	var postureCheck *posture.Checks
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&postureCheck, accountAndIDQueryCondition, accountID, postureChecksID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewPostureChecksNotFoundError(postureChecksID)
+		}
+		log.WithContext(ctx).Errorf("failed to get posture check from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get posture check from store")
+	}
+
+	return postureCheck, nil
+}
+
+// SavePostureChecks saves a posture checks to the database.
+func (s *SqlStore) SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(postureCheck)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save posture checks to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save posture checks to store")
+	}
+
+	return nil
+}
+
+// DeletePostureChecks deletes a posture checks from the database.
+func (s *SqlStore) DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&posture.Checks{}, accountAndIDQueryCondition, accountID, postureChecksID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete posture checks from store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to delete posture checks from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewPostureChecksNotFoundError(postureChecksID)
+	}
+
+	return nil
 }
 
 // GetAccountRoutes retrieves network routes for an account.

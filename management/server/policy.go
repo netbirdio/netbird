@@ -405,7 +405,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	if anyGroupHasPeers(account, policy.ruleGroups()) {
+	if am.anyGroupHasPeers(account, policy.ruleGroups()) {
 		am.updateAccountPeers(ctx, accountID)
 	}
 
@@ -469,7 +469,7 @@ func (am *DefaultAccountManager) savePolicy(account *Account, policyToSave *Poli
 		if !policyToSave.Enabled && !oldPolicy.Enabled {
 			return false, nil
 		}
-		updateAccountPeers := anyGroupHasPeers(account, oldPolicy.ruleGroups()) || anyGroupHasPeers(account, policyToSave.ruleGroups())
+		updateAccountPeers := am.anyGroupHasPeers(account, oldPolicy.ruleGroups()) || am.anyGroupHasPeers(account, policyToSave.ruleGroups())
 
 		return updateAccountPeers, nil
 	}
@@ -477,7 +477,7 @@ func (am *DefaultAccountManager) savePolicy(account *Account, policyToSave *Poli
 	// Add the new policy to the account
 	account.Policies = append(account.Policies, policyToSave)
 
-	return anyGroupHasPeers(account, policyToSave.ruleGroups()), nil
+	return am.anyGroupHasPeers(account, policyToSave.ruleGroups()), nil
 }
 
 func toProtocolFirewallRules(rules []*FirewallRule) []*proto.FirewallRule {

@@ -70,7 +70,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 		return nil, err
 	}
 
-	if anyGroupHasPeers(account, newNSGroup.Groups) {
+	if am.anyGroupHasPeers(account, newNSGroup.Groups) {
 		am.updateAccountPeers(ctx, accountID)
 	}
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
@@ -105,7 +105,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return err
 	}
 
-	if areNameServerGroupChangesAffectPeers(account, nsGroupToSave, oldNSGroup) {
+	if am.areNameServerGroupChangesAffectPeers(account, nsGroupToSave, oldNSGroup) {
 		am.updateAccountPeers(ctx, accountID)
 	}
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
@@ -135,7 +135,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 		return err
 	}
 
-	if anyGroupHasPeers(account, nsGroup.Groups) {
+	if am.anyGroupHasPeers(account, nsGroup.Groups) {
 		am.updateAccountPeers(ctx, accountID)
 	}
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
@@ -279,9 +279,9 @@ func validateDomain(domain string) error {
 }
 
 // areNameServerGroupChangesAffectPeers checks if the changes in the nameserver group affect the peers.
-func areNameServerGroupChangesAffectPeers(account *Account, newNSGroup, oldNSGroup *nbdns.NameServerGroup) bool {
+func (am *DefaultAccountManager) areNameServerGroupChangesAffectPeers(account *Account, newNSGroup, oldNSGroup *nbdns.NameServerGroup) bool {
 	if !newNSGroup.Enabled && !oldNSGroup.Enabled {
 		return false
 	}
-	return anyGroupHasPeers(account, newNSGroup.Groups) || anyGroupHasPeers(account, oldNSGroup.Groups)
+	return am.anyGroupHasPeers(account, newNSGroup.Groups) || am.anyGroupHasPeers(account, oldNSGroup.Groups)
 }

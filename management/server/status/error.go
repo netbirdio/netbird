@@ -139,3 +139,8 @@ func NewGetAccountError(err error) error {
 func NewGroupNotFoundError(groupID string) error {
 	return Errorf(NotFound, "group: %s not found", groupID)
 }
+
+// NewPostureChecksNotFoundError creates a new Error with NotFound type for a missing posture checks
+func NewPostureChecksNotFoundError(postureChecksID string) error {
+	return Errorf(NotFound, "posture checks: %s not found", postureChecksID)
+}
