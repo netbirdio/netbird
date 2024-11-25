@@ -73,8 +73,6 @@ type Store interface {
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
 	DeleteUser(ctx context.Context, lockStrength LockingStrength, accountID, userID string) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
-	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
-	DeleteTokenID2UserIDIndex(tokenID string) error
 
 	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*PersonalAccessToken, error)
 	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*PersonalAccessToken, error)

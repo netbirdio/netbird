@@ -437,16 +437,6 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 	return nil
 }
 
-// DeleteHashedPAT2TokenIDIndex is noop in SqlStore
-func (s *SqlStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
-	return nil
-}
-
-// DeleteTokenID2UserIDIndex is noop in SqlStore
-func (s *SqlStore) DeleteTokenID2UserIDIndex(tokenID string) error {
-	return nil
-}
-
 func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error) {
 	accountID, err := s.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
 	if err != nil {
