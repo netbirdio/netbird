@@ -10,6 +10,8 @@ import (
 
 	"github.com/quic-go/quic-go"
 	log "github.com/sirupsen/logrus"
+
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -36,9 +38,19 @@ func Dial(address string) (net.Conn, error) {
 		EnableDatagrams: true,
 	}
 
-	// todo add support for custom dialer
+	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		log.Errorf("failed to listen on UDP: %s", err)
+		return nil, err
+	}
 
-	session, err := quic.DialAddr(ctx, quicURL, tlsConf, quicConfig)
+	udpAddr, err := net.ResolveUDPAddr("udp", quicURL)
+	if err != nil {
+		log.Errorf("failed to resolve UDP address: %s", err)
+		return nil, err
+	}
+
+	session, err := quic.Dial(ctx, udpConn, udpAddr, tlsConf, quicConfig)
 	if err != nil {
 		log.Errorf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
 		return nil, err
