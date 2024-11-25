@@ -319,11 +319,22 @@ type JwtValidatorMock struct{}
 
 func (j *JwtValidatorMock) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
 	claimMaps := jwt.MapClaims{}
-	claimMaps[UserIDClaim] = "testUserId"
-	claimMaps[AccountIDSuffix] = "testAccountId"
-	claimMaps[DomainIDSuffix] = "test.com"
-	claimMaps[DomainCategorySuffix] = "private"
-	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 
+	switch token {
+	case "testUserId", "testAdminId", "testOwnerId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
+		claimMaps[UserIDClaim] = token
+		claimMaps[AccountIDSuffix] = "testAccountId"
+		claimMaps[DomainIDSuffix] = "test.com"
+		claimMaps[DomainCategorySuffix] = "private"
+	case "otherUserId":
+		claimMaps[UserIDClaim] = "otherUserId"
+		claimMaps[AccountIDSuffix] = "otherAccountId"
+		claimMaps[DomainIDSuffix] = "other.com"
+		claimMaps[DomainCategorySuffix] = "private"
+	case "invalidToken":
+		return nil, errors.New("invalid token")
+	}
+
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	return jwtToken, nil
 }

@@ -25,11 +25,19 @@ import (
 )
 
 const (
-	testAccountId = "testUserId"
-	testUserId    = "testAccountId"
+	testAccountId = "testAccountId"
 	testPeerId    = "testPeerId"
 	testGroupId   = "testGroupId"
 	testKeyId     = "testKeyId"
+
+	testUserId         = "testUserId"
+	testAdminId        = "testAdminId"
+	testOwnerId        = "testOwnerId"
+	testServiceUserId  = "testServiceUserId"
+	testServiceAdminId = "testServiceAdminId"
+	blockedUserId      = "blockedUserId"
+	otherUserId        = "otherUserId"
+	invalidToken       = "invalidToken"
 
 	newKeyName   = "newKey"
 	newGroupId   = "newGroupId"
@@ -42,6 +50,54 @@ const (
 
 func Test_SetupKeys_Create(t *testing.T) {
 	truePointer := true
+
+	users := []struct {
+		name           string
+		userId         string
+		expectResponse bool
+	}{
+		{
+			name:           "Regular user",
+			userId:         testUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin user",
+			userId:         testAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Owner user",
+			userId:         testOwnerId,
+			expectResponse: true,
+		},
+		{
+			name:           "Regular service user",
+			userId:         testServiceUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin service user",
+			userId:         testServiceAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Blocked user",
+			userId:         blockedUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Other user",
+			userId:         otherUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Invalid token",
+			userId:         invalidToken,
+			expectResponse: false,
+		},
+	}
+
 	tt := []struct {
 		name             string
 		expectedStatus   int
@@ -49,6 +105,7 @@ func Test_SetupKeys_Create(t *testing.T) {
 		requestBody      *api.CreateSetupKeyRequest
 		requestType      string
 		requestPath      string
+		userId           string
 	}{
 		{
 			name:        "Create Setup Key",
@@ -256,47 +313,96 @@ func Test_SetupKeys_Create(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		t.Run(tc.name, func(t *testing.T) {
-			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+		for _, user := range users {
+			t.Run(user.name+" - "+tc.name, func(t *testing.T) {
+				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
 
-			body, err := json.Marshal(tc.requestBody)
-			if err != nil {
-				t.Fatalf("Failed to marshal request body: %v", err)
-			}
-			req := buildRequest(t, body, tc.requestType, tc.requestPath)
+				body, err := json.Marshal(tc.requestBody)
+				if err != nil {
+					t.Fatalf("Failed to marshal request body: %v", err)
+				}
+				req := buildRequest(t, body, tc.requestType, tc.requestPath, user.userId)
 
-			recorder := httptest.NewRecorder()
+				recorder := httptest.NewRecorder()
 
-			apiHandler.ServeHTTP(recorder, req)
+				apiHandler.ServeHTTP(recorder, req)
 
-			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
-			if noResponseExpected {
-				return
-			}
-			got := &api.SetupKey{}
-			if err := json.Unmarshal(content, &got); err != nil {
-				t.Fatalf("Sent content is not in correct json format; %v", err)
-			}
+				content, expectResponse := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				if !expectResponse {
+					return
+				}
+				got := &api.SetupKey{}
+				if err := json.Unmarshal(content, &got); err != nil {
+					t.Fatalf("Sent content is not in correct json format; %v", err)
+				}
 
-			validateCreatedKey(t, tc.expectedResponse, got)
+				validateCreatedKey(t, tc.expectedResponse, got)
 
-			key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
-			if err != nil {
-				return
-			}
+				key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+				if err != nil {
+					return
+				}
 
-			validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+				validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
 
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-			}
-		})
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+				}
+			})
+		}
 	}
 }
 
 func Test_SetupKeys_Update(t *testing.T) {
+	users := []struct {
+		name           string
+		userId         string
+		expectResponse bool
+	}{
+		{
+			name:           "Regular user",
+			userId:         testUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin user",
+			userId:         testAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Owner user",
+			userId:         testOwnerId,
+			expectResponse: true,
+		},
+		{
+			name:           "Regular service user",
+			userId:         testServiceUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin service user",
+			userId:         testServiceAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Blocked user",
+			userId:         blockedUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Other user",
+			userId:         otherUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Invalid token",
+			userId:         invalidToken,
+			expectResponse: false,
+		},
+	}
+
 	tt := []struct {
 		name             string
 		expectedStatus   int
@@ -492,48 +598,97 @@ func Test_SetupKeys_Update(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		t.Run(tc.name, func(t *testing.T) {
-			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+		for _, user := range users {
+			t.Run(tc.name, func(t *testing.T) {
+				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
 
-			body, err := json.Marshal(tc.requestBody)
-			if err != nil {
-				t.Fatalf("Failed to marshal request body: %v", err)
-			}
+				body, err := json.Marshal(tc.requestBody)
+				if err != nil {
+					t.Fatalf("Failed to marshal request body: %v", err)
+				}
 
-			req := buildRequest(t, body, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1))
+				req := buildRequest(t, body, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
 
-			recorder := httptest.NewRecorder()
+				recorder := httptest.NewRecorder()
 
-			apiHandler.ServeHTTP(recorder, req)
+				apiHandler.ServeHTTP(recorder, req)
 
-			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
-			if noResponseExpected {
-				return
-			}
-			got := &api.SetupKey{}
-			if err := json.Unmarshal(content, &got); err != nil {
-				t.Fatalf("Sent content is not in correct json format; %v", err)
-			}
+				content, expectResponse := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				if !expectResponse {
+					return
+				}
+				got := &api.SetupKey{}
+				if err := json.Unmarshal(content, &got); err != nil {
+					t.Fatalf("Sent content is not in correct json format; %v", err)
+				}
 
-			validateCreatedKey(t, tc.expectedResponse, got)
+				validateCreatedKey(t, tc.expectedResponse, got)
 
-			key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
-			if err != nil {
-				return
-			}
+				key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+				if err != nil {
+					return
+				}
 
-			validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+				validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
 
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-			}
-		})
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+				}
+			})
+		}
 	}
 }
 
 func Test_SetupKeys_Get(t *testing.T) {
+	users := []struct {
+		name           string
+		userId         string
+		expectResponse bool
+	}{
+		{
+			name:           "Regular user",
+			userId:         testUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin user",
+			userId:         testAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Owner user",
+			userId:         testOwnerId,
+			expectResponse: true,
+		},
+		{
+			name:           "Regular service user",
+			userId:         testServiceUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin service user",
+			userId:         testServiceAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Blocked user",
+			userId:         blockedUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Other user",
+			userId:         otherUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Invalid token",
+			userId:         invalidToken,
+			expectResponse: false,
+		},
+	}
+
 	tt := []struct {
 		name             string
 		expectedStatus   int
@@ -622,43 +777,92 @@ func Test_SetupKeys_Get(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		t.Run(tc.name, func(t *testing.T) {
-			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+		for _, user := range users {
+			t.Run(tc.name, func(t *testing.T) {
+				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
 
-			req := buildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1))
+				req := buildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
 
-			recorder := httptest.NewRecorder()
+				recorder := httptest.NewRecorder()
 
-			apiHandler.ServeHTTP(recorder, req)
+				apiHandler.ServeHTTP(recorder, req)
 
-			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
-			if noResponseExpected {
-				return
-			}
-			got := &api.SetupKey{}
-			if err := json.Unmarshal(content, &got); err != nil {
-				t.Fatalf("Sent content is not in correct json format; %v", err)
-			}
+				content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				if noResponseExpected {
+					return
+				}
+				got := &api.SetupKey{}
+				if err := json.Unmarshal(content, &got); err != nil {
+					t.Fatalf("Sent content is not in correct json format; %v", err)
+				}
 
-			validateCreatedKey(t, tc.expectedResponse, got)
+				validateCreatedKey(t, tc.expectedResponse, got)
 
-			key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
-			if err != nil {
-				return
-			}
+				key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+				if err != nil {
+					return
+				}
 
-			validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+				validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
 
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-			}
-		})
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+				}
+			})
+		}
 	}
 }
 
 func Test_SetupKeys_GetAll(t *testing.T) {
+	users := []struct {
+		name           string
+		userId         string
+		expectResponse bool
+	}{
+		{
+			name:           "Regular user",
+			userId:         testUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin user",
+			userId:         testAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Owner user",
+			userId:         testOwnerId,
+			expectResponse: true,
+		},
+		{
+			name:           "Regular service user",
+			userId:         testServiceUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin service user",
+			userId:         testServiceAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Blocked user",
+			userId:         blockedUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Other user",
+			userId:         otherUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Invalid token",
+			userId:         invalidToken,
+			expectResponse: false,
+		},
+	}
+
 	tt := []struct {
 		name             string
 		expectedStatus   int
@@ -725,53 +929,102 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		t.Run(tc.name, func(t *testing.T) {
-			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+		for _, user := range users {
+			t.Run(tc.name, func(t *testing.T) {
+				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
 
-			req := buildRequest(t, []byte{}, tc.requestType, tc.requestPath)
+				req := buildRequest(t, []byte{}, tc.requestType, tc.requestPath, user.userId)
 
-			recorder := httptest.NewRecorder()
+				recorder := httptest.NewRecorder()
 
-			apiHandler.ServeHTTP(recorder, req)
+				apiHandler.ServeHTTP(recorder, req)
 
-			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
-			if noResponseExpected {
-				return
-			}
-			got := []api.SetupKey{}
-			if err := json.Unmarshal(content, &got); err != nil {
-				t.Fatalf("Sent content is not in correct json format; %v", err)
-			}
-
-			sort.Slice(got, func(i, j int) bool {
-				return got[i].UsageLimit < got[j].UsageLimit
-			})
-
-			sort.Slice(tc.expectedResponse, func(i, j int) bool {
-				return tc.expectedResponse[i].UsageLimit < tc.expectedResponse[j].UsageLimit
-			})
-
-			for i, _ := range tc.expectedResponse {
-				validateCreatedKey(t, tc.expectedResponse[i], &got[i])
-
-				key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got[i].Id)
-				if err != nil {
+				content, expectResponse := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				if !expectResponse {
 					return
 				}
+				got := []api.SetupKey{}
+				if err := json.Unmarshal(content, &got); err != nil {
+					t.Fatalf("Sent content is not in correct json format; %v", err)
+				}
 
-				validateCreatedKey(t, tc.expectedResponse[i], toResponseBody(key))
-			}
+				sort.Slice(got, func(i, j int) bool {
+					return got[i].UsageLimit < got[j].UsageLimit
+				})
 
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-			}
-		})
+				sort.Slice(tc.expectedResponse, func(i, j int) bool {
+					return tc.expectedResponse[i].UsageLimit < tc.expectedResponse[j].UsageLimit
+				})
+
+				for i, _ := range tc.expectedResponse {
+					validateCreatedKey(t, tc.expectedResponse[i], &got[i])
+
+					key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got[i].Id)
+					if err != nil {
+						return
+					}
+
+					validateCreatedKey(t, tc.expectedResponse[i], toResponseBody(key))
+				}
+
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+				}
+			})
+		}
 	}
 }
 
 func Test_SetupKeys_Delete(t *testing.T) {
+	users := []struct {
+		name           string
+		userId         string
+		expectResponse bool
+	}{
+		{
+			name:           "Regular user",
+			userId:         testUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin user",
+			userId:         testAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Owner user",
+			userId:         testOwnerId,
+			expectResponse: true,
+		},
+		{
+			name:           "Regular service user",
+			userId:         testServiceUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Admin service user",
+			userId:         testServiceAdminId,
+			expectResponse: true,
+		},
+		{
+			name:           "Blocked user",
+			userId:         blockedUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Other user",
+			userId:         otherUserId,
+			expectResponse: false,
+		},
+		{
+			name:           "Invalid token",
+			userId:         invalidToken,
+			expectResponse: false,
+		},
+	}
+
 	tt := []struct {
 		name             string
 		expectedStatus   int
@@ -860,33 +1113,35 @@ func Test_SetupKeys_Delete(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		t.Run(tc.name, func(t *testing.T) {
-			apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+		for _, user := range users {
+			t.Run(tc.name, func(t *testing.T) {
+				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
 
-			req := buildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1))
+				req := buildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
 
-			recorder := httptest.NewRecorder()
+				recorder := httptest.NewRecorder()
 
-			apiHandler.ServeHTTP(recorder, req)
+				apiHandler.ServeHTTP(recorder, req)
 
-			content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus)
-			if noResponseExpected {
-				return
-			}
-			got := &api.SetupKey{}
-			if err := json.Unmarshal(content, &got); err != nil {
-				t.Fatalf("Sent content is not in correct json format; %v", err)
-			}
+				content, expectResponse := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				if !expectResponse {
+					return
+				}
+				got := &api.SetupKey{}
+				if err := json.Unmarshal(content, &got); err != nil {
+					t.Fatalf("Sent content is not in correct json format; %v", err)
+				}
 
-			_, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
-			assert.Errorf(t, err, "Expected error when trying to get deleted key")
+				_, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+				assert.Errorf(t, err, "Expected error when trying to get deleted key")
 
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-			}
-		})
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+				}
+			})
+		}
 	}
 }
 
@@ -926,16 +1181,16 @@ func buildApiBlackBoxWithDBState(t *testing.T, sqlFile string, expectedPeerUpdat
 	return apiHandler, am, done
 }
 
-func buildRequest(t *testing.T, requestBody []byte, requestType, requestPath string) *http.Request {
+func buildRequest(t *testing.T, requestBody []byte, requestType, requestPath, user string) *http.Request {
 	t.Helper()
 
 	req := httptest.NewRequest(requestType, requestPath, bytes.NewBuffer(requestBody))
-	req.Header.Set("Authorization", "Bearer "+"my.dummy.token")
+	req.Header.Set("Authorization", "Bearer "+user)
 
 	return req
 }
 
-func readResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedStatus int) ([]byte, bool) {
+func readResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedStatus int, expectResponse bool) ([]byte, bool) {
 	t.Helper()
 
 	res := recorder.Result()
@@ -946,12 +1201,16 @@ func readResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedSta
 		t.Fatalf("Failed to read response body: %v", err)
 	}
 
+	if !expectResponse {
+		return nil, false
+	}
+
 	if status := recorder.Code; status != expectedStatus {
 		t.Fatalf("handler returned wrong status code: got %v want %v, content: %s",
 			status, expectedStatus, string(content))
 	}
 
-	return content, expectedStatus != http.StatusOK
+	return content, expectedStatus == http.StatusOK
 }
 
 func validateCreatedKey(t *testing.T, expectedKey *api.SetupKey, got *api.SetupKey) {
