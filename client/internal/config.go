@@ -164,7 +164,7 @@ func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		err = util.WriteJsonWithRestrictedPermission(input.ConfigPath, cfg)
+		err = util.WriteJsonWithRestrictedPermission(context.Background(), input.ConfigPath, cfg)
 		return cfg, err
 	}
 
@@ -185,7 +185,7 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 
 // WriteOutConfig write put the prepared config to the given path
 func WriteOutConfig(path string, config *Config) error {
-	return util.WriteJson(path, config)
+	return util.WriteJson(context.Background(), path, config)
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
@@ -215,7 +215,7 @@ func update(input ConfigInput) (*Config, error) {
 	}
 
 	if updated {
-		if err := util.WriteJson(input.ConfigPath, config); err != nil {
+		if err := util.WriteJson(context.Background(), input.ConfigPath, config); err != nil {
 			return nil, err
 		}
 	}

@@ -1832,6 +1832,8 @@ func TestSqlStore_SavePolicy(t *testing.T) {
 
 	policy.Enabled = false
 	policy.Description = "policy"
+	policy.Rules[0].Sources = []string{"group"}
+	policy.Rules[0].Ports = []string{"80", "443"}
 	err = store.SavePolicy(context.Background(), LockingStrengthUpdate, policy)
 	require.NoError(t, err)
 

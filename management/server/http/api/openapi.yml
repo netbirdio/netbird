@@ -439,17 +439,13 @@ components:
               example: 5
           required:
             - accessible_peers_count
-    SetupKey:
+    SetupKeyBase:
       type: object
       properties:
         id:
           description: Setup Key ID
           type: string
           example: 2531583362
-        key:
-          description: Setup Key value
-          type: string
-          example: A616097E-FCF0-48FA-9354-CA4A61142761
         name:
           description: Setup key name identifier
           type: string
@@ -518,22 +514,31 @@ components:
         - updated_at
         - usage_limit
         - ephemeral
+    SetupKeyClear:
+      allOf:
+        - $ref: '#/components/schemas/SetupKeyBase'
+        - type: object
+          properties:
+            key:
+              description: Setup Key as plain text
+              type: string
+              example: A616097E-FCF0-48FA-9354-CA4A61142761
+          required:
+            - key
+    SetupKey:
+      allOf:
+        - $ref: '#/components/schemas/SetupKeyBase'
+        - type: object
+          properties:
+            key:
+              description: Setup Key as secret
+              type: string
+              example: A6160****
+          required:
+            - key
     SetupKeyRequest:
       type: object
       properties:
-        name:
-          description: Setup Key name
-          type: string
-          example: Default key
-        type:
-          description: Setup key type, one-off for single time usage and reusable
-          type: string
-          example: reusable
-        expires_in:
-          description: Expiration time in seconds, 0 will mean the key never expires
-          type: integer
-          minimum: 0
-          example: 86400
         revoked:
           description: Setup key revocation status
           type: boolean
@@ -544,21 +549,9 @@ components:
           items:
             type: string
             example: "ch8i4ug6lnn4g9hqv7m0"
-        usage_limit:
-          description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
-          type: integer
-          example: 0
-        ephemeral:
-          description: Indicate that the peer will be ephemeral or not
-          type: boolean
-          example: true
       required:
-        - name
-        - type
-        - expires_in
         - revoked
         - auto_groups
-        - usage_limit
     CreateSetupKeyRequest:
       type: object
       properties:
@@ -1943,7 +1936,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SetupKey'
+                $ref: '#/components/schemas/SetupKeyClear'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

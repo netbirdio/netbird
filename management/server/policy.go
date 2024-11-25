@@ -435,7 +435,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	var updateAccountPeers bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		policy, err = transaction.GetPolicyByID(ctx, LockingStrengthShare, accountID, policyID)
+		policy, err = transaction.GetPolicyByID(ctx, LockingStrengthUpdate, accountID, policyID)
 		if err != nil {
 			return err
 		}
@@ -502,8 +502,6 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction Store, account
 		if hasPeers {
 			return true, nil
 		}
-
-		return anyGroupHasPeers(ctx, transaction, policy.AccountID, policy.ruleGroups())
 	}
 
 	return anyGroupHasPeers(ctx, transaction, policy.AccountID, policy.ruleGroups())
@@ -534,7 +532,7 @@ func validatePolicy(ctx context.Context, transaction Store, accountID string, po
 	for i, rule := range policy.Rules {
 		ruleCopy := rule.Copy()
 		if ruleCopy.ID == "" {
-			ruleCopy.ID = xid.New().String()
+			ruleCopy.ID = policy.ID // TODO: when policy can contain multiple rules, need refactor
 			ruleCopy.PolicyID = policy.ID
 		}
 

@@ -12,9 +12,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -276,7 +277,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 // SaveSetupKey saves the provided SetupKey to the database overriding the existing one.
 // Due to the unique nature of a SetupKey certain properties must not be overwritten
 // (e.g. the key itself, creation date, ID, etc).
-// These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
+// These properties are overwritten: AutoGroups, Revoked (only from false to true), and the UpdatedAt. The rest is copied from the existing key.
 func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID string, keyToSave *SetupKey, userID string) (*SetupKey, error) {
 	if keyToSave == nil {
 		return nil, status.Errorf(status.InvalidArgument, "provided setup key to update is nil")
@@ -312,9 +313,12 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 			return err
 		}
 
-		// only auto groups, revoked status, and name can be updated for now
+		if oldKey.Revoked && !keyToSave.Revoked {
+			return status.Errorf(status.InvalidArgument, "can't un-revoke a revoked setup key")
+		}
+
+		// only auto groups, revoked status (from false to true) can be updated
 		newKey = oldKey.Copy()
-		newKey.Name = keyToSave.Name
 		newKey.AutoGroups = keyToSave.AutoGroups
 		newKey.Revoked = keyToSave.Revoked
 		newKey.UpdatedAt = time.Now().UTC()
@@ -375,7 +379,7 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 		return nil, status.NewAdminPermissionError()
 	}
 
-	setupKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, keyID, accountID)
+	setupKey, err := am.Store.GetSetupKeyByID(ctx, LockingStrengthShare, accountID, keyID)
 	if err != nil {
 		return nil, err
 	}
