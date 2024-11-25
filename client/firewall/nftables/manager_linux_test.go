@@ -274,6 +274,10 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 		t.Skip("nftables not supported on this system")
 	}
 
+	if _, err := exec.LookPath("iptables-save"); err != nil {
+		t.Skipf("iptables-save not available on this system: %v", err)
+	}
+
 	// First ensure iptables-nft tables exist by running iptables-save
 	stdout, stderr := runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
