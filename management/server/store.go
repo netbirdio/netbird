@@ -58,7 +58,7 @@ type Store interface {
 	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
 	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error)
 	GetAccountCreatedBy(ctx context.Context, lockStrength LockingStrength, accountID string) (string, error)
-	GetTotalAccounts(ctx context.Context, lockStrength LockingStrength) (int64, error)
+	GetTotalAccounts(ctx context.Context) (int64, error)
 	SaveAccount(ctx context.Context, account *Account) error
 	DeleteAccount(ctx context.Context, account *Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, lockStrength LockingStrength, accountID string, domain string, category string, isPrimaryDomain *bool) error

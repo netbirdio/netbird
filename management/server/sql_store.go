@@ -870,9 +870,9 @@ func (s *SqlStore) GetAccountCreatedBy(ctx context.Context, lockStrength Locking
 	return createdBy, nil
 }
 
-func (s *SqlStore) GetTotalAccounts(ctx context.Context, lockStrength LockingStrength) (int64, error) {
+func (s *SqlStore) GetTotalAccounts(ctx context.Context) (int64, error) {
 	var count int64
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).Count(&count)
+	result := s.db.Model(&Account{}).Count(&count)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get total accounts from store: %s", result.Error)
 		return 0, status.Errorf(status.Internal, "failed to get total accounts from store")

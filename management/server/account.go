@@ -1048,7 +1048,7 @@ func BuildManager(
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 	}
-	totalAccounts, err := store.GetTotalAccounts(ctx, LockingStrengthShare)
+	totalAccounts, err := store.GetTotalAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
