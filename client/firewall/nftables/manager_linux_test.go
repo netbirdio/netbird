@@ -1,9 +1,11 @@
 package nftables
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"net/netip"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -224,4 +226,102 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			t.Logf("execution avg per rule: %s", time.Since(start)/time.Duration(testMax))
 		})
 	}
+}
+
+func runIptablesSave(t *testing.T) (string, string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("iptables-save")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err, "iptables-save failed to run")
+
+	return stdout.String(), stderr.String()
+}
+
+func verifyIptablesOutput(t *testing.T, stdout, stderr string) {
+	t.Helper()
+	// Check for any incompatibility warnings
+	require.NotContains(t,
+		stderr,
+		"incompatible",
+		"iptables-save produced compatibility warning. Full stderr: %s",
+		stderr,
+	)
+
+	// Verify standard tables are present
+	expectedTables := []string{
+		"*filter",
+		"*nat",
+		"*mangle",
+	}
+
+	for _, table := range expectedTables {
+		require.Contains(t,
+			stdout,
+			table,
+			"iptables-save output missing expected table: %s\nFull stdout: %s",
+			table,
+			stdout,
+		)
+	}
+}
+
+func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	// First ensure iptables-nft tables exist by running iptables-save
+	stdout, stderr := runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+
+	manager, err := Create(ifaceMock)
+	require.NoError(t, err, "failed to create manager")
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		err := manager.Reset(nil)
+		require.NoError(t, err, "failed to reset manager state")
+
+		// Verify iptables output after reset
+		stdout, stderr := runIptablesSave(t)
+		verifyIptablesOutput(t, stdout, stderr)
+	})
+
+	ip := net.ParseIP("100.96.0.1")
+	_, err = manager.AddPeerFiltering(
+		ip,
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []int{80}},
+		fw.RuleDirectionIN,
+		fw.ActionAccept,
+		"",
+		"test rule",
+	)
+	require.NoError(t, err, "failed to add peer filtering rule")
+
+	_, err = manager.AddRouteFiltering(
+		[]netip.Prefix{netip.MustParsePrefix("192.168.2.0/24")},
+		netip.MustParsePrefix("10.1.0.0/24"),
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []int{443}},
+		fw.ActionAccept,
+	)
+	require.NoError(t, err, "failed to add route filtering rule")
+
+	pair := fw.RouterPair{
+		Source:      netip.MustParsePrefix("192.168.1.0/24"),
+		Destination: netip.MustParsePrefix("10.0.0.0/24"),
+		Masquerade:  true,
+	}
+	err = manager.AddNatRule(pair)
+	require.NoError(t, err, "failed to add NAT rule")
+
+	stdout, stderr = runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
 }
