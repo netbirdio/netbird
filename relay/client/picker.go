@@ -24,6 +24,7 @@ type connResult struct {
 	RelayClient *Client
 	Url         string
 	Err         error
+	Latency     time.Duration
 }
 
 type ServerPicker struct {
@@ -61,7 +62,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 		if !ok {
 			return nil, errors.New("failed to connect to any relay server: all attempts failed")
 		}
-		log.Infof("chosen home Relay server: %s", cr.Url)
+		log.Infof("chosen home Relay server: %s with latency %s", cr.Url, cr.Latency)
 		return cr.RelayClient, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("failed to connect to any relay server: %w", ctx.Err())
@@ -71,34 +72,46 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
 	log.Infof("try to connecting to relay server: %s", url)
 	relayClient := NewClient(ctx, url, sp.TokenStore, sp.PeerID)
+	start := time.Now()
 	err := relayClient.Connect()
 	resultChan <- connResult{
 		RelayClient: relayClient,
 		Url:         url,
 		Err:         err,
+		Latency:     time.Since(start),
 	}
 }
 
 func (sp *ServerPicker) processConnResults(resultChan chan connResult, successChan chan connResult) {
 	var hasSuccess bool
+	var bestLatencyResult connResult
+	bestLatencyResult.Latency = time.Hour
 	for numOfResults := 0; numOfResults < cap(resultChan); numOfResults++ {
 		cr := <-resultChan
 		if cr.Err != nil {
 			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
 			continue
 		}
-		log.Infof("connected to Relay server: %s", cr.Url)
+		log.Infof("connected to Relay server: %s with latency %s", cr.Url, cr.Latency)
 
-		if hasSuccess {
+		// Already connected to a lower latency server
+		if hasSuccess && cr.Latency > bestLatencyResult.Latency {
 			log.Infof("closing unnecessary Relay connection to: %s", cr.Url)
 			if err := cr.RelayClient.Close(); err != nil {
 				log.Errorf("failed to close connection to %s: %v", cr.Url, err)
 			}
 			continue
+		} else if hasSuccess { // Connected to a higher latency server in bestLatencyResult, disconnect from it
+			log.Infof("closing unnecessary Relay connection to: %s", bestLatencyResult.Url)
+			if err := bestLatencyResult.RelayClient.Close(); err != nil {
+				log.Errorf("failed to close connection to %s: %v", bestLatencyResult.Url, err)
+			}
 		}
 
 		hasSuccess = true
-		successChan <- cr
+		bestLatencyResult = cr
 	}
+
+	successChan <- bestLatencyResult
 	close(successChan)
 }
