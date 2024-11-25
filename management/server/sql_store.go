@@ -1123,6 +1123,7 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, lockStrength Lock
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
+	startTime := time.Now()
 	tx := s.db.Begin()
 	if tx.Error != nil {
 		return tx.Error
@@ -1133,7 +1134,15 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 		tx.Rollback()
 		return err
 	}
-	return tx.Commit().Error
+
+	err = tx.Commit().Error
+
+	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
+	}
+
+	return err
 }
 
 func (s *SqlStore) withTx(tx *gorm.DB) Store {
@@ -1279,7 +1288,7 @@ func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, a
 		Delete(&nbgroup.Group{}, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete groups from store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to delete groups from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete groups from store")
 	}
 
 	return nil

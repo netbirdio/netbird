@@ -239,7 +239,7 @@ func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
 // SetLegacyManagement doesn't need to be implemented for this manager
 func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 	if m.nativeFirewall == nil {
-		return errRouteNotSupported
+		return nil
 	}
 	return m.nativeFirewall.SetLegacyManagement(isLegacy)
 }

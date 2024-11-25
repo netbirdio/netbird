@@ -3,6 +3,9 @@ package grpc
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net"
 	"os/user"
 	"runtime"
@@ -23,20 +26,22 @@ func WithCustomDialer() grpc.DialOption {
 		if runtime.GOOS == "linux" {
 			currentUser, err := user.Current()
 			if err != nil {
-				log.Fatalf("failed to get current user: %v", err)
+				return nil, status.Errorf(codes.FailedPrecondition, "failed to get current user: %v", err)
 			}
 
 			// the custom dialer requires root permissions which are not required for use cases run as non-root
 			if currentUser.Uid != "0" {
+				log.Debug("Not running as root, using standard dialer")
 				dialer := &net.Dialer{}
 				return dialer.DialContext(ctx, "tcp", addr)
 			}
 		}
 
+		log.Debug("Using nbnet.NewDialer()")
 		conn, err := nbnet.NewDialer().DialContext(ctx, "tcp", addr)
 		if err != nil {
 			log.Errorf("Failed to dial: %s", err)
-			return nil, err
+			return nil, fmt.Errorf("nbnet.NewDialer().DialContext: %w", err)
 		}
 		return conn, nil
 	})

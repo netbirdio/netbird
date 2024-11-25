@@ -99,9 +99,11 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	// persist early
-	if err := stateManager.PersistState(context.Background()); err != nil {
-		log.Errorf("failed to persist state: %v", err)
-	}
+	go func() {
+		if err := stateManager.PersistState(context.Background()); err != nil {
+			log.Errorf("failed to persist state: %v", err)
+		}
+	}()
 
 	return nil
 }
@@ -197,7 +199,7 @@ func (m *Manager) AllowNetbird() error {
 
 	var chain *nftables.Chain
 	for _, c := range chains {
-		if c.Table.Name == tableNameFilter && c.Name == chainNameForward {
+		if c.Table.Name == tableNameFilter && c.Name == chainNameInput {
 			chain = c
 			break
 		}
@@ -274,7 +276,7 @@ func (m *Manager) resetNetbirdInputRules() error {
 
 func (m *Manager) deleteNetbirdInputRules(chains []*nftables.Chain) {
 	for _, c := range chains {
-		if c.Table.Name == "filter" && c.Name == "INPUT" {
+		if c.Table.Name == tableNameFilter && c.Name == chainNameInput {
 			rules, err := m.rConn.GetRules(c.Table, c)
 			if err != nil {
 				log.Errorf("get rules for chain %q: %v", c.Name, err)
@@ -349,7 +351,9 @@ func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {
 				Register: 1,
 				Data:     ifname(m.wgIface.Name()),
 			},
-			&expr.Verdict{},
+			&expr.Verdict{
+				Kind: expr.VerdictAccept,
+			},
 		},
 		UserData: []byte(allowNetbirdInputRuleID),
 	}
