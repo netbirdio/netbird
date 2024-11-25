@@ -4,8 +4,13 @@ package net
 
 import (
 	"fmt"
+	"os"
 	"syscall"
+
+	log "github.com/sirupsen/logrus"
 )
+
+const EnvSkipSocketMark = "NB_SKIP_SOCKET_MARK"
 
 // SetSocketMark sets the SO_MARK option on the given socket connection
 func SetSocketMark(conn syscall.Conn) error {
@@ -36,6 +41,13 @@ func SetRawSocketMark(conn syscall.RawConn) error {
 
 func SetSocketOpt(fd int) error {
 	if CustomRoutingDisabled() {
+		log.Infof("Custom routing is disabled, skipping SO_MARK")
+		return nil
+	}
+
+	// Check for the new environment variable
+	if skipSocketMark := os.Getenv(EnvSkipSocketMark); skipSocketMark == "true" {
+		log.Info("NB_SKIP_SOCKET_MARK is set to true, skipping SO_MARK")
 		return nil
 	}
 

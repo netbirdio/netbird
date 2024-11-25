@@ -297,7 +297,7 @@ func (e *Engine) Stop() error {
 	if err := e.stateManager.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop state manager: %w", err)
 	}
-	if err := e.stateManager.PersistState(ctx); err != nil {
+	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
@@ -538,6 +538,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 		relayMsg := wCfg.GetRelay()
 		if relayMsg != nil {
+			// when we receive token we expect valid address list too
 			c := &auth.Token{
 				Payload:   relayMsg.GetTokenPayload(),
 				Signature: relayMsg.GetTokenSignature(),
@@ -546,9 +547,16 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 				log.Errorf("failed to update relay token: %v", err)
 				return fmt.Errorf("update relay token: %w", err)
 			}
+
+			e.relayManager.UpdateServerURLs(relayMsg.Urls)
+
+			// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
+			// We can ignore all errors because the guard will manage the reconnection retries.
+			_ = e.relayManager.Serve()
+		} else {
+			e.relayManager.UpdateServerURLs(nil)
 		}
 
-		// todo update relay address in the relay manager
 		// todo update signal
 	}
 
