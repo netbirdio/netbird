@@ -80,11 +80,15 @@ type Store interface {
 	DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error
 
 	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error)
-	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error)
+	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error)
+	CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
+	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
+	DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error
 
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error)
 	GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, accountID, postureCheckID string) (*posture.Checks, error)
+	GetPostureChecksByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, postureChecksIDs []string) (map[string]*posture.Checks, error)
 	SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error
 	DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error
 

@@ -144,3 +144,8 @@ func NewGroupNotFoundError(groupID string) error {
 func NewPostureChecksNotFoundError(postureChecksID string) error {
 	return Errorf(NotFound, "posture checks: %s not found", postureChecksID)
 }
+
+// NewPolicyNotFoundError creates a new Error with NotFound type for a missing policy
+func NewPolicyNotFoundError(policyID string) error {
+	return Errorf(NotFound, "policy: %s not found", policyID)
+}
