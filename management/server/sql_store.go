@@ -1498,12 +1498,55 @@ func (s *SqlStore) DeleteSetupKey(ctx context.Context, lockStrength LockingStren
 
 // GetAccountNameServerGroups retrieves name server groups for an account.
 func (s *SqlStore) GetAccountNameServerGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbdns.NameServerGroup, error) {
-	return getRecords[*nbdns.NameServerGroup](s.db, lockStrength, accountID)
+	var nsGroups []*nbdns.NameServerGroup
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&nsGroups, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get name server groups from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get name server groups from store")
+	}
+
+	return nsGroups, nil
 }
 
 // GetNameServerGroupByID retrieves a name server group by its ID and account ID.
-func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, nsGroupID string, accountID string) (*nbdns.NameServerGroup, error) {
-	return getRecordByID[nbdns.NameServerGroup](s.db, lockStrength, nsGroupID, accountID)
+func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
+	var nsGroup *nbdns.NameServerGroup
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&nsGroup, accountAndIDQueryCondition, accountID, nsGroupID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.NewNameServerGroupNotFoundError(nsGroupID)
+		}
+		log.WithContext(ctx).Errorf("failed to get name server group from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get name server group from store")
+	}
+
+	return nsGroup, nil
+}
+
+// SaveNameServerGroup saves a name server group to the database.
+func (s *SqlStore) SaveNameServerGroup(ctx context.Context, lockStrength LockingStrength, nameServerGroup *nbdns.NameServerGroup) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(nameServerGroup)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save name server group to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save name server group to store")
+	}
+	return nil
+}
+
+// DeleteNameServerGroup deletes a name server group from the database.
+func (s *SqlStore) DeleteNameServerGroup(ctx context.Context, lockStrength LockingStrength, accountID, nsGroupID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Delete(&nbdns.NameServerGroup{}, accountAndIDQueryCondition, accountID, nsGroupID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete name server group from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete name server group from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewNameServerGroupNotFoundError(nsGroupID)
+	}
+
+	return nil
 }
 
 // getRecords retrieves records from the database based on the account ID.
