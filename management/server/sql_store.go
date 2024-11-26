@@ -1243,8 +1243,8 @@ func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStren
 	var groups []*nbgroup.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to get groups by ID's from the store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from the store")
+		log.WithContext(ctx).Errorf("failed to get groups by ID's from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from store")
 	}
 
 	groupsMap := make(map[string]*nbgroup.Group)
@@ -1295,12 +1295,67 @@ func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, a
 
 // GetAccountPolicies retrieves policies for an account.
 func (s *SqlStore) GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error) {
-	return getRecords[*Policy](s.db.Preload(clause.Associations), lockStrength, accountID)
+	var policies []*Policy
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Preload(clause.Associations).Find(&policies, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get policies from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get policies from store")
+	}
+
+	return policies, nil
 }
 
 // GetPolicyByID retrieves a policy by its ID and account ID.
-func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error) {
-	return getRecordByID[Policy](s.db.Preload(clause.Associations), lockStrength, policyID, accountID)
+func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error) {
+	var policy *Policy
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations).
+		First(&policy, accountAndIDQueryCondition, accountID, policyID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.NewPolicyNotFoundError(policyID)
+		}
+		log.WithContext(ctx).Errorf("failed to get policy from store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get policy from store")
+	}
+
+	return policy, nil
+}
+
+func (s *SqlStore) CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Create(policy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create policy in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to create policy in store")
+	}
+
+	return nil
+}
+
+// SavePolicy saves a policy to the database.
+func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error {
+	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(policy)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save policy to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save policy to store")
+	}
+	return nil
+}
+
+func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&Policy{}, accountAndIDQueryCondition, accountID, policyID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete policy from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewPolicyNotFoundError(policyID)
+	}
+
+	return nil
 }
 
 // GetAccountPostureChecks retrieves posture checks for an account.
@@ -1329,6 +1384,23 @@ func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength Lockin
 	}
 
 	return postureCheck, nil
+}
+
+// GetPostureChecksByIDs retrieves posture checks by their IDs and account ID.
+func (s *SqlStore) GetPostureChecksByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, postureChecksIDs []string) (map[string]*posture.Checks, error) {
+	var postureChecks []*posture.Checks
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&postureChecks, accountAndIDsQueryCondition, accountID, postureChecksIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get posture checks by ID's from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get posture checks by ID's from store")
+	}
+
+	postureChecksMap := make(map[string]*posture.Checks)
+	for _, postureCheck := range postureChecks {
+		postureChecksMap[postureCheck.ID] = postureCheck
+	}
+
+	return postureChecksMap, nil
 }
 
 // SavePostureChecks saves a posture checks to the database.

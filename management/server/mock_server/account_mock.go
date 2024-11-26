@@ -49,7 +49,7 @@ type MockAccountManager struct {
 	GroupDeletePeerFunc                 func(ctx context.Context, accountID, groupID, peerID string) error
 	DeleteRuleFunc                      func(ctx context.Context, accountID, ruleID, userID string) error
 	GetPolicyFunc                       func(ctx context.Context, accountID, policyID, userID string) (*server.Policy, error)
-	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *server.Policy, isUpdate bool) error
+	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *server.Policy) (*server.Policy, error)
 	DeletePolicyFunc                    func(ctx context.Context, accountID, policyID, userID string) error
 	ListPoliciesFunc                    func(ctx context.Context, accountID, userID string) ([]*server.Policy, error)
 	GetUsersFromAccountFunc             func(ctx context.Context, accountID, userID string) ([]*server.UserInfo, error)
@@ -386,11 +386,11 @@ func (am *MockAccountManager) GetPolicy(ctx context.Context, accountID, policyID
 }
 
 // SavePolicy mock implementation of SavePolicy from server.AccountManager interface
-func (am *MockAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *server.Policy, isUpdate bool) error {
+func (am *MockAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *server.Policy) (*server.Policy, error) {
 	if am.SavePolicyFunc != nil {
-		return am.SavePolicyFunc(ctx, accountID, userID, policy, isUpdate)
+		return am.SavePolicyFunc(ctx, accountID, userID, policy)
 	}
-	return status.Errorf(codes.Unimplemented, "method SavePolicy is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method SavePolicy is not implemented")
 }
 
 // DeletePolicy mock implementation of DeletePolicy from server.AccountManager interface

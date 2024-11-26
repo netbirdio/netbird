@@ -1238,8 +1238,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		return
 	}
 
-	policy := Policy{
-		ID:      "policy",
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -1250,8 +1249,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	}
-	err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	})
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -1320,19 +1318,6 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
-	policy := Policy{
-		Enabled: true,
-		Rules: []*PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"groupA"},
-				Destinations:  []string{"groupA"},
-				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
-			},
-		},
-	}
-
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -1345,7 +1330,19 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		}
 	}()
 
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	})
+	if err != nil {
 		t.Errorf("delete default rule: %v", err)
 		return
 	}
@@ -1366,7 +1363,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		return
 	}
 
-	policy := Policy{
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -1377,9 +1374,8 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	}
-
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+	})
+	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
 	}
@@ -1421,7 +1417,12 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 
 	require.NoError(t, err, "failed to save group")
 
-	policy := Policy{
+	if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
+
+	policy, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -1432,14 +1433,8 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	}
-
-	if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
-		t.Errorf("delete default rule: %v", err)
-		return
-	}
-
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+	})
+	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
 	}
