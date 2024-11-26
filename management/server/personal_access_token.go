@@ -41,6 +41,7 @@ type PersonalAccessToken struct {
 func (t *PersonalAccessToken) Copy() *PersonalAccessToken {
 	return &PersonalAccessToken{
 		ID:             t.ID,
+		UserID:         t.UserID,
 		Name:           t.Name,
 		HashedToken:    t.HashedToken,
 		ExpirationDate: t.ExpirationDate,

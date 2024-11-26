@@ -468,21 +468,25 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	accountID := "test_account"
 	adminUser := "account_creator"
 	someUser := "some_user"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "")
-	account.Users[someUser] = &User{
-		Id:   someUser,
-		Role: UserRoleUser,
-	}
-	account.Settings.RegularUsersViewBlocked = false
+	err = newAccountWithId(context.Background(), manager.Store, accountID, adminUser, "")
+	require.NoError(t, err, "failed to create account")
 
-	err = manager.Store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	err = manager.Store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
+		Id:        someUser,
+		AccountID: accountID,
+		Role:      UserRoleUser,
+	})
+	require.NoError(t, err, "failed to create user")
+
+	settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err, "failed to get account settings")
+
+	settings.RegularUsersViewBlocked = false
+	err = manager.Store.SaveAccountSettings(context.Background(), LockingStrengthUpdate, accountID, settings)
+	require.NoError(t, err, "failed to save account settings")
 
 	// two peers one added by a regular user and one with a setup key
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, adminUser, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), accountID, "test-key", SetupKeyReusable, time.Hour, nil, 999, adminUser, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -536,7 +540,10 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	assert.NotNil(t, peer)
 
 	// delete the all-to-all policy so that user's peer1 has no access to peer2
-	for _, policy := range account.Policies {
+	accountPolicies, err := manager.Store.GetAccountPolicies(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err, "failed to get account policies")
+
+	for _, policy := range accountPolicies {
 		err = manager.DeletePolicy(context.Background(), accountID, policy.ID, adminUser)
 		if err != nil {
 			t.Fatal(err)
@@ -655,20 +662,32 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			accountID := "test_account"
 			adminUser := "account_creator"
 			someUser := "some_user"
-			account := newAccountWithId(context.Background(), accountID, adminUser, "")
-			account.Users[someUser] = &User{
+
+			err = newAccountWithId(context.Background(), manager.Store, accountID, adminUser, "")
+			require.NoError(t, err, "failed to create account")
+
+			err = manager.Store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
 				Id:            someUser,
+				AccountID:     accountID,
 				Role:          testCase.role,
 				IsServiceUser: testCase.isServiceUser,
-			}
-			account.Policies = []*Policy{}
-			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
+			})
+			require.NoError(t, err, "failed to create user")
 
-			err = manager.Store.SaveAccount(context.Background(), account)
-			if err != nil {
-				t.Fatal(err)
-				return
+			accountPolicies, err := manager.Store.GetAccountPolicies(context.Background(), LockingStrengthShare, accountID)
+			require.NoError(t, err, "failed to get account policies")
+
+			for _, policy := range accountPolicies {
+				err = manager.DeletePolicy(context.Background(), accountID, policy.ID, adminUser)
+				require.NoError(t, err, "failed to delete policy")
 			}
+
+			settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
+			require.NoError(t, err, "failed to get account settings")
+
+			settings.RegularUsersViewBlocked = testCase.limitedViewSettings
+			err = manager.Store.SaveAccountSettings(context.Background(), LockingStrengthUpdate, accountID, settings)
+			require.NoError(t, err, "failed to save account settings")
 
 			peerKey1, err := wgtypes.GeneratePrivateKey()
 			if err != nil {
@@ -725,10 +744,18 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 	adminUser := "account_creator"
 	regularUser := "regular_user"
 
-	account := newAccountWithId(context.Background(), accountID, adminUser, "")
-	account.Users[regularUser] = &User{
-		Id:   regularUser,
-		Role: UserRoleUser,
+	err = newAccountWithId(context.Background(), manager.Store, accountID, adminUser, "")
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	err = manager.Store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
+		Id:        regularUser,
+		AccountID: accountID,
+		Role:      UserRoleUser,
+	})
+	if err != nil {
+		return nil, "", "", err
 	}
 
 	// Create peers
@@ -742,31 +769,40 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			Status:   &nbpeer.PeerStatus{},
 			UserID:   regularUser,
 		}
-		account.Peers[peer.ID] = peer
+		err = manager.Store.SavePeer(context.Background(), LockingStrengthUpdate, accountID, peer)
+		if err != nil {
+			return nil, "", "", err
+		}
 	}
 
 	// Create groups and policies
-	account.Policies = make([]*Policy, 0, groups)
 	for i := 0; i < groups; i++ {
 		groupID := fmt.Sprintf("group-%d", i)
 		group := &nbgroup.Group{
-			ID:   groupID,
-			Name: fmt.Sprintf("Group %d", i),
+			ID:        groupID,
+			AccountID: accountID,
+			Name:      fmt.Sprintf("Group %d", i),
 		}
 		for j := 0; j < peers/groups; j++ {
 			peerIndex := i*(peers/groups) + j
 			group.Peers = append(group.Peers, fmt.Sprintf("peer-%d", peerIndex))
 		}
-		account.Groups[groupID] = group
+
+		err = manager.Store.SaveGroup(context.Background(), LockingStrengthUpdate, group)
+		if err != nil {
+			return nil, "", "", err
+		}
 
 		// Create a policy for this group
 		policy := &Policy{
-			ID:      fmt.Sprintf("policy-%d", i),
-			Name:    fmt.Sprintf("Policy for Group %d", i),
-			Enabled: true,
+			ID:        fmt.Sprintf("policy-%d", i),
+			AccountID: accountID,
+			Name:      fmt.Sprintf("Policy for Group %d", i),
+			Enabled:   true,
 			Rules: []*PolicyRule{
 				{
 					ID:            fmt.Sprintf("rule-%d", i),
+					PolicyID:      fmt.Sprintf("policy-%d", i),
 					Name:          fmt.Sprintf("Rule for Group %d", i),
 					Enabled:       true,
 					Sources:       []string{groupID},
@@ -777,22 +813,23 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 				},
 			},
 		}
-		account.Policies = append(account.Policies, policy)
+
+		err = manager.Store.SavePolicy(context.Background(), LockingStrengthUpdate, policy)
+		if err != nil {
+			return nil, "", "", err
+		}
 	}
 
-	account.PostureChecks = []*posture.Checks{
-		{
-			ID:   "PostureChecksAll",
-			Name: "All",
-			Checks: posture.ChecksDefinition{
-				NBVersionCheck: &posture.NBVersionCheck{
-					MinVersion: "0.0.1",
-				},
+	err = manager.Store.SavePostureChecks(context.Background(), LockingStrengthUpdate, &posture.Checks{
+		ID:        "PostureChecksAll",
+		AccountID: accountID,
+		Name:      "All",
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{
+				MinVersion: "0.0.1",
 			},
 		},
-	}
-
-	err = manager.Store.SaveAccount(context.Background(), account)
+	})
 	if err != nil {
 		return nil, "", "", err
 	}

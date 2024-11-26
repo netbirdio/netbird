@@ -246,7 +246,7 @@ func Test_SyncProtocol(t *testing.T) {
 		t.Fatal("expecting SyncResponse to have non-nil NetworkMap")
 	}
 
-	if len(networkMap.GetRemotePeers()) != 4 {
+	if len(networkMap.GetRemotePeers()) != 3 {
 		t.Fatalf("expecting SyncResponse to have NetworkMap with 3 remote peers, got %d", len(networkMap.GetRemotePeers()))
 	}
 

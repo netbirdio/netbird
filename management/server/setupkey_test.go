@@ -25,12 +25,12 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	accountID, err := manager.GetOrCreateAccountIDByUser(context.Background(), userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err = manager.SaveGroups(context.Background(), accountID, userID, []*nbgroup.Group{
 		{
 			ID:    "group_1",
 			Name:  "group_name_1",
@@ -49,7 +49,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	expiresIn := time.Hour
 	keyName := "my-test-key"
 
-	key, err := manager.CreateSetupKey(context.Background(), account.Id, keyName, SetupKeyReusable, expiresIn, []string{},
+	key, err := manager.CreateSetupKey(context.Background(), accountID, keyName, SetupKeyReusable, expiresIn, []string{},
 		SetupKeyUnlimitedUsage, userID, false)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	autoGroups := []string{"group_1", "group_2"}
 	newKeyName := "my-new-test-key"
 	revoked := true
-	newKey, err := manager.SaveSetupKey(context.Background(), account.Id, &SetupKey{
+	newKey, err := manager.SaveSetupKey(context.Background(), accountID, &SetupKey{
 		Id:         key.Id,
 		Name:       newKeyName,
 		Revoked:    revoked,
@@ -72,22 +72,22 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		key.Id, time.Now().UTC(), autoGroups, true)
 
 	// check the corresponding events that should have been generated
-	ev := getEvent(t, account.Id, manager, activity.SetupKeyRevoked)
+	ev := getEvent(t, accountID, manager, activity.SetupKeyRevoked)
 
 	assert.NotNil(t, ev)
-	assert.Equal(t, account.Id, ev.AccountID)
+	assert.Equal(t, accountID, ev.AccountID)
 	assert.Equal(t, newKeyName, ev.Meta["name"])
 	assert.Equal(t, fmt.Sprint(key.Type), fmt.Sprint(ev.Meta["type"]))
 	assert.NotEmpty(t, ev.Meta["key"])
 	assert.Equal(t, userID, ev.InitiatorID)
 	assert.Equal(t, key.Id, ev.TargetID)
 
-	groupAll, err := account.GetGroupAll()
+	groupAll, err := manager.GetGroupByName(context.Background(), "All", accountID)
 	assert.NoError(t, err)
 
 	// saving setup key with All group assigned to auto groups should return error
 	autoGroups = append(autoGroups, groupAll.ID)
-	_, err = manager.SaveSetupKey(context.Background(), account.Id, &SetupKey{
+	_, err = manager.SaveSetupKey(context.Background(), accountID, &SetupKey{
 		Id:         key.Id,
 		Name:       newKeyName,
 		Revoked:    revoked,
@@ -103,12 +103,12 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	accountID, err := manager.GetOrCreateAccountIDByUser(context.Background(), userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err = manager.SaveGroup(context.Background(), accountID, userID, &nbgroup.Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
@@ -117,7 +117,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err = manager.SaveGroup(context.Background(), accountID, userID, &nbgroup.Group{
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},
@@ -126,7 +126,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	groupAll, err := account.GetGroupAll()
+	groupAll, err := manager.GetGroupByName(context.Background(), "All", accountID)
 	assert.NoError(t, err)
 
 	type testCase struct {
@@ -170,7 +170,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 
 	for _, tCase := range []testCase{testCase1, testCase2, testCase3} {
 		t.Run(tCase.name, func(t *testing.T) {
-			key, err := manager.CreateSetupKey(context.Background(), account.Id, tCase.expectedKeyName, SetupKeyReusable, expiresIn,
+			key, err := manager.CreateSetupKey(context.Background(), accountID, tCase.expectedKeyName, SetupKeyReusable, expiresIn,
 				tCase.expectedGroups, SetupKeyUnlimitedUsage, userID, false)
 
 			if tCase.expectedFailure {
@@ -189,10 +189,10 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 				tCase.expectedUpdatedAt, tCase.expectedGroups, false)
 
 			// check the corresponding events that should have been generated
-			ev := getEvent(t, account.Id, manager, activity.SetupKeyCreated)
+			ev := getEvent(t, accountID, manager, activity.SetupKeyCreated)
 
 			assert.NotNil(t, ev)
-			assert.Equal(t, account.Id, ev.AccountID)
+			assert.Equal(t, accountID, ev.AccountID)
 			assert.Equal(t, tCase.expectedKeyName, ev.Meta["name"])
 			assert.Equal(t, tCase.expectedType, fmt.Sprint(ev.Meta["type"]))
 			assert.NotEmpty(t, ev.Meta["key"])
@@ -208,12 +208,12 @@ func TestGetSetupKeys(t *testing.T) {
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	accountID, err := manager.GetOrCreateAccountIDByUser(context.Background(), userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err = manager.SaveGroup(context.Background(), accountID, userID, &nbgroup.Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
@@ -222,7 +222,7 @@ func TestGetSetupKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err = manager.SaveGroup(context.Background(), accountID, userID, &nbgroup.Group{
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},

@@ -261,7 +261,7 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *Account) error {
 			return result.Error
 		}
 
-		result = tx.Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
+		result = tx.Debug().Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
 		}

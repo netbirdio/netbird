@@ -43,37 +43,34 @@ const (
 func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:      store,
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
+	newPAT, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
 
-	assert.Equal(t, pat.CreatedBy, mockUserID)
+	assert.Equal(t, newPAT.CreatedBy, mockUserID)
 
-	tokenID, err := am.Store.GetTokenIDByHashedToken(context.Background(), pat.HashedToken)
+	pat, err := am.Store.GetPATByHashedToken(context.Background(), LockingStrengthShare, newPAT.HashedToken)
 	if err != nil {
 		t.Fatalf("Error when getting token ID by hashed token: %s", err)
 	}
 
-	if tokenID == "" {
+	if pat.ID == "" {
 		t.Fatal("GetTokenIDByHashedToken failed after adding PAT")
 	}
 
-	assert.Equal(t, pat.ID, tokenID)
+	assert.Equal(t, newPAT.ID, pat.ID)
 
-	user, err := am.Store.GetUserByPATID(context.Background(), LockingStrengthShare, tokenID)
+	user, err := am.Store.GetUserByPATID(context.Background(), LockingStrengthShare, pat.ID)
 	if err != nil {
 		t.Fatalf("Error when getting user by token ID: %s", err)
 	}
@@ -84,15 +81,16 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users[mockTargetUserId] = &User{
+
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	err = store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
 		Id:            mockTargetUserId,
+		AccountID:     mockAccountID,
 		IsServiceUser: false,
-	}
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	})
+	assert.NoError(t, err, "failed to create user")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -106,15 +104,16 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users[mockTargetUserId] = &User{
+
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	err = store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
 		Id:            mockTargetUserId,
+		AccountID:     mockAccountID,
 		IsServiceUser: true,
-	}
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	})
+	assert.NoError(t, err, "failed to create user")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -132,12 +131,9 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -151,12 +147,9 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -164,26 +157,22 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockEmptyTokenName, mockExpiresIn)
-	assert.Errorf(t, err, "Wrong expiration should thorw error")
+	assert.Errorf(t, err, "Wrong expiration should throw error")
 }
 
 func TestUser_DeletePAT(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users[mockUserID] = &User{
-		Id: mockUserID,
-		PATs: map[string]*PersonalAccessToken{
-			mockTokenID1: {
-				ID:          mockTokenID1,
-				HashedToken: mockToken1,
-			},
-		},
-	}
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	err = store.SavePAT(context.Background(), LockingStrengthUpdate, &PersonalAccessToken{
+		ID:          mockTokenID1,
+		UserID:      mockUserID,
+		HashedToken: mockToken1,
+	})
+	assert.NoError(t, err, "failed to create PAT")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -195,7 +184,7 @@ func TestUser_DeletePAT(t *testing.T) {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
 
-	account, err = store.GetAccount(context.Background(), mockAccountID)
+	account, err := store.GetAccount(context.Background(), mockAccountID)
 	if err != nil {
 		t.Fatalf("Error when getting account: %s", err)
 	}
@@ -206,21 +195,16 @@ func TestUser_DeletePAT(t *testing.T) {
 func TestUser_GetPAT(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users[mockUserID] = &User{
-		Id:        mockUserID,
-		AccountID: mockAccountID,
-		PATs: map[string]*PersonalAccessToken{
-			mockTokenID1: {
-				ID:          mockTokenID1,
-				HashedToken: mockToken1,
-			},
-		},
-	}
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	err = store.SavePAT(context.Background(), LockingStrengthUpdate, &PersonalAccessToken{
+		ID:          mockTokenID1,
+		UserID:      mockUserID,
+		HashedToken: mockToken1,
+	})
+	assert.NoError(t, err, "failed to create PAT")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -239,25 +223,23 @@ func TestUser_GetPAT(t *testing.T) {
 func TestUser_GetAllPATs(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users[mockUserID] = &User{
-		Id:        mockUserID,
-		AccountID: mockAccountID,
-		PATs: map[string]*PersonalAccessToken{
-			mockTokenID1: {
-				ID:          mockTokenID1,
-				HashedToken: mockToken1,
-			},
-			mockTokenID2: {
-				ID:          mockTokenID2,
-				HashedToken: mockToken2,
-			},
-		},
-	}
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	err = store.SavePAT(context.Background(), LockingStrengthUpdate, &PersonalAccessToken{
+		ID:          mockTokenID1,
+		UserID:      mockUserID,
+		HashedToken: mockToken1,
+	})
+	assert.NoError(t, err, "failed to create PAT")
+
+	err = store.SavePAT(context.Background(), LockingStrengthUpdate, &PersonalAccessToken{
+		ID:          mockTokenID2,
+		UserID:      mockUserID,
+		HashedToken: mockToken2,
+	})
+	assert.NoError(t, err, "failed to create PAT")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -342,12 +324,9 @@ func validateStruct(s interface{}) (err error) {
 func TestUser_CreateServiceUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -359,7 +338,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		t.Fatalf("Error when creating service user: %s", err)
 	}
 
-	account, err = store.GetAccount(context.Background(), mockAccountID)
+	account, err := store.GetAccount(context.Background(), mockAccountID)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 2, len(account.Users))
@@ -383,12 +362,9 @@ func TestUser_CreateServiceUser(t *testing.T) {
 func TestUser_CreateUser_ServiceUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -406,7 +382,7 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 		t.Fatalf("Error when creating user: %s", err)
 	}
 
-	account, err = store.GetAccount(context.Background(), mockAccountID)
+	account, err := store.GetAccount(context.Background(), mockAccountID)
 	assert.NoError(t, err)
 
 	assert.True(t, user.IsServiceUser)
@@ -425,12 +401,9 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 func TestUser_CreateUser_RegularUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -450,12 +423,9 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 func TestUser_InviteNewUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:        store,
@@ -549,13 +519,13 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newStore(t)
-			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-			account.Users[mockServiceUserID] = tt.serviceUser
 
-			err := store.SaveAccount(context.Background(), account)
-			if err != nil {
-				t.Fatalf("Error when saving account: %s", err)
-			}
+			err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+			assert.NoError(t, err, "failed to create account")
+
+			tt.serviceUser.AccountID = mockAccountID
+			err = store.SaveUser(context.Background(), LockingStrengthUpdate, tt.serviceUser)
+			assert.NoError(t, err, "failed to create service user")
 
 			am := DefaultAccountManager{
 				Store:      store,
@@ -582,12 +552,9 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -603,39 +570,38 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 func TestUser_DeleteUser_regularUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	targetId := "user2"
-	account.Users[targetId] = &User{
-		Id:              targetId,
-		IsServiceUser:   true,
-		ServiceUserName: "user2username",
-	}
-	targetId = "user3"
-	account.Users[targetId] = &User{
-		Id:            targetId,
-		IsServiceUser: false,
-		Issued:        UserIssuedAPI,
-	}
-	targetId = "user4"
-	account.Users[targetId] = &User{
-		Id:            targetId,
-		IsServiceUser: false,
-		Issued:        UserIssuedIntegration,
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
-	targetId = "user5"
-	account.Users[targetId] = &User{
-		Id:            targetId,
-		IsServiceUser: false,
-		Issued:        UserIssuedAPI,
-		Role:          UserRoleOwner,
-	}
-
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err = store.SaveUsers(context.Background(), LockingStrengthUpdate, []*User{
+		{
+			Id:              "user2",
+			AccountID:       mockAccountID,
+			IsServiceUser:   true,
+			ServiceUserName: "user2username",
+		},
+		{
+			Id:            "user3",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedAPI,
+		},
+		{
+			Id:            "user4",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedIntegration,
+		},
+		{
+			Id:            "user5",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedAPI,
+			Role:          UserRoleOwner,
+		},
+	})
+	assert.NoError(t, err, "failed to save users")
 
 	am := DefaultAccountManager{
 		Store:                   store,
@@ -685,61 +651,64 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	targetId := "user2"
-	account.Users[targetId] = &User{
-		Id:              targetId,
-		IsServiceUser:   true,
-		ServiceUserName: "user2username",
-	}
-	targetId = "user3"
-	account.Users[targetId] = &User{
-		Id:            targetId,
-		IsServiceUser: false,
-		Issued:        UserIssuedAPI,
-	}
-	targetId = "user4"
-	account.Users[targetId] = &User{
-		Id:            targetId,
-		IsServiceUser: false,
-		Issued:        UserIssuedIntegration,
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
-	targetId = "user5"
-	account.Users[targetId] = &User{
-		Id:            targetId,
-		IsServiceUser: false,
-		Issued:        UserIssuedAPI,
-		Role:          UserRoleOwner,
-	}
-	account.Users["user6"] = &User{
-		Id:            "user6",
-		IsServiceUser: false,
-		Issued:        UserIssuedAPI,
-	}
-	account.Users["user7"] = &User{
-		Id:            "user7",
-		IsServiceUser: false,
-		Issued:        UserIssuedAPI,
-	}
-	account.Users["user8"] = &User{
-		Id:            "user8",
-		IsServiceUser: false,
-		Issued:        UserIssuedAPI,
-		Role:          UserRoleAdmin,
-	}
-	account.Users["user9"] = &User{
-		Id:            "user9",
-		IsServiceUser: false,
-		Issued:        UserIssuedAPI,
-		Role:          UserRoleAdmin,
-	}
-
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err = store.SaveUsers(context.Background(), LockingStrengthUpdate, []*User{
+		{
+			Id:              "user2",
+			AccountID:       mockAccountID,
+			IsServiceUser:   true,
+			ServiceUserName: "user2username",
+		},
+		{
+			Id:            "user3",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedAPI,
+		},
+		{
+			Id:            "user4",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedIntegration,
+		},
+		{
+			Id:            "user5",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedAPI,
+			Role:          UserRoleOwner,
+		},
+		{
+			Id:            "user6",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedAPI,
+		},
+		{
+			Id:            "user7",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedAPI,
+		},
+		{
+			Id:            "user8",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedAPI,
+			Role:          UserRoleAdmin,
+		},
+		{
+			Id:            "user9",
+			AccountID:     mockAccountID,
+			IsServiceUser: false,
+			Issued:        UserIssuedAPI,
+			Role:          UserRoleAdmin,
+		},
+	})
+	assert.NoError(t, err)
 
 	am := DefaultAccountManager{
 		Store:                   store,
@@ -816,7 +785,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			acc, err := am.Store.GetAccount(context.Background(), account.Id)
+			acc, err := am.Store.GetAccount(context.Background(), mockAccountID)
 			assert.NoError(t, err)
 
 			for _, id := range tc.expectedDeleted {
@@ -836,12 +805,9 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 func TestDefaultAccountManager_GetUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -865,14 +831,19 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users["normal_user1"] = NewRegularUser("normal_user1")
-	account.Users["normal_user2"] = NewRegularUser("normal_user2")
 
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	newUser := NewRegularUser("normal_user1")
+	newUser.AccountID = mockAccountID
+	err = store.SaveUser(context.Background(), LockingStrengthUpdate, newUser)
+	assert.NoError(t, err, "failed to create user")
+
+	newUser = NewRegularUser("normal_user2")
+	newUser.AccountID = mockAccountID
+	err = store.SaveUser(context.Background(), LockingStrengthUpdate, newUser)
+	assert.NoError(t, err, "failed to create user")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -946,15 +917,25 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			store := newStore(t)
-			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-			account.Users["normal_user1"] = NewUser("normal_user1", testCase.role, false, false, "", []string{}, UserIssuedAPI)
-			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
-			delete(account.Users, mockUserID)
 
-			err := store.SaveAccount(context.Background(), account)
-			if err != nil {
-				t.Fatalf("Error when saving account: %s", err)
-			}
+			err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+			assert.NoError(t, err, "failed to create account")
+
+			newUser := NewUser("normal_user1", testCase.role, false, false, "", []string{}, UserIssuedAPI)
+			newUser.AccountID = mockAccountID
+			err = store.SaveUser(context.Background(), LockingStrengthUpdate, newUser)
+			assert.NoError(t, err, "failed to create user")
+
+			settings, err := store.GetAccountSettings(context.Background(), LockingStrengthShare, mockAccountID)
+			assert.NoError(t, err, "failed to get account settings")
+
+			settings.RegularUsersViewBlocked = testCase.limitedViewSettings
+
+			err = store.SaveAccountSettings(context.Background(), LockingStrengthUpdate, mockAccountID, settings)
+			assert.NoError(t, err, "failed to save account settings")
+
+			err = store.DeleteUser(context.Background(), LockingStrengthUpdate, mockAccountID, mockUserID)
+			assert.NoError(t, err, "failed to delete user")
 
 			am := DefaultAccountManager{
 				Store:      store,
@@ -968,7 +949,7 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 
 			assert.Equal(t, 1, len(users))
 
-			userInfo, _ := users[0].ToUserInfo(nil, account.Settings)
+			userInfo, _ := users[0].ToUserInfo(nil, settings)
 			assert.Equal(t, testCase.expectedDashboardPermissions, userInfo.Permissions.DashboardView)
 		})
 	}
@@ -978,22 +959,21 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	externalUser := &User{
-		Id:     "externalUser",
-		Role:   UserRoleUser,
-		Issued: UserIssuedIntegration,
+
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	err = store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
+		Id:        "externalUser",
+		AccountID: mockAccountID,
+		Role:      UserRoleUser,
+		Issued:    UserIssuedIntegration,
 		IntegrationReference: integration_reference.IntegrationReference{
 			ID:              1,
 			IntegrationType: "external",
 		},
-	}
-	account.Users[externalUser.Id] = externalUser
-
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	})
+	assert.NoError(t, err, "failed to create user")
 
 	am := DefaultAccountManager{
 		Store:        store,
@@ -1013,6 +993,10 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	assert.NoError(t, err)
 
 	cacheManager := am.GetExternalCacheManager()
+
+	externalUser, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, "externalUser")
+	assert.NoError(t, err, "failed to get user")
+
 	cacheKey := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
 	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"})
 	assert.NoError(t, err)
@@ -1042,17 +1026,17 @@ func TestUser_IsAdmin(t *testing.T) {
 func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users[mockServiceUserID] = &User{
+
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	err = store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
 		Id:            mockServiceUserID,
+		AccountID:     mockAccountID,
 		Role:          "user",
 		IsServiceUser: true,
-	}
-
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	})
+	assert.NoError(t, err, "failed to create user")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -1071,17 +1055,16 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())
 
-	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-	account.Users[mockServiceUserID] = &User{
+	err := newAccountWithId(context.Background(), store, mockAccountID, mockUserID, "")
+	assert.NoError(t, err, "failed to create account")
+
+	err = store.SaveUser(context.Background(), LockingStrengthUpdate, &User{
 		Id:            mockServiceUserID,
+		AccountID:     mockAccountID,
 		Role:          "user",
 		IsServiceUser: true,
-	}
-
-	err := store.SaveAccount(context.Background(), account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	})
+	assert.NoError(t, err, "failed to create user")
 
 	am := DefaultAccountManager{
 		Store:      store,
@@ -1240,21 +1223,30 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create an account and an admin user
-			account, err := manager.GetOrCreateAccountByUser(context.Background(), ownerUserID, "netbird.io")
+			accountID, err := manager.GetOrCreateAccountIDByUser(context.Background(), ownerUserID, "netbird.io")
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			// create other users
-			account.Users[regularUserID] = NewRegularUser(regularUserID)
-			account.Users[adminUserID] = NewAdminUser(adminUserID)
-			account.Users[serviceUserID] = &User{IsServiceUser: true, Id: serviceUserID, Role: UserRoleAdmin, ServiceUserName: "service"}
-			err = manager.Store.SaveAccount(context.Background(), account)
-			if err != nil {
-				t.Fatal(err)
+			regularUser := NewRegularUser(regularUserID)
+			regularUser.AccountID = accountID
+
+			adminUser := NewAdminUser(adminUserID)
+			adminUser.AccountID = accountID
+
+			serviceUser := &User{
+				Id:              serviceUserID,
+				AccountID:       accountID,
+				IsServiceUser:   true,
+				Role:            UserRoleAdmin,
+				ServiceUserName: "service",
 			}
 
-			updated, err := manager.SaveUser(context.Background(), account.Id, tc.initiatorID, tc.update)
+			err = manager.Store.SaveUsers(context.Background(), LockingStrengthUpdate, []*User{regularUser, adminUser, serviceUser})
+			assert.NoError(t, err, "failed to save users")
+
+			updated, err := manager.SaveUser(context.Background(), accountID, tc.initiatorID, tc.update)
 			if tc.expectedErr {
 				require.Errorf(t, err, "expecting SaveUser to throw an error")
 			} else {
