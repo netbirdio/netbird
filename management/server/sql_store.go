@@ -1162,9 +1162,10 @@ func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength Locki
 		First(&accountDNSSettings, idQueryCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "dns settings not found")
+			return nil, status.NewAccountNotFoundError(accountID)
 		}
-		return nil, status.Errorf(status.Internal, "failed to get dns settings from store: %v", result.Error)
+		log.WithContext(ctx).Errorf("failed to get dns settings from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get dns settings from store")
 	}
 	return &accountDNSSettings.DNSSettings, nil
 }
@@ -1536,4 +1537,20 @@ func getRecordByID[T any](db *gorm.DB, lockStrength LockingStrength, recordID, a
 		return nil, status.Errorf(status.Internal, "failed to get %s from store: %v", recordType, err)
 	}
 	return &record, nil
+}
+
+// SaveDNSSettings saves the DNS settings to the store.
+func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *DNSSettings) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Where(idQueryCondition, accountID).Updates(&AccountDNSSettings{DNSSettings: *settings})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save dns settings to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save dns settings to store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+
+	return nil
 }
