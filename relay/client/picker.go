@@ -17,7 +17,8 @@ const (
 )
 
 var (
-	connectionTimeout = 30 * time.Second
+	connectionTimeout        = 30 * time.Second
+	connectionSortingtimeout = 500 * time.Millisecond
 )
 
 type connResult struct {
@@ -72,13 +73,12 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
 	log.Infof("try to connecting to relay server: %s", url)
 	relayClient := NewClient(ctx, url, sp.TokenStore, sp.PeerID)
-	start := time.Now()
 	err := relayClient.Connect()
 	resultChan <- connResult{
 		RelayClient: relayClient,
 		Url:         url,
 		Err:         err,
-		Latency:     time.Since(start),
+		Latency:     relayClient.InitialConnectionTime,
 	}
 }
 
@@ -86,8 +86,20 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 	var hasSuccess bool
 	var bestLatencyResult connResult
 	bestLatencyResult.Latency = time.Hour
+	processingCtx := context.Background()
+	var processingCtxCancel context.CancelFunc
 	for numOfResults := 0; numOfResults < cap(resultChan); numOfResults++ {
-		cr := <-resultChan
+		var cr connResult
+		select {
+		case <-processingCtx.Done():
+			log.Tracef("terminating Relay server sorting early")
+			successChan <- bestLatencyResult
+			close(successChan)
+			successChan = nil // Prevent any more sending to successChan
+			// Continue receiving connections to terminate any more
+			cr = <-resultChan
+		case cr = <-resultChan:
+		}
 		if cr.Err != nil {
 			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
 			continue
@@ -108,8 +120,17 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 			}
 		}
 
+		// First successful connection, start a timer to return the result
+		if !hasSuccess {
+			processingCtx, processingCtxCancel = context.WithTimeout(processingCtx, connectionSortingtimeout)
+		}
 		hasSuccess = true
 		bestLatencyResult = cr
+	}
+
+	processingCtxCancel()
+	if successChan == nil {
+		return
 	}
 
 	if bestLatencyResult.RelayClient != nil {
