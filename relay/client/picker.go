@@ -112,6 +112,8 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 		bestLatencyResult = cr
 	}
 
-	successChan <- bestLatencyResult
+	if bestLatencyResult.RelayClient != nil {
+		successChan <- bestLatencyResult
+	}
 	close(successChan)
 }
