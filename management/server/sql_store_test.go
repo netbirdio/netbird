@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/stretchr/testify/assert"
@@ -1267,6 +1268,19 @@ func TestSqlStore_UpdateAccountDomainAttributes(t *testing.T) {
 		IsDomainPrimaryAccount := true
 		err = store.UpdateAccountDomainAttributes(context.Background(), LockingStrengthUpdate, "non-existing-account-id", domain, category, &IsDomainPrimaryAccount)
 		require.Error(t, err)
+	})
+
+	t.Run("Should update domain and category but skip primary account when isPrimary is nil", func(t *testing.T) {
+		domain := "test.com"
+		category := "private"
+		err = store.UpdateAccountDomainAttributes(context.Background(), LockingStrengthUpdate, accountID, domain, category, nil)
+		require.NoError(t, err)
+
+		account, err := store.GetAccount(context.Background(), accountID)
+		require.NoError(t, err)
+		require.Equal(t, domain, account.Domain)
+		require.Equal(t, category, account.DomainCategory)
+		require.True(t, account.IsDomainPrimaryAccount)
 	})
 
 }
@@ -2736,4 +2750,75 @@ func TestSqlStore_GetTotalAccounts(t *testing.T) {
 	totalAccounts, err := store.GetTotalAccounts(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), totalAccounts)
+}
+
+func TestSqlStore_AccountExists(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	t.Run("existing account", func(t *testing.T) {
+		exists, err := store.AccountExists(context.Background(), LockingStrengthShare, "bf1c8084-ba50-4ce7-9439-34653001fc3b")
+		require.NoError(t, err)
+		require.True(t, exists)
+	})
+
+	t.Run("non-existing account", func(t *testing.T) {
+		exists, err := store.AccountExists(context.Background(), LockingStrengthShare, "non-existing")
+		require.NoError(t, err)
+		require.False(t, exists)
+	})
+}
+
+func TestSqlStore_CreateAccount(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	acc := &Account{
+		Id:        "test-account",
+		CreatedAt: time.Now().UTC(),
+		Network:   NewNetwork(),
+		CreatedBy: userID,
+		Domain:    "test-domain",
+		DNSSettings: DNSSettings{
+			DisabledManagementGroups: make([]string, 0),
+		},
+		Settings: &Settings{
+			PeerLoginExpirationEnabled:      true,
+			PeerLoginExpiration:             DefaultPeerLoginExpiration,
+			GroupsPropagationEnabled:        true,
+			RegularUsersViewBlocked:         true,
+			PeerInactivityExpirationEnabled: false,
+			PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
+			Extra: &account.ExtraSettings{
+				PeerApprovalEnabled:       false,
+				IntegratedValidatorGroups: make([]string, 0),
+			},
+		},
+	}
+	err = store.CreateAccount(context.Background(), LockingStrengthUpdate, acc)
+	require.NoError(t, err)
+
+	storeAccount, err := store.GetAccount(context.Background(), acc.Id)
+	require.NoError(t, err)
+	require.NotNil(t, storeAccount)
+
+	require.Equal(t, acc.Id, storeAccount.Id)
+	require.Equal(t, acc.CreatedBy, storeAccount.CreatedBy)
+	require.Equal(t, acc.Domain, storeAccount.Domain)
+	require.WithinDuration(t, acc.CreatedAt, storeAccount.CreatedAt, time.Second)
+	require.Equal(t, acc.DNSSettings.DisabledManagementGroups, storeAccount.DNSSettings.DisabledManagementGroups)
+
+	require.NotNil(t, storeAccount.Settings)
+	require.Equal(t, acc.Settings.PeerLoginExpirationEnabled, storeAccount.Settings.PeerLoginExpirationEnabled)
+	require.Equal(t, acc.Settings.PeerLoginExpiration, storeAccount.Settings.PeerLoginExpiration)
+	require.Equal(t, acc.Settings.GroupsPropagationEnabled, storeAccount.Settings.GroupsPropagationEnabled)
+	require.Equal(t, acc.Settings.RegularUsersViewBlocked, storeAccount.Settings.RegularUsersViewBlocked)
+	require.Equal(t, acc.Settings.PeerInactivityExpirationEnabled, storeAccount.Settings.PeerInactivityExpirationEnabled)
+	require.Equal(t, acc.Settings.PeerInactivityExpiration, storeAccount.Settings.PeerInactivityExpiration)
+
+	require.NotNil(t, storeAccount.Settings.Extra)
+	require.Equal(t, acc.Settings.Extra.PeerApprovalEnabled, storeAccount.Settings.Extra.PeerApprovalEnabled)
+	require.Equal(t, acc.Settings.Extra.IntegratedValidatorGroups, storeAccount.Settings.Extra.IntegratedValidatorGroups)
 }
