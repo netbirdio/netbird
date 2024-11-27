@@ -12,6 +12,12 @@ import (
 )
 
 func main() {
+	// only if env is not set
+	if os.Getenv("NB_LOG_LEVEL") == "" {
+		if err := os.Setenv("NB_LOG_LEVEL", "debug"); err != nil {
+			log.Errorf("Failed setting log-level: %v", err)
+		}
+	}
 	if err := os.Setenv("NB_LOG_MAX_SIZE_MB", "100"); err != nil {
 		log.Errorf("Failed setting log-size: %v", err)
 	}
