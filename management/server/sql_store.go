@@ -1449,15 +1449,19 @@ func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength,
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error {
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&Policy{}, accountAndIDQueryCondition, accountID, policyID)
-	if err := result.Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Delete(&PolicyRule{}, "policy_id = ?", policyID)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		return tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Delete(&Policy{}, accountAndIDQueryCondition, accountID, policyID).Error
+	})
+	if err != nil {
 		log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
 		return status.Errorf(status.Internal, "failed to delete policy from store")
-	}
-
-	if result.RowsAffected == 0 {
-		return status.NewPolicyNotFoundError(policyID)
 	}
 
 	return nil
