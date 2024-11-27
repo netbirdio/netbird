@@ -813,15 +813,6 @@ func (a *Account) getPeerGroups(peerID string) lookupMap {
 	return groupList
 }
 
-func (a *Account) getTakenIPs() []net.IP {
-	var takenIps []net.IP
-	for _, existingPeer := range a.Peers {
-		takenIps = append(takenIps, existingPeer.IP)
-	}
-
-	return takenIps
-}
-
 func (a *Account) getPeerDNSLabels() lookupMap {
 	existingLabels := make(lookupMap)
 	for _, peer := range a.Peers {
