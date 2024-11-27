@@ -389,7 +389,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *A
 		return nil, nil, err
 	}
 
-	err = am.Store.SavePolicy(context.Background(), LockingStrengthUpdate, policy)
+	err = am.Store.CreatePolicy(context.Background(), LockingStrengthUpdate, policy)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -406,7 +406,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *A
 
 	err = am.SaveGroups(context.Background(), accountID, groupAdminUserID, []*nbgroup.Group{
 		groupForRoute, groupForRoute2, groupForNameServerGroups, groupForPolicies,
-		groupForSetupKeys, groupForUsers, groupForUsers, groupForIntegration,
+		groupForSetupKeys, groupForUsers, groupForIntegration,
 	})
 	if err != nil {
 		return nil, nil, err
