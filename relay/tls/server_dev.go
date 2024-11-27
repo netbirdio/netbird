@@ -15,7 +15,7 @@ func ServerQUICTLSConfig(originTLSCfg *tls.Config) (*tls.Config, error) {
 	}
 
 	cfg := originTLSCfg.Clone()
-	cfg.NextProtos = []string{"nb"}
+	cfg.NextProtos = []string{nbalpn}
 	return cfg, nil
 }
 
