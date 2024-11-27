@@ -2,7 +2,7 @@ package quic
 
 import (
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -11,25 +11,14 @@ import (
 	"github.com/quic-go/quic-go"
 	log "github.com/sirupsen/logrus"
 
+	quictls "github.com/netbirdio/netbird/relay/tls"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-const (
-	dialTimeout = 30 * time.Second
-)
-
-func Dial(address string) (net.Conn, error) {
+func Dial(ctx context.Context, address string) (net.Conn, error) {
 	quicURL, err := prepareURL(address)
 	if err != nil {
 		return nil, err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
-	defer cancel()
-
-	tlsConf := &tls.Config{
-		InsecureSkipVerify: true,                      // Set to true only for testing
-		NextProtos:         []string{"netbird-relay"}, // Ensure this matches the server's ALPN
 	}
 
 	quicConfig := &quic.Config{
@@ -50,8 +39,12 @@ func Dial(address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	session, err := quic.Dial(ctx, udpConn, udpAddr, tlsConf, quicConfig)
+	session, err := quic.Dial(ctx, udpConn, udpAddr, quictls.ClientQUICTLSConfig(), quicConfig)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			log.Infof("QUIC connection aborted to: %s", quicURL)
+			return nil, err
+		}
 		log.Errorf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)
 		return nil, err
 	}

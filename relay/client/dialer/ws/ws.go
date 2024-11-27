@@ -2,7 +2,7 @@ package ws
 
 import (
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -16,7 +16,7 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func Dial(address string) (net.Conn, error) {
+func Dial(ctx context.Context, address string) (net.Conn, error) {
 	wsURL, err := prepareURL(address)
 	if err != nil {
 		return nil, err
@@ -32,8 +32,12 @@ func Dial(address string) (net.Conn, error) {
 	}
 	parsedURL.Path = ws.URLPath
 
-	wsConn, resp, err := websocket.Dial(context.Background(), parsedURL.String(), opts)
+	wsConn, resp, err := websocket.Dial(ctx, parsedURL.String(), opts)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			log.Infof("WebSocket connection aborted to: %s", wsURL)
+			return nil, err
+		}
 		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)
 		return nil, err
 	}
@@ -59,10 +63,6 @@ func httpClientNbDialer() *http.Client {
 	customTransport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return customDialer.DialContext(ctx, network, addr)
-		},
-		// Set up a TLS configuration that skips certificate verification
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // This accepts invalid TLS certificates
 		},
 	}
 

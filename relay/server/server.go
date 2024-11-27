@@ -2,19 +2,10 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
-	"math/big"
-	"net"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -22,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	quictls "github.com/netbirdio/netbird/relay/tls"
 )
 
 // ListenerConfig is the configuration for the listener.
@@ -64,19 +56,16 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 	}
 	r.listeners = append(r.listeners, wSListener)
 
-	quicListener := &quic.Listener{
-		Address: cfg.Address,
+	tlsConfigQUIC, err := quictls.ServerQUICTLSConfig(cfg.TLSConfig)
+	if err != nil {
+		return err
 	}
 
-	if cfg.TLSConfig != nil {
-		quicListener.TLSConfig = cfg.TLSConfig
-	} else {
-		tlsConfig, err := generateTestTLSConfig()
-		if err != nil {
-			return err
-		}
-		quicListener.TLSConfig = tlsConfig
+	quicListener := &quic.Listener{
+		Address:   cfg.Address,
+		TLSConfig: tlsConfigQUIC,
 	}
+
 	r.listeners = append(r.listeners, quicListener)
 
 	errChan := make(chan error, len(r.listeners))
@@ -116,55 +105,4 @@ func (r *Server) Shutdown(ctx context.Context) error {
 // InstanceURL returns the instance URL of the relay server.
 func (r *Server) InstanceURL() string {
 	return r.relay.instanceURL
-}
-
-// GenerateTestTLSConfig creates a self-signed certificate for testing
-func generateTestTLSConfig() (*tls.Config, error) {
-	log.Infof("generating test TLS config")
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, err
-	}
-
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization: []string{"Test Organization"},
-		},
-		NotBefore: time.Now(),
-		NotAfter:  time.Now().Add(time.Hour * 24 * 180), // Valid for 180 days
-		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{
-			x509.ExtKeyUsageServerAuth,
-		},
-		BasicConstraintsValid: true,
-		DNSNames:              []string{"localhost"},
-		IPAddresses:           []net.IP{net.ParseIP("192.168.0.10")},
-	}
-
-	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
-	if err != nil {
-		return nil, err
-	}
-
-	certPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certDER,
-	})
-
-	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
-	})
-
-	tlsCert, err := tls.X509KeyPair(certPEM, privateKeyPEM)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{tlsCert},
-		NextProtos:   []string{"netbird-relay"},
-	}, nil
 }
