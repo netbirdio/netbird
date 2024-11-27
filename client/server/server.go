@@ -110,6 +110,35 @@ func (s *Server) Start() error {
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if statusResp, err := s.Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true}); err != nil {
+					log.Infof("Error getting status: %v", err)
+				} else if statusResp.FullStatus != nil {
+					log.Infof("Status --------")
+					for _, peer := range statusResp.FullStatus.Peers {
+						log.Infof("[Peer Connection] Name: %s, IP: %s, Key: %s, Connection Status: %s, Relayed: %v, RelayedAddress: %v, Last WireGuard Handshake: %v",
+							peer.Fqdn,
+							peer.IP,
+							peer.PubKey,
+							peer.ConnStatus,
+							peer.Relayed,
+							peer.RelayAddress,
+							peer.LastWireguardHandshake.AsTime().Format("15:04:05"),
+						)
+					}
+				}
+			}
+		}
+	}()
+
 	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
 	// on failure we return error to retry
 	config, err := internal.UpdateConfig(s.latestConfigInput)
