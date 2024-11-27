@@ -46,8 +46,6 @@ type WorkerICE struct {
 	hasRelayOnLocally bool
 	conn              WorkerICECallbacks
 
-	selectedPriority ConnPriority
-
 	agent    *ice.Agent
 	muxAgent sync.Mutex
 
@@ -95,10 +93,8 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	var preferredCandidateTypes []ice.CandidateType
 	if w.hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
-		w.selectedPriority = connPriorityICEP2P
 		preferredCandidateTypes = icemaker.CandidateTypesP2P()
 	} else {
-		w.selectedPriority = connPriorityICETurn
 		preferredCandidateTypes = icemaker.CandidateTypes()
 	}
 
@@ -159,7 +155,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}
 	w.log.Debugf("on ICE conn read to use ready")
-	go w.conn.OnConnReady(w.selectedPriority, ci)
+	go w.conn.OnConnReady(selectedPriority(pair), ci)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -393,4 +389,12 @@ func isRelayed(pair *ice.CandidatePair) bool {
 		return true
 	}
 	return false
+}
+
+func selectedPriority(pair *ice.CandidatePair) ConnPriority {
+	if isRelayed(pair) {
+		return connPriorityICETurn
+	} else {
+		return connPriorityICEP2P
+	}
 }

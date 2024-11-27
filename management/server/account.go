@@ -966,7 +966,9 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(user *User, groups []*nbgro
 }
 
 // UserGroupsAddToPeers adds groups to all peers of user
-func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
+func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) map[string][]string {
+	groupUpdates := make(map[string][]string)
+
 	userPeers := make(map[string]struct{})
 	for pid, peer := range a.Peers {
 		if peer.UserID == userID {
@@ -979,6 +981,8 @@ func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
 		if !ok {
 			continue
 		}
+
+		oldPeers := group.Peers
 
 		groupPeers := make(map[string]struct{})
 		for _, pid := range group.Peers {
@@ -993,16 +997,25 @@ func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
 		for pid := range groupPeers {
 			group.Peers = append(group.Peers, pid)
 		}
+
+		groupUpdates[gid] = difference(group.Peers, oldPeers)
 	}
+
+	return groupUpdates
 }
 
 // UserGroupsRemoveFromPeers removes groups from all peers of user
-func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
+func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) map[string][]string {
+	groupUpdates := make(map[string][]string)
+
 	for _, gid := range groups {
 		group, ok := a.Groups[gid]
 		if !ok || group.Name == "All" {
 			continue
 		}
+
+		oldPeers := group.Peers
+
 		update := make([]string, 0, len(group.Peers))
 		for _, pid := range group.Peers {
 			peer, ok := a.Peers[pid]
@@ -1014,7 +1027,10 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 			}
 		}
 		group.Peers = update
+		groupUpdates[gid] = difference(oldPeers, group.Peers)
 	}
+
+	return groupUpdates
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1176,6 +1192,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
+	err = am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("groups propagation failed: %w", err)
+	}
+
 	updatedAccount := account.UpdateSettings(newSettings)
 
 	err = am.Store.SaveAccount(ctx, account)
@@ -1186,25 +1207,44 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	return updatedAccount, nil
 }
 
-func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) error {
-	if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
-		event := activity.AccountPeerInactivityExpirationEnabled
-		if !newSettings.PeerInactivityExpirationEnabled {
-			event = activity.AccountPeerInactivityExpirationDisabled
-			am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) error {
+	if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled {
+		if newSettings.GroupsPropagationEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationEnabled, nil)
+			// Todo: retroactively add user groups to all peers
 		} else {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationDisabled, nil)
 		}
-		am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
-	}
-
-	if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
-		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 	}
 
 	return nil
 }
+
+func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) error {
+	if newSettings.PeerInactivityExpirationEnabled {
+		if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
+			oldSettings.PeerInactivityExpiration = newSettings.PeerInactivityExpiration
+
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		}
+	} else {
+		if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
+			event := activity.AccountPeerInactivityExpirationEnabled
+			if !newSettings.PeerInactivityExpirationEnabled {
+				event = activity.AccountPeerInactivityExpirationDisabled
+				am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+			} else {
+				am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+			}
+			am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
+		}
+	}
+
+	return nil
+}
+
+
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
@@ -2305,7 +2345,7 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 
 	err := am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID)
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
+		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
 
 	return nil
@@ -2320,6 +2360,9 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 
 	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer unlock()
+
+	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer unlockPeer()
 
 	_, _, _, err = am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
 	if err != nil {

@@ -83,9 +83,11 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	// persist early to ensure cleanup of chains
-	if err := stateManager.PersistState(context.Background()); err != nil {
-		log.Errorf("failed to persist state: %v", err)
-	}
+	go func() {
+		if err := stateManager.PersistState(context.Background()); err != nil {
+			log.Errorf("failed to persist state: %v", err)
+		}
+	}()
 
 	return nil
 }

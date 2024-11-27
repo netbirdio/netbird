@@ -187,6 +187,8 @@ func updatePeerStatusAndLocation(ctx context.Context, geo *geolocation.Geolocati
 		}
 	}
 
+	log.WithContext(ctx).Tracef("saving peer status for peer %s is connected: %t", peer.ID, connected)
+
 	err := transaction.SavePeerStatus(ctx, LockingStrengthUpdate, accountID, peer.ID, *newStatus)
 	if err != nil {
 		return false, err
@@ -686,6 +688,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 		updated = peer.UpdateMetaIfNew(sync.Meta)
 		if updated {
+			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
+			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 			err = transaction.SavePeer(ctx, LockingStrengthUpdate, accountID, peer)
 			if err != nil {
 				return err
@@ -793,6 +797,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 
 		updated := peer.UpdateMetaIfNew(login.Meta)
 		if updated {
+			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			shouldStorePeer = true
 		}
 
@@ -999,18 +1004,18 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, accountID string) {
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
+		return
+	}
+
 	start := time.Now()
 	defer func() {
 		if am.metrics != nil {
 			am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
 		}
 	}()
-
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
-		return
-	}
 
 	peers := account.GetPeers()
 
