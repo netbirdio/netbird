@@ -151,28 +151,21 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 }
 
 // getPeerPostureChecks returns the posture checks applied for a given peer.
-func (am *DefaultAccountManager) getPeerPostureChecks(ctx context.Context, account *Account, peerID string) ([]*posture.Checks, error) {
+func (am *DefaultAccountManager) getPeerPostureChecks(account *Account, peerID string) ([]*posture.Checks, error) {
 	peerPostureChecks := make(map[string]*posture.Checks)
 
-	err := am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		if len(account.PostureChecks) == 0 {
-			return nil
+	if len(account.PostureChecks) == 0 {
+		return nil, nil
+	}
+
+	for _, policy := range account.Policies {
+		if !policy.Enabled {
+			continue
 		}
 
-		for _, policy := range account.Policies {
-			if !policy.Enabled {
-				continue
-			}
-
-			if err := addPolicyPostureChecks(account, peerID, policy, peerPostureChecks); err != nil {
-				return err
-			}
+		if err := addPolicyPostureChecks(account, peerID, policy, peerPostureChecks); err != nil {
+			return nil, err
 		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	return maps.Values(peerPostureChecks), nil
@@ -244,7 +237,6 @@ func addPolicyPostureChecks(account *Account, peerID string, policy *Policy, pee
 	}
 
 	for _, sourcePostureCheckID := range policy.SourcePostureChecks {
-		account.getPostureChecks(sourcePostureCheckID)
 		postureCheck := account.getPostureChecks(sourcePostureCheckID)
 		if postureCheck == nil {
 			return errors.New("failed to add policy posture checks: posture checks not found")

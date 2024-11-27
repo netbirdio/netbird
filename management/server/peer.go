@@ -617,7 +617,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, err
 	}
 
-	postureChecks, err := am.getPeerPostureChecks(ctx, account, newPeer.ID)
+	postureChecks, err := am.getPeerPostureChecks(account, newPeer.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -707,7 +707,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, fmt.Errorf("failed to get validated peers: %w", err)
 	}
 
-	postureChecks, err = am.getPeerPostureChecks(ctx, account, peer.ID)
+	postureChecks, err = am.getPeerPostureChecks(account, peer.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -885,7 +885,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	postureChecks, err = am.getPeerPostureChecks(ctx, account, peer.ID)
+	postureChecks, err = am.getPeerPostureChecks(account, peer.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1042,7 +1042,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 			defer wg.Done()
 			defer func() { <-semaphore }()
 
-			postureChecks, err := am.getPeerPostureChecks(ctx, account, p.ID)
+			postureChecks, err := am.getPeerPostureChecks(account, p.ID)
 			if err != nil {
 				log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to get peer: %s posture checks: %v", p.ID, err)
 				return
