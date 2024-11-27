@@ -159,7 +159,7 @@ func (am *DefaultAccountManager) getPeerPostureChecks(account *Account, peerID s
 	}
 
 	for _, policy := range account.Policies {
-		if !policy.Enabled {
+		if !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
 			continue
 		}
 
