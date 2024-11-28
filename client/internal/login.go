@@ -17,7 +17,7 @@ import (
 )
 
 // IsLoginRequired check that the server is support SSO or not
-func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, sshKey string) (bool, error) {
+func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, sshKey string, staticInfo *system.StaticInfo) (bool, error) {
 	mgmClient, err := getMgmClient(ctx, privateKey, mgmURL)
 	if err != nil {
 		return false, err
@@ -38,7 +38,7 @@ func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, ss
 		return false, err
 	}
 
-	_, err = doMgmLogin(ctx, mgmClient, pubSSHKey)
+	_, err = doMgmLogin(ctx, mgmClient, pubSSHKey, staticInfo)
 	if isLoginNeeded(err) {
 		return true, nil
 	}
@@ -46,7 +46,7 @@ func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, ss
 }
 
 // Login or register the client
-func Login(ctx context.Context, config *Config, setupKey string, jwtToken string) error {
+func Login(ctx context.Context, config *Config, setupKey string, jwtToken string, staticInfo *system.StaticInfo) error {
 	mgmClient, err := getMgmClient(ctx, config.PrivateKey, config.ManagementURL)
 	if err != nil {
 		return err
@@ -67,10 +67,10 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		return err
 	}
 
-	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey)
+	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey, staticInfo)
 	if serverKey != nil && isRegistrationNeeded(err) {
 		log.Debugf("peer registration required")
-		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
+		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey, staticInfo)
 		return err
 	}
 
@@ -99,28 +99,28 @@ func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm
 	return mgmClient, err
 }
 
-func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte) (*wgtypes.Key, error) {
+func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte, staticInfo *system.StaticInfo) (*wgtypes.Key, error) {
 	serverKey, err := mgmClient.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, err
 	}
 
-	sysInfo := system.GetInfo(ctx)
+	sysInfo := system.GetInfo(ctx, staticInfo)
 	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey)
 	return serverKey, err
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
-func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
+func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, pubSSHKey []byte, staticInfo *system.StaticInfo) (*mgmProto.LoginResponse, error) {
 	validSetupKey, err := uuid.Parse(setupKey)
 	if err != nil && jwtToken == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid setup-key or no sso information provided, err: %v", err)
 	}
 
 	log.Debugf("sending peer registration request to Management Service")
-	info := system.GetInfo(ctx)
+	info := system.GetInfo(ctx, staticInfo)
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey)
 	if err != nil {
 		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())

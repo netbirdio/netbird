@@ -123,7 +123,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, &system.StaticInfo{})
 	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager)
 }
 

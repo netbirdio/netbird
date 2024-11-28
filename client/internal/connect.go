@@ -40,19 +40,21 @@ type ConnectClient struct {
 	statusRecorder *peer.Status
 	engine         *Engine
 	engineMutex    sync.Mutex
+	staticInfo     *system.StaticInfo
 }
 
 func NewConnectClient(
 	ctx context.Context,
 	config *Config,
 	statusRecorder *peer.Status,
-
+	staticInfo *system.StaticInfo,
 ) *ConnectClient {
 	return &ConnectClient{
 		ctx:            ctx,
 		config:         config,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
+		staticInfo:     staticInfo,
 	}
 }
 
@@ -179,7 +181,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 		}()
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
-		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey)
+		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.staticInfo)
 		if err != nil {
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
@@ -257,7 +259,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
+		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks, c.staticInfo)
 
 		c.engineMutex.Unlock()
 
@@ -424,14 +426,14 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 }
 
 // loginToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
-func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
+func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, staticInfo *system.StaticInfo) (*mgmProto.LoginResponse, error) {
 
 	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
-	sysInfo := system.GetInfo(ctx)
+	sysInfo := system.GetInfo(ctx, staticInfo)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey)
 	if err != nil {
 		return nil, err

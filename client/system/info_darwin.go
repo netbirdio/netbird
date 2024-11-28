@@ -21,7 +21,7 @@ import (
 )
 
 // GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func GetInfo(ctx context.Context, staticInfo *StaticInfo) *Info {
 	utsname := unix.Utsname{}
 	err := unix.Uname(&utsname)
 	if err != nil {
@@ -41,26 +41,22 @@ func GetInfo(ctx context.Context) *Info {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
-	serialNum, prodName, manufacturer := sysInfo()
-
-	env := Environment{
-		Cloud:    detect_cloud.Detect(ctx),
-		Platform: detect_platform.Detect(ctx),
+	gio := &Info{
+		Kernel:           sysName,
+		OSVersion:        strings.TrimSpace(string(swVersion)),
+		Platform:         machine,
+		OS:               sysName,
+		GoOS:             runtime.GOOS,
+		CPUs:             runtime.NumCPU(),
+		KernelVersion:    release,
+		NetworkAddresses: addrs,
 	}
 
-	gio := &Info{
-		Kernel:             sysName,
-		OSVersion:          strings.TrimSpace(string(swVersion)),
-		Platform:           machine,
-		OS:                 sysName,
-		GoOS:               runtime.GOOS,
-		CPUs:               runtime.NumCPU(),
-		KernelVersion:      release,
-		NetworkAddresses:   addrs,
-		SystemSerialNumber: serialNum,
-		SystemProductName:  prodName,
-		SystemManufacturer: manufacturer,
-		Environment:        env,
+	if staticInfo != nil {
+		gio.SystemSerialNumber = staticInfo.SystemSerialNumber
+		gio.SystemProductName = staticInfo.SystemProductName
+		gio.SystemManufacturer = staticInfo.SystemManufacturer
+		gio.Environment = staticInfo.Environment
 	}
 
 	systemHostname, _ := os.Hostname()
@@ -69,6 +65,21 @@ func GetInfo(ctx context.Context) *Info {
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
+}
+
+func getStaticInfo(ctx context.Context) *StaticInfo {
+	serialNum, prodName, manufacturer := sysInfo()
+	env := Environment{
+		Cloud:    detect_cloud.Detect(ctx),
+		Platform: detect_platform.Detect(ctx),
+	}
+
+	return &StaticInfo{
+		SystemSerialNumber: serialNum,
+		SystemProductName:  prodName,
+		SystemManufacturer: manufacturer,
+		Environment:        env,
+	}
 }
 
 func sysInfo() (serialNumber string, productName string, manufacturer string) {

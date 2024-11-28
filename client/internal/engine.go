@@ -172,6 +172,8 @@ type Engine struct {
 	relayManager *relayClient.Manager
 	stateManager *statemanager.Manager
 	srWatcher    *guard.SRWatcher
+
+	staticInfo *system.StaticInfo
 }
 
 // Peer is an instance of the Connection Peer
@@ -180,8 +182,8 @@ type Peer struct {
 	WgAllowedIps string
 }
 
-// NewEngine creates a new Connection Engine
-func NewEngine(
+// newEngine creates a new Connection Engine
+func newEngine(
 	clientCtx context.Context,
 	clientCancel context.CancelFunc,
 	signalClient signal.Client,
@@ -203,6 +205,7 @@ func NewEngine(
 		statusRecorder,
 		nil,
 		checks,
+		nil,
 	)
 }
 
@@ -218,6 +221,7 @@ func NewEngineWithProbes(
 	statusRecorder *peer.Status,
 	probes *ProbeHolder,
 	checks []*mgmProto.Checks,
+	staticInfo *system.StaticInfo,
 ) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
@@ -237,6 +241,7 @@ func NewEngineWithProbes(
 		statusRecorder: statusRecorder,
 		probes:         probes,
 		checks:         checks,
+		staticInfo:     staticInfo,
 	}
 	if path := statemanager.GetDefaultStatePath(); path != "" {
 		engine.stateManager = statemanager.New(path)
@@ -582,10 +587,10 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	}
 	e.checks = checks
 
-	info, err := system.GetInfoWithChecks(e.ctx, checks)
+	info, err := system.GetInfoWithChecks(e.ctx, checks, e.staticInfo)
 	if err != nil {
 		log.Warnf("failed to get system info with checks: %v", err)
-		info = system.GetInfo(e.ctx)
+		info = system.GetInfo(e.ctx, e.staticInfo)
 	}
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
@@ -685,10 +690,10 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	go func() {
-		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+		info, err := system.GetInfoWithChecks(e.ctx, e.checks, e.staticInfo)
 		if err != nil {
 			log.Warnf("failed to get system info with checks: %v", err)
-			info = system.GetInfo(e.ctx)
+			info = system.GetInfo(e.ctx, e.staticInfo)
 		}
 
 		// err = e.mgmClient.Sync(info, e.handleSync)
@@ -1192,7 +1197,7 @@ func (e *Engine) close() {
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
-	info := system.GetInfo(e.ctx)
+	info := system.GetInfo(e.ctx, e.staticInfo)
 	netMap, err := e.mgmClient.GetNetworkMap(info)
 	if err != nil {
 		return nil, nil, err

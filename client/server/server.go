@@ -68,6 +68,7 @@ type Server struct {
 	relayProbe  *internal.Probe
 	wgProbe     *internal.Probe
 	lastProbe   time.Time
+	staticInfo  *system.StaticInfo
 }
 
 type oauthAuthFlow struct {
@@ -79,6 +80,8 @@ type oauthAuthFlow struct {
 
 // New server instance constructor.
 func New(ctx context.Context, configPath, logFile string) *Server {
+	staticInfoChan := system.GetStaticInfoInBackground(ctx)
+	staticInfo := <-staticInfoChan
 	return &Server{
 		rootCtx: ctx,
 		latestConfigInput: internal.ConfigInput{
@@ -89,6 +92,7 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		signalProbe: internal.NewProbe(),
 		relayProbe:  internal.NewProbe(),
 		wgProbe:     internal.NewProbe(),
+		staticInfo:  staticInfo,
 	}
 }
 
@@ -195,7 +199,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 
 	runOperation := func() error {
 		log.Tracef("running client connection")
-		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, s.staticInfo)
 
 		probes := internal.ProbeHolder{
 			MgmProbe:    s.mgmProbe,
@@ -272,7 +276,7 @@ func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duratio
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
 func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
 	var status internal.StatusType
-	err := internal.Login(ctx, s.config, setupKey, jwtToken)
+	err := internal.Login(ctx, s.config, setupKey, jwtToken, s.staticInfo)
 	if err != nil {
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			log.Warnf("failed login: %v", err)

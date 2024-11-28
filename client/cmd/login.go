@@ -137,9 +137,11 @@ var loginCmd = &cobra.Command{
 
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.Config, setupKey string) error {
 	needsLogin := false
+	staticInfoChan := system.GetStaticInfoInBackground(ctx)
+	staticInfo := <-staticInfoChan
 
 	err := WithBackOff(func() error {
-		err := internal.Login(ctx, config, "", "")
+		err := internal.Login(ctx, config, "", "", staticInfo)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			needsLogin = true
 			return nil
@@ -162,7 +164,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 	var lastError error
 
 	err = WithBackOff(func() error {
-		err := internal.Login(ctx, config, setupKey, jwtToken)
+		err := internal.Login(ctx, config, setupKey, jwtToken, staticInfo)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			lastError = err
 			return nil

@@ -152,6 +152,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
+	staticInfoChan := system.GetStaticInfoInBackground(ctx)
+
 	config, err := internal.UpdateOrCreateConfig(ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
@@ -171,7 +173,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	r := peer.NewRecorder(config.ManagementURL.String())
 	r.GetFullStatus()
 
-	connectClient := internal.NewConnectClient(ctx, config, r)
+	connectClient := internal.NewConnectClient(ctx, config, r, <-staticInfoChan)
 	return connectClient.Run()
 }
 

@@ -61,6 +61,14 @@ type Info struct {
 	Files              []File // for posture checks
 }
 
+// StaticInfo is an object that contains machine information that does not change
+type StaticInfo struct {
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
+	Environment        Environment
+}
+
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
 func extractUserAgent(ctx context.Context) string {
 	md, hasMeta := metadata.FromOutgoingContext(ctx)
@@ -142,7 +150,7 @@ func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
 }
 
 // GetInfoWithChecks retrieves and parses the system information with applied checks.
-func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, error) {
+func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks, staticInfo *StaticInfo) (*Info, error) {
 	processCheckPaths := make([]string, 0)
 	for _, check := range checks {
 		processCheckPaths = append(processCheckPaths, check.GetFiles()...)
@@ -153,8 +161,17 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, erro
 		return nil, err
 	}
 
-	info := GetInfo(ctx)
+	info := GetInfo(ctx, staticInfo)
 	info.Files = files
 
 	return info, nil
+}
+
+// GetStaticInfoInBackground retrieves and parses the system information in the background
+func GetStaticInfoInBackground(ctx context.Context) <-chan *StaticInfo {
+	ch := make(chan *StaticInfo)
+	go func() {
+		ch <- getStaticInfo(ctx)
+	}()
+	return ch
 }

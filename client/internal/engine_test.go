@@ -84,7 +84,7 @@ func TestEngine_SSH(t *testing.T) {
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
-	engine := NewEngine(
+	engine := newEngine(
 		ctx, cancel,
 		&signal.MockClient{},
 		&mgmt.MockClient{},
@@ -229,7 +229,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
-	engine := NewEngine(
+	engine := newEngine(
 		ctx, cancel,
 		&signal.MockClient{},
 		&mgmt.MockClient{},
@@ -434,7 +434,7 @@ func TestEngine_Sync(t *testing.T) {
 		return nil
 	}
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
+	engine := newEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
 		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
@@ -594,7 +594,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
-			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
+			engine := newEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
@@ -774,7 +774,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
-			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
+			engine := newEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
@@ -1118,7 +1118,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		return nil, err
 	}
 
-	info := system.GetInfo(ctx)
+	info := system.GetInfo(ctx, nil)
 	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil)
 	if err != nil {
 		return nil, err
@@ -1140,7 +1140,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
-	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
+	e, err := newEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
 	e.ctx = ctx
 	return e, err
 }

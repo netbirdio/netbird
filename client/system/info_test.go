@@ -9,7 +9,7 @@ import (
 )
 
 func Test_LocalWTVersion(t *testing.T) {
-	got := GetInfo(context.TODO())
+	got := GetInfo(context.TODO(), nil)
 	want := "development"
 	assert.Equal(t, want, got.WiretrusteeVersion)
 }
@@ -21,7 +21,7 @@ func Test_UIVersion(t *testing.T) {
 		"user-agent": {want},
 	})
 
-	got := GetInfo(ctx)
+	got := GetInfo(ctx, nil)
 	assert.Equal(t, want, got.UIVersion)
 }
 
@@ -30,7 +30,7 @@ func Test_CustomHostname(t *testing.T) {
 	ctx := context.WithValue(context.Background(), DeviceNameCtxKey, "custom-host")
 	want := "custom-host"
 
-	got := GetInfo(ctx)
+	got := GetInfo(ctx, nil)
 	assert.Equal(t, want, got.Hostname)
 }
 
