@@ -42,7 +42,7 @@ func (s SysInfoWrapper) GetSysInfo() SysInfo {
 }
 
 // GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func GetInfo(ctx context.Context, staticInfo *StaticInfo) *Info {
 	info := _getInfo()
 	for strings.Contains(info, "broken pipe") {
 		info = _getInfo()
@@ -65,14 +65,6 @@ func GetInfo(ctx context.Context) *Info {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
-	si := SysInfoWrapper{}
-	serialNum, prodName, manufacturer := sysInfo(si.GetSysInfo())
-
-	env := Environment{
-		Cloud:    detect_cloud.Detect(ctx),
-		Platform: detect_platform.Detect(ctx),
-	}
-
 	gio := &Info{
 		Kernel:             osInfo[0],
 		Platform:           osInfo[2],
@@ -85,13 +77,32 @@ func GetInfo(ctx context.Context) *Info {
 		UIVersion:          extractUserAgent(ctx),
 		KernelVersion:      osInfo[1],
 		NetworkAddresses:   addrs,
+	}
+
+	if staticInfo != nil {
+		gio.SystemSerialNumber = staticInfo.SystemSerialNumber
+		gio.SystemProductName = staticInfo.SystemProductName
+		gio.SystemManufacturer = staticInfo.SystemManufacturer
+		gio.Environment = staticInfo.Environment
+	}
+
+	return gio
+}
+
+func getStaticInfo(ctx context.Context) *StaticInfo {
+	si := SysInfoWrapper{}
+	serialNum, prodName, manufacturer := sysInfo(si.GetSysInfo())
+	env := Environment{
+		Cloud:    detect_cloud.Detect(ctx),
+		Platform: detect_platform.Detect(ctx),
+	}
+
+	return &StaticInfo{
 		SystemSerialNumber: serialNum,
 		SystemProductName:  prodName,
 		SystemManufacturer: manufacturer,
 		Environment:        env,
 	}
-
-	return gio
 }
 
 func _getInfo() string {

@@ -19,7 +19,7 @@ import (
 )
 
 // GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func GetInfo(ctx context.Context, staticInfo *StaticInfo) *Info {
 	out := _getInfo()
 	for strings.Contains(out, "broken pipe") {
 		out = _getInfo()
@@ -29,16 +29,11 @@ func GetInfo(ctx context.Context) *Info {
 	osStr = strings.ReplaceAll(osStr, "\r\n", "")
 	osInfo := strings.Split(osStr, " ")
 
-	env := Environment{
-		Cloud:    detect_cloud.Detect(ctx),
-		Platform: detect_platform.Detect(ctx),
-	}
-
 	osName, osVersion := readOsReleaseFile()
 
 	systemHostname, _ := os.Hostname()
 
-	return &Info{
+	info := &Info{
 		GoOS:               runtime.GOOS,
 		Kernel:             osInfo[0],
 		Platform:           runtime.GOARCH,
@@ -49,7 +44,25 @@ func GetInfo(ctx context.Context) *Info {
 		WiretrusteeVersion: version.NetbirdVersion(),
 		UIVersion:          extractUserAgent(ctx),
 		KernelVersion:      osInfo[1],
-		Environment:        env,
+	}
+	if staticInfo != nil {
+		info.SystemSerialNumber = staticInfo.SystemSerialNumber
+		info.SystemProductName = staticInfo.SystemProductName
+		info.SystemManufacturer = staticInfo.SystemManufacturer
+		info.Environment = staticInfo.Environment
+	}
+
+	return info
+}
+
+func getStaticInfo(ctx context.Context) *StaticInfo {
+	env := Environment{
+		Cloud:    detect_cloud.Detect(ctx),
+		Platform: detect_platform.Detect(ctx),
+	}
+
+	return &StaticInfo{
+		Environment: env,
 	}
 }
 

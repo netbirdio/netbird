@@ -16,7 +16,7 @@ import (
 )
 
 // GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func GetInfo(ctx context.Context, _ *StaticInfo) *Info {
 	kernel := "android"
 	osInfo := uname()
 	if len(osInfo) == 2 {
@@ -42,6 +42,10 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	return gio
+}
+
+func getStaticInfo(ctx context.Context) *StaticInfo {
+	return nil
 }
 
 // checkFileAndProcess checks if the file path exists and if a process is running at that path.
