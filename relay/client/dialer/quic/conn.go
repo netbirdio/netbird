@@ -9,12 +9,16 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	Network = "quic"
+)
+
 type QuicAddr struct {
 	addr string
 }
 
 func (a QuicAddr) Network() string {
-	return "quic"
+	return Network
 }
 
 func (a QuicAddr) String() string {

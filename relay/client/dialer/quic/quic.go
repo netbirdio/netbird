@@ -19,7 +19,7 @@ type Dialer struct {
 }
 
 func (d Dialer) Protocol() string {
-	return "QUIC"
+	return Network
 }
 
 func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
