@@ -3,7 +3,15 @@
 package tls
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
