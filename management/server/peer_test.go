@@ -283,14 +283,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	var (
 		group1 nbgroup.Group
 		group2 nbgroup.Group
-		policy Policy
 	)
 
 	group1.ID = xid.New().String()
 	group2.ID = xid.New().String()
 	group1.Name = "src"
 	group2.Name = "dst"
-	policy.ID = xid.New().String()
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
@@ -305,18 +303,20 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 
-	policy.Name = "test"
-	policy.Enabled = true
-	policy.Rules = []*PolicyRule{
-		{
-			Enabled:       true,
-			Sources:       []string{group1.ID},
-			Destinations:  []string{group2.ID},
-			Bidirectional: true,
-			Action:        PolicyTrafficActionAccept,
+	policy := &Policy{
+		Name:    "test",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{group1.ID},
+				Destinations:  []string{group2.ID},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	policy, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -364,7 +364,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	}
 
 	policy.Enabled = false
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, true)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -833,19 +833,20 @@ func BenchmarkGetPeers(b *testing.B) {
 		})
 	}
 }
-
 func BenchmarkUpdateAccountPeers(b *testing.B) {
 	benchCases := []struct {
-		name   string
-		peers  int
-		groups int
+		name       string
+		peers      int
+		groups     int
+		minMsPerOp float64
+		maxMsPerOp float64
 	}{
-		{"Small", 50, 5},
-		{"Medium", 500, 10},
-		{"Large", 5000, 20},
-		{"Small single", 50, 1},
-		{"Medium single", 500, 1},
-		{"Large 5", 5000, 5},
+		{"Small", 50, 5, 90, 120},
+		{"Medium", 500, 100, 110, 140},
+		{"Large", 5000, 200, 800, 1300},
+		{"Small single", 50, 10, 90, 120},
+		{"Medium single", 500, 10, 110, 170},
+		{"Large 5", 5000, 15, 1300, 1800},
 	}
 
 	log.SetOutput(io.Discard)
@@ -881,8 +882,16 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 			}
 
 			duration := time.Since(start)
-			b.ReportMetric(float64(duration.Nanoseconds())/float64(b.N)/1e6, "ms/op")
-			b.ReportMetric(0, "ns/op")
+			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+			b.ReportMetric(msPerOp, "ms/op")
+
+			if msPerOp < bc.minMsPerOp {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			}
+
+			if msPerOp > bc.maxMsPerOp {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			}
 		})
 	}
 }
@@ -1445,8 +1454,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to group linked with policy should update account peers and send peer update
 	t.Run("adding peer to group linked with policy", func(t *testing.T) {
-		err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
-			ID:      "policy",
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 			Enabled: true,
 			Rules: []*PolicyRule{
 				{
@@ -1457,7 +1465,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 					Action:        PolicyTrafficActionAccept,
 				},
 			},
-		}, false)
+		})
 		require.NoError(t, err)
 
 		done := make(chan struct{})

@@ -55,7 +55,7 @@ type ruleParams struct {
 
 // isLegacy determines whether to use the legacy routing setup
 func isLegacy() bool {
-	return os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled() || os.Getenv(nbnet.EnvSkipSocketMark) == "true"
+	return os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled() || nbnet.SkipSocketMark()
 }
 
 // setIsLegacy sets the legacy routing setup
@@ -92,17 +92,6 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 		return r.setupRefCounter(initAddresses, stateManager)
 	}
 
-	if err = addRoutingTableName(); err != nil {
-		log.Errorf("Error adding routing table name: %v", err)
-	}
-
-	originalValues, err := sysctl.Setup(r.wgInterface)
-	if err != nil {
-		log.Errorf("Error setting up sysctl: %v", err)
-		sysctlFailed = true
-	}
-	originalSysctl = originalValues
-
 	defer func() {
 		if err != nil {
 			if cleanErr := r.CleanupRouting(stateManager); cleanErr != nil {
@@ -122,6 +111,17 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}
 	}
+
+	if err = addRoutingTableName(); err != nil {
+		log.Errorf("Error adding routing table name: %v", err)
+	}
+
+	originalValues, err := sysctl.Setup(r.wgInterface)
+	if err != nil {
+		log.Errorf("Error setting up sysctl: %v", err)
+		sysctlFailed = true
+	}
+	originalSysctl = originalValues
 
 	return nil, nil, nil
 }
@@ -450,7 +450,7 @@ func addRule(params ruleParams) error {
 	rule.Invert = params.invert
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, syscall.EEXIST) {
 		return fmt.Errorf("add routing rule: %w", err)
 	}
 
@@ -467,7 +467,7 @@ func removeRule(params ruleParams) error {
 	rule.Priority = params.priority
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.ENOENT) {
 		return fmt.Errorf("remove routing rule: %w", err)
 	}
 

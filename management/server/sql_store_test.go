@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1563,4 +1564,490 @@ func TestSqlStore_GetPeersByIDs(t *testing.T) {
 			require.Len(t, peers, tt.expectedCount)
 		})
 	}
+}
+
+func TestSqlStore_GetPostureChecksByID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	tests := []struct {
+		name            string
+		postureChecksID string
+		expectError     bool
+	}{
+		{
+			name:            "retrieve existing posture checks",
+			postureChecksID: "csplshq7qv948l48f7t0",
+			expectError:     false,
+		},
+		{
+			name:            "retrieve non-existing posture checks",
+			postureChecksID: "non-existing",
+			expectError:     true,
+		},
+		{
+			name:            "retrieve with empty posture checks ID",
+			postureChecksID: "",
+			expectError:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			postureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, tt.postureChecksID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, postureChecks)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, postureChecks)
+				require.Equal(t, tt.postureChecksID, postureChecks.ID)
+			}
+		})
+	}
+}
+
+func TestSqlStore_GetPostureChecksByIDs(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	tests := []struct {
+		name            string
+		postureCheckIDs []string
+		expectedCount   int
+	}{
+		{
+			name:            "retrieve existing posture checks by existing IDs",
+			postureCheckIDs: []string{"csplshq7qv948l48f7t0", "cspnllq7qv95uq1r4k90"},
+			expectedCount:   2,
+		},
+		{
+			name:            "empty posture check IDs list",
+			postureCheckIDs: []string{},
+			expectedCount:   0,
+		},
+		{
+			name:            "non-existing posture check IDs",
+			postureCheckIDs: []string{"nonexistent1", "nonexistent2"},
+			expectedCount:   0,
+		},
+		{
+			name:            "mixed existing and non-existing posture check IDs",
+			postureCheckIDs: []string{"cspnllq7qv95uq1r4k90", "nonexistent"},
+			expectedCount:   1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			groups, err := store.GetPostureChecksByIDs(context.Background(), LockingStrengthShare, accountID, tt.postureCheckIDs)
+			require.NoError(t, err)
+			require.Len(t, groups, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_SavePostureChecks(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	postureChecks := &posture.Checks{
+		ID:        "posture-checks-id",
+		AccountID: accountID,
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{
+				MinVersion: "0.31.0",
+			},
+			OSVersionCheck: &posture.OSVersionCheck{
+				Ios: &posture.MinVersionCheck{
+					MinVersion: "13.0.1",
+				},
+				Linux: &posture.MinKernelVersionCheck{
+					MinKernelVersion: "5.3.3-dev",
+				},
+			},
+			GeoLocationCheck: &posture.GeoLocationCheck{
+				Locations: []posture.Location{
+					{
+						CountryCode: "DE",
+						CityName:    "Berlin",
+					},
+				},
+				Action: posture.CheckActionAllow,
+			},
+		},
+	}
+	err = store.SavePostureChecks(context.Background(), LockingStrengthUpdate, postureChecks)
+	require.NoError(t, err)
+
+	savePostureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, "posture-checks-id")
+	require.NoError(t, err)
+	require.Equal(t, savePostureChecks, postureChecks)
+}
+
+func TestSqlStore_DeletePostureChecks(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	tests := []struct {
+		name            string
+		postureChecksID string
+		expectError     bool
+	}{
+		{
+			name:            "delete existing posture checks",
+			postureChecksID: "csplshq7qv948l48f7t0",
+			expectError:     false,
+		},
+		{
+			name:            "delete non-existing posture checks",
+			postureChecksID: "non-existing-posture-checks-id",
+			expectError:     true,
+		},
+		{
+			name:            "delete with empty posture checks ID",
+			postureChecksID: "",
+			expectError:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err = store.DeletePostureChecks(context.Background(), LockingStrengthUpdate, accountID, tt.postureChecksID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+			} else {
+				require.NoError(t, err)
+				group, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, tt.postureChecksID)
+				require.Error(t, err)
+				require.Nil(t, group)
+			}
+		})
+	}
+}
+
+func TestSqlStore_GetPolicyByID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	tests := []struct {
+		name        string
+		policyID    string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing policy",
+			policyID:    "cs1tnh0hhcjnqoiuebf0",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing policy checks",
+			policyID:    "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve with empty policy ID",
+			policyID:    "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, tt.policyID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, policy)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, policy)
+				require.Equal(t, tt.policyID, policy.ID)
+			}
+		})
+	}
+}
+
+func TestSqlStore_CreatePolicy(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	policy := &Policy{
+		ID:        "policy-id",
+		AccountID: accountID,
+		Enabled:   true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupC"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	}
+	err = store.CreatePolicy(context.Background(), LockingStrengthUpdate, policy)
+	require.NoError(t, err)
+
+	savePolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policy.ID)
+	require.NoError(t, err)
+	require.Equal(t, savePolicy, policy)
+
+}
+
+func TestSqlStore_SavePolicy(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	policyID := "cs1tnh0hhcjnqoiuebf0"
+
+	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policyID)
+	require.NoError(t, err)
+
+	policy.Enabled = false
+	policy.Description = "policy"
+	policy.Rules[0].Sources = []string{"group"}
+	policy.Rules[0].Ports = []string{"80", "443"}
+	err = store.SavePolicy(context.Background(), LockingStrengthUpdate, policy)
+	require.NoError(t, err)
+
+	savePolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policy.ID)
+	require.NoError(t, err)
+	require.Equal(t, savePolicy, policy)
+}
+
+func TestSqlStore_DeletePolicy(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	policyID := "cs1tnh0hhcjnqoiuebf0"
+
+	err = store.DeletePolicy(context.Background(), LockingStrengthShare, accountID, policyID)
+	require.NoError(t, err)
+
+	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policyID)
+	require.Error(t, err)
+	require.Nil(t, policy)
+}
+
+func TestSqlStore_GetDNSSettings(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		accountID   string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing account dns settings",
+			accountID:   "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing account dns settings",
+			accountID:   "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve dns settings with empty account ID",
+			accountID:   "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dnsSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, tt.accountID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, dnsSettings)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, dnsSettings)
+			}
+		})
+	}
+}
+
+func TestSqlStore_SaveDNSSettings(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	dnsSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+
+	dnsSettings.DisabledManagementGroups = []string{"groupA", "groupB"}
+	err = store.SaveDNSSettings(context.Background(), LockingStrengthUpdate, accountID, dnsSettings)
+	require.NoError(t, err)
+
+	saveDNSSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Equal(t, saveDNSSettings, dnsSettings)
+}
+
+func TestSqlStore_GetAccountNameServerGroups(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve name server groups by existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 1,
+		},
+		{
+			name:          "non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetAccountNameServerGroups(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+
+}
+
+func TestSqlStore_GetNameServerByID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	tests := []struct {
+		name        string
+		nsGroupID   string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing nameserver group",
+			nsGroupID:   "csqdelq7qv97ncu7d9t0",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing nameserver group",
+			nsGroupID:   "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve with empty nameserver group ID",
+			nsGroupID:   "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, tt.nsGroupID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, nsGroup)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, nsGroup)
+				require.Equal(t, tt.nsGroupID, nsGroup.ID)
+			}
+		})
+	}
+}
+
+func TestSqlStore_SaveNameServerGroup(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	nsGroup := &nbdns.NameServerGroup{
+		ID:        "ns-group-id",
+		AccountID: accountID,
+		Name:      "NS Group",
+		NameServers: []nbdns.NameServer{
+			{
+				IP:     netip.MustParseAddr("8.8.8.8"),
+				NSType: 1,
+				Port:   53,
+			},
+		},
+		Groups:               []string{"groupA"},
+		Primary:              true,
+		Enabled:              true,
+		SearchDomainsEnabled: false,
+	}
+
+	err = store.SaveNameServerGroup(context.Background(), LockingStrengthUpdate, nsGroup)
+	require.NoError(t, err)
+
+	saveNSGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroup.ID)
+	require.NoError(t, err)
+	require.Equal(t, saveNSGroup, nsGroup)
+}
+
+func TestSqlStore_DeleteNameServerGroup(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	nsGroupID := "csqdelq7qv97ncu7d9t0"
+
+	err = store.DeleteNameServerGroup(context.Background(), LockingStrengthShare, accountID, nsGroupID)
+	require.NoError(t, err)
+
+	nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroupID)
+	require.Error(t, err)
+	require.Nil(t, nsGroup)
 }
