@@ -9,6 +9,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var (
+	connectionTimeout = 30 * time.Second
+)
+
 type DialerFn interface {
 	Dial(ctx context.Context, address string) (net.Conn, error)
 	Protocol() string
@@ -28,7 +32,7 @@ func RaceDial(log *log.Entry, serverURL string, dialerFns ...DialerFn) (net.Conn
 
 	for _, d := range dialerFns {
 		go func() {
-			ctx, cancel := context.WithTimeout(abortCtx, 30*time.Second)
+			ctx, cancel := context.WithTimeout(abortCtx, connectionTimeout)
 			defer cancel()
 
 			log.Infof("dialing Relay server via %s", d.Protocol())
@@ -45,20 +49,21 @@ func RaceDial(log *log.Entry, serverURL string, dialerFns ...DialerFn) (net.Conn
 				if errors.Is(dr.Err, context.Canceled) {
 					log.Infof("connection attempt aborted via: %s", dr.Protocol)
 				} else {
-					log.Errorf("failed to dial via: %s, %s", dr.Protocol, dr.Err)
+					log.Errorf("failed to dial via %s: %s", dr.Protocol, dr.Err)
 				}
 				continue
 			}
 
 			if hasWinner {
 				if cerr := dr.Conn.Close(); cerr != nil {
-					log.Warnf("failed to close connection via: %s, %s", dr.Protocol, cerr)
+					log.Warnf("failed to close connection via %s: %s", dr.Protocol, cerr)
 				}
 				continue
 			}
 
 			log.Infof("successfully dialed via: %s", dr.Protocol)
 
+			abort()
 			hasWinner = true
 			winnerConn <- dr.Conn
 		}
