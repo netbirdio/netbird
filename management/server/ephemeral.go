@@ -127,15 +127,11 @@ func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
 	}
 
 	t := newDeadLine()
-	count := 0
 	for _, p := range peers {
-		if p.Ephemeral {
-			count++
-			e.addPeer(p.AccountID, p.ID, t)
-		}
+		e.addPeer(p.AccountID, p.ID, t)
 	}
 
-	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", count)
+	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", len(peers))
 }
 
 func (e *EphemeralManager) cleanup(ctx context.Context) {

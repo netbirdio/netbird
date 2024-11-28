@@ -1244,10 +1244,11 @@ func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.
 	return nil
 }
 
-
-
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
+		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+		defer unlock()
+
 		expiredPeers, err := am.getExpiredPeers(ctx, accountID)
 		if err != nil {
 			return 0, false
@@ -1279,6 +1280,9 @@ func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context
 // peerInactivityExpirationJob marks login expired for all inactive peers and returns the minimum duration in which the next peer of the account will expire by inactivity if found
 func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
+		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+		defer unlock()
+
 		inactivePeers, err := am.getInactivePeers(ctx, accountID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed getting inactive peers for account %s", accountID)
