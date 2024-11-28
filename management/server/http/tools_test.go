@@ -41,6 +41,9 @@ func buildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	t.Cleanup(cleanup)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("Failed to create metrics: %v", err)
+	}
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	updMsg := peersUpdateManager.CreateChannel(context.Background(), testPeerId)
