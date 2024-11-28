@@ -10,7 +10,9 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
+	"github.com/netbirdio/netbird/relay/client/dialer"
 	"github.com/netbirdio/netbird/relay/client/dialer/quic"
+	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
 )
@@ -259,7 +261,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := quic.Dial(c.connectionURL)
+	conn, err := dialer.RaceDial(c.connectionURL, quic.Dial, ws.Dial)
 	if err != nil {
 		return err
 	}
