@@ -6,13 +6,17 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -1038,7 +1042,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	}
 
 	b.Run("public without account ID", func(b *testing.B) {
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
 			if err != nil {
@@ -1048,7 +1052,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	})
 
 	b.Run("private without account ID", func(b *testing.B) {
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
 			if err != nil {
@@ -1059,7 +1063,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 
 	b.Run("private with account ID", func(b *testing.B) {
 		claims.AccountId = id
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
 			if err != nil {
@@ -2973,5 +2977,190 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) 
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Error("Timed out waiting for update message")
+	}
+}
+
+func BenchmarkSyncAndMarkPeer(b *testing.B) {
+	benchCases := []struct {
+		name       string
+		peers      int
+		groups     int
+		minMsPerOp float64
+		maxMsPerOp float64
+	}{
+		{"Small", 50, 5, 1, 3},
+		{"Medium", 500, 100, 7, 13},
+		{"Large", 5000, 200, 65, 80},
+		{"Small single", 50, 10, 1, 3},
+		{"Medium single", 500, 10, 7, 13},
+		{"Large 5", 5000, 15, 65, 80},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+			ctx := context.Background()
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				b.Fatalf("Failed to get account: %v", err)
+			}
+			peerChannels := make(map[string]chan *UpdateMessage)
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+			manager.peersUpdateManager.peerChannels = peerChannels
+
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				_, _, _, err := manager.SyncAndMarkPeer(context.Background(), account.Id, account.Peers["peer-1"].Key, nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)}, net.IP{1, 1, 1, 1})
+				assert.NoError(b, err)
+			}
+
+			duration := time.Since(start)
+			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+			b.ReportMetric(msPerOp, "ms/op")
+
+			if msPerOp < bc.minMsPerOp {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			}
+
+			if msPerOp > bc.maxMsPerOp {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			}
+		})
+	}
+}
+
+func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
+	benchCases := []struct {
+		name       string
+		peers      int
+		groups     int
+		minMsPerOp float64
+		maxMsPerOp float64
+	}{
+		{"Small", 50, 5, 102, 110},
+		{"Medium", 500, 100, 105, 140},
+		{"Large", 5000, 200, 160, 200},
+		{"Small single", 50, 10, 102, 110},
+		{"Medium single", 500, 10, 105, 140},
+		{"Large 5", 5000, 15, 160, 200},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+			ctx := context.Background()
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				b.Fatalf("Failed to get account: %v", err)
+			}
+			peerChannels := make(map[string]chan *UpdateMessage)
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+			manager.peersUpdateManager.peerChannels = peerChannels
+
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				_, _, _, err := manager.LoginPeer(context.Background(), PeerLogin{
+					WireGuardPubKey: account.Peers["peer-1"].Key,
+					SSHKey:          "someKey",
+					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
+					UserID:          "regular_user",
+					SetupKey:        "",
+					ConnectionIP:    net.IP{1, 1, 1, 1},
+				})
+				assert.NoError(b, err)
+			}
+
+			duration := time.Since(start)
+			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+			b.ReportMetric(msPerOp, "ms/op")
+
+			if msPerOp < bc.minMsPerOp {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			}
+
+			if msPerOp > bc.maxMsPerOp {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			}
+		})
+	}
+}
+
+func BenchmarkLoginPeer_NewPeer(b *testing.B) {
+	benchCases := []struct {
+		name       string
+		peers      int
+		groups     int
+		minMsPerOp float64
+		maxMsPerOp float64
+	}{
+		{"Small", 50, 5, 107, 120},
+		{"Medium", 500, 100, 105, 140},
+		{"Large", 5000, 200, 180, 220},
+		{"Small single", 50, 10, 107, 120},
+		{"Medium single", 500, 10, 105, 140},
+		{"Large 5", 5000, 15, 180, 220},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+			ctx := context.Background()
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				b.Fatalf("Failed to get account: %v", err)
+			}
+			peerChannels := make(map[string]chan *UpdateMessage)
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+			manager.peersUpdateManager.peerChannels = peerChannels
+
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				_, _, _, err := manager.LoginPeer(context.Background(), PeerLogin{
+					WireGuardPubKey: "some-new-key" + strconv.Itoa(i),
+					SSHKey:          "someKey",
+					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
+					UserID:          "regular_user",
+					SetupKey:        "",
+					ConnectionIP:    net.IP{1, 1, 1, 1},
+				})
+				assert.NoError(b, err)
+			}
+
+			duration := time.Since(start)
+			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+			b.ReportMetric(msPerOp, "ms/op")
+
+			if msPerOp < bc.minMsPerOp {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			}
+
+			if msPerOp > bc.maxMsPerOp {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			}
+		})
 	}
 }
