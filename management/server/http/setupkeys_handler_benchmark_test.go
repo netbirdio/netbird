@@ -1,5 +1,3 @@
-//go:build benchmark
-
 package http
 
 import (
