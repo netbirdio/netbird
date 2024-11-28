@@ -1005,7 +1005,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 		AccountID: existingAccountID,
 		IP:        net.IP{1, 1, 1, 1},
 	}
-	err = store.AddPeerToAccount(context.Background(), peer1)
+	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
 	require.NoError(t, err)
 
 	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
@@ -1018,7 +1018,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 		AccountID: existingAccountID,
 		IP:        net.IP{2, 2, 2, 2},
 	}
-	err = store.AddPeerToAccount(context.Background(), peer2)
+	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
 	require.NoError(t, err)
 
 	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
@@ -1050,7 +1050,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		AccountID: existingAccountID,
 		DNSLabel:  "peer1.domain.test",
 	}
-	err = store.AddPeerToAccount(context.Background(), peer1)
+	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
 	require.NoError(t, err)
 
 	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
@@ -1062,7 +1062,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		AccountID: existingAccountID,
 		DNSLabel:  "peer2.domain.test",
 	}
-	err = store.AddPeerToAccount(context.Background(), peer2)
+	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
 	require.NoError(t, err)
 
 	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
@@ -2044,4 +2044,309 @@ func TestSqlStore_DeleteNameServerGroup(t *testing.T) {
 	nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroupID)
 	require.Error(t, err)
 	require.Nil(t, nsGroup)
+}
+
+func TestSqlStore_AddPeerToGroup(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	peerID := "cfefqs706sqkneg59g4g"
+	groupID := "cfefqs706sqkneg59g4h"
+
+	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	require.NoError(t, err, "failed to get group")
+	require.Len(t, group.Peers, 0, "group should have 0 peers")
+
+	err = store.AddPeerToGroup(context.Background(), LockingStrengthUpdate, accountID, peerID, groupID)
+	require.NoError(t, err, "failed to add peer to group")
+
+	group, err = store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	require.NoError(t, err, "failed to get group")
+	require.Len(t, group.Peers, 1, "group should have 1 peers")
+	require.Contains(t, group.Peers, peerID)
+}
+
+func TestSqlStore_AddPeerToAllGroup(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	groupID := "cfefqs706sqkneg59g3g"
+
+	peer := &nbpeer.Peer{
+		ID:        "peer1",
+		AccountID: accountID,
+		DNSLabel:  "peer1.domain.test",
+	}
+
+	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	require.NoError(t, err, "failed to get group")
+	require.Len(t, group.Peers, 2, "group should have 2 peers")
+	require.NotContains(t, group.Peers, peer.ID)
+
+	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer)
+	require.NoError(t, err, "failed to add peer to account")
+
+	err = store.AddPeerToAllGroup(context.Background(), LockingStrengthUpdate, accountID, peer.ID)
+	require.NoError(t, err, "failed to add peer to all group")
+
+	group, err = store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	require.NoError(t, err, "failed to get group")
+	require.Len(t, group.Peers, 3, "group should have  peers")
+	require.Contains(t, group.Peers, peer.ID)
+}
+
+func TestSqlStore_AddPeerToAccount(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	peer := &nbpeer.Peer{
+		ID:        "peer1",
+		AccountID: accountID,
+		Key:       "key",
+		IP:        net.IP{1, 1, 1, 1},
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname:  "hostname",
+			GoOS:      "linux",
+			Kernel:    "Linux",
+			Core:      "21.04",
+			Platform:  "x86_64",
+			OS:        "Ubuntu",
+			WtVersion: "development",
+			UIVersion: "development",
+		},
+		Name:     "peer.test",
+		DNSLabel: "peer",
+		Status: &nbpeer.PeerStatus{
+			LastSeen:         time.Now().UTC(),
+			Connected:        true,
+			LoginExpired:     false,
+			RequiresApproval: false,
+		},
+		SSHKey:                      "ssh-key",
+		SSHEnabled:                  false,
+		LoginExpirationEnabled:      true,
+		InactivityExpirationEnabled: false,
+		LastLogin:                   time.Now().UTC(),
+		CreatedAt:                   time.Now().UTC(),
+		Ephemeral:                   true,
+	}
+	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer)
+	require.NoError(t, err, "failed to add peer to account")
+
+	storedPeer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peer.ID)
+	require.NoError(t, err, "failed to get peer")
+
+	assert.Equal(t, peer.ID, storedPeer.ID)
+	assert.Equal(t, peer.AccountID, storedPeer.AccountID)
+	assert.Equal(t, peer.Key, storedPeer.Key)
+	assert.Equal(t, peer.IP.String(), storedPeer.IP.String())
+	assert.Equal(t, peer.Meta, storedPeer.Meta)
+	assert.Equal(t, peer.Name, storedPeer.Name)
+	assert.Equal(t, peer.DNSLabel, storedPeer.DNSLabel)
+	assert.Equal(t, peer.SSHKey, storedPeer.SSHKey)
+	assert.Equal(t, peer.SSHEnabled, storedPeer.SSHEnabled)
+	assert.Equal(t, peer.LoginExpirationEnabled, storedPeer.LoginExpirationEnabled)
+	assert.Equal(t, peer.InactivityExpirationEnabled, storedPeer.InactivityExpirationEnabled)
+	assert.WithinDurationf(t, peer.LastLogin, storedPeer.LastLogin.UTC(), time.Millisecond, "LastLogin should be equal")
+	assert.WithinDurationf(t, peer.CreatedAt, storedPeer.CreatedAt.UTC(), time.Millisecond, "CreatedAt should be equal")
+	assert.Equal(t, peer.Ephemeral, storedPeer.Ephemeral)
+	assert.Equal(t, peer.Status.Connected, storedPeer.Status.Connected)
+	assert.Equal(t, peer.Status.LoginExpired, storedPeer.Status.LoginExpired)
+	assert.Equal(t, peer.Status.RequiresApproval, storedPeer.Status.RequiresApproval)
+	assert.WithinDurationf(t, peer.Status.LastSeen, storedPeer.Status.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
+}
+
+func TestSqlStore_GetAccountPeers(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "should retrieve peers for an existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 4,
+		},
+		{
+			name:          "should return no peers for a non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "should return no peers for an empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+
+}
+
+func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "should retrieve peers with expiration for an existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 1,
+		},
+		{
+			name:          "should return no peers with expiration for a non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "should return no peers with expiration for a empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_GetAccountPeersWithInactivity(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "should retrieve peers with inactivity for an existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 1,
+		},
+		{
+			name:          "should return no peers with inactivity for a non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "should return no peers with inactivity for an empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetAccountPeersWithInactivity(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_GetAllEphemeralPeers(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/storev1.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	peers, err := store.GetAllEphemeralPeers(context.Background(), LockingStrengthShare)
+	require.NoError(t, err)
+	require.Len(t, peers, 1)
+	require.True(t, peers[0].Ephemeral)
+}
+
+func TestSqlStore_GetUserPeers(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		userID        string
+		expectedCount int
+	}{
+		{
+			name:          "should retrieve peers for existing account ID and user ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			userID:        "f4f6d672-63fb-11ec-90d6-0242ac120003",
+			expectedCount: 1,
+		},
+		{
+			name:          "should return no peers for non-existing account ID with existing user ID",
+			accountID:     "nonexistent",
+			userID:        "f4f6d672-63fb-11ec-90d6-0242ac120003",
+			expectedCount: 0,
+		},
+		{
+			name:          "should return no peers for non-existing user ID with existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			userID:        "nonexistent_user",
+			expectedCount: 0,
+		},
+		{
+			name:          "should retrieve peers for another valid account ID and user ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			userID:        "edafee4e-63fb-11ec-90d6-0242ac120003",
+			expectedCount: 2,
+		},
+		{
+			name:          "should return no peers for existing account ID with empty user ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			userID:        "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetUserPeers(context.Background(), LockingStrengthShare, tt.accountID, tt.userID)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_DeletePeer(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	peerID := "csrnkiq7qv9d8aitqd50"
+
+	err = store.DeletePeer(context.Background(), LockingStrengthUpdate, accountID, peerID)
+	require.NoError(t, err)
+
+	peer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
+	require.Error(t, err)
+	require.Nil(t, peer)
 }
