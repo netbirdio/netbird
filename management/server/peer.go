@@ -880,7 +880,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	postureChecks, err := am.getPeerPostureChecks(ctx, account.Id, peer.ID)
+	postureChecks, err = am.getPeerPostureChecks(account, peer.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1043,7 +1043,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 			defer wg.Done()
 			defer func() { <-semaphore }()
 
-			postureChecks, err := am.getPeerPostureChecks(ctx, account.Id, p.ID)
+			postureChecks, err := am.getPeerPostureChecks(account, p.ID)
 			if err != nil {
 				log.WithContext(ctx).Debugf("failed to get posture checks for peer %s: %v", peer.ID, err)
 				return
