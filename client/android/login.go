@@ -131,7 +131,7 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
 
 	err := a.withBackOff(a.ctx, func() error {
-		backoffErr := internal.Login(ctxWithValues, a.config, setupKey, "")
+		backoffErr := internal.Login(ctxWithValues, a.config, setupKey, "", &system.StaticInfo{})
 		if s, ok := gstatus.FromError(backoffErr); ok && (s.Code() == codes.PermissionDenied) {
 			// we got an answer from management, exit backoff earlier
 			return backoff.Permanent(backoffErr)
@@ -162,7 +162,7 @@ func (a *Auth) login(urlOpener URLOpener) error {
 
 	// check if we need to generate JWT token
 	err := a.withBackOff(a.ctx, func() (err error) {
-		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config.SSHKey)
+		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config.SSHKey, &system.StaticInfo{})
 		return
 	})
 	if err != nil {
@@ -179,7 +179,7 @@ func (a *Auth) login(urlOpener URLOpener) error {
 	}
 
 	err = a.withBackOff(a.ctx, func() error {
-		err := internal.Login(a.ctx, a.config, "", jwtToken)
+		err := internal.Login(a.ctx, a.config, "", jwtToken, &system.StaticInfo{})
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			return nil
 		}
