@@ -377,7 +377,7 @@ func TestSqlite_GetAccount(t *testing.T) {
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
-func TestSqlite_SavePeer(t *testing.T) {
+func TestSqlStore_SavePeer(t *testing.T) {
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -425,7 +425,7 @@ func TestSqlite_SavePeer(t *testing.T) {
 	assert.WithinDurationf(t, updatedPeer.Status.LastSeen, actual.Status.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
 }
 
-func TestSqlite_SavePeerStatus(t *testing.T) {
+func TestSqlStore_SavePeerStatus(t *testing.T) {
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -481,7 +481,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	assert.WithinDurationf(t, newStatus.LastSeen, actual.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
 }
 
-func TestSqlite_SavePeerLocation(t *testing.T) {
+func TestSqlStore_SavePeerLocation(t *testing.T) {
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -885,47 +885,6 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 
 	}
 
-}
-
-func TestPostgresql_SavePeerStatus(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
-	}
-
-	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-
-	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
-	require.NoError(t, err)
-
-	// save status of non-existing peer
-	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
-	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "non-existing-peer", newStatus)
-	assert.Error(t, err)
-
-	// save new status of existing peer
-	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:    "peerkey",
-		ID:     "testpeer",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
-	}
-
-	err = store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
-
-	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "testpeer", newStatus)
-	require.NoError(t, err)
-
-	account, err = store.GetAccount(context.Background(), account.Id)
-	require.NoError(t, err)
-
-	actual := account.Peers["testpeer"].Status
-	assert.Equal(t, newStatus.Connected, actual.Connected)
 }
 
 func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
