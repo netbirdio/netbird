@@ -1137,5 +1137,8 @@ func validateCreatedKey(t *testing.T, expectedKey *api.SetupKey, got *api.SetupK
 		expectedKey.UpdatedAt = time.Time{}
 	}
 
+	expectedKey.UpdatedAt = expectedKey.UpdatedAt.In(time.UTC)
+	got.UpdatedAt = got.UpdatedAt.In(time.UTC)
+
 	assert.Equal(t, expectedKey, got)
 }
