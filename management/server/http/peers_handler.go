@@ -62,12 +62,8 @@ func (h *PeersHandler) getPeer(ctx context.Context, accountID, peerID, userID st
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	peerGroups, err := h.accountManager.GetPeerGroups(ctx, accountID, peer.ID)
-	if err != nil {
-		util.WriteError(ctx, err, w)
-		return
-	}
-	groupsInfo := toGroupsInfo(peerGroups)
+	groups, _ := h.accountManager.GetAllGroups(ctx, accountID, userID)
+	groupsInfo := toGroupsInfo(groups, peerID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
@@ -116,7 +112,7 @@ func (h *PeersHandler) updatePeer(ctx context.Context, accountID, userID, peerID
 		util.WriteError(ctx, err, w)
 		return
 	}
-	groupMinimumInfo := toGroupsInfo(peerGroups)
+	groupMinimumInfo := toGroupsInfo(peerGroups, peer.ID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
@@ -187,6 +183,8 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	dnsDomain := h.accountManager.GetDNSDomain()
 
+	groups, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
+
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
 		peerToReturn, err := h.checkPeerStatus(peer)
@@ -195,12 +193,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		peerGroups, err := h.accountManager.GetPeerGroups(r.Context(), accountID, peer.ID)
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
-		}
-		groupMinimumInfo := toGroupsInfo(peerGroups)
+		groupMinimumInfo := toGroupsInfo(groups, peer.ID)
 
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}
@@ -312,14 +305,28 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 	}
 }
 
-func toGroupsInfo(groups []*nbgroup.Group) []api.GroupMinimum {
-	groupsInfo := make([]api.GroupMinimum, 0, len(groups))
+func toGroupsInfo(groups []*nbgroup.Group, peerID string) []api.GroupMinimum {
+	groupsInfo := []api.GroupMinimum{}
+	groupsChecked := make(map[string]struct{})
+
 	for _, group := range groups {
-		groupsInfo = append(groupsInfo, api.GroupMinimum{
-			Id:         group.ID,
-			Name:       group.Name,
-			PeersCount: len(group.Peers),
-		})
+		_, ok := groupsChecked[group.ID]
+		if ok {
+			continue
+		}
+
+		groupsChecked[group.ID] = struct{}{}
+		for _, pk := range group.Peers {
+			if pk == peerID {
+				info := api.GroupMinimum{
+					Id:         group.ID,
+					Name:       group.Name,
+					PeersCount: len(group.Peers),
+				}
+				groupsInfo = append(groupsInfo, info)
+				break
+			}
+		}
 	}
 	return groupsInfo
 }
