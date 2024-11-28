@@ -28,6 +28,30 @@ const (
 	notFoundSetupKeyID  = "notFoundSetupKeyID"
 )
 
+const (
+	testAccountId = "testAccountId"
+	testPeerId    = "testPeerId"
+	testGroupId   = "testGroupId"
+	testKeyId     = "testKeyId"
+
+	testUserId         = "testUserId"
+	testAdminId        = "testAdminId"
+	testOwnerId        = "testOwnerId"
+	testServiceUserId  = "testServiceUserId"
+	testServiceAdminId = "testServiceAdminId"
+	blockedUserId      = "blockedUserId"
+	otherUserId        = "otherUserId"
+	invalidToken       = "invalidToken"
+
+	newKeyName   = "newKey"
+	newGroupId   = "newGroupId"
+	expiresIn    = 3600
+	revokedKeyId = "revokedKeyId"
+	expiredKeyId = "expiredKeyId"
+
+	existingKeyName = "existingKey"
+)
+
 func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey,
 	user *server.User,
 ) *SetupKeysHandler {

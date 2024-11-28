@@ -1,12 +1,10 @@
-//go:build component
+//go:build integration
 
 package http
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -16,36 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-)
-
-const (
-	testAccountId = "testAccountId"
-	testPeerId    = "testPeerId"
-	testGroupId   = "testGroupId"
-	testKeyId     = "testKeyId"
-
-	testUserId         = "testUserId"
-	testAdminId        = "testAdminId"
-	testOwnerId        = "testOwnerId"
-	testServiceUserId  = "testServiceUserId"
-	testServiceAdminId = "testServiceAdminId"
-	blockedUserId      = "blockedUserId"
-	otherUserId        = "otherUserId"
-	invalidToken       = "invalidToken"
-
-	newKeyName   = "newKey"
-	newGroupId   = "newGroupId"
-	expiresIn    = 3600
-	revokedKeyId = "revokedKeyId"
-	expiredKeyId = "expiredKeyId"
-
-	existingKeyName = "existingKey"
 )
 
 func Test_SetupKeys_Create(t *testing.T) {
@@ -1145,74 +1114,6 @@ func Test_SetupKeys_Delete(t *testing.T) {
 	}
 }
 
-func buildApiBlackBoxWithDBState(t *testing.T, sqlFile string, expectedPeerUpdate *server.UpdateMessage) (http.Handler, server.AccountManager, chan struct{}) {
-	store, cleanup, err := server.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(cleanup)
-
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
-
-	peersUpdateManager := server.NewPeersUpdateManager(nil)
-	updMsg := peersUpdateManager.CreateChannel(context.Background(), testPeerId)
-	done := make(chan struct{})
-	go func() {
-		if expectedPeerUpdate != nil {
-			peerShouldReceiveUpdate(t, updMsg, expectedPeerUpdate)
-		} else {
-			peerShouldNotReceiveUpdate(t, updMsg)
-		}
-		close(done)
-	}()
-
-	geoMock := &geolocation.Mock{}
-	validatorMock := server.MocIntegratedValidator{}
-	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
-	}
-
-	apiHandler, err := APIHandler(context.Background(), am, geoMock, &jwtclaims.JwtValidatorMock{}, metrics, AuthCfg{}, validatorMock)
-	if err != nil {
-		t.Fatalf("Failed to create API handler: %v", err)
-	}
-
-	return apiHandler, am, done
-}
-
-func buildRequest(t *testing.T, requestBody []byte, requestType, requestPath, user string) *http.Request {
-	t.Helper()
-
-	req := httptest.NewRequest(requestType, requestPath, bytes.NewBuffer(requestBody))
-	req.Header.Set("Authorization", "Bearer "+user)
-
-	return req
-}
-
-func readResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedStatus int, expectResponse bool) ([]byte, bool) {
-	t.Helper()
-
-	res := recorder.Result()
-	defer res.Body.Close()
-
-	content, err := io.ReadAll(res.Body)
-	if err != nil {
-		t.Fatalf("Failed to read response body: %v", err)
-	}
-
-	if !expectResponse {
-		return nil, false
-	}
-
-	if status := recorder.Code; status != expectedStatus {
-		t.Fatalf("handler returned wrong status code: got %v want %v, content: %s",
-			status, expectedStatus, string(content))
-	}
-
-	return content, expectedStatus == http.StatusOK
-}
-
 func validateCreatedKey(t *testing.T, expectedKey *api.SetupKey, got *api.SetupKey) {
 	t.Helper()
 
@@ -1239,28 +1140,4 @@ func validateCreatedKey(t *testing.T, expectedKey *api.SetupKey, got *api.SetupK
 	}
 
 	assert.Equal(t, expectedKey, got)
-}
-
-func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *server.UpdateMessage) {
-	t.Helper()
-	select {
-	case msg := <-updateMessage:
-		t.Errorf("Unexpected message received: %+v", msg)
-	case <-time.After(500 * time.Millisecond):
-		return
-	}
-}
-
-func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *server.UpdateMessage, expected *server.UpdateMessage) {
-	t.Helper()
-
-	select {
-	case msg := <-updateMessage:
-		if msg == nil {
-			t.Errorf("Received nil update message, expected valid message")
-		}
-		assert.Equal(t, expected, msg)
-	case <-time.After(500 * time.Millisecond):
-		t.Error("Timed out waiting for update message")
-	}
 }
