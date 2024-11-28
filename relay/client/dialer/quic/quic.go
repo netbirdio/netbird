@@ -15,7 +15,14 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func Dial(ctx context.Context, address string) (net.Conn, error) {
+type Dialer struct {
+}
+
+func (d Dialer) Protocol() string {
+	return "QUIC"
+}
+
+func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 	quicURL, err := prepareURL(address)
 	if err != nil {
 		return nil, err
@@ -41,8 +48,7 @@ func Dial(ctx context.Context, address string) (net.Conn, error) {
 
 	session, err := quic.Dial(ctx, udpConn, udpAddr, quictls.ClientQUICTLSConfig(), quicConfig)
 	if err != nil {
-		if errors.Is(ctx.Err(), context.Canceled) {
-			log.Infof("QUIC connection aborted to: %s", quicURL)
+		if errors.Is(err, context.Canceled) {
 			return nil, err
 		}
 		log.Errorf("failed to dial to Relay server via QUIC '%s': %s", quicURL, err)

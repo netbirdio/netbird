@@ -9,45 +9,55 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type DialFn func(ctx context.Context, address string) (net.Conn, error)
-
-type dialResult struct {
-	Conn net.Conn
-	Err  error
+type DialerFn interface {
+	Dial(ctx context.Context, address string) (net.Conn, error)
+	Protocol() string
 }
 
-func RaceDial(serverURL string, DialFns ...DialFn) (net.Conn, error) {
-	connChan := make(chan dialResult, len(DialFns))
+type dialResult struct {
+	Conn     net.Conn
+	Protocol string
+	Err      error
+}
+
+func RaceDial(log *log.Entry, serverURL string, dialerFns ...DialerFn) (net.Conn, error) {
+	connChan := make(chan dialResult, len(dialerFns))
 	winnerConn := make(chan net.Conn, 1)
 	abortCtx, abort := context.WithCancel(context.Background())
 	defer abort()
 
-	for _, dfn := range DialFns {
+	for _, d := range dialerFns {
 		go func() {
 			ctx, cancel := context.WithTimeout(abortCtx, 30*time.Second)
 			defer cancel()
 
-			conn, err := dfn(ctx, serverURL)
-			if err != nil {
-				log.Errorf("failed to dial: %s", err)
-			}
-
-			connChan <- dialResult{Conn: conn, Err: err}
+			log.Infof("dialing Relay server via %s", d.Protocol())
+			conn, err := d.Dial(ctx, serverURL)
+			connChan <- dialResult{Conn: conn, Protocol: d.Protocol(), Err: err}
 		}()
 	}
 
 	go func() {
 		var hasWinner bool
-		for i := 0; i < len(DialFns); i++ {
+		for i := 0; i < len(dialerFns); i++ {
 			dr := <-connChan
 			if dr.Err != nil {
+				if errors.Is(dr.Err, context.Canceled) {
+					log.Infof("connection attempt aborted via: %s", dr.Protocol)
+				} else {
+					log.Errorf("failed to dial via: %s, %s", dr.Protocol, dr.Err)
+				}
 				continue
 			}
 
 			if hasWinner {
-				_ = dr.Conn.Close()
+				if cerr := dr.Conn.Close(); cerr != nil {
+					log.Warnf("failed to close connection via: %s, %s", dr.Protocol, cerr)
+				}
 				continue
 			}
+
+			log.Infof("successfully dialed via: %s", dr.Protocol)
 
 			hasWinner = true
 			winnerConn <- dr.Conn
@@ -57,7 +67,7 @@ func RaceDial(serverURL string, DialFns ...DialFn) (net.Conn, error) {
 
 	conn, ok := <-winnerConn
 	if !ok {
-		return nil, errors.New("failed to dial to Relay server")
+		return nil, errors.New("failed to dial to Relay server on any protocol")
 	}
 	return conn, nil
 }

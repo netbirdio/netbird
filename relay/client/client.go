@@ -261,7 +261,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := dialer.RaceDial(c.connectionURL, quic.Dial, ws.Dial)
+	conn, err := dialer.RaceDial(c.log, c.connectionURL, quic.Dialer{}, ws.Dialer{})
 	if err != nil {
 		return err
 	}
