@@ -558,21 +558,21 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 		newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
 
-		err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
+		err = transaction.AddPeerToAllGroup(ctx, LockingStrengthUpdate, accountID, newPeer.ID)
 		if err != nil {
 			return fmt.Errorf("failed adding peer to All group: %w", err)
 		}
 
 		if len(groupsToAdd) > 0 {
 			for _, g := range groupsToAdd {
-				err = transaction.AddPeerToGroup(ctx, accountID, newPeer.ID, g)
+				err = transaction.AddPeerToGroup(ctx, LockingStrengthUpdate, accountID, newPeer.ID, g)
 				if err != nil {
 					return err
 				}
 			}
 		}
 
-		err = transaction.AddPeerToAccount(ctx, newPeer)
+		err = transaction.AddPeerToAccount(ctx, LockingStrengthUpdate, newPeer)
 		if err != nil {
 			return fmt.Errorf("failed to add peer to account: %w", err)
 		}
