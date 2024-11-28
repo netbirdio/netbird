@@ -204,7 +204,7 @@ func (c *Client) IsLoginRequired() bool {
 		ConfigPath: c.cfgFile,
 	})
 
-	needsLogin, _ := internal.IsLoginRequired(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg.SSHKey)
+	needsLogin, _ := internal.IsLoginRequired(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg.SSHKey, &system.StaticInfo{})
 	return needsLogin
 }
 
@@ -244,7 +244,7 @@ func (c *Client) LoginForMobile() string {
 			return
 		}
 		jwtToken := tokenInfo.GetTokenToUse()
-		_ = internal.Login(ctx, cfg, "", jwtToken)
+		_ = internal.Login(ctx, cfg, "", jwtToken, &system.StaticInfo{})
 		c.loginComplete = true
 	}()
 
