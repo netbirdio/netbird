@@ -754,8 +754,8 @@ func Test_SetupKeys_Get(t *testing.T) {
 
 				apiHandler.ServeHTTP(recorder, req)
 
-				content, noResponseExpected := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
-				if noResponseExpected {
+				content, expectRespnose := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				if !expectRespnose {
 					return
 				}
 				got := &api.SetupKey{}
