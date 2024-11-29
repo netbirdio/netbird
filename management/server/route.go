@@ -430,7 +430,7 @@ func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string,
 }
 
 func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, policies []*Policy, route *route.Route, validatedPeersMap map[string]struct{}, distributionPeers map[string]struct{}) []*RouteFirewallRule {
-	fwRules := make([]*RouteFirewallRule, 0)
+	var fwRules []*RouteFirewallRule
 	for _, policy := range policies {
 		if !policy.Enabled {
 			continue
