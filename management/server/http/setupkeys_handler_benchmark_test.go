@@ -30,11 +30,11 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 1, 12},
-		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2, 1, 12},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2, 1, 12},
+		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 2, 1, 12},
+		{"Setup Keys - S", 5, 5, 5, 100, 0.5, 2, 1, 12},
+		{"Setup Keys - M", 100, 20, 20, 1000, 0.5, 2, 1, 12},
+		{"Setup Keys - L", 500, 50, 100, 5000, 0.5, 2, 1, 12},
+		{"Setup Keys - XL", 500, 50, 100, 25000, 0.5, 2, 1, 12},
 	}
 
 	log.SetOutput(io.Discard)
@@ -101,11 +101,11 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 2, 15},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 3, 15},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 3, 15},
-		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2, 3, 15},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2, 3, 15},
+		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 3, 2, 15},
+		{"Setup Keys - S", 5, 5, 5, 100, 0.5, 3, 3, 15},
+		{"Setup Keys - M", 100, 20, 20, 1000, 0.5, 3, 3, 15},
+		{"Setup Keys - L", 500, 50, 100, 5000, 0.5, 3, 3, 15},
+		{"Setup Keys - XL", 500, 50, 100, 25000, 0.5, 3, 3, 15},
 	}
 
 	log.SetOutput(io.Discard)
@@ -173,11 +173,11 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 1, 12},
-		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2, 1, 12},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2, 1, 12},
+		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 2, 1, 12},
+		{"Setup Keys - S", 5, 5, 5, 100, 0.5, 2, 1, 12},
+		{"Setup Keys - M", 100, 20, 20, 1000, 0.5, 2, 1, 12},
+		{"Setup Keys - L", 500, 50, 100, 5000, 0.5, 2, 1, 12},
+		{"Setup Keys - XL", 500, 50, 100, 25000, 0.5, 2, 1, 12},
 	}
 
 	log.SetOutput(io.Discard)
@@ -232,11 +232,11 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 1, 10},
-		{"Setup Keys - S", 5, 5, 5, 50, 0.5, 2, 1, 12},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 2, 15},
-		{"Setup Keys - L", 500, 50, 100, 1000, 5, 10, 10, 25},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 25, 45, 35, 150},
+		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 2, 1, 10},
+		{"Setup Keys - S", 5, 5, 5, 10, 0.5, 2, 1, 12},
+		{"Setup Keys - M", 100, 20, 20, 1000, 5, 10, 2, 15},
+		{"Setup Keys - L", 500, 50, 100, 5000, 30, 50, 10, 25},
+		{"Setup Keys - XL", 500, 50, 100, 25000, 140, 220, 35, 150},
 	}
 
 	log.SetOutput(io.Discard)
@@ -291,11 +291,11 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 1, 12},
-		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2, 1, 12},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2, 1, 12},
+		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 2, 1, 12},
+		{"Setup Keys - S", 5, 5, 5, 100, 0.5, 2, 1, 12},
+		{"Setup Keys - M", 100, 20, 20, 1000, 0.5, 2, 1, 12},
+		{"Setup Keys - L", 500, 50, 100, 5000, 0.5, 2, 1, 12},
+		{"Setup Keys - XL", 500, 50, 100, 25000, 0.5, 2, 1, 12},
 	}
 
 	log.SetOutput(io.Discard)
