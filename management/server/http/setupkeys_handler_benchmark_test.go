@@ -19,19 +19,22 @@ import (
 
 func BenchmarkCreateSetupKey(b *testing.B) {
 	benchCases := []struct {
-		name       string
-		peers      int
-		groups     int
-		users      int
-		setupKeys  int
-		minMsPerOp float64
-		maxMsPerOp float64
+		name      string
+		peers     int
+		groups    int
+		users     int
+		setupKeys int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2},
-		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2},
+		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 2, 5},
+		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 2, 5},
+		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 2, 5},
+		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2, 2, 5},
+		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2, 2, 5},
 	}
 
 	log.SetOutput(io.Discard)
@@ -67,12 +70,19 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			if msPerOp < bc.minMsPerOp {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
 			}
 
-			if msPerOp > bc.maxMsPerOp {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -80,19 +90,22 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 
 func BenchmarkUpdateSetupKey(b *testing.B) {
 	benchCases := []struct {
-		name       string
-		peers      int
-		groups     int
-		users      int
-		setupKeys  int
-		minMsPerOp float64
-		maxMsPerOp float64
+		name      string
+		peers     int
+		groups    int
+		users     int
+		setupKeys int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2},
-		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2},
+		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 3, 7},
+		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 3, 7},
+		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 3, 7},
+		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2, 3, 7},
+		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2, 3, 7},
 	}
 
 	log.SetOutput(io.Discard)
@@ -129,12 +142,19 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			if msPerOp < bc.minMsPerOp {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
 			}
 
-			if msPerOp > bc.maxMsPerOp {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -142,19 +162,22 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 
 func BenchmarkGetOneSetupKey(b *testing.B) {
 	benchCases := []struct {
-		name       string
-		peers      int
-		groups     int
-		users      int
-		setupKeys  int
-		minMsPerOp float64
-		maxMsPerOp float64
+		name      string
+		peers     int
+		groups    int
+		users     int
+		setupKeys int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2},
-		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2},
+		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 2, 4},
+		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 2, 4},
+		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 2, 4},
+		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2, 2, 4},
+		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2, 2, 4},
 	}
 
 	log.SetOutput(io.Discard)
@@ -178,12 +201,19 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			if msPerOp < bc.minMsPerOp {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
 			}
 
-			if msPerOp > bc.maxMsPerOp {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -191,19 +221,22 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 
 func BenchmarkGetAllSetupKeys(b *testing.B) {
 	benchCases := []struct {
-		name       string
-		peers      int
-		groups     int
-		users      int
-		setupKeys  int
-		minMsPerOp float64
-		maxMsPerOp float64
+		name      string
+		peers     int
+		groups    int
+		users     int
+		setupKeys int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2},
-		{"Setup Keys - L", 500, 50, 100, 1000, 5, 10},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 25, 45},
+		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 1, 10},
+		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 1, 10},
+		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 3, 15},
+		{"Setup Keys - L", 500, 50, 100, 1000, 5, 10, 10, 25},
+		{"Setup Keys - XL", 500, 50, 100, 5000, 25, 45, 50, 150},
 	}
 
 	log.SetOutput(io.Discard)
@@ -227,12 +260,19 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			if msPerOp < bc.minMsPerOp {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
 			}
 
-			if msPerOp > bc.maxMsPerOp {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -240,19 +280,22 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 
 func BenchmarkDeleteSetupKey(b *testing.B) {
 	benchCases := []struct {
-		name       string
-		peers      int
-		groups     int
-		users      int
-		setupKeys  int
-		minMsPerOp float64
-		maxMsPerOp float64
+		name      string
+		peers     int
+		groups    int
+		users     int
+		setupKeys int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
 	}{
-		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2},
-		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2},
-		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2},
-		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2},
+		{"Setup Keys - XS", 5, 5, 5, 5, 0.5, 2, 2, 5},
+		{"Setup Keys - S", 5, 5, 5, 5, 0.5, 2, 2, 5},
+		{"Setup Keys - M", 100, 20, 20, 100, 0.5, 2, 2, 5},
+		{"Setup Keys - L", 500, 50, 100, 1000, 0.5, 2, 2, 5},
+		{"Setup Keys - XL", 500, 50, 100, 5000, 0.5, 2, 2, 5},
 	}
 
 	log.SetOutput(io.Discard)
@@ -277,12 +320,19 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			if msPerOp < bc.minMsPerOp {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
 			}
 
-			if msPerOp > bc.maxMsPerOp {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
