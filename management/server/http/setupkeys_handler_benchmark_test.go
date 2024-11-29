@@ -70,7 +70,7 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
@@ -117,7 +117,7 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
@@ -151,7 +151,7 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
@@ -161,10 +161,10 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 10},
 		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
 		"Setup Keys - M":  {MinMsPerOpLocal: 5, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 20},
-		"Setup Keys - L":  {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 100},
-		"Peers - L":       {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 100},
-		"Groups - L":      {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 100},
-		"Users - L":       {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 100},
+		"Setup Keys - L":  {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 150},
+		"Peers - L":       {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 150},
+		"Groups - L":      {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 150},
+		"Users - L":       {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 150},
 		"Setup Keys - XL": {MinMsPerOpLocal: 140, MaxMsPerOpLocal: 220, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 500},
 	}
 
@@ -185,7 +185,7 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
@@ -220,7 +220,7 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }

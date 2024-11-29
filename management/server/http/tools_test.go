@@ -245,8 +245,12 @@ func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 
 }
 
-func evaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics) {
+func evaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics, recorder *httptest.ResponseRecorder) {
 	b.Helper()
+
+	if recorder.Code != http.StatusOK {
+		b.Fatalf("Benchmark %s failed: unexpected status code %d", name, recorder.Code)
+	}
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 	b.ReportMetric(msPerOp, "ms/op")
