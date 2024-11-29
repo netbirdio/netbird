@@ -210,12 +210,11 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
-			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
+			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, 1000)
 
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				// depending on the test case we may fail do delete keys as no more keys are there
 				req := buildRequest(b, nil, http.MethodGet, "/api/setup-keys/"+"oldkey-"+strconv.Itoa(i), testAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
