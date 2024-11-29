@@ -208,7 +208,7 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 		{
 			name:            "delete non-existent group",
 			groupIDs:        []string{"non-existent-group"},
-			expectedDeleted: []string{"non-existent-group"},
+			expectedReasons: []string{"group: non-existent-group not found"},
 		},
 		{
 			name:               "delete multiple groups with mixed results",
@@ -500,8 +500,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	})
 
 	// adding a group to policy
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
-		ID:      "policy",
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -512,7 +511,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	}, false)
+	})
 	assert.NoError(t, err)
 
 	// Saving a group linked to policy should update account peers and send peer update

@@ -148,6 +148,9 @@ const (
 	AccountPeerInactivityExpirationDurationUpdated Activity = 67
 
 	SetupKeyDeleted Activity = 68
+
+	UserGroupPropagationEnabled  Activity = 69
+	UserGroupPropagationDisabled Activity = 70
 )
 
 var activityMap = map[Activity]Code{
@@ -222,6 +225,9 @@ var activityMap = map[Activity]Code{
 	AccountPeerInactivityExpirationDisabled:        {"Account peer inactivity expiration disabled", "account.peer.inactivity.expiration.disable"},
 	AccountPeerInactivityExpirationDurationUpdated: {"Account peer inactivity expiration duration updated", "account.peer.inactivity.expiration.update"},
 	SetupKeyDeleted: {"Setup key deleted", "setupkey.delete"},
+
+	UserGroupPropagationEnabled:  {"User group propagation enabled", "account.setting.group.propagation.enable"},
+	UserGroupPropagationDisabled: {"User group propagation disabled", "account.setting.group.propagation.disable"},
 }
 
 // StringCode returns a string code of the activity

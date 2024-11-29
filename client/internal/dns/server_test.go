@@ -803,7 +803,7 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 						Port:   53,
 					},
 				},
-				Domains: []string{"customdomain.com"},
+				Domains: []string{"google.com"},
 				Primary: false,
 			},
 		},
@@ -825,7 +825,7 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	if ips[0] != zoneRecords[0].RData {
 		t.Fatalf("invalid zone record: %v", err)
 	}
-	_, err = resolver.LookupHost(context.Background(), "customdomain.com")
+	_, err = resolver.LookupHost(context.Background(), "google.com")
 	if err != nil {
 		t.Errorf("failed to resolve: %s", err)
 	}

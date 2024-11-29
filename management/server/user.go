@@ -9,14 +9,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -101,6 +103,11 @@ func (u *User) HasAdminPower() bool {
 // IsAdminOrServiceUser checks if the user has admin power or is a service user.
 func (u *User) IsAdminOrServiceUser() bool {
 	return u.HasAdminPower() || u.IsServiceUser
+}
+
+// IsRegularUser checks if the user is a regular user.
+func (u *User) IsRegularUser() bool {
+	return !u.HasAdminPower() && !u.IsServiceUser
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
@@ -487,7 +494,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 
 	return nil
@@ -798,15 +805,20 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			expiredPeers = append(expiredPeers, blockedPeers...)
 		}
 
+		peerGroupsAdded := make(map[string][]string)
+		peerGroupsRemoved := make(map[string][]string)
 		if update.AutoGroups != nil && account.Settings.GroupsPropagationEnabled {
 			removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
 			// need force update all auto groups in any case they will not be duplicated
-			account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
-			account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
+			peerGroupsAdded = account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
+			peerGroupsRemoved = account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
 		}
 
-		events := am.prepareUserUpdateEvents(ctx, initiatorUser.Id, oldUser, newUser, account, transferredOwnerRole)
-		eventsToStore = append(eventsToStore, events...)
+		userUpdateEvents := am.prepareUserUpdateEvents(ctx, initiatorUser.Id, oldUser, newUser, account, transferredOwnerRole)
+		eventsToStore = append(eventsToStore, userUpdateEvents...)
+
+		userGroupsEvents := am.prepareUserGroupsEvents(ctx, initiatorUser.Id, oldUser, newUser, account, peerGroupsAdded, peerGroupsRemoved)
+		eventsToStore = append(eventsToStore, userGroupsEvents...)
 
 		updatedUserInfo, err := getUserInfo(ctx, am, newUser, account)
 		if err != nil {
@@ -828,7 +840,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if account.Settings.GroupsPropagationEnabled && areUsersLinkedToPeers(account, userIDs) {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -865,32 +877,78 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, in
 		})
 	}
 
+	return eventsToStore
+}
+
+func (am *DefaultAccountManager) prepareUserGroupsEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, peerGroupsAdded, peerGroupsRemoved map[string][]string) []func() {
+	var eventsToStore []func()
 	if newUser.AutoGroups != nil {
 		removedGroups := difference(oldUser.AutoGroups, newUser.AutoGroups)
 		addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
-		for _, g := range removedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				eventsToStore = append(eventsToStore, func() {
-					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupRemovedFromUser,
-						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-				})
 
-			} else {
-				log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
-			}
-		}
-		for _, g := range addedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				eventsToStore = append(eventsToStore, func() {
-					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupAddedToUser,
-						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-				})
-			}
+		removedEvents := am.handleGroupRemovedFromUser(ctx, initiatorUserID, oldUser, newUser, account, removedGroups, peerGroupsRemoved)
+		eventsToStore = append(eventsToStore, removedEvents...)
+
+		addedEvents := am.handleGroupAddedToUser(ctx, initiatorUserID, oldUser, newUser, account, addedGroups, peerGroupsAdded)
+		eventsToStore = append(eventsToStore, addedEvents...)
+	}
+	return eventsToStore
+}
+
+func (am *DefaultAccountManager) handleGroupAddedToUser(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, addedGroups []string, peerGroupsAdded map[string][]string) []func() {
+	var eventsToStore []func()
+	for _, g := range addedGroups {
+		group := account.GetGroup(g)
+		if group != nil {
+			eventsToStore = append(eventsToStore, func() {
+				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupAddedToUser,
+					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+			})
 		}
 	}
+	for groupID, peerIDs := range peerGroupsAdded {
+		group := account.GetGroup(groupID)
+		for _, peerID := range peerIDs {
+			peer := account.GetPeer(peerID)
+			eventsToStore = append(eventsToStore, func() {
+				meta := map[string]any{
+					"group": group.Name, "group_id": group.ID,
+					"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+				}
+				am.StoreEvent(ctx, activity.SystemInitiator, peer.ID, account.Id, activity.GroupAddedToPeer, meta)
+			})
+		}
+	}
+	return eventsToStore
+}
 
+func (am *DefaultAccountManager) handleGroupRemovedFromUser(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, removedGroups []string, peerGroupsRemoved map[string][]string) []func() {
+	var eventsToStore []func()
+	for _, g := range removedGroups {
+		group := account.GetGroup(g)
+		if group != nil {
+			eventsToStore = append(eventsToStore, func() {
+				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupRemovedFromUser,
+					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+			})
+
+		} else {
+			log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+		}
+	}
+	for groupID, peerIDs := range peerGroupsRemoved {
+		group := account.GetGroup(groupID)
+		for _, peerID := range peerIDs {
+			peer := account.GetPeer(peerID)
+			eventsToStore = append(eventsToStore, func() {
+				meta := map[string]any{
+					"group": group.Name, "group_id": group.ID,
+					"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+				}
+				am.StoreEvent(ctx, activity.SystemInitiator, peer.ID, account.Id, activity.GroupRemovedFromPeer, meta)
+			})
+		}
+	}
 	return eventsToStore
 }
 
@@ -1100,6 +1158,9 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, account *Account, peers []*nbpeer.Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
+		// nolint:staticcheck
+		ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.Key)
+
 		if peer.Status.LoginExpired {
 			continue
 		}
@@ -1107,8 +1168,11 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		peer.MarkLoginExpired(true)
 		account.UpdatePeer(peer)
 		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
-			return err
+			return fmt.Errorf("failed saving peer status for peer %s: %s", peer.ID, err)
 		}
+
+		log.WithContext(ctx).Tracef("mark peer %s login expired", peer.ID)
+
 		am.StoreEvent(
 			ctx,
 			peer.UserID, peer.ID, account.Id,
@@ -1119,7 +1183,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, account.Id)
 	}
 	return nil
 }
@@ -1227,7 +1291,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	}
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account)
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	for targetUserID, meta := range deletedUsersMeta {

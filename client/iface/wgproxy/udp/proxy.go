@@ -116,7 +116,7 @@ func (p *WGUDPProxy) close() error {
 	p.cancel()
 
 	var result *multierror.Error
-	if err := p.remoteConn.Close(); err != nil {
+	if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		result = multierror.Append(result, fmt.Errorf("remote conn: %s", err))
 	}
 

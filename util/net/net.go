@@ -2,19 +2,17 @@ package net
 
 import (
 	"net"
-	"os"
-
-	"github.com/netbirdio/netbird/client/iface/netstack"
 
 	"github.com/google/uuid"
 )
 
 const (
 	// NetbirdFwmark is the fwmark value used by Netbird via wireguard
-	NetbirdFwmark    = 0x1BD00
-	PreroutingFwmark = 0x1BD01
+	NetbirdFwmark = 0x1BD00
 
-	envDisableCustomRouting = "NB_DISABLE_CUSTOM_ROUTING"
+	PreroutingFwmarkRedirected       = 0x1BD01
+	PreroutingFwmarkMasquerade       = 0x1BD11
+	PreroutingFwmarkMasqueradeReturn = 0x1BD12
 )
 
 // ConnectionID provides a globally unique identifier for network connections.
@@ -27,11 +25,4 @@ type RemoveHookFunc func(connID ConnectionID) error
 // GenerateConnID generates a unique identifier for each connection.
 func GenerateConnID() ConnectionID {
 	return ConnectionID(uuid.NewString())
-}
-
-func CustomRoutingDisabled() bool {
-	if netstack.IsEnabled() {
-		return true
-	}
-	return os.Getenv(envDisableCustomRouting) == "true"
 }

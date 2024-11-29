@@ -67,7 +67,7 @@ func (s *State) DeleteRoute(network string) {
 func (s *State) GetRoutes() map[string]struct{} {
 	s.Mux.RLock()
 	defer s.Mux.RUnlock()
-	return s.routes
+	return maps.Clone(s.routes)
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -240,11 +240,6 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.IP = receivedState.IP
 	}
 
-	routes := receivedState.GetRoutes()
-	if routes != nil {
-		peerState.SetRoutes(routes)
-	}
-
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
 
 	if receivedState.ConnStatus != peerState.ConnStatus {
@@ -271,12 +266,40 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) AddPeerStateRoute(peer string, route string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peer]
+	if !ok {
+		return errors.New("peer doesn't exist")
 	}
 
+	peerState.AddRoute(route)
+	d.peers[peer] = peerState
+
+	// todo: consider to make sense of this notification or not
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) RemovePeerStateRoute(peer string, route string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peer]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.DeleteRoute(route)
+	d.peers[peer] = peerState
+
+	// todo: consider to make sense of this notification or not
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -320,12 +343,7 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
-	}
-
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -362,12 +380,7 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
-	}
-
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -403,12 +416,7 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
-	}
-
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -447,12 +455,7 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 		return nil
 	}
 
-	ch, found := d.changeNotify[receivedState.PubKey]
-	if found && ch != nil {
-		close(ch)
-		d.changeNotify[receivedState.PubKey] = nil
-	}
-
+	d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	d.notifyPeerListChanged()
 	return nil
 }
@@ -534,11 +537,14 @@ func (d *Status) GetConnStatusChangeNotifier() <-chan struct{} {
 func (d *Status) GetPeerStateChangeNotifier(peer string) <-chan struct{} {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+
 	ch, found := d.changeNotify[peer]
-	if !found || ch == nil {
-		ch = make(chan struct{})
-		d.changeNotify[peer] = ch
+	if found {
+		return ch
 	}
+
+	ch = make(chan struct{})
+	d.changeNotify[peer] = ch
 	return ch
 }
 
@@ -746,25 +752,23 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	// extend the list of stun, turn servers with relay address
 	relayStates := slices.Clone(d.relayStates)
 
-	var relayState relay.ProbeResult
-
 	// if the server connection is not established then we will use the general address
 	// in case of connection we will use the instance specific address
 	instanceAddr, err := d.relayMgr.RelayInstanceAddress()
 	if err != nil {
 		// TODO add their status
-		if errors.Is(err, relayClient.ErrRelayClientNotConnected) {
-			for _, r := range d.relayMgr.ServerURLs() {
-				relayStates = append(relayStates, relay.ProbeResult{
-					URI: r,
-				})
-			}
-			return relayStates
+		for _, r := range d.relayMgr.ServerURLs() {
+			relayStates = append(relayStates, relay.ProbeResult{
+				URI: r,
+				Err: err,
+			})
 		}
-		relayState.Err = err
+		return relayStates
 	}
 
-	relayState.URI = instanceAddr
+	relayState := relay.ProbeResult{
+		URI: instanceAddr,
+	}
 	return append(relayStates, relayState)
 }
 
@@ -837,6 +841,17 @@ func (d *Status) RemoveConnectionListener() {
 
 func (d *Status) onConnectionChanged() {
 	d.notifier.updateServerStates(d.managementState, d.signalState)
+}
+
+// notifyPeerStateChangeListeners notifies route manager about the change in peer state
+func (d *Status) notifyPeerStateChangeListeners(peerID string) {
+	ch, found := d.changeNotify[peerID]
+	if !found {
+		return
+	}
+
+	close(ch)
+	delete(d.changeNotify, peerID)
 }
 
 func (d *Status) notifyPeerListChanged() {

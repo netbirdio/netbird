@@ -237,8 +237,8 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		return nil, err
 	}
 
-	if isRouteChangeAffectPeers(account, &newRoute) {
-		am.updateAccountPeers(ctx, account)
+	if am.isRouteChangeAffectPeers(account, &newRoute) {
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
@@ -323,8 +323,8 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return err
 	}
 
-	if isRouteChangeAffectPeers(account, oldRoute) || isRouteChangeAffectPeers(account, routeToSave) {
-		am.updateAccountPeers(ctx, account)
+	if am.isRouteChangeAffectPeers(account, oldRoute) || am.isRouteChangeAffectPeers(account, routeToSave) {
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
@@ -355,8 +355,8 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
 
-	if isRouteChangeAffectPeers(account, routy) {
-		am.updateAccountPeers(ctx, account)
+	if am.isRouteChangeAffectPeers(account, routy) {
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -417,25 +417,82 @@ func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string,
 			continue
 		}
 
-		policies := getAllRoutePoliciesFromGroups(a, route.AccessControlGroups)
-		for _, policy := range policies {
-			if !policy.Enabled {
-				continue
-			}
+		distributionPeers := a.getDistributionGroupsPeers(route)
 
-			for _, rule := range policy.Rules {
-				if !rule.Enabled {
-					continue
-				}
-
-				distributionGroupPeers, _ := a.getAllPeersFromGroups(ctx, route.Groups, peerID, nil, validatedPeersMap)
-				rules := generateRouteFirewallRules(ctx, route, rule, distributionGroupPeers, firewallRuleDirectionIN)
-				routesFirewallRules = append(routesFirewallRules, rules...)
-			}
+		for _, accessGroup := range route.AccessControlGroups {
+			policies := getAllRoutePoliciesFromGroups(a, []string{accessGroup})
+			rules := a.getRouteFirewallRules(ctx, peerID, policies, route, validatedPeersMap, distributionPeers)
+			routesFirewallRules = append(routesFirewallRules, rules...)
 		}
 	}
 
 	return routesFirewallRules
+}
+
+func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, policies []*Policy, route *route.Route, validatedPeersMap map[string]struct{}, distributionPeers map[string]struct{}) []*RouteFirewallRule {
+	var fwRules []*RouteFirewallRule
+	for _, policy := range policies {
+		if !policy.Enabled {
+			continue
+		}
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			rulePeers := a.getRulePeers(rule, peerID, distributionPeers, validatedPeersMap)
+			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, firewallRuleDirectionIN)
+			fwRules = append(fwRules, rules...)
+		}
+	}
+	return fwRules
+}
+
+func (a *Account) getRulePeers(rule *PolicyRule, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
+	distPeersWithPolicy := make(map[string]struct{})
+	for _, id := range rule.Sources {
+		group := a.Groups[id]
+		if group == nil {
+			continue
+		}
+
+		for _, pID := range group.Peers {
+			if pID == peerID {
+				continue
+			}
+			_, distPeer := distributionPeers[pID]
+			_, valid := validatedPeersMap[pID]
+			if distPeer && valid {
+				distPeersWithPolicy[pID] = struct{}{}
+			}
+		}
+	}
+
+	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
+	for pID := range distPeersWithPolicy {
+		peer := a.Peers[pID]
+		if peer == nil {
+			continue
+		}
+		distributionGroupPeers = append(distributionGroupPeers, peer)
+	}
+	return distributionGroupPeers
+}
+
+func (a *Account) getDistributionGroupsPeers(route *route.Route) map[string]struct{} {
+	distPeers := make(map[string]struct{})
+	for _, id := range route.Groups {
+		group := a.Groups[id]
+		if group == nil {
+			continue
+		}
+
+		for _, pID := range group.Peers {
+			distPeers[pID] = struct{}{}
+		}
+	}
+	return distPeers
 }
 
 func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
@@ -651,6 +708,6 @@ func getProtoPortInfo(rule *RouteFirewallRule) *proto.PortInfo {
 
 // isRouteChangeAffectPeers checks if a given route affects peers by determining
 // if it has a routing peer, distribution, or peer groups that include peers
-func isRouteChangeAffectPeers(account *Account, route *route.Route) bool {
-	return anyGroupHasPeers(account, route.Groups) || anyGroupHasPeers(account, route.PeerGroups) || route.Peer != ""
+func (am *DefaultAccountManager) isRouteChangeAffectPeers(account *Account, route *route.Route) bool {
+	return am.anyGroupHasPeers(account, route.Groups) || am.anyGroupHasPeers(account, route.PeerGroups) || route.Peer != ""
 }

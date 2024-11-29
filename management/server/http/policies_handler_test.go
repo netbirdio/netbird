@@ -38,12 +38,12 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 				}
 				return policy, nil
 			},
-			SavePolicyFunc: func(_ context.Context, _, _ string, policy *server.Policy, _ bool) error {
+			SavePolicyFunc: func(_ context.Context, _, _ string, policy *server.Policy) (*server.Policy, error) {
 				if !strings.HasPrefix(policy.ID, "id-") {
 					policy.ID = "id-was-set"
 					policy.Rules[0].ID = "id-was-set"
 				}
-				return nil
+				return policy, nil
 			},
 			GetAllGroupsFunc: func(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error) {
 				return []*nbgroup.Group{{ID: "F"}, {ID: "G"}}, nil

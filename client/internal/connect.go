@@ -157,7 +157,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		engineCtx, cancel := context.WithCancel(c.ctx)
 		defer func() {
-			c.statusRecorder.MarkManagementDisconnected(state.err)
+			_, err := state.Status()
+			c.statusRecorder.MarkManagementDisconnected(err)
 			c.statusRecorder.CleanLocalPeerState()
 			cancel()
 		}()
@@ -207,7 +208,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		c.statusRecorder.MarkSignalDisconnected(nil)
 		defer func() {
-			c.statusRecorder.MarkSignalDisconnected(state.err)
+			_, err := state.Status()
+			c.statusRecorder.MarkSignalDisconnected(err)
 		}()
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
@@ -230,6 +232,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		relayURLs, token := parseRelayInfo(loginResp)
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
 				if err := relayManager.UpdateToken(token); err != nil {
@@ -240,9 +243,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 			log.Infof("connecting to the Relay service(s): %s", strings.Join(relayURLs, ", "))
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
-				return wrapErr(err)
 			}
-			c.statusRecorder.SetRelayMgr(relayManager)
 		}
 
 		peerConfig := loginResp.GetPeerConfig()

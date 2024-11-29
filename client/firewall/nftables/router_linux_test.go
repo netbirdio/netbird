@@ -10,6 +10,7 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,100 +33,87 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 		t.Skip("nftables not supported on this OS")
 	}
 
-	table, err := createWorkTable()
-	require.NoError(t, err, "Failed to create work table")
-
-	defer deleteWorkTable()
-
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := newRouter(table, ifaceMock)
-			require.NoError(t, err, "failed to create router")
-			require.NoError(t, manager.init(table))
+			// need fw manager to init both acl mgr and router for all chains to be present
+			manager, err := Create(ifaceMock)
+			t.Cleanup(func() {
+				require.NoError(t, manager.Reset(nil))
+			})
+			require.NoError(t, err)
+			require.NoError(t, manager.Init(nil))
 
 			nftablesTestingClient := &nftables.Conn{}
 
-			defer func(manager *router) {
-				require.NoError(t, manager.Reset(), "failed to reset rules")
-			}(manager)
-
-			require.NoError(t, err, "shouldn't return error")
-
-			err = manager.AddNatRule(testCase.InputPair)
+			rtr := manager.router
+			err = rtr.AddNatRule(testCase.InputPair)
 			require.NoError(t, err, "pair should be inserted")
 
-			defer func(manager *router, pair firewall.RouterPair) {
-				require.NoError(t, manager.RemoveNatRule(pair), "failed to remove rule")
-			}(manager, testCase.InputPair)
+			t.Cleanup(func() {
+				require.NoError(t, rtr.RemoveNatRule(testCase.InputPair), "failed to remove rule")
+			})
 
 			if testCase.InputPair.Masquerade {
-				sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
-				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
-				testingExpression := append(sourceExp, destExp...) //nolint:gocritic
-				testingExpression = append(testingExpression,
-					&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+				// Build expected expressions for connection tracking
+				conntrackExprs := []expr.Any{
+					&expr.Ct{
+						Key:      expr.CtKeySTATE,
+						Register: 1,
+					},
+					&expr.Bitwise{
+						SourceRegister: 1,
+						DestRegister:   1,
+						Len:            4,
+						Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitNEW),
+						Xor:            binaryutil.NativeEndian.PutUint32(0),
+					},
+					&expr.Cmp{
+						Op:       expr.CmpOpNeq,
+						Register: 1,
+						Data:     []byte{0, 0, 0, 0},
+					},
+				}
+
+				// Build interface matching expression
+				ifaceExprs := []expr.Any{
+					&expr.Meta{
+						Key:      expr.MetaKeyIIFNAME,
+						Register: 1,
+					},
 					&expr.Cmp{
 						Op:       expr.CmpOpEq,
 						Register: 1,
 						Data:     ifname(ifaceMock.Name()),
 					},
-					&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-					&expr.Cmp{
-						Op:       expr.CmpOpNeq,
-						Register: 1,
-						Data:     ifname("lo"),
-					},
-				)
-
-				natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
-				found := 0
-				for _, chain := range manager.chains {
-					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
-					require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
-					for _, rule := range rules {
-						if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
-							require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "nat rule elements should match")
-							found = 1
-						}
-					}
 				}
-				require.Equal(t, 1, found, "should find at least 1 rule to test")
-			}
 
-			if testCase.InputPair.Masquerade {
+				// Build CIDR matching expressions
 				sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
 				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
-				testingExpression := append(sourceExp, destExp...) //nolint:gocritic
-				testingExpression = append(testingExpression,
-					&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-					&expr.Cmp{
-						Op:       expr.CmpOpEq,
-						Register: 1,
-						Data:     ifname(ifaceMock.Name()),
-					},
-					&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-					&expr.Cmp{
-						Op:       expr.CmpOpNeq,
-						Register: 1,
-						Data:     ifname("lo"),
-					},
-				)
 
-				inNatRuleKey := firewall.GenKey(firewall.NatFormat, firewall.GetInversePair(testCase.InputPair))
+				// Combine all expressions in the correct order
+				// nolint:gocritic
+				testingExpression := append(conntrackExprs, ifaceExprs...)
+				testingExpression = append(testingExpression, sourceExp...)
+				testingExpression = append(testingExpression, destExp...)
+
+				natRuleKey := firewall.GenKey(firewall.PreroutingFormat, testCase.InputPair)
 				found := 0
-				for _, chain := range manager.chains {
-					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
-					require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
-					for _, rule := range rules {
-						if len(rule.UserData) > 0 && string(rule.UserData) == inNatRuleKey {
-							require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "income nat rule elements should match")
-							found = 1
+				for _, chain := range rtr.chains {
+					if chain.Name == chainNamePrerouting {
+						rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
+						require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
+						for _, rule := range rules {
+							if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
+								// Compare expressions up to the mark setting expressions
+								require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "prerouting nat rule elements should match")
+								found = 1
+							}
 						}
 					}
 				}
-				require.Equal(t, 1, found, "should find at least 1 rule to test")
+				require.Equal(t, 1, found, "should find at least 1 rule in prerouting chain")
 			}
-
 		})
 	}
 }
@@ -135,68 +123,66 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 		t.Skip("nftables not supported on this OS")
 	}
 
-	table, err := createWorkTable()
-	require.NoError(t, err, "Failed to create work table")
-
-	defer deleteWorkTable()
-
 	for _, testCase := range test.RemoveRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := newRouter(table, ifaceMock)
-			require.NoError(t, err, "failed to create router")
-			require.NoError(t, manager.init(table))
-
-			nftablesTestingClient := &nftables.Conn{}
-
-			defer func(manager *router) {
-				require.NoError(t, manager.Reset(), "failed to reset rules")
-			}(manager)
-
-			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
-			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
-
-			natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
-			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
-
-			insertedNat := nftablesTestingClient.InsertRule(&nftables.Rule{
-				Table:    manager.workTable,
-				Chain:    manager.chains[chainNameRoutingNat],
-				Exprs:    natExp,
-				UserData: []byte(natRuleKey),
+			manager, err := Create(ifaceMock)
+			t.Cleanup(func() {
+				require.NoError(t, manager.Reset(nil))
 			})
+			require.NoError(t, err)
+			require.NoError(t, manager.Init(nil))
 
-			sourceExp = generateCIDRMatcherExpressions(true, firewall.GetInversePair(testCase.InputPair).Source)
-			destExp = generateCIDRMatcherExpressions(false, firewall.GetInversePair(testCase.InputPair).Destination)
+			rtr := manager.router
 
-			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
-			inNatRuleKey := firewall.GenKey(firewall.NatFormat, firewall.GetInversePair(testCase.InputPair))
+			// First add the NAT rule using the router's method
+			err = rtr.AddNatRule(testCase.InputPair)
+			require.NoError(t, err, "should add NAT rule")
 
-			insertedInNat := nftablesTestingClient.InsertRule(&nftables.Rule{
-				Table:    manager.workTable,
-				Chain:    manager.chains[chainNameRoutingNat],
-				Exprs:    natExp,
-				UserData: []byte(inNatRuleKey),
-			})
-
-			err = nftablesTestingClient.Flush()
-			require.NoError(t, err, "shouldn't return error")
-
-			err = manager.Reset()
-			require.NoError(t, err, "shouldn't return error")
-
-			err = manager.RemoveNatRule(testCase.InputPair)
-			require.NoError(t, err, "shouldn't return error")
-
-			for _, chain := range manager.chains {
-				rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
-				require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
-				for _, rule := range rules {
-					if len(rule.UserData) > 0 {
-						require.NotEqual(t, insertedNat.UserData, rule.UserData, "nat rule should not exist")
-						require.NotEqual(t, insertedInNat.UserData, rule.UserData, "income nat rule should not exist")
-					}
+			// Verify the rule was added
+			natRuleKey := firewall.GenKey(firewall.PreroutingFormat, testCase.InputPair)
+			found := false
+			rules, err := rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNamePrerouting])
+			require.NoError(t, err, "should list rules")
+			for _, rule := range rules {
+				if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
+					found = true
+					break
 				}
 			}
+			require.True(t, found, "NAT rule should exist before removal")
+
+			// Now remove the rule
+			err = rtr.RemoveNatRule(testCase.InputPair)
+			require.NoError(t, err, "shouldn't return error when removing rule")
+
+			// Verify the rule was removed
+			found = false
+			rules, err = rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNamePrerouting])
+			require.NoError(t, err, "should list rules after removal")
+			for _, rule := range rules {
+				if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
+					found = true
+					break
+				}
+			}
+			require.False(t, found, "NAT rule should not exist after removal")
+
+			// Verify the static postrouting rules still exist
+			rules, err = rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNameRoutingNat])
+			require.NoError(t, err, "should list postrouting rules")
+			foundCounter := false
+			for _, rule := range rules {
+				for _, e := range rule.Exprs {
+					if _, ok := e.(*expr.Counter); ok {
+						foundCounter = true
+						break
+					}
+				}
+				if foundCounter {
+					break
+				}
+			}
+			require.True(t, foundCounter, "static postrouting rule should remain")
 		})
 	}
 }

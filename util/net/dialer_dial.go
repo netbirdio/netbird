@@ -69,7 +69,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 
 	conn, err := d.Dialer.DialContext(ctx, network, address)
 	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
+		return nil, fmt.Errorf("d.Dialer.DialContext: %w", err)
 	}
 
 	// Wrap the connection in Conn to handle Close with hooks
@@ -79,28 +79,6 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 // Dial wraps the net.Dialer's Dial method to use the custom connection
 func (d *Dialer) Dial(network, address string) (net.Conn, error) {
 	return d.DialContext(context.Background(), network, address)
-}
-
-// Conn wraps a net.Conn to override the Close method
-type Conn struct {
-	net.Conn
-	ID ConnectionID
-}
-
-// Close overrides the net.Conn Close method to execute all registered hooks after closing the connection
-func (c *Conn) Close() error {
-	err := c.Conn.Close()
-
-	dialerCloseHooksMutex.RLock()
-	defer dialerCloseHooksMutex.RUnlock()
-
-	for _, hook := range dialerCloseHooks {
-		if err := hook(c.ID, &c.Conn); err != nil {
-			log.Errorf("Error executing dialer close hook: %v", err)
-		}
-	}
-
-	return err
 }
 
 func callDialerHooks(ctx context.Context, connID ConnectionID, address string, resolver *net.Resolver) error {
@@ -126,52 +104,4 @@ func callDialerHooks(ctx context.Context, connID ConnectionID, address string, r
 	}
 
 	return result.ErrorOrNil()
-}
-
-func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
-	if CustomRoutingDisabled() {
-		return net.DialUDP(network, laddr, raddr)
-	}
-
-	dialer := NewDialer()
-	dialer.LocalAddr = laddr
-
-	conn, err := dialer.Dial(network, raddr.String())
-	if err != nil {
-		return nil, fmt.Errorf("dialing UDP %s: %w", raddr.String(), err)
-	}
-
-	udpConn, ok := conn.(*Conn).Conn.(*net.UDPConn)
-	if !ok {
-		if err := conn.Close(); err != nil {
-			log.Errorf("Failed to close connection: %v", err)
-		}
-		return nil, fmt.Errorf("expected UDP connection, got different type: %T", conn)
-	}
-
-	return udpConn, nil
-}
-
-func DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
-	if CustomRoutingDisabled() {
-		return net.DialTCP(network, laddr, raddr)
-	}
-
-	dialer := NewDialer()
-	dialer.LocalAddr = laddr
-
-	conn, err := dialer.Dial(network, raddr.String())
-	if err != nil {
-		return nil, fmt.Errorf("dialing TCP %s: %w", raddr.String(), err)
-	}
-
-	tcpConn, ok := conn.(*Conn).Conn.(*net.TCPConn)
-	if !ok {
-		if err := conn.Close(); err != nil {
-			log.Errorf("Failed to close connection: %v", err)
-		}
-		return nil, fmt.Errorf("expected TCP connection, got different type: %T", conn)
-	}
-
-	return tcpConn, nil
 }

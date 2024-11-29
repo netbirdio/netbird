@@ -122,13 +122,20 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 			tempScore = float64(metricDiff) * 10
 		}
 
-		// in some temporal cases, latency can be 0, so we set it to 1s to not block but try to avoid this route
-		latency := time.Second
+		// in some temporal cases, latency can be 0, so we set it to 999ms to not block but try to avoid this route
+		latency := 999 * time.Millisecond
 		if peerStatus.latency != 0 {
 			latency = peerStatus.latency
 		} else {
-			log.Warnf("peer %s has 0 latency", r.Peer)
+			log.Tracef("peer %s has 0 latency, range %s", r.Peer, c.handler)
 		}
+
+		// avoid negative tempScore on the higher latency calculation
+		if latency > 1*time.Second {
+			latency = 999 * time.Millisecond
+		}
+
+		// higher latency is worse score
 		tempScore += 1 - latency.Seconds()
 
 		if !peerStatus.relayed {
@@ -149,6 +156,8 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 			currScore = tempScore
 		}
 	}
+
+	log.Debugf("chosen route: %s, chosen score: %f, current route: %s, current score: %f", chosen, chosenScore, currID, currScore)
 
 	switch {
 	case chosen == "":
@@ -195,15 +204,20 @@ func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey stri
 func (c *clientNetwork) startPeersStatusChangeWatcher() {
 	for _, r := range c.routes {
 		_, found := c.routePeersNotifiers[r.Peer]
-		if !found {
-			c.routePeersNotifiers[r.Peer] = make(chan struct{})
-			go c.watchPeerStatusChanges(c.ctx, r.Peer, c.peerStateUpdate, c.routePeersNotifiers[r.Peer])
+		if found {
+			continue
 		}
+
+		closerChan := make(chan struct{})
+		c.routePeersNotifiers[r.Peer] = closerChan
+		go c.watchPeerStatusChanges(c.ctx, r.Peer, c.peerStateUpdate, closerChan)
 	}
 }
 
-func (c *clientNetwork) removeRouteFromWireguardPeer() error {
-	c.removeStateRoute()
+func (c *clientNetwork) removeRouteFromWireGuardPeer() error {
+	if err := c.statusRecorder.RemovePeerStateRoute(c.currentChosen.Peer, c.handler.String()); err != nil {
+		log.Warnf("Failed to update peer state: %v", err)
+	}
 
 	if err := c.handler.RemoveAllowedIPs(); err != nil {
 		return fmt.Errorf("remove allowed IPs: %w", err)
@@ -218,7 +232,7 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 
 	var merr *multierror.Error
 
-	if err := c.removeRouteFromWireguardPeer(); err != nil {
+	if err := c.removeRouteFromWireGuardPeer(); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove allowed IPs for peer %s: %w", c.currentChosen.Peer, err))
 	}
 	if err := c.handler.RemoveRoute(); err != nil {
@@ -257,7 +271,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		}
 	} else {
 		// Otherwise, remove the allowed IPs from the previous peer first
-		if err := c.removeRouteFromWireguardPeer(); err != nil {
+		if err := c.removeRouteFromWireGuardPeer(); err != nil {
 			return fmt.Errorf("remove allowed IPs for peer %s: %w", c.currentChosen.Peer, err)
 		}
 	}
@@ -268,35 +282,11 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		return fmt.Errorf("add allowed IPs for peer %s: %w", c.currentChosen.Peer, err)
 	}
 
-	c.addStateRoute()
-
+	err := c.statusRecorder.AddPeerStateRoute(c.currentChosen.Peer, c.handler.String())
+	if err != nil {
+		return fmt.Errorf("add peer state route: %w", err)
+	}
 	return nil
-}
-
-func (c *clientNetwork) addStateRoute() {
-	state, err := c.statusRecorder.GetPeer(c.currentChosen.Peer)
-	if err != nil {
-		log.Errorf("Failed to get peer state: %v", err)
-		return
-	}
-
-	state.AddRoute(c.handler.String())
-	if err := c.statusRecorder.UpdatePeerState(state); err != nil {
-		log.Warnf("Failed to update peer state: %v", err)
-	}
-}
-
-func (c *clientNetwork) removeStateRoute() {
-	state, err := c.statusRecorder.GetPeer(c.currentChosen.Peer)
-	if err != nil {
-		log.Errorf("Failed to get peer state: %v", err)
-		return
-	}
-
-	state.DeleteRoute(c.handler.String())
-	if err := c.statusRecorder.UpdatePeerState(state); err != nil {
-		log.Warnf("Failed to update peer state: %v", err)
-	}
 }
 
 func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {

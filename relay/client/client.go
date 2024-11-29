@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -141,7 +140,7 @@ type Client struct {
 	instanceURL      *RelayAddr
 	muInstanceURL    sync.Mutex
 
-	onDisconnectListener func()
+	onDisconnectListener func(string)
 	onConnectedListener  func()
 	listenerMutex        sync.Mutex
 }
@@ -234,7 +233,7 @@ func (c *Client) ServerInstanceURL() (string, error) {
 }
 
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
-func (c *Client) SetOnDisconnectListener(fn func()) {
+func (c *Client) SetOnDisconnectListener(fn func(string)) {
 	c.listenerMutex.Lock()
 	defer c.listenerMutex.Unlock()
 	c.onDisconnectListener = fn
@@ -449,11 +448,11 @@ func (c *Client) writeTo(connReference *Conn, id string, dstID []byte, payload [
 	conn, ok := c.conns[id]
 	c.mu.Unlock()
 	if !ok {
-		return 0, io.EOF
+		return 0, net.ErrClosed
 	}
 
 	if conn.conn != connReference {
-		return 0, io.EOF
+		return 0, net.ErrClosed
 	}
 
 	// todo: use buffer pool instead of create new transport msg.
@@ -508,7 +507,7 @@ func (c *Client) closeConn(connReference *Conn, id string) error {
 
 	container, ok := c.conns[id]
 	if !ok {
-		return fmt.Errorf("connection already closed")
+		return net.ErrClosed
 	}
 
 	if container.conn != connReference {
@@ -555,7 +554,7 @@ func (c *Client) notifyDisconnected() {
 	if c.onDisconnectListener == nil {
 		return
 	}
-	go c.onDisconnectListener()
+	go c.onDisconnectListener(c.connectionURL)
 }
 
 func (c *Client) notifyConnected() {

@@ -1062,7 +1062,94 @@ type SetupKey struct {
 	// Id Setup Key ID
 	Id string `json:"id"`
 
-	// Key Setup Key value
+	// Key Setup Key as secret
+	Key string `json:"key"`
+
+	// LastUsed Setup key last usage date
+	LastUsed time.Time `json:"last_used"`
+
+	// Name Setup key name identifier
+	Name string `json:"name"`
+
+	// Revoked Setup key revocation status
+	Revoked bool `json:"revoked"`
+
+	// State Setup key status, "valid", "overused","expired" or "revoked"
+	State string `json:"state"`
+
+	// Type Setup key type, one-off for single time usage and reusable
+	Type string `json:"type"`
+
+	// UpdatedAt Setup key last update date
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
+	UsageLimit int `json:"usage_limit"`
+
+	// UsedTimes Usage count of setup key
+	UsedTimes int `json:"used_times"`
+
+	// Valid Setup key validity status
+	Valid bool `json:"valid"`
+}
+
+// SetupKeyBase defines model for SetupKeyBase.
+type SetupKeyBase struct {
+	// AutoGroups List of group IDs to auto-assign to peers registered with this key
+	AutoGroups []string `json:"auto_groups"`
+
+	// Ephemeral Indicate that the peer will be ephemeral or not
+	Ephemeral bool `json:"ephemeral"`
+
+	// Expires Setup Key expiration date
+	Expires time.Time `json:"expires"`
+
+	// Id Setup Key ID
+	Id string `json:"id"`
+
+	// LastUsed Setup key last usage date
+	LastUsed time.Time `json:"last_used"`
+
+	// Name Setup key name identifier
+	Name string `json:"name"`
+
+	// Revoked Setup key revocation status
+	Revoked bool `json:"revoked"`
+
+	// State Setup key status, "valid", "overused","expired" or "revoked"
+	State string `json:"state"`
+
+	// Type Setup key type, one-off for single time usage and reusable
+	Type string `json:"type"`
+
+	// UpdatedAt Setup key last update date
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
+	UsageLimit int `json:"usage_limit"`
+
+	// UsedTimes Usage count of setup key
+	UsedTimes int `json:"used_times"`
+
+	// Valid Setup key validity status
+	Valid bool `json:"valid"`
+}
+
+// SetupKeyClear defines model for SetupKeyClear.
+type SetupKeyClear struct {
+	// AutoGroups List of group IDs to auto-assign to peers registered with this key
+	AutoGroups []string `json:"auto_groups"`
+
+	// Ephemeral Indicate that the peer will be ephemeral or not
+	Ephemeral bool `json:"ephemeral"`
+
+	// Expires Setup Key expiration date
+	Expires time.Time `json:"expires"`
+
+	// Id Setup Key ID
+	Id string `json:"id"`
+
+	// Key Setup Key as plain text
 	Key string `json:"key"`
 
 	// LastUsed Setup key last usage date
@@ -1098,23 +1185,8 @@ type SetupKeyRequest struct {
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
-	// Ephemeral Indicate that the peer will be ephemeral or not
-	Ephemeral *bool `json:"ephemeral,omitempty"`
-
-	// ExpiresIn Expiration time in seconds, 0 will mean the key never expires
-	ExpiresIn int `json:"expires_in"`
-
-	// Name Setup Key name
-	Name string `json:"name"`
-
 	// Revoked Setup key revocation status
 	Revoked bool `json:"revoked"`
-
-	// Type Setup key type, one-off for single time usage and reusable
-	Type string `json:"type"`
-
-	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
-	UsageLimit int `json:"usage_limit"`
 }
 
 // User defines model for User.

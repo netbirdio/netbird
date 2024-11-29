@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -85,8 +86,12 @@ func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view DNS settings")
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsRegularUser() {
+		return nil, status.NewAdminPermissionError()
 	}
 
 	return am.Store.GetAccountDNSSettings(ctx, LockingStrengthShare, accountID)
@@ -94,62 +99,135 @@ func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID s
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings
 func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *DNSSettings) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return err
-	}
-
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to update DNS settings")
-	}
-
 	if dnsSettingsToSave == nil {
 		return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 	}
 
-	if len(dnsSettingsToSave.DisabledManagementGroups) != 0 {
-		err = validateGroups(dnsSettingsToSave.DisabledManagementGroups, account.Groups)
-		if err != nil {
-			return err
-		}
-	}
-
-	oldSettings := account.DNSSettings.Copy()
-	account.DNSSettings = dnsSettingsToSave.Copy()
-
-	addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
-	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
-
-	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	if err != nil {
 		return err
 	}
 
-	for _, id := range addedGroups {
-		group := account.GetGroup(id)
-		meta := map[string]any{"group": group.Name, "group_id": group.ID}
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
 	}
 
-	for _, id := range removedGroups {
-		group := account.GetGroup(id)
-		meta := map[string]any{"group": group.Name, "group_id": group.ID}
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
+	if !user.HasAdminPower() {
+		return status.NewAdminPermissionError()
 	}
 
-	if anyGroupHasPeers(account, addedGroups) || anyGroupHasPeers(account, removedGroups) {
-		am.updateAccountPeers(ctx, account)
+	var updateAccountPeers bool
+	var eventsToStore []func()
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+		if err = validateDNSSettings(ctx, transaction, accountID, dnsSettingsToSave); err != nil {
+			return err
+		}
+
+		oldSettings, err := transaction.GetAccountDNSSettings(ctx, LockingStrengthUpdate, accountID)
+		if err != nil {
+			return err
+		}
+
+		addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
+		removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
+
+		updateAccountPeers, err = areDNSSettingChangesAffectPeers(ctx, transaction, accountID, addedGroups, removedGroups)
+		if err != nil {
+			return err
+		}
+
+		events := am.prepareDNSSettingsEvents(ctx, transaction, accountID, userID, addedGroups, removedGroups)
+		eventsToStore = append(eventsToStore, events...)
+
+		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+			return err
+		}
+
+		return transaction.SaveDNSSettings(ctx, LockingStrengthUpdate, accountID, dnsSettingsToSave)
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, storeEvent := range eventsToStore {
+		storeEvent()
+	}
+
+	if updateAccountPeers {
+		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return nil
+}
+
+// prepareDNSSettingsEvents prepares a list of event functions to be stored.
+func (am *DefaultAccountManager) prepareDNSSettingsEvents(ctx context.Context, transaction Store, accountID, userID string, addedGroups, removedGroups []string) []func() {
+	var eventsToStore []func()
+
+	modifiedGroups := slices.Concat(addedGroups, removedGroups)
+	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, modifiedGroups)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get groups for dns settings events: %v", err)
+		return nil
+	}
+
+	for _, groupID := range addedGroups {
+		group, ok := groups[groupID]
+		if !ok {
+			log.WithContext(ctx).Debugf("skipped adding group: %s GroupAddedToDisabledManagementGroups activity", groupID)
+			continue
+		}
+
+		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{"group": group.Name, "group_id": group.ID}
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
+		})
+
+	}
+
+	for _, groupID := range removedGroups {
+		group, ok := groups[groupID]
+		if !ok {
+			log.WithContext(ctx).Debugf("skipped adding group: %s GroupRemovedFromDisabledManagementGroups activity", groupID)
+			continue
+		}
+
+		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{"group": group.Name, "group_id": group.ID}
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
+		})
+	}
+
+	return eventsToStore
+}
+
+// areDNSSettingChangesAffectPeers checks if the DNS settings changes affect any peers.
+func areDNSSettingChangesAffectPeers(ctx context.Context, transaction Store, accountID string, addedGroups, removedGroups []string) (bool, error) {
+	hasPeers, err := anyGroupHasPeers(ctx, transaction, accountID, addedGroups)
+	if err != nil {
+		return false, err
+	}
+
+	if hasPeers {
+		return true, nil
+	}
+
+	return anyGroupHasPeers(ctx, transaction, accountID, removedGroups)
+}
+
+// validateDNSSettings validates the DNS settings.
+func validateDNSSettings(ctx context.Context, transaction Store, accountID string, settings *DNSSettings) error {
+	if len(settings.DisabledManagementGroups) == 0 {
+		return nil
+	}
+
+	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, settings.DisabledManagementGroups)
+	if err != nil {
+		return err
+	}
+
+	return validateGroups(settings.DisabledManagementGroups, groups)
 }
 
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
