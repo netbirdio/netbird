@@ -9,6 +9,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/netbirdio/netbird/version"
