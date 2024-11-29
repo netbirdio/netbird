@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const anonTLD = ".domain"
+
 type Anonymizer struct {
 	ipAnonymizer     map[netip.Addr]netip.Addr
 	domainAnonymizer map[string]string
@@ -93,7 +95,7 @@ func (a *Anonymizer) AnonymizeDomain(domain string) string {
 		strings.HasSuffix(baseDomain, "netbird.selfhosted") ||
 		strings.HasSuffix(baseDomain, "netbird.cloud") ||
 		strings.HasSuffix(baseDomain, "netbird.stage") ||
-		strings.HasSuffix(baseDomain, ".domain") {
+		strings.HasSuffix(baseDomain, anonTLD) {
 		return domain
 	}
 
@@ -106,7 +108,7 @@ func (a *Anonymizer) AnonymizeDomain(domain string) string {
 
 	anonymized, ok := a.domainAnonymizer[baseForLookup]
 	if !ok {
-		anonymizedBase := "anon-" + generateRandomString(5) + ".domain"
+		anonymizedBase := "anon-" + generateRandomString(5) + anonTLD
 		a.domainAnonymizer[baseForLookup] = anonymizedBase
 		anonymized = anonymizedBase
 	}
@@ -178,10 +180,10 @@ func (a *Anonymizer) AnonymizeDNSLogLine(logEntry string) string {
 		parts := strings.Split(match, `"`)
 		if len(parts) >= 2 {
 			domain := parts[1]
-			if strings.HasSuffix(domain, ".domain") {
+			if strings.HasSuffix(domain, anonTLD) {
 				return match
 			}
-			randomDomain := generateRandomString(10) + ".domain"
+			randomDomain := generateRandomString(10) + anonTLD
 			return strings.Replace(match, domain, randomDomain, 1)
 		}
 		return match
