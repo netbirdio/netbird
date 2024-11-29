@@ -1,4 +1,5 @@
 //go:build pprof
+// +build pprof
 
 package cmd
 
@@ -11,20 +12,17 @@ import (
 )
 
 func init() {
-	if addr, ok := isPprofAddr(); ok {
-		go pprof(addr)
-	} else {
-		go pprof("localhost:6969")
-	}
+	addr := pprofAddr()
+	go pprof(addr)
 }
 
-func isPprofAddr() (string, bool) {
+func pprofAddr() string {
 	listenAddr := os.Getenv("NB_PPROF_ADDR")
 	if listenAddr == "" {
-		return "", false
+		return "localhost:6969"
 	}
 
-	return listenAddr, true
+	return listenAddr
 }
 
 func pprof(listenAddr string) {
