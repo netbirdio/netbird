@@ -40,15 +40,15 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 				}
 				return p, nil
 			},
-			SavePostureChecksFunc: func(_ context.Context, accountID, userID string, postureChecks *posture.Checks) error {
+			SavePostureChecksFunc: func(_ context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error) {
 				postureChecks.ID = "postureCheck"
 				testPostureChecks[postureChecks.ID] = postureChecks
 
 				if err := postureChecks.Validate(); err != nil {
-					return status.Errorf(status.InvalidArgument, err.Error()) //nolint
+					return nil, status.Errorf(status.InvalidArgument, err.Error()) //nolint
 				}
 
-				return nil
+				return postureChecks, nil
 			},
 			DeletePostureChecksFunc: func(_ context.Context, accountID, postureChecksID, userID string) error {
 				_, ok := testPostureChecks[postureChecksID]

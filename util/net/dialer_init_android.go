@@ -1,6 +1,5 @@
-//go:build !linux
-
 package net
 
 func (d *Dialer) init() {
+	d.Dialer.Control = ControlProtectSocket
 }

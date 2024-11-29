@@ -113,7 +113,7 @@ type AccountManager interface {
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error)
-	SavePolicy(ctx context.Context, accountID, userID string, policy *Policy, isUpdate bool) error
+	SavePolicy(ctx context.Context, accountID, userID string, policy *Policy) (*Policy, error)
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
 	ListPolicies(ctx context.Context, accountID, userID string) ([]*Policy, error)
 	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
@@ -139,7 +139,7 @@ type AccountManager interface {
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
 	GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error
+	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error)
 	DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManager() idp.Manager

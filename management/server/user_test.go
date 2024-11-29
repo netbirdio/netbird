@@ -1280,8 +1280,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	policy := Policy{
-		ID:      "policy",
+	policy := &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -1293,7 +1292,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 			},
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
