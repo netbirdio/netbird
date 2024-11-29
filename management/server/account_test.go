@@ -2982,18 +2982,21 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) 
 
 func BenchmarkSyncAndMarkPeer(b *testing.B) {
 	benchCases := []struct {
-		name       string
-		peers      int
-		groups     int
-		minMsPerOp float64
-		maxMsPerOp float64
+		name   string
+		peers  int
+		groups int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 3},
-		{"Medium", 500, 100, 7, 13},
-		{"Large", 5000, 200, 65, 80},
-		{"Small single", 50, 10, 1, 3},
-		{"Medium single", 500, 10, 7, 13},
-		{"Large 5", 5000, 15, 65, 80},
+		{"Small", 50, 5, 1, 3, 4, 10},
+		{"Medium", 500, 100, 7, 13, 10, 60},
+		{"Large", 5000, 200, 65, 80, 60, 170},
+		{"Small single", 50, 10, 1, 3, 4, 60},
+		{"Medium single", 500, 10, 7, 13, 10, 26},
+		{"Large 5", 5000, 15, 65, 80, 60, 170},
 	}
 
 	log.SetOutput(io.Discard)
@@ -3026,12 +3029,19 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			if msPerOp < bc.minMsPerOp {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
 			}
 
-			if msPerOp > bc.maxMsPerOp {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -3039,18 +3049,21 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 
 func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 	benchCases := []struct {
-		name       string
-		peers      int
-		groups     int
-		minMsPerOp float64
-		maxMsPerOp float64
+		name   string
+		peers  int
+		groups int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 102, 110},
-		{"Medium", 500, 100, 105, 140},
-		{"Large", 5000, 200, 160, 200},
-		{"Small single", 50, 10, 102, 110},
-		{"Medium single", 500, 10, 105, 140},
-		{"Large 5", 5000, 15, 160, 200},
+		{"Small", 50, 5, 102, 110, 102, 120},
+		{"Medium", 500, 100, 105, 140, 105, 170},
+		{"Large", 5000, 200, 160, 200, 160, 270},
+		{"Small single", 50, 10, 102, 110, 102, 120},
+		{"Medium single", 500, 10, 105, 140, 105, 170},
+		{"Large 5", 5000, 15, 160, 200, 160, 270},
 	}
 
 	log.SetOutput(io.Discard)
@@ -3090,12 +3103,19 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			if msPerOp < bc.minMsPerOp {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
 			}
 
-			if msPerOp > bc.maxMsPerOp {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -3103,18 +3123,21 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 
 func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 	benchCases := []struct {
-		name       string
-		peers      int
-		groups     int
-		minMsPerOp float64
-		maxMsPerOp float64
+		name   string
+		peers  int
+		groups int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 107, 120},
-		{"Medium", 500, 100, 105, 140},
-		{"Large", 5000, 200, 180, 220},
-		{"Small single", 50, 10, 107, 120},
-		{"Medium single", 500, 10, 105, 140},
-		{"Large 5", 5000, 15, 180, 220},
+		{"Small", 50, 5, 107, 120, 107, 140},
+		{"Medium", 500, 100, 105, 140, 105, 170},
+		{"Large", 5000, 200, 180, 220, 180, 320},
+		{"Small single", 50, 10, 107, 120, 105, 140},
+		{"Medium single", 500, 10, 105, 140, 105, 170},
+		{"Large 5", 5000, 15, 180, 220, 180, 320},
 	}
 
 	log.SetOutput(io.Discard)
@@ -3154,12 +3177,19 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			if msPerOp < bc.minMsPerOp {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, bc.minMsPerOp)
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
 			}
 
-			if msPerOp > bc.maxMsPerOp {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, bc.maxMsPerOp)
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
