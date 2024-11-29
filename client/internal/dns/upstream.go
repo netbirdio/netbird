@@ -42,10 +42,7 @@ type upstreamResolverBase struct {
 	upstreamClient   upstreamClient
 	upstreamServers  []string
 	disabled         atomic.Bool
-	failsCount       atomic.Int32
-	failsTillDeact   int32
 	mutex            sync.Mutex
-	reactivatePeriod time.Duration
 	upstreamTimeout  time.Duration
 
 	deactivate     func(error)
@@ -60,8 +57,6 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *
 		ctx:              ctx,
 		cancel:           cancel,
 		upstreamTimeout:  upstreamTimeout,
-		reactivatePeriod: reactivatePeriod,
-		failsTillDeact:   failsTillDeact,
 		statusRecorder:   statusRecorder,
 	}
 
@@ -276,7 +271,6 @@ func (u *upstreamResolverBase) probeViaResolution() {
 		return
 	}
 	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
-	u.failsCount.Store(0)
 	u.reactivate()
 	u.disabled.Store(false)
 }
