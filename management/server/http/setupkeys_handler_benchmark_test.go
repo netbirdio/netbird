@@ -55,7 +55,7 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
 				requestBody := api.CreateSetupKeyRequest{
-					AutoGroups: []string{"someGroupID"},
+					AutoGroups: []string{testGroupId},
 					ExpiresIn:  expiresIn,
 					Name:       newKeyName + strconv.Itoa(i),
 					Type:       "reusable",
