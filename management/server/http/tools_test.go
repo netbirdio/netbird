@@ -246,6 +246,8 @@ func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 }
 
 func evaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics) {
+	b.Helper()
+
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 	b.ReportMetric(msPerOp, "ms/op")
 

@@ -18,7 +18,7 @@ import (
 )
 
 // Map to store peers, groups, users, and setupKeys by name
-var benchCases = map[string]BenchmarkCase{
+var benchCasesSetupKeys = map[string]BenchmarkCase{
 	"Setup Keys - XS": {Peers: 10000, Groups: 10000, Users: 10000, SetupKeys: 5},
 	"Setup Keys - S":  {Peers: 5, Groups: 5, Users: 5, SetupKeys: 100},
 	"Setup Keys - M":  {Peers: 100, Groups: 20, Users: 20, SetupKeys: 1000},
@@ -46,7 +46,7 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for name, bc := range benchCases {
+	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
 			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
@@ -92,7 +92,7 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for name, bc := range benchCases {
+	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
 			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
@@ -139,7 +139,7 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for name, bc := range benchCases {
+	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
 			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
@@ -173,7 +173,7 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for name, bc := range benchCases {
+	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
 			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
@@ -207,7 +207,7 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for name, bc := range benchCases {
+	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
 			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
