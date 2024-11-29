@@ -68,15 +68,33 @@ func TestAnonymizeDomain(t *testing.T) {
 			true,
 		},
 		{
+			"Domain with Trailing Dot",
+			"example.com.",
+			`^anon-[a-zA-Z0-9]+\.domain.$`,
+			true,
+		},
+		{
 			"Subdomain",
 			"sub.example.com",
 			`^sub\.anon-[a-zA-Z0-9]+\.domain$`,
 			true,
 		},
 		{
+			"Subdomain with Trailing Dot",
+			"sub.example.com.",
+			`^sub\.anon-[a-zA-Z0-9]+\.domain.$`,
+			true,
+		},
+		{
 			"Protected Domain",
 			"netbird.io",
 			`^netbird\.io$`,
+			false,
+		},
+		{
+			"Protected Domain with Trailing Dot",
+			"netbird.io.",
+			`^netbird\.io.$`,
 			false,
 		},
 	}
