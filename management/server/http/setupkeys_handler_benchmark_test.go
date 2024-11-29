@@ -17,27 +17,28 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 )
 
+// Map to store peers, groups, users, and setupKeys by name
+var benchCases = map[string]BenchmarkCase{
+	"Setup Keys - XS": {Peers: 10000, Groups: 10000, Users: 10000, SetupKeys: 5},
+	"Setup Keys - S":  {Peers: 5, Groups: 5, Users: 5, SetupKeys: 100},
+	"Setup Keys - M":  {Peers: 100, Groups: 20, Users: 20, SetupKeys: 1000},
+	"Setup Keys - L":  {Peers: 5, Groups: 5, Users: 5, SetupKeys: 5000},
+	"Peers - L":       {Peers: 10000, Groups: 5, Users: 5, SetupKeys: 5000},
+	"Groups - L":      {Peers: 5, Groups: 10000, Users: 5, SetupKeys: 5000},
+	"Users - L":       {Peers: 5, Groups: 5, Users: 10000, SetupKeys: 5000},
+	"Setup Keys - XL": {Peers: 500, Groups: 50, Users: 100, SetupKeys: 25000},
+}
+
 func BenchmarkCreateSetupKey(b *testing.B) {
-	benchCases := []struct {
-		name      string
-		peers     int
-		groups    int
-		users     int
-		setupKeys int
-		// We need different expectations for CI/CD and local runs because of the different performance characteristics
-		minMsPerOpLocal float64
-		maxMsPerOpLocal float64
-		minMsPerOpCICD  float64
-		maxMsPerOpCICD  float64
-	}{
-		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - S", 5, 5, 5, 100, 0.5, 2, 1, 12},
-		{"Setup Keys - M", 100, 20, 20, 1000, 0.5, 2, 1, 12},
-		{"Setup Keys - L", 5, 5, 5, 5000, 0.5, 2, 1, 12},
-		{"Peers - L", 10000, 5, 5, 5000, 0.5, 2, 1, 12},
-		{"Groups - L", 5, 10000, 5, 5000, 0.5, 2, 1, 12},
-		{"Users - L", 5, 5, 10000, 5000, 0.5, 2, 1, 12},
-		{"Setup Keys - XL", 500, 50, 100, 25000, 0.5, 2, 1, 12},
+	var expectedMetrics = map[string]PerformanceMetrics{
+		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - M":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - L":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Peers - L":       {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Groups - L":      {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Users - L":       {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - XL": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
 	}
 
 	log.SetOutput(io.Discard)
@@ -45,10 +46,10 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for _, bc := range benchCases {
-		b.Run(bc.name, func(b *testing.B) {
+	for name, bc := range benchCases {
+		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
-			populateTestData(b, am.(*server.DefaultAccountManager), bc.peers, bc.groups, bc.users, bc.setupKeys)
+			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
@@ -69,49 +70,21 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			duration := time.Since(start)
-			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
-			b.ReportMetric(msPerOp, "ms/op")
-
-			minExpected := bc.minMsPerOpLocal
-			maxExpected := bc.maxMsPerOpLocal
-			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
-				maxExpected = bc.maxMsPerOpCICD
-			}
-
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > maxExpected {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
-			}
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
 		})
 	}
 }
 
 func BenchmarkUpdateSetupKey(b *testing.B) {
-	benchCases := []struct {
-		name      string
-		peers     int
-		groups    int
-		users     int
-		setupKeys int
-		// We need different expectations for CI/CD and local runs because of the different performance characteristics
-		minMsPerOpLocal float64
-		maxMsPerOpLocal float64
-		minMsPerOpCICD  float64
-		maxMsPerOpCICD  float64
-	}{
-		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 3, 2, 15},
-		{"Setup Keys - S", 5, 5, 5, 100, 0.5, 3, 3, 15},
-		{"Setup Keys - M", 100, 20, 20, 1000, 0.5, 3, 3, 15},
-		{"Setup Keys - L", 5, 5, 5, 5000, 0.5, 3, 3, 15},
-		{"Peers - L", 10000, 5, 5, 5000, 0.5, 3, 3, 15},
-		{"Groups - L", 5, 10000, 5, 5000, 0.5, 3, 3, 15},
-		{"Users - L", 5, 5, 10000, 5000, 0.5, 3, 3, 15},
-		{"Setup Keys - XL", 500, 50, 100, 25000, 0.5, 3, 3, 15},
+	var expectedMetrics = map[string]PerformanceMetrics{
+		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 3, MaxMsPerOpCICD: 15},
+		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 3, MaxMsPerOpCICD: 15},
+		"Setup Keys - M":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 3, MaxMsPerOpCICD: 15},
+		"Setup Keys - L":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 3, MaxMsPerOpCICD: 15},
+		"Peers - L":       {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 3, MaxMsPerOpCICD: 15},
+		"Groups - L":      {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 3, MaxMsPerOpCICD: 15},
+		"Users - L":       {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 3, MaxMsPerOpCICD: 15},
+		"Setup Keys - XL": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 3, MaxMsPerOpCICD: 15},
 	}
 
 	log.SetOutput(io.Discard)
@@ -119,10 +92,10 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for _, bc := range benchCases {
-		b.Run(bc.name, func(b *testing.B) {
+	for name, bc := range benchCases {
+		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
-			populateTestData(b, am.(*server.DefaultAccountManager), bc.peers, bc.groups, bc.users, bc.setupKeys)
+			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
@@ -144,49 +117,21 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			duration := time.Since(start)
-			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
-			b.ReportMetric(msPerOp, "ms/op")
-
-			minExpected := bc.minMsPerOpLocal
-			maxExpected := bc.maxMsPerOpLocal
-			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
-				maxExpected = bc.maxMsPerOpCICD
-			}
-
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > maxExpected {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
-			}
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
 		})
 	}
 }
 
 func BenchmarkGetOneSetupKey(b *testing.B) {
-	benchCases := []struct {
-		name      string
-		peers     int
-		groups    int
-		users     int
-		setupKeys int
-		// We need different expectations for CI/CD and local runs because of the different performance characteristics
-		minMsPerOpLocal float64
-		maxMsPerOpLocal float64
-		minMsPerOpCICD  float64
-		maxMsPerOpCICD  float64
-	}{
-		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - S", 5, 5, 5, 100, 0.5, 2, 1, 12},
-		{"Setup Keys - M", 100, 20, 20, 1000, 0.5, 2, 1, 12},
-		{"Setup Keys - L", 5, 5, 5, 5000, 0.5, 2, 1, 12},
-		{"Peers - L", 10000, 5, 5, 5000, 0.5, 2, 1, 12},
-		{"Groups - L", 5, 10000, 5, 5000, 0.5, 2, 1, 12},
-		{"Users - L", 5, 5, 10000, 5000, 0.5, 2, 1, 12},
-		{"Setup Keys - XL", 500, 50, 100, 25000, 0.5, 2, 1, 12},
+	var expectedMetrics = map[string]PerformanceMetrics{
+		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - M":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - L":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Peers - L":       {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Groups - L":      {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Users - L":       {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - XL": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
 	}
 
 	log.SetOutput(io.Discard)
@@ -194,10 +139,10 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for _, bc := range benchCases {
-		b.Run(bc.name, func(b *testing.B) {
+	for name, bc := range benchCases {
+		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
-			populateTestData(b, am.(*server.DefaultAccountManager), bc.peers, bc.groups, bc.users, bc.setupKeys)
+			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
@@ -206,49 +151,21 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			duration := time.Since(start)
-			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
-			b.ReportMetric(msPerOp, "ms/op")
-
-			minExpected := bc.minMsPerOpLocal
-			maxExpected := bc.maxMsPerOpLocal
-			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
-				maxExpected = bc.maxMsPerOpCICD
-			}
-
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > maxExpected {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
-			}
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
 		})
 	}
 }
 
 func BenchmarkGetAllSetupKeys(b *testing.B) {
-	benchCases := []struct {
-		name      string
-		peers     int
-		groups    int
-		users     int
-		setupKeys int
-		// We need different expectations for CI/CD and local runs because of the different performance characteristics
-		minMsPerOpLocal float64
-		maxMsPerOpLocal float64
-		minMsPerOpCICD  float64
-		maxMsPerOpCICD  float64
-	}{
-		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 2, 1, 10},
-		{"Setup Keys - S", 5, 5, 5, 10, 0.5, 2, 1, 12},
-		{"Setup Keys - M", 100, 20, 20, 1000, 5, 10, 5, 20},
-		{"Setup Keys - L", 5, 5, 5, 5000, 30, 50, 50, 100},
-		{"Peers - L", 10000, 5, 5, 5000, 30, 50, 50, 100},
-		{"Groups - L", 5, 10000, 5, 5000, 30, 50, 50, 100},
-		{"Users - L", 5, 5, 10000, 5000, 30, 50, 50, 100},
-		{"Setup Keys - XL", 500, 50, 100, 25000, 140, 220, 300, 500},
+	var expectedMetrics = map[string]PerformanceMetrics{
+		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 10},
+		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - M":  {MinMsPerOpLocal: 5, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 20},
+		"Setup Keys - L":  {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 100},
+		"Peers - L":       {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 100},
+		"Groups - L":      {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 100},
+		"Users - L":       {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 100},
+		"Setup Keys - XL": {MinMsPerOpLocal: 140, MaxMsPerOpLocal: 220, MinMsPerOpCICD: 300, MaxMsPerOpCICD: 500},
 	}
 
 	log.SetOutput(io.Discard)
@@ -256,10 +173,10 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for _, bc := range benchCases {
-		b.Run(bc.name, func(b *testing.B) {
+	for name, bc := range benchCases {
+		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
-			populateTestData(b, am.(*server.DefaultAccountManager), bc.peers, bc.groups, bc.users, bc.setupKeys)
+			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
@@ -268,49 +185,21 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			duration := time.Since(start)
-			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
-			b.ReportMetric(msPerOp, "ms/op")
-
-			minExpected := bc.minMsPerOpLocal
-			maxExpected := bc.maxMsPerOpLocal
-			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
-				maxExpected = bc.maxMsPerOpCICD
-			}
-
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > maxExpected {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
-			}
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
 		})
 	}
 }
 
 func BenchmarkDeleteSetupKey(b *testing.B) {
-	benchCases := []struct {
-		name      string
-		peers     int
-		groups    int
-		users     int
-		setupKeys int
-		// We need different expectations for CI/CD and local runs because of the different performance characteristics
-		minMsPerOpLocal float64
-		maxMsPerOpLocal float64
-		minMsPerOpCICD  float64
-		maxMsPerOpCICD  float64
-	}{
-		{"Setup Keys - XS", 10000, 10000, 10000, 5, 0.5, 2, 1, 12},
-		{"Setup Keys - S", 5, 5, 5, 100, 0.5, 2, 1, 12},
-		{"Setup Keys - M", 100, 20, 20, 1000, 0.5, 2, 1, 12},
-		{"Setup Keys - L", 5, 5, 5, 5000, 0.5, 2, 1, 12},
-		{"Peers - L", 10000, 5, 5, 5000, 0.5, 2, 1, 12},
-		{"Groups - L", 5, 10000, 5, 5000, 0.5, 2, 1, 12},
-		{"Users - L", 5, 5, 10000, 5000, 0.5, 2, 1, 12},
-		{"Setup Keys - XL", 500, 50, 100, 25000, 0.5, 2, 1, 12},
+	var expectedMetrics = map[string]PerformanceMetrics{
+		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - M":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - L":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Peers - L":       {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Groups - L":      {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Users - L":       {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
+		"Setup Keys - XL": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
 	}
 
 	log.SetOutput(io.Discard)
@@ -318,10 +207,10 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 
 	recorder := httptest.NewRecorder()
 
-	for _, bc := range benchCases {
-		b.Run(bc.name, func(b *testing.B) {
+	for name, bc := range benchCases {
+		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := buildApiBlackBoxWithDBState(b, "testdata/setup_keys.sql", nil)
-			populateTestData(b, am.(*server.DefaultAccountManager), bc.peers, bc.groups, bc.users, bc.setupKeys)
+			populateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
@@ -331,24 +220,7 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			duration := time.Since(start)
-			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
-			b.ReportMetric(msPerOp, "ms/op")
-
-			minExpected := bc.minMsPerOpLocal
-			maxExpected := bc.maxMsPerOpLocal
-			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
-				maxExpected = bc.maxMsPerOpCICD
-			}
-
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > maxExpected {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
-			}
+			evaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name])
 		})
 	}
 }

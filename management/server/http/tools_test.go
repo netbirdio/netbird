@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -31,6 +32,22 @@ type TB interface {
 	Errorf(format string, args ...any)
 	Fatalf(format string, args ...any)
 	TempDir() string
+}
+
+// BenchmarkCase defines a single benchmark test case
+type BenchmarkCase struct {
+	Peers     int
+	Groups    int
+	Users     int
+	SetupKeys int
+}
+
+// PerformanceMetrics holds the performance expectations
+type PerformanceMetrics struct {
+	MinMsPerOpLocal float64
+	MaxMsPerOpLocal float64
+	MinMsPerOpCICD  float64
+	MaxMsPerOpCICD  float64
 }
 
 func buildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage) (http.Handler, server.AccountManager, chan struct{}) {
@@ -226,4 +243,24 @@ func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 		b.Fatalf("Failed to save account: %v", err)
 	}
 
+}
+
+func evaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics) {
+	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+	b.ReportMetric(msPerOp, "ms/op")
+
+	minExpected := perfMetrics.MinMsPerOpLocal
+	maxExpected := perfMetrics.MaxMsPerOpLocal
+	if os.Getenv("CI") == "true" {
+		minExpected = perfMetrics.MinMsPerOpCICD
+		maxExpected = perfMetrics.MaxMsPerOpCICD
+	}
+
+	if msPerOp < minExpected {
+		b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", name, msPerOp, minExpected)
+	}
+
+	if msPerOp > maxExpected {
+		b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", name, msPerOp, maxExpected)
+	}
 }
