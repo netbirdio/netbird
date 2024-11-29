@@ -81,6 +81,8 @@ type jwtValidatorImpl struct {
 	options Options
 }
 
+var keyNotFound = errors.New("unable to find appropriate key")
+
 // NewJWTValidator constructor
 func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (JWTValidator, error) {
 	keys, err := getPemKeys(ctx, keysLocation)
@@ -128,12 +130,18 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 			}
 
 			publicKey, err := getPublicKey(ctx, token, keys)
-			if err != nil {
-				log.WithContext(ctx).Errorf("getPublicKey error: %s", err)
-				return nil, err
+			if err == nil {
+				return publicKey, nil
 			}
 
-			return publicKey, nil
+			msg := fmt.Sprintf("getPublicKey error: %s", err)
+			if errors.Is(err, keyNotFound) && !idpSignkeyRefreshEnabled {
+				msg = fmt.Sprintf("getPublicKey error: %s. You can enable key refresh by setting HttpServerConfig.IdpSignKeyRefreshEnabled to true in your management.json file and restart the service", err)
+			}
+
+			log.WithContext(ctx).Error(msg)
+
+			return nil, err
 		},
 		EnableAuthOnOptions: false,
 	}
@@ -233,7 +241,7 @@ func getPublicKey(ctx context.Context, token *jwt.Token, jwks *Jwks) (interface{
 		log.WithContext(ctx).Debugf("Key Type: %s not yet supported, please raise ticket!", jwks.Keys[k].Kty)
 	}
 
-	return nil, errors.New("unable to find appropriate key")
+	return nil, keyNotFound
 }
 
 func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err error) {
@@ -338,3 +346,4 @@ func (j *JwtValidatorMock) ValidateAndParse(ctx context.Context, token string) (
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	return jwtToken, nil
 }
+
