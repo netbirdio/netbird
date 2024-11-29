@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -20,6 +21,40 @@ import (
 	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
+
+var (
+	staticInfo StaticInfo
+	once       sync.Once
+)
+
+func init() {
+	go func() {
+		_ = updateStaticInfo()
+	}()
+}
+
+func updateStaticInfo() StaticInfo {
+	once.Do(func() {
+		ctx := context.Background()
+		wg := sync.WaitGroup{}
+		wg.Add(3)
+		go func() {
+			wrapper := SysInfoWrapper{}
+			staticInfo.SystemSerialNumber, staticInfo.SystemProductName, staticInfo.SystemManufacturer = sysInfo(wrapper.GetSysInfo())
+			wg.Done()
+		}()
+		go func() {
+			staticInfo.Environment.Cloud = detect_cloud.Detect(ctx)
+			wg.Done()
+		}()
+		go func() {
+			staticInfo.Environment.Platform = detect_platform.Detect(ctx)
+			wg.Done()
+		}()
+		wg.Wait()
+	})
+	return staticInfo
+}
 
 type SysInfoGetter interface {
 	GetSysInfo() SysInfo
@@ -65,12 +100,10 @@ func GetInfo(ctx context.Context) *Info {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
-	si := SysInfoWrapper{}
-	serialNum, prodName, manufacturer := sysInfo(si.GetSysInfo())
-
-	env := Environment{
-		Cloud:    detect_cloud.Detect(ctx),
-		Platform: detect_platform.Detect(ctx),
+	start := time.Now()
+	si := updateStaticInfo()
+	if time.Since(start) > 1*time.Second {
+		log.Infof("updateStaticInfo took %s", time.Since(start))
 	}
 
 	gio := &Info{
@@ -85,10 +118,10 @@ func GetInfo(ctx context.Context) *Info {
 		UIVersion:          extractUserAgent(ctx),
 		KernelVersion:      osInfo[1],
 		NetworkAddresses:   addrs,
-		SystemSerialNumber: serialNum,
-		SystemProductName:  prodName,
-		SystemManufacturer: manufacturer,
-		Environment:        env,
+		SystemSerialNumber: si.SystemSerialNumber,
+		SystemProductName:  si.SystemProductName,
+		SystemManufacturer: si.SystemManufacturer,
+		Environment:        si.Environment,
 	}
 
 	return gio
