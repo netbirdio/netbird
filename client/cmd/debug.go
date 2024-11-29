@@ -171,6 +171,13 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(1 * time.Second)
 
+	// Enable network map persistence before bringing the service up
+	if _, err := client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
+		Enabled: true,
+	}); err != nil {
+		return fmt.Errorf("failed to enable network map persistence: %v", status.Convert(err).Message())
+	}
+
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
 		return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
 	}
@@ -198,6 +205,13 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+	}
+
+	// Disable network map persistence after creating the debug bundle
+	if _, err := client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
+		Enabled: false,
+	}); err != nil {
+		return fmt.Errorf("failed to disable network map persistence: %v", status.Convert(err).Message())
 	}
 
 	if stateWasDown {
