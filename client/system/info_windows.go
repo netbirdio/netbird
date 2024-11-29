@@ -6,15 +6,11 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 
-	"github.com/netbirdio/netbird/client/system/detect_cloud"
-	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -32,39 +28,6 @@ type Win32_ComputerSystemProduct struct {
 
 type Win32_BIOS struct {
 	SerialNumber string
-}
-
-var (
-	staticInfo StaticInfo
-	once       sync.Once
-)
-
-func init() {
-	go func() {
-		_ = updateStaticInfo()
-	}()
-}
-
-func updateStaticInfo() StaticInfo {
-	once.Do(func() {
-		ctx := context.Background()
-		wg := sync.WaitGroup{}
-		wg.Add(3)
-		go func() {
-			staticInfo.SystemSerialNumber, staticInfo.SystemProductName, staticInfo.SystemManufacturer = sysInfo()
-			wg.Done()
-		}()
-		go func() {
-			staticInfo.Environment.Cloud = detect_cloud.Detect(ctx)
-			wg.Done()
-		}()
-		go func() {
-			staticInfo.Environment.Platform = detect_platform.Detect(ctx)
-			wg.Done()
-		}()
-		wg.Wait()
-	})
-	return staticInfo
 }
 
 // GetInfo retrieves and parses the system information

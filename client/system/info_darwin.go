@@ -10,50 +10,14 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/system/detect_cloud"
-	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
-
-var (
-	staticInfo StaticInfo
-	once       sync.Once
-)
-
-func init() {
-	go func() {
-		_ = updateStaticInfo()
-	}()
-}
-
-func updateStaticInfo() StaticInfo {
-	once.Do(func() {
-		ctx := context.Background()
-		wg := sync.WaitGroup{}
-		wg.Add(3)
-		go func() {
-			staticInfo.SystemSerialNumber, staticInfo.SystemProductName, staticInfo.SystemManufacturer = sysInfo()
-			wg.Done()
-		}()
-		go func() {
-			staticInfo.Environment.Cloud = detect_cloud.Detect(ctx)
-			wg.Done()
-		}()
-		go func() {
-			staticInfo.Environment.Platform = detect_platform.Detect(ctx)
-			wg.Done()
-		}()
-		wg.Wait()
-	})
-	return staticInfo
-}
 
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {

@@ -11,50 +11,15 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/zcalusic/sysinfo"
 
-	"github.com/netbirdio/netbird/client/system/detect_cloud"
-	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
-var (
-	staticInfo StaticInfo
-	once       sync.Once
-)
-
-func init() {
-	go func() {
-		_ = updateStaticInfo()
-	}()
-}
-
-func updateStaticInfo() StaticInfo {
-	once.Do(func() {
-		ctx := context.Background()
-		wg := sync.WaitGroup{}
-		wg.Add(3)
-		go func() {
-			wrapper := SysInfoWrapper{}
-			staticInfo.SystemSerialNumber, staticInfo.SystemProductName, staticInfo.SystemManufacturer = sysInfo(wrapper.GetSysInfo())
-			wg.Done()
-		}()
-		go func() {
-			staticInfo.Environment.Cloud = detect_cloud.Detect(ctx)
-			wg.Done()
-		}()
-		go func() {
-			staticInfo.Environment.Platform = detect_platform.Detect(ctx)
-			wg.Done()
-		}()
-		wg.Wait()
-	})
-	return staticInfo
-}
+var sisInfoWrapper SysInfo
 
 type SysInfoGetter interface {
 	GetSysInfo() SysInfo
@@ -141,10 +106,10 @@ func _getInfo() string {
 	return out.String()
 }
 
-func sysInfo(si SysInfo) (string, string, string) {
+func sysInfo() (string, string, string) {
 	isascii := regexp.MustCompile("^[[:ascii:]]+$")
 
-	serials := []string{si.ChassisSerial, si.ProductSerial}
+	serials := []string{sisInfoWrapper.ChassisSerial, sisInfoWrapper.ProductSerial}
 	serial := ""
 
 	for _, s := range serials {
@@ -156,12 +121,12 @@ func sysInfo(si SysInfo) (string, string, string) {
 		}
 	}
 
-	if serial == "" && isascii.MatchString(si.BoardSerial) {
-		serial = si.BoardSerial
+	if serial == "" && isascii.MatchString(sisInfoWrapper.BoardSerial) {
+		serial = sisInfoWrapper.BoardSerial
 	}
 
 	var name string
-	for _, n := range []string{si.ProductName, si.BoardName} {
+	for _, n := range []string{sisInfoWrapper.ProductName, sisInfoWrapper.BoardName} {
 		if isascii.MatchString(n) {
 			name = n
 			break
@@ -169,8 +134,8 @@ func sysInfo(si SysInfo) (string, string, string) {
 	}
 
 	var manufacturer string
-	if isascii.MatchString(si.ProductVendor) {
-		manufacturer = si.ProductVendor
+	if isascii.MatchString(sisInfoWrapper.ProductVendor) {
+		manufacturer = sisInfoWrapper.ProductVendor
 	}
 	return serial, name, manufacturer
 }
