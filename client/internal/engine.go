@@ -1531,15 +1531,18 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	}
 
 	if e.latestNetworkMap == nil {
+		//nolint:nilnil
 		return nil, nil
 	}
 
 	// Create a deep copy to avoid external modifications
-	if nm, ok := proto.Clone(e.latestNetworkMap).(*mgmProto.NetworkMap); ok {
-		return nm, nil
+	nm, ok := proto.Clone(e.latestNetworkMap).(*mgmProto.NetworkMap)
+	if !ok {
+
+		return nil, fmt.Errorf("failed to clone network map")
 	}
 
-	return nil, nil
+	return nm, nil
 }
 
 // isChecksEqual checks if two slices of checks are equal.
