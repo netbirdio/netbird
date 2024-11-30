@@ -162,11 +162,12 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 		params.Logger.Warn("UDPMuxDefault should not listening on unspecified address, use NewMultiUDPMuxFromPort instead")
 		var networks []ice.NetworkType
 		switch {
-		case addr.IP.To4() != nil:
-			networks = []ice.NetworkType{ice.NetworkTypeUDP4}
 
 		case addr.IP.To16() != nil:
 			networks = []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6}
+
+		case addr.IP.To4() != nil:
+			networks = []ice.NetworkType{ice.NetworkTypeUDP4}
 
 		default:
 			params.Logger.Errorf("LocalAddr expected IPV4 or IPV6, got %T", params.UDPConn.LocalAddr())
