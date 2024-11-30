@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -27,7 +28,9 @@ const readmeContent = `Netbird debug bundle
 This debug bundle contains the following files:
 
 status.txt: Anonymized status information of the NetBird client.
-client.log: Most recent, anonymized log file of the NetBird client.
+client.log: Most recent, anonymized client log file of the NetBird client.
+netbird.err: Most recent, anonymized stderr log file of the NetBird client.
+netbird.out: Most recent, anonymized stdout log file of the NetBird client.
 routes.txt: Anonymized system routes, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 config.txt: Anonymized configuration information of the NetBird client.
@@ -71,6 +74,12 @@ The config.txt file contains anonymized configuration information of the NetBird
 
 Other non-sensitive configuration options are included without anonymization.
 `
+
+const (
+	clientLogFile = "client.log"
+	errorLogFile  = "netbird.err"
+	stdoutLogFile = "netbird.out"
+)
 
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
@@ -248,14 +257,35 @@ func (s *Server) addInterfaces(req *proto.DebugBundleRequest, anonymizer *anonym
 	return nil
 }
 
-func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) (err error) {
-	logFile, err := os.Open(s.logFile)
+func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	logDir := filepath.Dir(s.logFile)
+
+	if err := s.addSingleLogfile(s.logFile, clientLogFile, req, anonymizer, archive); err != nil {
+		return fmt.Errorf("add client log file to zip: %w", err)
+	}
+
+	errLogPath := filepath.Join(logDir, errorLogFile)
+	if err := s.addSingleLogfile(errLogPath, errorLogFile, req, anonymizer, archive); err != nil {
+		log.Warnf("Failed to add %s to zip: %v", errorLogFile, err)
+	}
+
+	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
+	if err := s.addSingleLogfile(stdoutLogPath, stdoutLogFile, req, anonymizer, archive); err != nil {
+		log.Warnf("Failed to add %s to zip: %v", stdoutLogFile, err)
+	}
+
+	return nil
+}
+
+// addSingleLogfile adds a single log file to the archive
+func (s *Server) addSingleLogfile(logPath, targetName string, req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	logFile, err := os.Open(logPath)
 	if err != nil {
-		return fmt.Errorf("open log file: %w", err)
+		return fmt.Errorf("open log file %s: %w", targetName, err)
 	}
 	defer func() {
 		if err := logFile.Close(); err != nil {
-			log.Errorf("Failed to close original log file: %v", err)
+			log.Errorf("Failed to close log file %s: %v", targetName, err)
 		}
 	}()
 
@@ -268,8 +298,9 @@ func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize
 	} else {
 		logReader = logFile
 	}
-	if err := addFileToZip(archive, logReader, "client.log"); err != nil {
-		return fmt.Errorf("add log file to zip: %w", err)
+
+	if err := addFileToZip(archive, logReader, targetName); err != nil {
+		return fmt.Errorf("add %s to zip: %w", targetName, err)
 	}
 
 	return nil
