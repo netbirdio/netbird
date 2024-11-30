@@ -574,33 +574,49 @@ func anonymizeStateFile(rawStates *map[string]json.RawMessage, anonymizer *anony
 func anonymizeValue(value any, anonymizer *anonymize.Anonymizer) any {
 	switch v := value.(type) {
 	case string:
-		// Try parsing in order
-		if prefix, err := netip.ParsePrefix(v); err == nil {
-			anonIP := anonymizer.AnonymizeIP(prefix.Addr())
-			return fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
-		}
-		if ip, err := netip.ParseAddr(v); err == nil {
-			return anonymizer.AnonymizeIP(ip).String()
-		}
-		return anonymizer.AnonymizeString(v)
+		return anonymizeString(v, anonymizer)
 	case map[string]any:
-		result := make(map[string]any, len(v))
-		for key, val := range v {
-			// Anonymize the key if it's a CIDR or IP
-			newKey := key
-			if prefix, err := netip.ParsePrefix(key); err == nil {
-				anonIP := anonymizer.AnonymizeIP(prefix.Addr())
-				newKey = fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
-			} else if ip, err := netip.ParseAddr(key); err == nil {
-				newKey = anonymizer.AnonymizeIP(ip).String()
-			}
-			result[newKey] = anonymizeValue(val, anonymizer)
-		}
-		return result
+		return anonymizeMap(v, anonymizer)
 	case []any:
-		for i, val := range v {
-			v[i] = anonymizeValue(val, anonymizer)
-		}
+		return anonymizeSlice(v, anonymizer)
 	}
 	return value
+}
+
+func anonymizeString(v string, anonymizer *anonymize.Anonymizer) string {
+	if prefix, err := netip.ParsePrefix(v); err == nil {
+		anonIP := anonymizer.AnonymizeIP(prefix.Addr())
+		return fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
+	}
+	if ip, err := netip.ParseAddr(v); err == nil {
+		return anonymizer.AnonymizeIP(ip).String()
+	}
+	return anonymizer.AnonymizeString(v)
+}
+
+func anonymizeMap(v map[string]any, anonymizer *anonymize.Anonymizer) map[string]any {
+	result := make(map[string]any, len(v))
+	for key, val := range v {
+		newKey := anonymizeMapKey(key, anonymizer)
+		result[newKey] = anonymizeValue(val, anonymizer)
+	}
+	return result
+}
+
+func anonymizeMapKey(key string, anonymizer *anonymize.Anonymizer) string {
+	if prefix, err := netip.ParsePrefix(key); err == nil {
+		anonIP := anonymizer.AnonymizeIP(prefix.Addr())
+		return fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
+	}
+	if ip, err := netip.ParseAddr(key); err == nil {
+		return anonymizer.AnonymizeIP(ip).String()
+	}
+	return key
+}
+
+func anonymizeSlice(v []any, anonymizer *anonymize.Anonymizer) []any {
+	for i, val := range v {
+		v[i] = anonymizeValue(val, anonymizer)
+	}
+	return v
 }
