@@ -1,4 +1,4 @@
-//go:build dev
+//go:build devcert
 
 package tls
 
