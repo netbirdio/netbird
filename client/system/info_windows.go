@@ -9,7 +9,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/netbirdio/netbird/version"
@@ -44,7 +43,7 @@ func GetInfo(ctx context.Context) *Info {
 	start := time.Now()
 	si := updateStaticInfo()
 	if time.Since(start) > 1*time.Second {
-		log.Infof("updateStaticInfo took %s", time.Since(start))
+		log.Warnf("updateStaticInfo took %s", time.Since(start))
 	}
 
 	gio := &Info{

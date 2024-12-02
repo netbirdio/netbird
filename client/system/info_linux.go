@@ -72,7 +72,7 @@ func GetInfo(ctx context.Context) *Info {
 	start := time.Now()
 	si := updateStaticInfo()
 	if time.Since(start) > 1*time.Second {
-		log.Infof("updateStaticInfo took %s", time.Since(start))
+		log.Warnf("updateStaticInfo took %s", time.Since(start))
 	}
 
 	gio := &Info{
