@@ -5,9 +5,13 @@ package server
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/netip"
 	"os"
@@ -20,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -31,6 +36,7 @@ client.log: Most recent, anonymized log file of the NetBird client.
 routes.txt: Anonymized system routes, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 config.txt: Anonymized configuration information of the NetBird client.
+state.json: Anonymized client state dump containing netbird states.
 
 
 Anonymization Process
@@ -50,8 +56,22 @@ Domains
 All domain names (except for the netbird domains) are replaced with randomly generated strings ending in ".domain". Anonymized domains are consistent across all files in the bundle.
 Reoccuring domain names are replaced with the same anonymized domain.
 
+State File
+The state.json file contains anonymized internal state information of the NetBird client, including:
+- DNS settings and configuration
+- Firewall rules
+- Exclusion routes
+- Route selection
+- Other internal states that may be present
+
+The state file follows the same anonymization rules as other files:
+- IP addresses (both individual and CIDR ranges) are anonymized while preserving their structure
+- Domain names are consistently anonymized
+- Technical identifiers and non-sensitive data remain unchanged
+
 Routes
 For anonymized routes, the IP addresses are replaced as described above. The prefix length remains unchanged. Note that for prefixes, the anonymized IP might not be a network address, but the prefix length is still correct.
+
 Network Interfaces
 The interfaces.txt file contains information about network interfaces, including:
 - Interface name
@@ -130,6 +150,10 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 		if err := s.addInterfaces(req, anonymizer, archive); err != nil {
 			return fmt.Errorf("add interfaces: %w", err)
 		}
+	}
+
+	if err := s.addStateFile(req, anonymizer, archive); err != nil {
+		log.Errorf("Failed to add state file to debug bundle: %v", err)
 	}
 
 	if err := s.addLogfile(req, anonymizer, archive); err != nil {
@@ -248,6 +272,44 @@ func (s *Server) addInterfaces(req *proto.DebugBundleRequest, anonymizer *anonym
 	return nil
 }
 
+func (s *Server) addStateFile(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	path := statemanager.GetDefaultStatePath()
+	if path == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("read state file: %w", err)
+	}
+
+	if req.GetAnonymize() {
+		var rawStates map[string]json.RawMessage
+		if err := json.Unmarshal(data, &rawStates); err != nil {
+			return fmt.Errorf("unmarshal states: %w", err)
+		}
+
+		if err := anonymizeStateFile(&rawStates, anonymizer); err != nil {
+			return fmt.Errorf("anonymize state file: %w", err)
+		}
+
+		bs, err := json.MarshalIndent(rawStates, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal states: %w", err)
+		}
+		data = bs
+	}
+
+	if err := addFileToZip(archive, bytes.NewReader(data), "state.json"); err != nil {
+		return fmt.Errorf("add state file to zip: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) (err error) {
 	logFile, err := os.Open(s.logFile)
 	if err != nil {
@@ -264,7 +326,7 @@ func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize
 		var writer *io.PipeWriter
 		logReader, writer = io.Pipe()
 
-		go s.anonymize(logFile, writer, anonymizer)
+		go anonymizeLog(logFile, writer, anonymizer)
 	} else {
 		logReader = logFile
 	}
@@ -273,26 +335,6 @@ func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize
 	}
 
 	return nil
-}
-
-func (s *Server) anonymize(reader io.Reader, writer *io.PipeWriter, anonymizer *anonymize.Anonymizer) {
-	defer func() {
-		// always nil
-		_ = writer.Close()
-	}()
-
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := anonymizer.AnonymizeString(scanner.Text())
-		if _, err := writer.Write([]byte(line + "\n")); err != nil {
-			writer.CloseWithError(fmt.Errorf("anonymize write: %w", err))
-			return
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		writer.CloseWithError(fmt.Errorf("anonymize scan: %w", err))
-		return
-	}
 }
 
 // GetLogLevel gets the current logging level for the server.
@@ -458,6 +500,26 @@ func formatInterfaces(interfaces []net.Interface, anonymize bool, anonymizer *an
 	return builder.String()
 }
 
+func anonymizeLog(reader io.Reader, writer *io.PipeWriter, anonymizer *anonymize.Anonymizer) {
+	defer func() {
+		// always nil
+		_ = writer.Close()
+	}()
+
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		line := anonymizer.AnonymizeString(scanner.Text())
+		if _, err := writer.Write([]byte(line + "\n")); err != nil {
+			writer.CloseWithError(fmt.Errorf("anonymize write: %w", err))
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		writer.CloseWithError(fmt.Errorf("anonymize scan: %w", err))
+		return
+	}
+}
+
 func anonymizeNATExternalIPs(ips []string, anonymizer *anonymize.Anonymizer) []string {
 	anonymizedIPs := make([]string, len(ips))
 	for i, ip := range ips {
@@ -483,4 +545,78 @@ func anonymizeNATExternalIPs(ips []string, anonymizer *anonymize.Anonymizer) []s
 		}
 	}
 	return anonymizedIPs
+}
+
+func anonymizeStateFile(rawStates *map[string]json.RawMessage, anonymizer *anonymize.Anonymizer) error {
+	for name, rawState := range *rawStates {
+		if string(rawState) == "null" {
+			continue
+		}
+
+		var state map[string]any
+		if err := json.Unmarshal(rawState, &state); err != nil {
+			return fmt.Errorf("unmarshal state %s: %w", name, err)
+		}
+
+		state = anonymizeValue(state, anonymizer).(map[string]any)
+
+		bs, err := json.Marshal(state)
+		if err != nil {
+			return fmt.Errorf("marshal state %s: %w", name, err)
+		}
+
+		(*rawStates)[name] = bs
+	}
+
+	return nil
+}
+
+func anonymizeValue(value any, anonymizer *anonymize.Anonymizer) any {
+	switch v := value.(type) {
+	case string:
+		return anonymizeString(v, anonymizer)
+	case map[string]any:
+		return anonymizeMap(v, anonymizer)
+	case []any:
+		return anonymizeSlice(v, anonymizer)
+	}
+	return value
+}
+
+func anonymizeString(v string, anonymizer *anonymize.Anonymizer) string {
+	if prefix, err := netip.ParsePrefix(v); err == nil {
+		anonIP := anonymizer.AnonymizeIP(prefix.Addr())
+		return fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
+	}
+	if ip, err := netip.ParseAddr(v); err == nil {
+		return anonymizer.AnonymizeIP(ip).String()
+	}
+	return anonymizer.AnonymizeString(v)
+}
+
+func anonymizeMap(v map[string]any, anonymizer *anonymize.Anonymizer) map[string]any {
+	result := make(map[string]any, len(v))
+	for key, val := range v {
+		newKey := anonymizeMapKey(key, anonymizer)
+		result[newKey] = anonymizeValue(val, anonymizer)
+	}
+	return result
+}
+
+func anonymizeMapKey(key string, anonymizer *anonymize.Anonymizer) string {
+	if prefix, err := netip.ParsePrefix(key); err == nil {
+		anonIP := anonymizer.AnonymizeIP(prefix.Addr())
+		return fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
+	}
+	if ip, err := netip.ParseAddr(key); err == nil {
+		return anonymizer.AnonymizeIP(ip).String()
+	}
+	return key
+}
+
+func anonymizeSlice(v []any, anonymizer *anonymize.Anonymizer) []any {
+	for i, val := range v {
+		v[i] = anonymizeValue(val, anonymizer)
+	}
+	return v
 }
