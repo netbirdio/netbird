@@ -19,17 +19,21 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-var sisInfoWrapper SysInfo
+var sisInfoWrapper SysInfoWrapper
 
 type SysInfoGetter interface {
 	GetSysInfo() SysInfo
 }
 
 type SysInfoWrapper struct {
-	si sysinfo.SysInfo
+	providedInfo *SysInfo
+	si           sysinfo.SysInfo
 }
 
 func (s SysInfoWrapper) GetSysInfo() SysInfo {
+	if s.providedInfo != nil {
+		return *s.providedInfo
+	}
 	s.si.GetSysInfo()
 	return SysInfo{
 		ChassisSerial: s.si.Chassis.Serial,
@@ -108,8 +112,8 @@ func _getInfo() string {
 
 func sysInfo() (string, string, string) {
 	isascii := regexp.MustCompile("^[[:ascii:]]+$")
-
-	serials := []string{sisInfoWrapper.ChassisSerial, sisInfoWrapper.ProductSerial}
+	si := sisInfoWrapper.GetSysInfo()
+	serials := []string{si.ChassisSerial, si.ProductSerial}
 	serial := ""
 
 	for _, s := range serials {
@@ -121,12 +125,12 @@ func sysInfo() (string, string, string) {
 		}
 	}
 
-	if serial == "" && isascii.MatchString(sisInfoWrapper.BoardSerial) {
-		serial = sisInfoWrapper.BoardSerial
+	if serial == "" && isascii.MatchString(si.BoardSerial) {
+		serial = si.BoardSerial
 	}
 
 	var name string
-	for _, n := range []string{sisInfoWrapper.ProductName, sisInfoWrapper.BoardName} {
+	for _, n := range []string{si.ProductName, si.BoardName} {
 		if isascii.MatchString(n) {
 			name = n
 			break
@@ -134,8 +138,8 @@ func sysInfo() (string, string, string) {
 	}
 
 	var manufacturer string
-	if isascii.MatchString(sisInfoWrapper.ProductVendor) {
-		manufacturer = sisInfoWrapper.ProductVendor
+	if isascii.MatchString(si.ProductVendor) {
+		manufacturer = si.ProductVendor
 	}
 	return serial, name, manufacturer
 }
