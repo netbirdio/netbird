@@ -21,10 +21,6 @@ import (
 
 var sisInfoWrapper SysInfoWrapper
 
-type SysInfoGetter interface {
-	GetSysInfo() SysInfo
-}
-
 type SysInfoWrapper struct {
 	providedInfo *SysInfo
 	si           sysinfo.SysInfo
