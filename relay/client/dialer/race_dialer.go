@@ -48,34 +48,7 @@ func (r *RaceDial) Dial() (net.Conn, error) {
 		go r.dial(dfn, abortCtx, connChan)
 	}
 
-	go func() {
-		var hasWinner bool
-		for i := 0; i < len(r.dialerFns); i++ {
-			dr := <-connChan
-			if dr.Err != nil {
-				if errors.Is(dr.Err, context.Canceled) {
-					r.log.Infof("connection attempt aborted via: %s", dr.Protocol)
-				} else {
-					r.log.Errorf("failed to dial via %s: %s", dr.Protocol, dr.Err)
-				}
-				continue
-			}
-
-			if hasWinner {
-				if cerr := dr.Conn.Close(); cerr != nil {
-					r.log.Warnf("failed to close connection via %s: %s", dr.Protocol, cerr)
-				}
-				continue
-			}
-
-			r.log.Infof("successfully dialed via: %s", dr.Protocol)
-
-			abort()
-			hasWinner = true
-			winnerConn <- dr.Conn
-		}
-		close(winnerConn)
-	}()
+	go r.processResults(connChan, winnerConn, abort)
 
 	conn, ok := <-winnerConn
 	if !ok {
@@ -91,4 +64,33 @@ func (r *RaceDial) dial(dfn DialerFn, abortCtx context.Context, connChan chan di
 	r.log.Infof("dialing Relay server via %s", dfn.Protocol())
 	conn, err := dfn.Dial(ctx, r.serverURL)
 	connChan <- dialResult{Conn: conn, Protocol: dfn.Protocol(), Err: err}
+}
+
+func (r *RaceDial) processResults(connChan chan dialResult, winnerConn chan net.Conn, abort context.CancelFunc) {
+	var hasWinner bool
+	for i := 0; i < len(r.dialerFns); i++ {
+		dr := <-connChan
+		if dr.Err != nil {
+			if errors.Is(dr.Err, context.Canceled) {
+				r.log.Infof("connection attempt aborted via: %s", dr.Protocol)
+			} else {
+				r.log.Errorf("failed to dial via %s: %s", dr.Protocol, dr.Err)
+			}
+			continue
+		}
+
+		if hasWinner {
+			if cerr := dr.Conn.Close(); cerr != nil {
+				r.log.Warnf("failed to close connection via %s: %s", dr.Protocol, cerr)
+			}
+			continue
+		}
+
+		r.log.Infof("successfully dialed via: %s", dr.Protocol)
+
+		abort()
+		hasWinner = true
+		winnerConn <- dr.Conn
+	}
+	close(winnerConn)
 }
