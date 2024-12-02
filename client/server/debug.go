@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"buf.build/go/protoyaml"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -35,7 +35,7 @@ client.log: Most recent, anonymized log file of the NetBird client.
 routes.txt: Anonymized system routes, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 config.txt: Anonymized configuration information of the NetBird client.
-network_map.yaml: Anonymized network map containing peer configurations, routes, DNS settings, and firewall rules.
+network_map.json: Anonymized network map containing peer configurations, routes, DNS settings, and firewall rules.
 
 
 Anonymization Process
@@ -283,19 +283,19 @@ func (s *Server) addNetworkMap(req *proto.DebugBundleRequest, anonymizer *anonym
 		}
 	}
 
-	options := protoyaml.MarshalOptions{
+	options := protojson.MarshalOptions{
 		EmitUnpopulated: true,
 		UseProtoNames:   true,
-		Indent:          2,
+		Indent:          "  ",
 		AllowPartial:    true,
 	}
 
-	yamlBytes, err := options.Marshal(networkMap)
+	jsonBytes, err := options.Marshal(networkMap)
 	if err != nil {
-		return fmt.Errorf("generate yaml: %w", err)
+		return fmt.Errorf("generate json: %w", err)
 	}
 
-	if err := addFileToZip(archive, bytes.NewReader(yamlBytes), "network_map.yaml"); err != nil {
+	if err := addFileToZip(archive, bytes.NewReader(jsonBytes), "network_map.json"); err != nil {
 		return fmt.Errorf("add network map to zip: %w", err)
 	}
 
