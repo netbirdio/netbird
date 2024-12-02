@@ -137,6 +137,13 @@ func TestAnonymizeStateFile(t *testing.T) {
 	}
 
 	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	// Pre-seed the domains we need to verify in the test assertions
+	anonymizer.AnonymizeDomain("test.example.com")
+	anonymizer.AnonymizeDomain("nested.example.com")
+	anonymizer.AnonymizeDomain("deep.example.com")
+	anonymizer.AnonymizeDomain("array1.example.com")
+
 	err := anonymizeStateFile(&testState, anonymizer)
 	require.NoError(t, err)
 
