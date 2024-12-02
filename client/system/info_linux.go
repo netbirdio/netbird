@@ -1,5 +1,4 @@
 //go:build !android
-// +build !android
 
 package system
 
@@ -19,27 +18,10 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-var sisInfoWrapper SysInfoWrapper
-
-type SysInfoWrapper struct {
-	providedInfo *SysInfo
-	si           sysinfo.SysInfo
-}
-
-func (s SysInfoWrapper) GetSysInfo() SysInfo {
-	if s.providedInfo != nil {
-		return *s.providedInfo
-	}
-	s.si.GetSysInfo()
-	return SysInfo{
-		ChassisSerial: s.si.Chassis.Serial,
-		ProductSerial: s.si.Product.Serial,
-		BoardSerial:   s.si.Board.Serial,
-		ProductName:   s.si.Product.Name,
-		BoardName:     s.si.Board.Name,
-		ProductVendor: s.si.Product.Vendor,
-	}
-}
+var (
+	// it is override in tests
+	getSystemInfo = defaultSysInfoImplementation
+)
 
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
@@ -108,7 +90,7 @@ func _getInfo() string {
 
 func sysInfo() (string, string, string) {
 	isascii := regexp.MustCompile("^[[:ascii:]]+$")
-	si := sisInfoWrapper.GetSysInfo()
+	si := getSystemInfo()
 	serials := []string{si.ChassisSerial, si.ProductSerial}
 	serial := ""
 
@@ -138,4 +120,17 @@ func sysInfo() (string, string, string) {
 		manufacturer = si.ProductVendor
 	}
 	return serial, name, manufacturer
+}
+
+func defaultSysInfoImplementation() SysInfo {
+	si := sysinfo.SysInfo{}
+	si.GetSysInfo()
+	return SysInfo{
+		ChassisSerial: si.Chassis.Serial,
+		ProductSerial: si.Product.Serial,
+		BoardSerial:   si.Board.Serial,
+		ProductName:   si.Product.Name,
+		BoardName:     si.Board.Name,
+		ProductVendor: si.Product.Vendor,
+	}
 }
