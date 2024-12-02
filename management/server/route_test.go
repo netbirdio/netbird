@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sort"
 	"testing"
 	"time"
 
@@ -1486,6 +1487,8 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		peerBIp = "100.65.80.39"
 		peerCIp = "100.65.254.139"
 		peerHIp = "100.65.29.55"
+		peerJIp = "100.65.29.65"
+		peerKIp = "100.65.29.66"
 	)
 
 	account := &Account{
@@ -1541,6 +1544,16 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				IP:     net.ParseIP(peerHIp),
 				Status: &nbpeer.PeerStatus{},
 			},
+			"peerJ": {
+				ID:     "peerJ",
+				IP:     net.ParseIP(peerJIp),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerK": {
+				ID:     "peerK",
+				IP:     net.ParseIP(peerKIp),
+				Status: &nbpeer.PeerStatus{},
+			},
 		},
 		Groups: map[string]*nbgroup.Group{
 			"routingPeer1": {
@@ -1567,6 +1580,11 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Name:  "Route2",
 				Peers: []string{},
 			},
+			"route4": {
+				ID:    "route4",
+				Name:  "route4",
+				Peers: []string{},
+			},
 			"finance": {
 				ID:   "finance",
 				Name: "Finance",
@@ -1582,6 +1600,28 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 					"peerC",
 					"peerH",
 					"peerB",
+				},
+			},
+			"qa": {
+				ID:   "qa",
+				Name: "QA",
+				Peers: []string{
+					"peerJ",
+					"peerK",
+				},
+			},
+			"restrictQA": {
+				ID:   "restrictQA",
+				Name: "restrictQA",
+				Peers: []string{
+					"peerJ",
+				},
+			},
+			"unrestrictedQA": {
+				ID:   "unrestrictedQA",
+				Name: "unrestrictedQA",
+				Peers: []string{
+					"peerK",
 				},
 			},
 			"contractors": {
@@ -1630,6 +1670,19 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Enabled:             true,
 				Groups:              []string{"contractors"},
 				AccessControlGroups: []string{},
+			},
+			"route4": {
+				ID:                  "route4",
+				Network:             netip.MustParsePrefix("192.168.10.0/16"),
+				NetID:               "route4",
+				NetworkType:         route.IPv4Network,
+				PeerGroups:          []string{"routingPeer1"},
+				Description:         "Route4",
+				Masquerade:          false,
+				Metric:              9999,
+				Enabled:             true,
+				Groups:              []string{"qa"},
+				AccessControlGroups: []string{"route4"},
 			},
 		},
 		Policies: []*Policy{
@@ -1685,6 +1738,49 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 					},
 				},
 			},
+			{
+				ID:      "RuleRoute4",
+				Name:    "RuleRoute4",
+				Enabled: true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleRoute4",
+						Name:          "RuleRoute4",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolTCP,
+						Action:        PolicyTrafficActionAccept,
+						Ports:         []string{"80"},
+						Sources: []string{
+							"restrictQA",
+						},
+						Destinations: []string{
+							"route4",
+						},
+					},
+				},
+			},
+			{
+				ID:      "RuleRoute5",
+				Name:    "RuleRoute5",
+				Enabled: true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleRoute5",
+						Name:          "RuleRoute5",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"unrestrictedQA",
+						},
+						Destinations: []string{
+							"route4",
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -1709,7 +1805,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 	t.Run("check peer routes firewall rules", func(t *testing.T) {
 		routesFirewallRules := account.getPeerRoutesFirewallRules(context.Background(), "peerA", validatedPeers)
-		assert.Len(t, routesFirewallRules, 2)
+		assert.Len(t, routesFirewallRules, 4)
 
 		expectedRoutesFirewallRules := []*RouteFirewallRule{
 			{
@@ -1735,12 +1831,32 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        320,
 			},
 		}
-		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
+		additionalFirewallRule := []*RouteFirewallRule{
+			{
+				SourceRanges: []string{
+					fmt.Sprintf(AllowedIPsFormat, peerJIp),
+				},
+				Action:      "accept",
+				Destination: "192.168.10.0/16",
+				Protocol:    "tcp",
+				Port:        80,
+			},
+			{
+				SourceRanges: []string{
+					fmt.Sprintf(AllowedIPsFormat, peerKIp),
+				},
+				Action:      "accept",
+				Destination: "192.168.10.0/16",
+				Protocol:    "all",
+			},
+		}
+
+		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(append(expectedRoutesFirewallRules, additionalFirewallRule...)))
 
 		// peerD is also the routing peer for route1, should contain same routes firewall rules as peerA
 		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerD", validatedPeers)
 		assert.Len(t, routesFirewallRules, 2)
-		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
+		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(expectedRoutesFirewallRules))
 
 		// peerE is a single routing peer for route 2 and route 3
 		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerE", validatedPeers)
@@ -1769,13 +1885,21 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				IsDynamic:    true,
 			},
 		}
-		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
+		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(expectedRoutesFirewallRules))
 
 		// peerC is part of route1 distribution groups but should not receive the routes firewall rules
 		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers)
 		assert.Len(t, routesFirewallRules, 0)
 	})
 
+}
+
+// orderList is a helper function to sort a list of strings
+func orderRuleSourceRanges(ruleList []*RouteFirewallRule) []*RouteFirewallRule {
+	for _, rule := range ruleList {
+		sort.Strings(rule.SourceRanges)
+	}
+	return ruleList
 }
 
 func TestRouteAccountPeersUpdate(t *testing.T) {

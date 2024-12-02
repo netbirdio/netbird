@@ -152,9 +152,9 @@ func (a *Anonymizer) AnonymizeString(str string) string {
 	return str
 }
 
-// AnonymizeSchemeURI finds and anonymizes URIs with stun, stuns, turn, and turns schemes.
+// AnonymizeSchemeURI finds and anonymizes URIs with ws, wss, rel, rels, stun, stuns, turn, and turns schemes.
 func (a *Anonymizer) AnonymizeSchemeURI(text string) string {
-	re := regexp.MustCompile(`(?i)\b(stuns?:|turns?:|https?://)\S+\b`)
+	re := regexp.MustCompile(`(?i)\b(wss?://|rels?://|stuns?:|turns?:|https?://)\S+\b`)
 
 	return re.ReplaceAllStringFunc(text, a.AnonymizeURI)
 }
