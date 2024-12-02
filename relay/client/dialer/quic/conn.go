@@ -2,6 +2,7 @@ package quic
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -13,28 +14,28 @@ const (
 	Network = "quic"
 )
 
-type QuicAddr struct {
+type Addr struct {
 	addr string
 }
 
-func (a QuicAddr) Network() string {
+func (a Addr) Network() string {
 	return Network
 }
 
-func (a QuicAddr) String() string {
+func (a Addr) String() string {
 	return a.addr
 }
 
 type Conn struct {
 	session    quic.Connection
-	remoteAddr QuicAddr
+	remoteAddr Addr
 	ctx        context.Context
 }
 
 func NewConn(session quic.Connection, serverAddress string) net.Conn {
 	return &Conn{
 		session:    session,
-		remoteAddr: QuicAddr{addr: serverAddress},
+		remoteAddr: Addr{addr: serverAddress},
 		ctx:        context.Background(),
 	}
 }
@@ -70,15 +71,15 @@ func (c *Conn) LocalAddr() net.Addr {
 	if c.session != nil {
 		return c.session.LocalAddr()
 	}
-	return QuicAddr{addr: "unknown"}
+	return Addr{addr: "unknown"}
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {
-	return nil
+	return fmt.Errorf("SetReadDeadline is not implemented")
 }
 
 func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return nil
+	return fmt.Errorf("SetWriteDeadline is not implemented")
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {

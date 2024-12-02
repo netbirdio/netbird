@@ -13,7 +13,7 @@ var (
 	connectionTimeout = 30 * time.Second
 )
 
-type DialerFn interface {
+type DialeFn interface {
 	Dial(ctx context.Context, address string) (net.Conn, error)
 	Protocol() string
 }
@@ -27,10 +27,10 @@ type dialResult struct {
 type RaceDial struct {
 	log       *log.Entry
 	serverURL string
-	dialerFns []DialerFn
+	dialerFns []DialeFn
 }
 
-func NewRaceDial(log *log.Entry, serverURL string, dialerFns ...DialerFn) *RaceDial {
+func NewRaceDial(log *log.Entry, serverURL string, dialerFns ...DialeFn) *RaceDial {
 	return &RaceDial{
 		log:       log,
 		serverURL: serverURL,
@@ -57,7 +57,7 @@ func (r *RaceDial) Dial() (net.Conn, error) {
 	return conn, nil
 }
 
-func (r *RaceDial) dial(dfn DialerFn, abortCtx context.Context, connChan chan dialResult) {
+func (r *RaceDial) dial(dfn DialeFn, abortCtx context.Context, connChan chan dialResult) {
 	ctx, cancel := context.WithTimeout(abortCtx, connectionTimeout)
 	defer cancel()
 

@@ -23,7 +23,6 @@ type Listener struct {
 
 	server   *http.Server
 	acceptFn func(conn net.Conn)
-	log      *log.Entry
 }
 
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {

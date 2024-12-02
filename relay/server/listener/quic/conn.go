@@ -3,16 +3,13 @@ package quic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
-)
-
-const (
-	writeTimeout = 10 * time.Second
 )
 
 type Conn struct {
@@ -64,11 +61,11 @@ func (c *Conn) SetReadDeadline(t time.Time) error {
 }
 
 func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return nil
+	return fmt.Errorf("SetWriteDeadline is not implemented")
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
-	return nil
+	return fmt.Errorf("SetDeadline is not implemented")
 }
 
 func (c *Conn) Close() error {

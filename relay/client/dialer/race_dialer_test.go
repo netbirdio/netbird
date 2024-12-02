@@ -22,7 +22,7 @@ func (m *MockAddr) String() string {
 	return "1.2.3.4"
 }
 
-// MockDialer is a mock implementation of DialerFn
+// MockDialer is a mock implementation of DialeFn
 type MockDialer struct {
 	dialFunc    func(ctx context.Context, address string) (net.Conn, error)
 	protocolStr string
