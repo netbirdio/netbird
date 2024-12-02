@@ -24,44 +24,51 @@ type dialResult struct {
 	Err      error
 }
 
-func RaceDial(log *log.Entry, serverURL string, dialerFns ...DialerFn) (net.Conn, error) {
-	connChan := make(chan dialResult, len(dialerFns))
+type RaceDial struct {
+	log       *log.Entry
+	serverURL string
+	dialerFns []DialerFn
+}
+
+func NewRaceDial(log *log.Entry, serverURL string, dialerFns ...DialerFn) *RaceDial {
+	return &RaceDial{
+		log:       log,
+		serverURL: serverURL,
+		dialerFns: dialerFns,
+	}
+}
+
+func (r *RaceDial) Dial() (net.Conn, error) {
+	connChan := make(chan dialResult, len(r.dialerFns))
 	winnerConn := make(chan net.Conn, 1)
 	abortCtx, abort := context.WithCancel(context.Background())
 	defer abort()
 
-	for _, d := range dialerFns {
-		go func() {
-			ctx, cancel := context.WithTimeout(abortCtx, connectionTimeout)
-			defer cancel()
-
-			log.Infof("dialing Relay server via %s", d.Protocol())
-			conn, err := d.Dial(ctx, serverURL)
-			connChan <- dialResult{Conn: conn, Protocol: d.Protocol(), Err: err}
-		}()
+	for _, dfn := range r.dialerFns {
+		go r.dial(dfn, abortCtx, connChan)
 	}
 
 	go func() {
 		var hasWinner bool
-		for i := 0; i < len(dialerFns); i++ {
+		for i := 0; i < len(r.dialerFns); i++ {
 			dr := <-connChan
 			if dr.Err != nil {
 				if errors.Is(dr.Err, context.Canceled) {
-					log.Infof("connection attempt aborted via: %s", dr.Protocol)
+					r.log.Infof("connection attempt aborted via: %s", dr.Protocol)
 				} else {
-					log.Errorf("failed to dial via %s: %s", dr.Protocol, dr.Err)
+					r.log.Errorf("failed to dial via %s: %s", dr.Protocol, dr.Err)
 				}
 				continue
 			}
 
 			if hasWinner {
 				if cerr := dr.Conn.Close(); cerr != nil {
-					log.Warnf("failed to close connection via %s: %s", dr.Protocol, cerr)
+					r.log.Warnf("failed to close connection via %s: %s", dr.Protocol, cerr)
 				}
 				continue
 			}
 
-			log.Infof("successfully dialed via: %s", dr.Protocol)
+			r.log.Infof("successfully dialed via: %s", dr.Protocol)
 
 			abort()
 			hasWinner = true
@@ -75,4 +82,13 @@ func RaceDial(log *log.Entry, serverURL string, dialerFns ...DialerFn) (net.Conn
 		return nil, errors.New("failed to dial to Relay server on any protocol")
 	}
 	return conn, nil
+}
+
+func (r *RaceDial) dial(dfn DialerFn, abortCtx context.Context, connChan chan dialResult) {
+	ctx, cancel := context.WithTimeout(abortCtx, connectionTimeout)
+	defer cancel()
+
+	r.log.Infof("dialing Relay server via %s", dfn.Protocol())
+	conn, err := dfn.Dial(ctx, r.serverURL)
+	connChan <- dialResult{Conn: conn, Protocol: dfn.Protocol(), Err: err}
 }
