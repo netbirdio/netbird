@@ -1,5 +1,4 @@
 //go:build !android
-// +build !android
 
 package system
 
@@ -16,30 +15,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/zcalusic/sysinfo"
 
-	"github.com/netbirdio/netbird/client/system/detect_cloud"
-	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
-type SysInfoGetter interface {
-	GetSysInfo() SysInfo
-}
-
-type SysInfoWrapper struct {
-	si sysinfo.SysInfo
-}
-
-func (s SysInfoWrapper) GetSysInfo() SysInfo {
-	s.si.GetSysInfo()
-	return SysInfo{
-		ChassisSerial: s.si.Chassis.Serial,
-		ProductSerial: s.si.Product.Serial,
-		BoardSerial:   s.si.Board.Serial,
-		ProductName:   s.si.Product.Name,
-		BoardName:     s.si.Board.Name,
-		ProductVendor: s.si.Product.Vendor,
-	}
-}
+var (
+	// it is override in tests
+	getSystemInfo = defaultSysInfoImplementation
+)
 
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
@@ -65,12 +47,10 @@ func GetInfo(ctx context.Context) *Info {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
-	si := SysInfoWrapper{}
-	serialNum, prodName, manufacturer := sysInfo(si.GetSysInfo())
-
-	env := Environment{
-		Cloud:    detect_cloud.Detect(ctx),
-		Platform: detect_platform.Detect(ctx),
+	start := time.Now()
+	si := updateStaticInfo()
+	if time.Since(start) > 1*time.Second {
+		log.Warnf("updateStaticInfo took %s", time.Since(start))
 	}
 
 	gio := &Info{
@@ -85,10 +65,10 @@ func GetInfo(ctx context.Context) *Info {
 		UIVersion:          extractUserAgent(ctx),
 		KernelVersion:      osInfo[1],
 		NetworkAddresses:   addrs,
-		SystemSerialNumber: serialNum,
-		SystemProductName:  prodName,
-		SystemManufacturer: manufacturer,
-		Environment:        env,
+		SystemSerialNumber: si.SystemSerialNumber,
+		SystemProductName:  si.SystemProductName,
+		SystemManufacturer: si.SystemManufacturer,
+		Environment:        si.Environment,
 	}
 
 	return gio
@@ -108,9 +88,9 @@ func _getInfo() string {
 	return out.String()
 }
 
-func sysInfo(si SysInfo) (string, string, string) {
+func sysInfo() (string, string, string) {
 	isascii := regexp.MustCompile("^[[:ascii:]]+$")
-
+	si := getSystemInfo()
 	serials := []string{si.ChassisSerial, si.ProductSerial}
 	serial := ""
 
@@ -140,4 +120,17 @@ func sysInfo(si SysInfo) (string, string, string) {
 		manufacturer = si.ProductVendor
 	}
 	return serial, name, manufacturer
+}
+
+func defaultSysInfoImplementation() SysInfo {
+	si := sysinfo.SysInfo{}
+	si.GetSysInfo()
+	return SysInfo{
+		ChassisSerial: si.Chassis.Serial,
+		ProductSerial: si.Product.Serial,
+		BoardSerial:   si.Board.Serial,
+		ProductName:   si.Product.Name,
+		BoardName:     si.Board.Name,
+		ProductVendor: si.Product.Vendor,
+	}
 }
