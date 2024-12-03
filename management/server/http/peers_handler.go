@@ -48,8 +48,8 @@ func (h *PeersHandler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) 
 	return peerToReturn, nil
 }
 
-func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, peerID, userID string, w http.ResponseWriter) {
-	peer, err := h.accountManager.GetPeer(ctx, account.Id, peerID, userID)
+func (h *PeersHandler) getPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
+	peer, err := h.accountManager.GetPeer(ctx, accountID, peerID, userID)
 	if err != nil {
 		util.WriteError(ctx, err, w)
 		return
@@ -62,11 +62,12 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
+	groups, _ := h.accountManager.GetAllGroups(ctx, accountID, userID)
+	groupsInfo := toGroupsInfo(groups, peerID)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(account)
+	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
 		return
 	}
@@ -75,7 +76,7 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, valid))
 }
 
-func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, userID, peerID string, w http.ResponseWriter, r *http.Request) {
+func (h *PeersHandler) updatePeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PeerRequest{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -99,16 +100,21 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 		}
 	}
 
-	peer, err := h.accountManager.UpdatePeer(ctx, account.Id, userID, update)
+	peer, err := h.accountManager.UpdatePeer(ctx, accountID, userID, update)
 	if err != nil {
 		util.WriteError(ctx, err, w)
 		return
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
+	peerGroups, err := h.accountManager.GetPeerGroups(ctx, accountID, peer.ID)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+	groupMinimumInfo := toGroupsInfo(peerGroups, peer.ID)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(account)
+	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
@@ -149,18 +155,11 @@ func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		h.deletePeer(r.Context(), accountID, userID, peerID, w)
 		return
-	case http.MethodGet, http.MethodPut:
-		account, err := h.accountManager.GetAccountByID(r.Context(), accountID, userID)
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
-		}
-
-		if r.Method == http.MethodGet {
-			h.getPeer(r.Context(), account, peerID, userID, w)
-		} else {
-			h.updatePeer(r.Context(), account, userID, peerID, w, r)
-		}
+	case http.MethodGet:
+		h.getPeer(r.Context(), accountID, peerID, userID, w)
+		return
+	case http.MethodPut:
+		h.updatePeer(r.Context(), accountID, userID, peerID, w, r)
 		return
 	default:
 		util.WriteError(r.Context(), status.Errorf(status.NotFound, "unknown METHOD"), w)
@@ -176,7 +175,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, userID)
+	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -184,17 +183,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	groupsMap := map[string]*nbgroup.Group{}
 	groups, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
-	for _, group := range groups {
-		groupsMap[group.ID] = group
-	}
 
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
@@ -203,12 +192,13 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
-		groupMinimumInfo := toGroupsInfo(groupsMap, peer.ID)
+
+		groupMinimumInfo := toGroupsInfo(groups, peer.ID)
 
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}
 
-	validPeersMap, err := h.accountManager.GetValidatedPeers(account)
+	validPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
@@ -271,16 +261,16 @@ func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain()
-
-	validPeers, err := h.accountManager.GetValidatedPeers(account)
+	validPeers, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
 		return
 	}
 
-	customZone := account.GetPeersCustomZone(r.Context(), h.accountManager.GetDNSDomain())
+	dnsDomain := h.accountManager.GetDNSDomain()
+
+	customZone := account.GetPeersCustomZone(r.Context(), dnsDomain)
 	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, nil)
 
 	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
@@ -315,14 +305,16 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 	}
 }
 
-func toGroupsInfo(groups map[string]*nbgroup.Group, peerID string) []api.GroupMinimum {
+func toGroupsInfo(groups []*nbgroup.Group, peerID string) []api.GroupMinimum {
 	groupsInfo := []api.GroupMinimum{}
 	groupsChecked := make(map[string]struct{})
+
 	for _, group := range groups {
 		_, ok := groupsChecked[group.ID]
 		if ok {
 			continue
 		}
+
 		groupsChecked[group.ID] = struct{}{}
 		for _, pk := range group.Peers {
 			if pk == peerID {
