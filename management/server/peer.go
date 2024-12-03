@@ -678,15 +678,15 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to save peer: %w", err)
 		}
-
-		if sync.UpdateAccountPeers {
-			am.updateAccountPeers(ctx, account.Id)
-		}
 	}
 
 	peerNotValid, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to validate peer: %w", err)
+	}
+
+	if isStatusChanged || sync.UpdateAccountPeers || updated {
+		am.updateAccountPeers(ctx, account.Id)
 	}
 
 	var postureChecks []*posture.Checks
@@ -696,10 +696,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 			Network: account.Network.Copy(),
 		}
 		return peer, emptyMap, postureChecks, nil
-	}
-
-	if isStatusChanged {
-		am.updateAccountPeers(ctx, account.Id)
 	}
 
 	validPeersMap, err := am.GetValidatedPeers(account)
