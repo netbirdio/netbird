@@ -10,13 +10,12 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/system/detect_cloud"
-	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -41,11 +40,10 @@ func GetInfo(ctx context.Context) *Info {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
-	serialNum, prodName, manufacturer := sysInfo()
-
-	env := Environment{
-		Cloud:    detect_cloud.Detect(ctx),
-		Platform: detect_platform.Detect(ctx),
+	start := time.Now()
+	si := updateStaticInfo()
+	if time.Since(start) > 1*time.Second {
+		log.Warnf("updateStaticInfo took %s", time.Since(start))
 	}
 
 	gio := &Info{
@@ -57,10 +55,10 @@ func GetInfo(ctx context.Context) *Info {
 		CPUs:               runtime.NumCPU(),
 		KernelVersion:      release,
 		NetworkAddresses:   addrs,
-		SystemSerialNumber: serialNum,
-		SystemProductName:  prodName,
-		SystemManufacturer: manufacturer,
-		Environment:        env,
+		SystemSerialNumber: si.SystemSerialNumber,
+		SystemProductName:  si.SystemProductName,
+		SystemManufacturer: si.SystemManufacturer,
+		Environment:        si.Environment,
 	}
 
 	systemHostname, _ := os.Hostname()

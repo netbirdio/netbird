@@ -83,7 +83,6 @@ type Conn struct {
 	signaler       *Signaler
 	relayManager   *relayClient.Manager
 	allowedIP      net.IP
-	allowedNet     string
 	handshaker     *Handshaker
 
 	onConnected    func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
@@ -111,7 +110,7 @@ type Conn struct {
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Status, signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, relayManager *relayClient.Manager, srWatcher *guard.SRWatcher) (*Conn, error) {
-	allowedIP, allowedNet, err := net.ParseCIDR(config.WgConfig.AllowedIps)
+	allowedIP, _, err := net.ParseCIDR(config.WgConfig.AllowedIps)
 	if err != nil {
 		log.Errorf("failed to parse allowedIPS: %v", err)
 		return nil, err
@@ -129,7 +128,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		signaler:       signaler,
 		relayManager:   relayManager,
 		allowedIP:      allowedIP,
-		allowedNet:     allowedNet.String(),
 		statusRelay:    NewAtomicConnStatus(),
 		statusICE:      NewAtomicConnStatus(),
 	}
@@ -594,7 +592,7 @@ func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAdd
 	}
 
 	if conn.onConnected != nil {
-		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, conn.allowedNet, remoteRosenpassAddr)
+		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, conn.allowedIP.String(), remoteRosenpassAddr)
 	}
 }
 
