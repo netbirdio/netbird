@@ -803,8 +803,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
-	e.updateOfflinePeers(networkMap.GetOfflinePeers())
-
 	// cleanup request, most likely our peer has been deleted
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
@@ -842,6 +840,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			}
 		}
 	}
+
+	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
