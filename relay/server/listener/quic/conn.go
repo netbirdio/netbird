@@ -91,7 +91,7 @@ func (c *Conn) isClosed() bool {
 
 func (c *Conn) ioErrHandling(err error) error {
 	if c.isClosed() {
-		return io.EOF
+		return net.ErrClosed
 	}
 
 	// Handle QUIC-specific errors
@@ -102,7 +102,7 @@ func (c *Conn) ioErrHandling(err error) error {
 	// Check if the connection was closed remotely
 	var appErr *quic.ApplicationError
 	if errors.As(err, &appErr) && appErr.ErrorCode == 0 { // 0 is normal closure
-		return io.EOF
+		return net.ErrClosed
 	}
 
 	return err
