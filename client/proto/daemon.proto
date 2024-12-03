@@ -54,7 +54,11 @@ service DaemonService {
 
   // Delete specific state or all states
   rpc DeleteState(DeleteStateRequest) returns (DeleteStateResponse) {}
-};
+
+  // SetNetworkMapPersistence enables or disables network map persistence
+  rpc SetNetworkMapPersistence(SetNetworkMapPersistenceRequest) returns (SetNetworkMapPersistenceResponse) {}
+}
+
 
 message LoginRequest {
   // setupKey wiretrustee setup key.
@@ -338,3 +342,10 @@ message DeleteStateRequest {
 message DeleteStateResponse {
   int32 deleted_states = 1;
 }
+
+
+message SetNetworkMapPersistenceRequest {
+  bool enabled = 1;
+}
+
+message SetNetworkMapPersistenceResponse {}

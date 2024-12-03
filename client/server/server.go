@@ -68,6 +68,8 @@ type Server struct {
 	relayProbe  *internal.Probe
 	wgProbe     *internal.Probe
 	lastProbe   time.Time
+
+	persistNetworkMap bool
 }
 
 type oauthAuthFlow struct {
@@ -196,6 +198,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	runOperation := func() error {
 		log.Tracef("running client connection")
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+		s.connectClient.SetNetworkMapPersistence(s.persistNetworkMap)
 
 		probes := internal.ProbeHolder{
 			MgmProbe:    s.mgmProbe,

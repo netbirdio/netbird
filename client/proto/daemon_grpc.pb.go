@@ -49,6 +49,8 @@ type DaemonServiceClient interface {
 	CleanState(ctx context.Context, in *CleanStateRequest, opts ...grpc.CallOption) (*CleanStateResponse, error)
 	// Delete specific state or all states
 	DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error)
+	// SetNetworkMapPersistence enables or disables network map persistence
+	SetNetworkMapPersistence(ctx context.Context, in *SetNetworkMapPersistenceRequest, opts ...grpc.CallOption) (*SetNetworkMapPersistenceResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -194,6 +196,15 @@ func (c *daemonServiceClient) DeleteState(ctx context.Context, in *DeleteStateRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) SetNetworkMapPersistence(ctx context.Context, in *SetNetworkMapPersistenceRequest, opts ...grpc.CallOption) (*SetNetworkMapPersistenceResponse, error) {
+	out := new(SetNetworkMapPersistenceResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SetNetworkMapPersistence", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -229,6 +240,8 @@ type DaemonServiceServer interface {
 	CleanState(context.Context, *CleanStateRequest) (*CleanStateResponse, error)
 	// Delete specific state or all states
 	DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error)
+	// SetNetworkMapPersistence enables or disables network map persistence
+	SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -280,6 +293,9 @@ func (UnimplementedDaemonServiceServer) CleanState(context.Context, *CleanStateR
 }
 func (UnimplementedDaemonServiceServer) DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteState not implemented")
+}
+func (UnimplementedDaemonServiceServer) SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetNetworkMapPersistence not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -564,6 +580,24 @@ func _DaemonService_DeleteState_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_SetNetworkMapPersistence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetNetworkMapPersistenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).SetNetworkMapPersistence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/SetNetworkMapPersistence",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).SetNetworkMapPersistence(ctx, req.(*SetNetworkMapPersistenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -630,6 +664,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteState",
 			Handler:    _DaemonService_DeleteState_Handler,
+		},
+		{
+			MethodName: "SetNetworkMapPersistence",
+			Handler:    _DaemonService_SetNetworkMapPersistence_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
