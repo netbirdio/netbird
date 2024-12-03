@@ -419,26 +419,6 @@ func (s *Server) addSingleLogfile(logPath, targetName string, req *proto.DebugBu
 	return nil
 }
 
-func (s *Server) anonymize(reader io.Reader, writer *io.PipeWriter, anonymizer *anonymize.Anonymizer) {
-	defer func() {
-		// always nil
-		_ = writer.Close()
-	}()
-
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := anonymizer.AnonymizeString(scanner.Text())
-		if _, err := writer.Write([]byte(line + "\n")); err != nil {
-			writer.CloseWithError(fmt.Errorf("anonymize write: %w", err))
-			return
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		writer.CloseWithError(fmt.Errorf("anonymize scan: %w", err))
-		return
-	}
-}
-
 // getLatestNetworkMap returns the latest network map from the engine if network map persistence is enabled
 func (s *Server) getLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	if s.connectClient == nil {
