@@ -40,6 +40,8 @@ type ConnectClient struct {
 	statusRecorder *peer.Status
 	engine         *Engine
 	engineMutex    sync.Mutex
+
+	persistNetworkMap bool
 }
 
 func NewConnectClient(
@@ -258,7 +260,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		c.engineMutex.Lock()
 		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
-
+		c.engine.SetNetworkMapPersistence(c.persistNetworkMap)
 		c.engineMutex.Unlock()
 
 		if err := c.engine.Start(); err != nil {
@@ -359,6 +361,22 @@ func (c *ConnectClient) isContextCancelled() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// SetNetworkMapPersistence enables or disables network map persistence.
+// When enabled, the last received network map will be stored and can be retrieved
+// through the Engine's getLatestNetworkMap method. When disabled, any stored
+// network map will be cleared. This functionality is primarily used for debugging
+// and should not be enabled during normal operation.
+func (c *ConnectClient) SetNetworkMapPersistence(enabled bool) {
+	c.engineMutex.Lock()
+	c.persistNetworkMap = enabled
+	c.engineMutex.Unlock()
+
+	engine := c.Engine()
+	if engine != nil {
+		engine.SetNetworkMapPersistence(enabled)
 	}
 }
 
