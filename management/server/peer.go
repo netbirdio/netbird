@@ -685,27 +685,25 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, fmt.Errorf("failed to validate peer: %w", err)
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || updated {
-		am.updateAccountPeers(ctx, account.Id)
+	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	var postureChecks []*posture.Checks
+	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
+		am.updateAccountPeers(ctx, account.Id)
+	}
 
 	if peerNotValid {
 		emptyMap := &NetworkMap{
 			Network: account.Network.Copy(),
 		}
-		return peer, emptyMap, postureChecks, nil
+		return peer, emptyMap, []*posture.Checks{}, nil
 	}
 
 	validPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get validated peers: %w", err)
-	}
-
-	postureChecks, err = am.getPeerPostureChecks(account, peer.ID)
-	if err != nil {
-		return nil, nil, nil, err
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
