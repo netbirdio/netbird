@@ -45,7 +45,11 @@ service DaemonService {
 
   // SetLogLevel sets the log level of the daemon
   rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
-};
+
+  // SetNetworkMapPersistence enables or disables network map persistence
+  rpc SetNetworkMapPersistence(SetNetworkMapPersistenceRequest) returns (SetNetworkMapPersistenceResponse) {}
+}
+
 
 message LoginRequest {
   // setupKey wiretrustee setup key.
@@ -294,3 +298,9 @@ message SetLogLevelRequest {
 
 message SetLogLevelResponse {
 }
+
+message SetNetworkMapPersistenceRequest {
+  bool enabled = 1;
+}
+
+message SetNetworkMapPersistenceResponse {}

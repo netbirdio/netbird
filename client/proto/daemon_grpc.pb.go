@@ -43,6 +43,8 @@ type DaemonServiceClient interface {
 	GetLogLevel(ctx context.Context, in *GetLogLevelRequest, opts ...grpc.CallOption) (*GetLogLevelResponse, error)
 	// SetLogLevel sets the log level of the daemon
 	SetLogLevel(ctx context.Context, in *SetLogLevelRequest, opts ...grpc.CallOption) (*SetLogLevelResponse, error)
+	// SetNetworkMapPersistence enables or disables network map persistence
+	SetNetworkMapPersistence(ctx context.Context, in *SetNetworkMapPersistenceRequest, opts ...grpc.CallOption) (*SetNetworkMapPersistenceResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -161,6 +163,15 @@ func (c *daemonServiceClient) SetLogLevel(ctx context.Context, in *SetLogLevelRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) SetNetworkMapPersistence(ctx context.Context, in *SetNetworkMapPersistenceRequest, opts ...grpc.CallOption) (*SetNetworkMapPersistenceResponse, error) {
+	out := new(SetNetworkMapPersistenceResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SetNetworkMapPersistence", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -190,6 +201,8 @@ type DaemonServiceServer interface {
 	GetLogLevel(context.Context, *GetLogLevelRequest) (*GetLogLevelResponse, error)
 	// SetLogLevel sets the log level of the daemon
 	SetLogLevel(context.Context, *SetLogLevelRequest) (*SetLogLevelResponse, error)
+	// SetNetworkMapPersistence enables or disables network map persistence
+	SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -232,6 +245,9 @@ func (UnimplementedDaemonServiceServer) GetLogLevel(context.Context, *GetLogLeve
 }
 func (UnimplementedDaemonServiceServer) SetLogLevel(context.Context, *SetLogLevelRequest) (*SetLogLevelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetLogLevel not implemented")
+}
+func (UnimplementedDaemonServiceServer) SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetNetworkMapPersistence not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -462,6 +478,24 @@ func _DaemonService_SetLogLevel_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_SetNetworkMapPersistence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetNetworkMapPersistenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).SetNetworkMapPersistence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/SetNetworkMapPersistence",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).SetNetworkMapPersistence(ctx, req.(*SetNetworkMapPersistenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -516,6 +550,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetLogLevel",
 			Handler:    _DaemonService_SetLogLevel_Handler,
+		},
+		{
+			MethodName: "SetNetworkMapPersistence",
+			Handler:    _DaemonService_SetNetworkMapPersistence_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

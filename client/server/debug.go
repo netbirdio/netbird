@@ -21,12 +21,14 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/proto"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -39,6 +41,7 @@ netbird.out: Most recent, anonymized stdout log file of the NetBird client.
 routes.txt: Anonymized system routes, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 config.txt: Anonymized configuration information of the NetBird client.
+network_map.json: Anonymized network map containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states.
 
 
@@ -58,6 +61,16 @@ Note: The anonymized IP addresses in the status file do not match those in the l
 Domains
 All domain names (except for the netbird domains) are replaced with randomly generated strings ending in ".domain". Anonymized domains are consistent across all files in the bundle.
 Reoccuring domain names are replaced with the same anonymized domain.
+
+Network Map
+The network_map.json file contains the following anonymized information:
+- Peer configurations (addresses, FQDNs, DNS settings)
+- Remote and offline peer information (allowed IPs, FQDNs)
+- Routes (network ranges, associated domains)
+- DNS configuration (nameservers, domains, custom zones)
+- Firewall rules (peer IPs, source/destination ranges)
+
+SSH keys in the network map are replaced with a placeholder value. All IP addresses and domains in the network map follow the same anonymization rules as described above.
 
 State File
 The state.json file contains anonymized internal state information of the NetBird client, including:
@@ -148,17 +161,21 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 	seedFromStatus(anonymizer, &status)
 
 	if err := s.addConfig(req, anonymizer, archive); err != nil {
-		return fmt.Errorf("add config: %w", err)
+		log.Errorf("Failed to add config to debug bundle: %v", err)
 	}
 
 	if req.GetSystemInfo() {
 		if err := s.addRoutes(req, anonymizer, archive); err != nil {
-			return fmt.Errorf("add routes: %w", err)
+			log.Errorf("Failed to add routes to debug bundle: %v", err)
 		}
 
 		if err := s.addInterfaces(req, anonymizer, archive); err != nil {
-			return fmt.Errorf("add interfaces: %w", err)
+			log.Errorf("Failed to add interfaces to debug bundle: %v", err)
 		}
+	}
+
+	if err := s.addNetworkMap(req, anonymizer, archive); err != nil {
+		return fmt.Errorf("add network map: %w", err)
 	}
 
 	if err := s.addStateFile(req, anonymizer, archive); err != nil {
@@ -253,15 +270,16 @@ func (s *Server) addCommonConfigFields(configContent *strings.Builder) {
 }
 
 func (s *Server) addRoutes(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
-	if routes, err := systemops.GetRoutesFromTable(); err != nil {
-		log.Errorf("Failed to get routes: %v", err)
-	} else {
-		// TODO: get routes including nexthop
-		routesContent := formatRoutes(routes, req.GetAnonymize(), anonymizer)
-		routesReader := strings.NewReader(routesContent)
-		if err := addFileToZip(archive, routesReader, "routes.txt"); err != nil {
-			return fmt.Errorf("add routes file to zip: %w", err)
-		}
+	routes, err := systemops.GetRoutesFromTable()
+	if err != nil {
+		return fmt.Errorf("get routes: %w", err)
+	}
+
+	// TODO: get routes including nexthop
+	routesContent := formatRoutes(routes, req.GetAnonymize(), anonymizer)
+	routesReader := strings.NewReader(routesContent)
+	if err := addFileToZip(archive, routesReader, "routes.txt"); err != nil {
+		return fmt.Errorf("add routes file to zip: %w", err)
 	}
 	return nil
 }
@@ -276,6 +294,39 @@ func (s *Server) addInterfaces(req *proto.DebugBundleRequest, anonymizer *anonym
 	interfacesReader := strings.NewReader(interfacesContent)
 	if err := addFileToZip(archive, interfacesReader, "interfaces.txt"); err != nil {
 		return fmt.Errorf("add interfaces file to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) addNetworkMap(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	networkMap, err := s.getLatestNetworkMap()
+	if err != nil {
+		// Skip if network map is not available, but log it
+		log.Debugf("skipping empty network map in debug bundle: %v", err)
+		return nil
+	}
+
+	if req.GetAnonymize() {
+		if err := anonymizeNetworkMap(networkMap, anonymizer); err != nil {
+			return fmt.Errorf("anonymize network map: %w", err)
+		}
+	}
+
+	options := protojson.MarshalOptions{
+		EmitUnpopulated: true,
+		UseProtoNames:   true,
+		Indent:          "  ",
+		AllowPartial:    true,
+	}
+
+	jsonBytes, err := options.Marshal(networkMap)
+	if err != nil {
+		return fmt.Errorf("generate json: %w", err)
+	}
+
+	if err := addFileToZip(archive, bytes.NewReader(jsonBytes), "network_map.json"); err != nil {
+		return fmt.Errorf("add network map to zip: %w", err)
 	}
 
 	return nil
@@ -368,14 +419,43 @@ func (s *Server) addSingleLogfile(logPath, targetName string, req *proto.DebugBu
 	return nil
 }
 
+// getLatestNetworkMap returns the latest network map from the engine if network map persistence is enabled
+func (s *Server) getLatestNetworkMap() (*mgmProto.NetworkMap, error) {
+	if s.connectClient == nil {
+		return nil, errors.New("connect client is not initialized")
+	}
+
+	engine := s.connectClient.Engine()
+	if engine == nil {
+		return nil, errors.New("engine is not initialized")
+	}
+
+	networkMap, err := engine.GetLatestNetworkMap()
+	if err != nil {
+		return nil, fmt.Errorf("get latest network map: %w", err)
+	}
+
+	if networkMap == nil {
+		return nil, errors.New("network map is not available")
+	}
+
+	return networkMap, nil
+}
+
 // GetLogLevel gets the current logging level for the server.
 func (s *Server) GetLogLevel(_ context.Context, _ *proto.GetLogLevelRequest) (*proto.GetLogLevelResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	level := ParseLogLevel(log.GetLevel().String())
 	return &proto.GetLogLevelResponse{Level: level}, nil
 }
 
 // SetLogLevel sets the logging level for the server.
 func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (*proto.SetLogLevelResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	level, err := log.ParseLevel(req.Level.String())
 	if err != nil {
 		return nil, fmt.Errorf("invalid log level: %w", err)
@@ -384,6 +464,20 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 	log.SetLevel(level)
 	log.Infof("Log level set to %s", level.String())
 	return &proto.SetLogLevelResponse{}, nil
+}
+
+// SetNetworkMapPersistence sets the network map persistence for the server.
+func (s *Server) SetNetworkMapPersistence(_ context.Context, req *proto.SetNetworkMapPersistenceRequest) (*proto.SetNetworkMapPersistenceResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	enabled := req.GetEnabled()
+	s.persistNetworkMap = enabled
+	if s.connectClient != nil {
+		s.connectClient.SetNetworkMapPersistence(enabled)
+	}
+
+	return &proto.SetNetworkMapPersistenceResponse{}, nil
 }
 
 func addFileToZip(archive *zip.Writer, reader io.Reader, filename string) error {
@@ -576,6 +670,177 @@ func anonymizeNATExternalIPs(ips []string, anonymizer *anonymize.Anonymizer) []s
 		}
 	}
 	return anonymizedIPs
+}
+
+func anonymizeNetworkMap(networkMap *mgmProto.NetworkMap, anonymizer *anonymize.Anonymizer) error {
+	if networkMap.PeerConfig != nil {
+		anonymizePeerConfig(networkMap.PeerConfig, anonymizer)
+	}
+
+	for _, peer := range networkMap.RemotePeers {
+		anonymizeRemotePeer(peer, anonymizer)
+	}
+
+	for _, peer := range networkMap.OfflinePeers {
+		anonymizeRemotePeer(peer, anonymizer)
+	}
+
+	for _, r := range networkMap.Routes {
+		anonymizeRoute(r, anonymizer)
+	}
+
+	if networkMap.DNSConfig != nil {
+		anonymizeDNSConfig(networkMap.DNSConfig, anonymizer)
+	}
+
+	for _, rule := range networkMap.FirewallRules {
+		anonymizeFirewallRule(rule, anonymizer)
+	}
+
+	for _, rule := range networkMap.RoutesFirewallRules {
+		anonymizeRouteFirewallRule(rule, anonymizer)
+	}
+
+	return nil
+}
+
+func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anonymizer) {
+	if config == nil {
+		return
+	}
+
+	if addr, err := netip.ParseAddr(config.Address); err == nil {
+		config.Address = anonymizer.AnonymizeIP(addr).String()
+	}
+
+	if config.SshConfig != nil && len(config.SshConfig.SshPubKey) > 0 {
+		config.SshConfig.SshPubKey = []byte("ssh-placeholder-key")
+	}
+
+	config.Dns = anonymizer.AnonymizeString(config.Dns)
+	config.Fqdn = anonymizer.AnonymizeDomain(config.Fqdn)
+}
+
+func anonymizeRemotePeer(peer *mgmProto.RemotePeerConfig, anonymizer *anonymize.Anonymizer) {
+	if peer == nil {
+		return
+	}
+
+	for i, ip := range peer.AllowedIps {
+		// Try to parse as prefix first (CIDR)
+		if prefix, err := netip.ParsePrefix(ip); err == nil {
+			anonIP := anonymizer.AnonymizeIP(prefix.Addr())
+			peer.AllowedIps[i] = fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
+		} else if addr, err := netip.ParseAddr(ip); err == nil {
+			peer.AllowedIps[i] = anonymizer.AnonymizeIP(addr).String()
+		}
+	}
+
+	peer.Fqdn = anonymizer.AnonymizeDomain(peer.Fqdn)
+
+	if peer.SshConfig != nil && len(peer.SshConfig.SshPubKey) > 0 {
+		peer.SshConfig.SshPubKey = []byte("ssh-placeholder-key")
+	}
+}
+
+func anonymizeRoute(route *mgmProto.Route, anonymizer *anonymize.Anonymizer) {
+	if route == nil {
+		return
+	}
+
+	if prefix, err := netip.ParsePrefix(route.Network); err == nil {
+		anonIP := anonymizer.AnonymizeIP(prefix.Addr())
+		route.Network = fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
+	}
+
+	for i, domain := range route.Domains {
+		route.Domains[i] = anonymizer.AnonymizeDomain(domain)
+	}
+
+	route.NetID = anonymizer.AnonymizeString(route.NetID)
+}
+
+func anonymizeDNSConfig(config *mgmProto.DNSConfig, anonymizer *anonymize.Anonymizer) {
+	if config == nil {
+		return
+	}
+
+	anonymizeNameServerGroups(config.NameServerGroups, anonymizer)
+	anonymizeCustomZones(config.CustomZones, anonymizer)
+}
+
+func anonymizeNameServerGroups(groups []*mgmProto.NameServerGroup, anonymizer *anonymize.Anonymizer) {
+	for _, group := range groups {
+		anonymizeServers(group.NameServers, anonymizer)
+		anonymizeDomains(group.Domains, anonymizer)
+	}
+}
+
+func anonymizeServers(servers []*mgmProto.NameServer, anonymizer *anonymize.Anonymizer) {
+	for _, server := range servers {
+		if addr, err := netip.ParseAddr(server.IP); err == nil {
+			server.IP = anonymizer.AnonymizeIP(addr).String()
+		}
+	}
+}
+
+func anonymizeDomains(domains []string, anonymizer *anonymize.Anonymizer) {
+	for i, domain := range domains {
+		domains[i] = anonymizer.AnonymizeDomain(domain)
+	}
+}
+
+func anonymizeCustomZones(zones []*mgmProto.CustomZone, anonymizer *anonymize.Anonymizer) {
+	for _, zone := range zones {
+		zone.Domain = anonymizer.AnonymizeDomain(zone.Domain)
+		anonymizeRecords(zone.Records, anonymizer)
+	}
+}
+
+func anonymizeRecords(records []*mgmProto.SimpleRecord, anonymizer *anonymize.Anonymizer) {
+	for _, record := range records {
+		record.Name = anonymizer.AnonymizeDomain(record.Name)
+		anonymizeRData(record, anonymizer)
+	}
+}
+
+func anonymizeRData(record *mgmProto.SimpleRecord, anonymizer *anonymize.Anonymizer) {
+	switch record.Type {
+	case 1, 28: // A or AAAA record
+		if addr, err := netip.ParseAddr(record.RData); err == nil {
+			record.RData = anonymizer.AnonymizeIP(addr).String()
+		}
+	default:
+		record.RData = anonymizer.AnonymizeString(record.RData)
+	}
+}
+
+func anonymizeFirewallRule(rule *mgmProto.FirewallRule, anonymizer *anonymize.Anonymizer) {
+	if rule == nil {
+		return
+	}
+
+	if addr, err := netip.ParseAddr(rule.PeerIP); err == nil {
+		rule.PeerIP = anonymizer.AnonymizeIP(addr).String()
+	}
+}
+
+func anonymizeRouteFirewallRule(rule *mgmProto.RouteFirewallRule, anonymizer *anonymize.Anonymizer) {
+	if rule == nil {
+		return
+	}
+
+	for i, sourceRange := range rule.SourceRanges {
+		if prefix, err := netip.ParsePrefix(sourceRange); err == nil {
+			anonIP := anonymizer.AnonymizeIP(prefix.Addr())
+			rule.SourceRanges[i] = fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
+		}
+	}
+
+	if prefix, err := netip.ParsePrefix(rule.Destination); err == nil {
+		anonIP := anonymizer.AnonymizeIP(prefix.Addr())
+		rule.Destination = fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
+	}
 }
 
 func anonymizeStateFile(rawStates *map[string]json.RawMessage, anonymizer *anonymize.Anonymizer) error {
