@@ -598,7 +598,7 @@ func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAdd
 
 func (conn *Conn) waitInitialRandomSleepTime(ctx context.Context) {
 	minWait := 100
-	maxWait := 800
+	maxWait := 300
 	duration := time.Duration(rand.Intn(maxWait-minWait)+minWait) * time.Millisecond
 
 	timeout := time.NewTimer(duration)
