@@ -477,7 +477,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			setupKeyName = sk.Name
 		}
 
-		if strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad" && userID != "" {
+		if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 			if am.idpManager != nil {
 				userdata, err := am.idpManager.GetUserDataByID(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
 				if err == nil && userdata != nil {
@@ -678,10 +678,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to save peer: %w", err)
 		}
-
-		if sync.UpdateAccountPeers {
-			am.updateAccountPeers(ctx, account.Id)
-		}
 	}
 
 	peerNotValid, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
@@ -689,27 +685,25 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, fmt.Errorf("failed to validate peer: %w", err)
 	}
 
-	var postureChecks []*posture.Checks
+	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
+		am.updateAccountPeers(ctx, account.Id)
+	}
 
 	if peerNotValid {
 		emptyMap := &NetworkMap{
 			Network: account.Network.Copy(),
 		}
-		return peer, emptyMap, postureChecks, nil
-	}
-
-	if isStatusChanged {
-		am.updateAccountPeers(ctx, account.Id)
+		return peer, emptyMap, []*posture.Checks{}, nil
 	}
 
 	validPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get validated peers: %w", err)
-	}
-
-	postureChecks, err = am.getPeerPostureChecks(account, peer.ID)
-	if err != nil {
-		return nil, nil, nil, err
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)

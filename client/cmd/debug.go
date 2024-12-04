@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -59,6 +60,15 @@ var forCmd = &cobra.Command{
 	Example: "  netbird debug for 5m",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runForDuration,
+}
+
+var persistenceCmd = &cobra.Command{
+	Use:     "persistence [on|off]",
+	Short:   "Set network map memory persistence",
+	Long:    `Configure whether the latest network map should persist in memory. When enabled, the last known network map will be kept in memory.`,
+	Example: "  netbird debug persistence on",
+	Args:    cobra.ExactArgs(1),
+	RunE:    setNetworkMapPersistence,
 }
 
 func debugBundle(cmd *cobra.Command, _ []string) error {
@@ -171,6 +181,13 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(1 * time.Second)
 
+	// Enable network map persistence before bringing the service up
+	if _, err := client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
+		Enabled: true,
+	}); err != nil {
+		return fmt.Errorf("failed to enable network map persistence: %v", status.Convert(err).Message())
+	}
+
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
 		return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
 	}
@@ -200,6 +217,13 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
 
+	// Disable network map persistence after creating the debug bundle
+	if _, err := client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
+		Enabled: false,
+	}); err != nil {
+		return fmt.Errorf("failed to disable network map persistence: %v", status.Convert(err).Message())
+	}
+
 	if stateWasDown {
 		if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
 			return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
@@ -216,6 +240,34 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	cmd.Println(resp.GetPath())
 
+	return nil
+}
+
+func setNetworkMapPersistence(cmd *cobra.Command, args []string) error {
+	conn, err := getClient(cmd)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf(errCloseConnection, err)
+		}
+	}()
+
+	persistence := strings.ToLower(args[0])
+	if persistence != "on" && persistence != "off" {
+		return fmt.Errorf("invalid persistence value: %s. Use 'on' or 'off'", args[0])
+	}
+
+	client := proto.NewDaemonServiceClient(conn)
+	_, err = client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
+		Enabled: persistence == "on",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set network map persistence: %v", status.Convert(err).Message())
+	}
+
+	cmd.Printf("Network map persistence set to: %s\n", persistence)
 	return nil
 }
 
