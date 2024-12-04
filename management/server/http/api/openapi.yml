@@ -830,7 +830,6 @@ components:
           example: true
       required:
         - name
-        - description
         - enabled
     PolicyUpdate:
       allOf:
