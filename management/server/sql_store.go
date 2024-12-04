@@ -37,7 +37,7 @@ const (
 	storeSqliteFileName         = "store.db"
 	idQueryCondition            = "id = ?"
 	keyQueryCondition           = "key = ?"
-	mysqlKeyQueryCondition     = "`key` = ?"
+	mysqlKeyQueryCondition      = "`key` = ?"
 	accountAndIDQueryCondition  = "account_id = ? and id = ?"
 	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
 	accountIDCondition          = "account_id = ?"
@@ -410,7 +410,7 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 		return result.Error
 	}
 
-	if result.RowsAffected == 0 {
+	if result.RowsAffected == 0 && s.storeEngine != MysqlStoreEngine {
 		return status.Errorf(status.NotFound, peerNotFoundFMT, peerWithLocation.ID)
 	}
 
