@@ -37,6 +37,11 @@ func (s *ipList) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	s.ips = temp.IPs
+
+	if temp.IPs == nil {
+		temp.IPs = make(map[string]struct{})
+	}
+
 	return nil
 }
 
@@ -89,5 +94,10 @@ func (s *ipsetStore) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	s.ipsets = temp.IPSets
+
+	if temp.IPSets == nil {
+		temp.IPSets = make(map[string]*ipList)
+	}
+
 	return nil
 }

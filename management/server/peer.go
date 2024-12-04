@@ -477,7 +477,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			setupKeyName = sk.Name
 		}
 
-		if strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad" && userID != "" {
+		if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 			if am.idpManager != nil {
 				userdata, err := am.idpManager.GetUserDataByID(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
 				if err == nil && userdata != nil {
@@ -617,7 +617,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, err
 	}
 
-	postureChecks := am.getPeerPostureChecks(account, newPeer)
+	postureChecks, err := am.getPeerPostureChecks(account, newPeer.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
 	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
 	return newPeer, networkMap, postureChecks, nil
@@ -667,14 +671,12 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 	updated := peer.UpdateMetaIfNew(sync.Meta)
 	if updated {
+		am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
+		account.Peers[peer.ID] = peer
 		log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
 		err = am.Store.SavePeer(ctx, account.Id, peer)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to save peer: %w", err)
-		}
-
-		if sync.UpdateAccountPeers {
-			am.updateAccountPeers(ctx, account.Id)
 		}
 	}
 
@@ -683,24 +685,26 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, fmt.Errorf("failed to validate peer: %w", err)
 	}
 
-	var postureChecks []*posture.Checks
+	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
+		am.updateAccountPeers(ctx, account.Id)
+	}
 
 	if peerNotValid {
 		emptyMap := &NetworkMap{
 			Network: account.Network.Copy(),
 		}
-		return peer, emptyMap, postureChecks, nil
-	}
-
-	if isStatusChanged {
-		am.updateAccountPeers(ctx, account.Id)
+		return peer, emptyMap, []*posture.Checks{}, nil
 	}
 
 	validPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to get validated peers: %w", err)
 	}
-	postureChecks = am.getPeerPostureChecks(account, peer)
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
 	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
@@ -800,6 +804,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 
 	updated := peer.UpdateMetaIfNew(login.Meta)
 	if updated {
+		am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 		shouldStorePeer = true
 	}
 
@@ -873,7 +878,11 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	postureChecks = am.getPeerPostureChecks(account, peer)
+
+	postureChecks, err = am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
 	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
@@ -988,6 +997,12 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, accountID string) {
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send out updates to peers: %v", err)
+		return
+	}
+
 	start := time.Now()
 	defer func() {
 		if am.metrics != nil {
@@ -995,11 +1010,6 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 		}
 	}()
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send out updates to peers: %v", err)
-		return
-	}
 	peers := account.GetPeers()
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
@@ -1026,7 +1036,12 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 			defer wg.Done()
 			defer func() { <-semaphore }()
 
-			postureChecks := am.getPeerPostureChecks(account, p)
+			postureChecks, err := am.getPeerPostureChecks(account, p.ID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to get peer: %s posture checks: %v", p.ID, err)
+				return
+			}
+
 			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
 			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})

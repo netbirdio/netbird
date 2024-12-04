@@ -40,6 +40,8 @@ type ConnectClient struct {
 	statusRecorder *peer.Status
 	engine         *Engine
 	engineMutex    sync.Mutex
+
+	persistNetworkMap bool
 }
 
 func NewConnectClient(
@@ -232,6 +234,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		relayURLs, token := parseRelayInfo(loginResp)
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
 				if err := relayManager.UpdateToken(token); err != nil {
@@ -242,9 +245,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 			log.Infof("connecting to the Relay service(s): %s", strings.Join(relayURLs, ", "))
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
-				return wrapErr(err)
 			}
-			c.statusRecorder.SetRelayMgr(relayManager)
 		}
 
 		peerConfig := loginResp.GetPeerConfig()
@@ -259,7 +260,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		c.engineMutex.Lock()
 		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
-
+		c.engine.SetNetworkMapPersistence(c.persistNetworkMap)
 		c.engineMutex.Unlock()
 
 		if err := c.engine.Start(); err != nil {
@@ -337,6 +338,19 @@ func (c *ConnectClient) Engine() *Engine {
 	return e
 }
 
+// Status returns the current client status
+func (c *ConnectClient) Status() StatusType {
+	if c == nil {
+		return StatusIdle
+	}
+	status, err := CtxGetState(c.ctx).Status()
+	if err != nil {
+		return StatusIdle
+	}
+
+	return status
+}
+
 func (c *ConnectClient) Stop() error {
 	if c == nil {
 		return nil
@@ -360,6 +374,22 @@ func (c *ConnectClient) isContextCancelled() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// SetNetworkMapPersistence enables or disables network map persistence.
+// When enabled, the last received network map will be stored and can be retrieved
+// through the Engine's getLatestNetworkMap method. When disabled, any stored
+// network map will be cleared. This functionality is primarily used for debugging
+// and should not be enabled during normal operation.
+func (c *ConnectClient) SetNetworkMapPersistence(enabled bool) {
+	c.engineMutex.Lock()
+	c.persistNetworkMap = enabled
+	c.engineMutex.Unlock()
+
+	engine := c.Engine()
+	if engine != nil {
+		engine.SetNetworkMapPersistence(enabled)
 	}
 }
 

@@ -155,6 +155,7 @@ func init() {
 	debugCmd.AddCommand(logCmd)
 	logCmd.AddCommand(logLevelCmd)
 	debugCmd.AddCommand(forCmd)
+	debugCmd.AddCommand(persistenceCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+

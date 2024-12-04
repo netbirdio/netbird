@@ -21,6 +21,7 @@ import (
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/manager"
@@ -172,6 +173,10 @@ type Engine struct {
 	relayManager *relayClient.Manager
 	stateManager *statemanager.Manager
 	srWatcher    *guard.SRWatcher
+
+	// Network map persistence
+	persistNetworkMap bool
+	latestNetworkMap  *mgmProto.NetworkMap
 }
 
 // Peer is an instance of the Connection Peer
@@ -349,8 +354,17 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, e.relayManager, initialRoutes)
-	beforePeerHook, afterPeerHook, err := e.routeManager.Init(e.stateManager)
+	e.routeManager = routemanager.NewManager(
+		e.ctx,
+		e.config.WgPrivateKey.PublicKey().String(),
+		e.config.DNSRouteInterval,
+		e.wgInterface,
+		e.statusRecorder,
+		e.relayManager,
+		initialRoutes,
+		e.stateManager,
+	)
+	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
 	} else {
@@ -538,6 +552,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 		relayMsg := wCfg.GetRelay()
 		if relayMsg != nil {
+			// when we receive token we expect valid address list too
 			c := &auth.Token{
 				Payload:   relayMsg.GetTokenPayload(),
 				Signature: relayMsg.GetTokenSignature(),
@@ -546,9 +561,16 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 				log.Errorf("failed to update relay token: %v", err)
 				return fmt.Errorf("update relay token: %w", err)
 			}
+
+			e.relayManager.UpdateServerURLs(relayMsg.Urls)
+
+			// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
+			// We can ignore all errors because the guard will manage the reconnection retries.
+			_ = e.relayManager.Serve()
+		} else {
+			e.relayManager.UpdateServerURLs(nil)
 		}
 
-		// todo update relay address in the relay manager
 		// todo update signal
 	}
 
@@ -556,13 +578,22 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return err
 	}
 
-	if update.GetNetworkMap() != nil {
-		// only apply new changes and ignore old ones
-		err := e.updateNetworkMap(update.GetNetworkMap())
-		if err != nil {
-			return err
-		}
+	nm := update.GetNetworkMap()
+	if nm == nil {
+		return nil
 	}
+
+	// Store network map if persistence is enabled
+	if e.persistNetworkMap {
+		e.latestNetworkMap = nm
+		log.Debugf("network map persisted with serial %d", nm.GetSerial())
+	}
+
+	// only apply new changes and ignore old ones
+	if err := e.updateNetworkMap(nm); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1481,6 +1512,46 @@ func (e *Engine) stopDNSServer() {
 		nsGroupStates[i].Error = err
 	}
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
+}
+
+// SetNetworkMapPersistence enables or disables network map persistence
+func (e *Engine) SetNetworkMapPersistence(enabled bool) {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	if enabled == e.persistNetworkMap {
+		return
+	}
+	e.persistNetworkMap = enabled
+	log.Debugf("Network map persistence is set to %t", enabled)
+
+	if !enabled {
+		e.latestNetworkMap = nil
+	}
+}
+
+// GetLatestNetworkMap returns the stored network map if persistence is enabled
+func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	if !e.persistNetworkMap {
+		return nil, errors.New("network map persistence is disabled")
+	}
+
+	if e.latestNetworkMap == nil {
+		//nolint:nilnil
+		return nil, nil
+	}
+
+	// Create a deep copy to avoid external modifications
+	nm, ok := proto.Clone(e.latestNetworkMap).(*mgmProto.NetworkMap)
+	if !ok {
+
+		return nil, fmt.Errorf("failed to clone network map")
+	}
+
+	return nm, nil
 }
 
 // isChecksEqual checks if two slices of checks are equal.

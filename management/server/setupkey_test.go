@@ -210,22 +210,41 @@ func TestGetSetupKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "group_1",
-		Name:  "group_name_1",
-		Peers: []string{},
-	})
+	plainKey, err := manager.CreateSetupKey(context.Background(), account.Id, "key1", SetupKeyReusable, time.Hour, nil, SetupKeyUnlimitedUsage, userID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "group_2",
-		Name:  "group_name_2",
-		Peers: []string{},
-	})
-	if err != nil {
-		t.Fatal(err)
+	type testCase struct {
+		name            string
+		keyId           string
+		expectedFailure bool
+	}
+
+	testCase1 := testCase{
+		name:            "Should get existing Setup Key",
+		keyId:           plainKey.Id,
+		expectedFailure: false,
+	}
+	testCase2 := testCase{
+		name:            "Should fail to get non-existent Setup Key",
+		keyId:           "some key",
+		expectedFailure: true,
+	}
+
+	for _, tCase := range []testCase{testCase1, testCase2} {
+		t.Run(tCase.name, func(t *testing.T) {
+			key, err := manager.GetSetupKey(context.Background(), account.Id, userID, tCase.keyId)
+
+			if tCase.expectedFailure {
+				if err == nil {
+					t.Fatal("expected to fail")
+				}
+				return
+			}
+
+			assert.NotEqual(t, plainKey.Key, key.Key)
+		})
 	}
 }
 
@@ -387,8 +406,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	policy := Policy{
-		ID:      "policy",
+	policy := &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -400,7 +418,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 			},
 		},
 	}
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)

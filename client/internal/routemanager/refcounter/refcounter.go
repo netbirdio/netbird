@@ -71,11 +71,14 @@ func New[Key comparable, I, O any](add AddFunc[Key, I, O], remove RemoveFunc[Key
 }
 
 // LoadData loads the data from the existing counter
+// The passed counter should not be used any longer after calling this function.
 func (rm *Counter[Key, I, O]) LoadData(
 	existingCounter *Counter[Key, I, O],
 ) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
+	existingCounter.mu.Lock()
+	defer existingCounter.mu.Unlock()
 
 	rm.refCountMap = existingCounter.refCountMap
 	rm.idMap = existingCounter.idMap
@@ -231,6 +234,9 @@ func (rm *Counter[Key, I, O]) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements the json.Unmarshaler interface for Counter.
 func (rm *Counter[Key, I, O]) UnmarshalJSON(data []byte) error {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
 	var temp struct {
 		RefCountMap map[Key]Ref[O]   `json:"refCountMap"`
 		IDMap       map[string][]Key `json:"idMap"`
@@ -240,6 +246,13 @@ func (rm *Counter[Key, I, O]) UnmarshalJSON(data []byte) error {
 	}
 	rm.refCountMap = temp.RefCountMap
 	rm.idMap = temp.IDMap
+
+	if temp.RefCountMap == nil {
+		temp.RefCountMap = map[Key]Ref[O]{}
+	}
+	if temp.IDMap == nil {
+		temp.IDMap = map[string][]Key{}
+	}
 
 	return nil
 }

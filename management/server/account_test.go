@@ -6,13 +6,17 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -1038,7 +1042,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	}
 
 	b.Run("public without account ID", func(b *testing.B) {
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
 			if err != nil {
@@ -1048,7 +1052,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	})
 
 	b.Run("private without account ID", func(b *testing.B) {
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
 			if err != nil {
@@ -1059,7 +1063,7 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 
 	b.Run("private with account ID", func(b *testing.B) {
 		claims.AccountId = id
-		//b.ResetTimer()
+		// b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := am.getAccountIDWithAuthorizationClaims(context.Background(), claims)
 			if err != nil {
@@ -1238,8 +1242,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		return
 	}
 
-	policy := Policy{
-		ID:      "policy",
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -1250,8 +1253,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	}
-	err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false)
+	})
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -1320,19 +1322,6 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
-	policy := Policy{
-		Enabled: true,
-		Rules: []*PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"groupA"},
-				Destinations:  []string{"groupA"},
-				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
-			},
-		},
-	}
-
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -1345,7 +1334,19 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		}
 	}()
 
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	})
+	if err != nil {
 		t.Errorf("delete default rule: %v", err)
 		return
 	}
@@ -1366,7 +1367,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		return
 	}
 
-	policy := Policy{
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -1377,9 +1378,8 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	}
-
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+	})
+	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
 	}
@@ -1421,7 +1421,12 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 
 	require.NoError(t, err, "failed to save group")
 
-	policy := Policy{
+	if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
+
+	policy, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
@@ -1432,14 +1437,8 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	}
-
-	if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
-		t.Errorf("delete default rule: %v", err)
-		return
-	}
-
-	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy, false); err != nil {
+	})
+	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
 	}
@@ -2985,5 +2984,220 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) 
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Error("Timed out waiting for update message")
+	}
+}
+
+func BenchmarkSyncAndMarkPeer(b *testing.B) {
+	benchCases := []struct {
+		name   string
+		peers  int
+		groups int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
+	}{
+		{"Small", 50, 5, 1, 3, 4, 10},
+		{"Medium", 500, 100, 7, 13, 10, 60},
+		{"Large", 5000, 200, 65, 80, 60, 170},
+		{"Small single", 50, 10, 1, 3, 4, 60},
+		{"Medium single", 500, 10, 7, 13, 10, 26},
+		{"Large 5", 5000, 15, 65, 80, 60, 170},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+			ctx := context.Background()
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				b.Fatalf("Failed to get account: %v", err)
+			}
+			peerChannels := make(map[string]chan *UpdateMessage)
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+			manager.peersUpdateManager.peerChannels = peerChannels
+
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				_, _, _, err := manager.SyncAndMarkPeer(context.Background(), account.Id, account.Peers["peer-1"].Key, nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)}, net.IP{1, 1, 1, 1})
+				assert.NoError(b, err)
+			}
+
+			duration := time.Since(start)
+			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+			b.ReportMetric(msPerOp, "ms/op")
+
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
+			}
+
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			}
+		})
+	}
+}
+
+func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
+	benchCases := []struct {
+		name   string
+		peers  int
+		groups int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
+	}{
+		{"Small", 50, 5, 102, 110, 102, 120},
+		{"Medium", 500, 100, 105, 140, 105, 170},
+		{"Large", 5000, 200, 160, 200, 160, 270},
+		{"Small single", 50, 10, 102, 110, 102, 120},
+		{"Medium single", 500, 10, 105, 140, 105, 170},
+		{"Large 5", 5000, 15, 160, 200, 160, 270},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+			ctx := context.Background()
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				b.Fatalf("Failed to get account: %v", err)
+			}
+			peerChannels := make(map[string]chan *UpdateMessage)
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+			manager.peersUpdateManager.peerChannels = peerChannels
+
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				_, _, _, err := manager.LoginPeer(context.Background(), PeerLogin{
+					WireGuardPubKey: account.Peers["peer-1"].Key,
+					SSHKey:          "someKey",
+					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
+					UserID:          "regular_user",
+					SetupKey:        "",
+					ConnectionIP:    net.IP{1, 1, 1, 1},
+				})
+				assert.NoError(b, err)
+			}
+
+			duration := time.Since(start)
+			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+			b.ReportMetric(msPerOp, "ms/op")
+
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
+			}
+
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			}
+		})
+	}
+}
+
+func BenchmarkLoginPeer_NewPeer(b *testing.B) {
+	benchCases := []struct {
+		name   string
+		peers  int
+		groups int
+		// We need different expectations for CI/CD and local runs because of the different performance characteristics
+		minMsPerOpLocal float64
+		maxMsPerOpLocal float64
+		minMsPerOpCICD  float64
+		maxMsPerOpCICD  float64
+	}{
+		{"Small", 50, 5, 107, 120, 107, 140},
+		{"Medium", 500, 100, 105, 140, 105, 170},
+		{"Large", 5000, 200, 180, 220, 180, 320},
+		{"Small single", 50, 10, 107, 120, 105, 140},
+		{"Medium single", 500, 10, 105, 140, 105, 170},
+		{"Large 5", 5000, 15, 180, 220, 180, 320},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+			ctx := context.Background()
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				b.Fatalf("Failed to get account: %v", err)
+			}
+			peerChannels := make(map[string]chan *UpdateMessage)
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+			manager.peersUpdateManager.peerChannels = peerChannels
+
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				_, _, _, err := manager.LoginPeer(context.Background(), PeerLogin{
+					WireGuardPubKey: "some-new-key" + strconv.Itoa(i),
+					SSHKey:          "someKey",
+					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
+					UserID:          "regular_user",
+					SetupKey:        "",
+					ConnectionIP:    net.IP{1, 1, 1, 1},
+				})
+				assert.NoError(b, err)
+			}
+
+			duration := time.Since(start)
+			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+			b.ReportMetric(msPerOp, "ms/op")
+
+			minExpected := bc.minMsPerOpLocal
+			maxExpected := bc.maxMsPerOpLocal
+			if os.Getenv("CI") == "true" {
+				minExpected = bc.minMsPerOpCICD
+				maxExpected = bc.maxMsPerOpCICD
+			}
+
+			if msPerOp < minExpected {
+				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
+			}
+
+			if msPerOp > maxExpected {
+				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			}
+		})
 	}
 }

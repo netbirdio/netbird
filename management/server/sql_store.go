@@ -1186,6 +1186,7 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, lockStrength Lock
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
+	startTime := time.Now()
 	tx := s.db.Begin()
 	if tx.Error != nil {
 		return tx.Error
@@ -1196,7 +1197,15 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 		tx.Rollback()
 		return err
 	}
-	return tx.Commit().Error
+
+	err = tx.Commit().Error
+
+	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
+	}
+
+	return err
 }
 
 func (s *SqlStore) withTx(tx *gorm.DB) Store {
@@ -1216,9 +1225,10 @@ func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength Locki
 		First(&accountDNSSettings, idQueryCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "dns settings not found")
+			return nil, status.NewAccountNotFoundError(accountID)
 		}
-		return nil, status.Errorf(status.Internal, "failed to get dns settings from store: %v", result.Error)
+		log.WithContext(ctx).Errorf("failed to get dns settings from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get dns settings from store")
 	}
 	return &accountDNSSettings.DNSSettings, nil
 }
@@ -1301,8 +1311,8 @@ func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStren
 	var groups []*nbgroup.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to get groups by ID's from the store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from the store")
+		log.WithContext(ctx).Errorf("failed to get groups by ID's from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from store")
 	}
 
 	groupsMap := make(map[string]*nbgroup.Group)
@@ -1353,22 +1363,139 @@ func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, a
 
 // GetAccountPolicies retrieves policies for an account.
 func (s *SqlStore) GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error) {
-	return getRecords[*Policy](s.db.Preload(clause.Associations), lockStrength, accountID)
+	var policies []*Policy
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Preload(clause.Associations).Find(&policies, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get policies from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get policies from store")
+	}
+
+	return policies, nil
 }
 
 // GetPolicyByID retrieves a policy by its ID and account ID.
-func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, policyID string, accountID string) (*Policy, error) {
-	return getRecordByID[Policy](s.db.Preload(clause.Associations), lockStrength, policyID, accountID)
+func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error) {
+	var policy *Policy
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations).
+		First(&policy, accountAndIDQueryCondition, accountID, policyID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.NewPolicyNotFoundError(policyID)
+		}
+		log.WithContext(ctx).Errorf("failed to get policy from store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get policy from store")
+	}
+
+	return policy, nil
+}
+
+func (s *SqlStore) CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Create(policy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create policy in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to create policy in store")
+	}
+
+	return nil
+}
+
+// SavePolicy saves a policy to the database.
+func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error {
+	result := s.db.Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).Save(policy)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save policy to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save policy to store")
+	}
+	return nil
+}
+
+func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&Policy{}, accountAndIDQueryCondition, accountID, policyID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete policy from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewPolicyNotFoundError(policyID)
+	}
+
+	return nil
 }
 
 // GetAccountPostureChecks retrieves posture checks for an account.
 func (s *SqlStore) GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error) {
-	return getRecords[*posture.Checks](s.db, lockStrength, accountID)
+	var postureChecks []*posture.Checks
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&postureChecks, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get posture checks from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get posture checks from store")
+	}
+
+	return postureChecks, nil
 }
 
 // GetPostureChecksByID retrieves posture checks by their ID and account ID.
-func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, postureCheckID string, accountID string) (*posture.Checks, error) {
-	return getRecordByID[posture.Checks](s.db, lockStrength, postureCheckID, accountID)
+func (s *SqlStore) GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) (*posture.Checks, error) {
+	var postureCheck *posture.Checks
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&postureCheck, accountAndIDQueryCondition, accountID, postureChecksID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewPostureChecksNotFoundError(postureChecksID)
+		}
+		log.WithContext(ctx).Errorf("failed to get posture check from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get posture check from store")
+	}
+
+	return postureCheck, nil
+}
+
+// GetPostureChecksByIDs retrieves posture checks by their IDs and account ID.
+func (s *SqlStore) GetPostureChecksByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, postureChecksIDs []string) (map[string]*posture.Checks, error) {
+	var postureChecks []*posture.Checks
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&postureChecks, accountAndIDsQueryCondition, accountID, postureChecksIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get posture checks by ID's from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get posture checks by ID's from store")
+	}
+
+	postureChecksMap := make(map[string]*posture.Checks)
+	for _, postureCheck := range postureChecks {
+		postureChecksMap[postureCheck.ID] = postureCheck
+	}
+
+	return postureChecksMap, nil
+}
+
+// SavePostureChecks saves a posture checks to the database.
+func (s *SqlStore) SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(postureCheck)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save posture checks to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save posture checks to store")
+	}
+
+	return nil
+}
+
+// DeletePostureChecks deletes a posture checks from the database.
+func (s *SqlStore) DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&posture.Checks{}, accountAndIDQueryCondition, accountID, postureChecksID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete posture checks from store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to delete posture checks from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewPostureChecksNotFoundError(postureChecksID)
+	}
+
+	return nil
 }
 
 // GetAccountRoutes retrieves network routes for an account.
@@ -1438,12 +1565,55 @@ func (s *SqlStore) DeleteSetupKey(ctx context.Context, lockStrength LockingStren
 
 // GetAccountNameServerGroups retrieves name server groups for an account.
 func (s *SqlStore) GetAccountNameServerGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbdns.NameServerGroup, error) {
-	return getRecords[*nbdns.NameServerGroup](s.db, lockStrength, accountID)
+	var nsGroups []*nbdns.NameServerGroup
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&nsGroups, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get name server groups from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get name server groups from store")
+	}
+
+	return nsGroups, nil
 }
 
 // GetNameServerGroupByID retrieves a name server group by its ID and account ID.
-func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, nsGroupID string, accountID string) (*nbdns.NameServerGroup, error) {
-	return getRecordByID[nbdns.NameServerGroup](s.db, lockStrength, nsGroupID, accountID)
+func (s *SqlStore) GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
+	var nsGroup *nbdns.NameServerGroup
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&nsGroup, accountAndIDQueryCondition, accountID, nsGroupID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.NewNameServerGroupNotFoundError(nsGroupID)
+		}
+		log.WithContext(ctx).Errorf("failed to get name server group from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get name server group from store")
+	}
+
+	return nsGroup, nil
+}
+
+// SaveNameServerGroup saves a name server group to the database.
+func (s *SqlStore) SaveNameServerGroup(ctx context.Context, lockStrength LockingStrength, nameServerGroup *nbdns.NameServerGroup) error {
+	result := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(lockStrength)}).Save(nameServerGroup)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save name server group to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save name server group to store")
+	}
+	return nil
+}
+
+// DeleteNameServerGroup deletes a name server group from the database.
+func (s *SqlStore) DeleteNameServerGroup(ctx context.Context, lockStrength LockingStrength, accountID, nsGroupID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Delete(&nbdns.NameServerGroup{}, accountAndIDQueryCondition, accountID, nsGroupID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete name server group from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete name server group from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewNameServerGroupNotFoundError(nsGroupID)
+	}
+
+	return nil
 }
 
 // getRecords retrieves records from the database based on the account ID.
@@ -1477,4 +1647,20 @@ func getRecordByID[T any](db *gorm.DB, lockStrength LockingStrength, recordID, a
 		return nil, status.Errorf(status.Internal, "failed to get %s from store: %v", recordType, err)
 	}
 	return &record, nil
+}
+
+// SaveDNSSettings saves the DNS settings to the store.
+func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *DNSSettings) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&Account{}).
+		Where(idQueryCondition, accountID).Updates(&AccountDNSSettings{DNSSettings: *settings})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save dns settings to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save dns settings to store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+
+	return nil
 }
