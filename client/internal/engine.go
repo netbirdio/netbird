@@ -276,6 +276,10 @@ func (e *Engine) Stop() error {
 		e.srWatcher.Close()
 	}
 
+	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
+	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
+	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
+
 	err := e.removeAllPeers()
 	if err != nil {
 		return fmt.Errorf("failed to remove all peers: %s", err)
