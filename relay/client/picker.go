@@ -124,7 +124,9 @@ func (sp *ServerPicker) processConnResults(resultChan chan connResult, successCh
 		bestLatencyResult = cr
 	}
 
-	processingCtxCancel()
+	if processingCtxCancel != nil {
+		processingCtxCancel()
+	}
 	if successChan == nil {
 		return
 	}
