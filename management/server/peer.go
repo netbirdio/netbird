@@ -828,7 +828,12 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		return nil, nil, nil, err
 	}
 
-	if updateRemotePeers || isStatusChanged {
+	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if updateRemotePeers || isStatusChanged || (updated && len(postureChecks) > 0) {
 		am.updateAccountPeers(ctx, accountID)
 	}
 
