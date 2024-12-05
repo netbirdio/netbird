@@ -710,26 +710,30 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
 }
 
+func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, login PeerLogin, err error) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
+	if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+		// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
+		// Try registering it.
+		newPeer := &nbpeer.Peer{
+			Key:      login.WireGuardPubKey,
+			Meta:     login.Meta,
+			SSHKey:   login.SSHKey,
+			Location: nbpeer.Location{ConnectionIP: login.ConnectionIP},
+		}
+
+		return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
+	}
+
+	log.WithContext(ctx).Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
+	return nil, nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
+}
+
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
-		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
-			// Try registering it.
-			newPeer := &nbpeer.Peer{
-				Key:      login.WireGuardPubKey,
-				Meta:     login.Meta,
-				SSHKey:   login.SSHKey,
-				Location: nbpeer.Location{ConnectionIP: login.ConnectionIP},
-			}
-
-			return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
-		}
-
-		log.WithContext(ctx).Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
-		return nil, nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
+		return am.handlePeerLoginNotFound(ctx, login, err)
 	}
 
 	// when the client sends a login request with a JWT which is used to get the user ID,
