@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"os"
 	"reflect"
 	"runtime"
 	"slices"
@@ -242,6 +243,21 @@ func NewEngineWithProbes(
 		statusRecorder: statusRecorder,
 		probes:         probes,
 		checks:         checks,
+	}
+	if runtime.GOOS == "ios" {
+		if !fileExists(mobileDep.StateFilePath) {
+			file, err := os.Create(mobileDep.StateFilePath)
+			if err != nil {
+				log.Errorf("failed to create state file: %v", err)
+			}
+			err = file.Close()
+			if err != nil {
+				log.Errorf("failed to close state file: %v", err)
+				return nil
+			}
+		}
+
+		engine.stateManager = statemanager.New(mobileDep.StateFilePath)
 	}
 	if path := statemanager.GetDefaultStatePath(); path != "" {
 		engine.stateManager = statemanager.New(path)

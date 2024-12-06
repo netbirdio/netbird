@@ -59,6 +59,7 @@ func init() {
 // Client struct manage the life circle of background service
 type Client struct {
 	cfgFile               string
+	stateFile             string
 	recorder              *peer.Status
 	ctxCancel             context.CancelFunc
 	ctxCancelLock         *sync.Mutex
@@ -73,9 +74,10 @@ type Client struct {
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
+func NewClient(cfgFile, stateFile, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
 	return &Client{
 		cfgFile:               cfgFile,
+		stateFile:             stateFile,
 		deviceName:            deviceName,
 		osName:                osName,
 		osVersion:             osVersion,
@@ -91,7 +93,8 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
-		ConfigPath: c.cfgFile,
+		ConfigPath:    c.cfgFile,
+		StateFilePath: c.stateFile,
 	})
 	if err != nil {
 		return err
@@ -124,7 +127,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	cfg.WgIface = interfaceName
 
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager)
+	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile)
 }
 
 // Stop the internal client and free the resources
