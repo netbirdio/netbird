@@ -27,16 +27,14 @@ func (a Addr) String() string {
 }
 
 type Conn struct {
-	session    quic.Connection
-	remoteAddr Addr
-	ctx        context.Context
+	session quic.Connection
+	ctx     context.Context
 }
 
-func NewConn(session quic.Connection, serverAddress string) net.Conn {
+func NewConn(session quic.Connection) net.Conn {
 	return &Conn{
-		session:    session,
-		remoteAddr: Addr{addr: serverAddress},
-		ctx:        context.Background(),
+		session: session,
+		ctx:     context.Background(),
 	}
 }
 
@@ -61,10 +59,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	if c.session != nil {
-		return c.session.RemoteAddr()
-	}
-	return c.remoteAddr
+	return c.session.RemoteAddr()
 }
 
 func (c *Conn) LocalAddr() net.Addr {

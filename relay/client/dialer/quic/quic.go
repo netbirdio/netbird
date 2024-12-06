@@ -55,7 +55,7 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	conn := NewConn(session, address)
+	conn := NewConn(session)
 	return conn, nil
 }
 
