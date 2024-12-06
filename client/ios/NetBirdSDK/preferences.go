@@ -10,9 +10,10 @@ type Preferences struct {
 }
 
 // NewPreferences create new Preferences instance
-func NewPreferences(configPath string) *Preferences {
+func NewPreferences(configPath string, stateFilePath string) *Preferences {
 	ci := internal.ConfigInput{
-		ConfigPath: configPath,
+		ConfigPath:    configPath,
+		StateFilePath: stateFilePath,
 	}
 	return &Preferences{ci}
 }

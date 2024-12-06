@@ -243,6 +243,17 @@ func NewEngineWithProbes(
 		probes:         probes,
 		checks:         checks,
 	}
+	if runtime.GOOS == "ios" {
+		if !fileExists(mobileDep.StateFilePath) {
+			err := createFile(mobileDep.StateFilePath)
+			if err != nil {
+				log.Errorf("failed to create state file: %v", err)
+				// we are not exiting as we can run without the state manager
+			}
+		}
+
+		engine.stateManager = statemanager.New(mobileDep.StateFilePath)
+	}
 	if path := statemanager.GetDefaultStatePath(); path != "" {
 		engine.stateManager = statemanager.New(path)
 	}
