@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -31,7 +30,7 @@ func NewConn(session quic.Connection) *Conn {
 
 func (c *Conn) Read(b []byte) (n int, err error) {
 	if c.isClosed() {
-		return 0, io.EOF
+		return 0, net.ErrClosed
 	}
 
 	dgram, err := c.session.ReceiveDatagram(c.ctx)
