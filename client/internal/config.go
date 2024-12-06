@@ -478,6 +478,14 @@ func fileExists(path string) bool {
 	return !os.IsNotExist(err)
 }
 
+func createFile(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
 // UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.
 // If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
 // The check is performed only for the NetBird's managed version.

@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"os"
 	"reflect"
 	"runtime"
 	"slices"
@@ -246,14 +245,10 @@ func NewEngineWithProbes(
 	}
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
-			file, err := os.Create(mobileDep.StateFilePath)
+			err := createFile(mobileDep.StateFilePath)
 			if err != nil {
 				log.Errorf("failed to create state file: %v", err)
-			}
-			err = file.Close()
-			if err != nil {
-				log.Errorf("failed to close state file: %v", err)
-				return nil
+				// we are not exiting as we can run without the state manager
 			}
 		}
 
