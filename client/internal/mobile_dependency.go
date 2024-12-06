@@ -19,4 +19,5 @@ type MobileDependency struct {
 	//	iOS only
 	DnsManager     dns.IosDnsManager
 	FileDescriptor int32
+	StateFilePath  string
 }
