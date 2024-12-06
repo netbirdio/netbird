@@ -2,12 +2,15 @@ package quic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
 
 	"github.com/quic-go/quic-go"
 	log "github.com/sirupsen/logrus"
+
+	netErr "github.com/netbirdio/netbird/relay/client/dialer/net"
 )
 
 const (
@@ -41,8 +44,7 @@ func NewConn(session quic.Connection) net.Conn {
 func (c *Conn) Read(b []byte) (n int, err error) {
 	dgram, err := c.session.ReceiveDatagram(c.ctx)
 	if err != nil {
-		log.Errorf("failed to read from QUIC session: %v", err)
-		return 0, err
+		return 0, c.remoteCloseErrHandling(err)
 	}
 
 	n = copy(b, dgram)
@@ -52,6 +54,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 func (c *Conn) Write(b []byte) (int, error) {
 	err := c.session.SendDatagram(b)
 	if err != nil {
+		err = c.remoteCloseErrHandling(err)
 		log.Errorf("failed to write to QUIC stream: %v", err)
 		return 0, err
 	}
@@ -78,10 +81,17 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
-
 	return nil
 }
 
 func (c *Conn) Close() error {
 	return c.session.CloseWithError(0, "normal closure")
+}
+
+func (c *Conn) remoteCloseErrHandling(err error) error {
+	var appErr *quic.ApplicationError
+	if errors.As(err, &appErr) && appErr.ErrorCode == 0x0 {
+		return netErr.ErrClosedByServer
+	}
+	return err
 }

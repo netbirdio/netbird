@@ -29,13 +29,9 @@ func NewConn(session quic.Connection) *Conn {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
-	if c.isClosed() {
-		return 0, net.ErrClosed
-	}
-
 	dgram, err := c.session.ReceiveDatagram(c.ctx)
 	if err != nil {
-		return 0, c.ioErrHandling(err)
+		return 0, c.remoteCloseErrHandling(err)
 	}
 	// Copy data to b, ensuring we don’t exceed the size of b
 	n = copy(b, dgram)
@@ -43,8 +39,10 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Write(b []byte) (int, error) {
-	err := c.session.SendDatagram(b)
-	return len(b), err
+	if err := c.session.SendDatagram(b); err != nil {
+		return 0, c.remoteCloseErrHandling(err)
+	}
+	return len(b), nil
 }
 
 func (c *Conn) LocalAddr() net.Addr {
@@ -88,19 +86,14 @@ func (c *Conn) isClosed() bool {
 	return c.closed
 }
 
-func (c *Conn) ioErrHandling(err error) error {
+func (c *Conn) remoteCloseErrHandling(err error) error {
 	if c.isClosed() {
 		return net.ErrClosed
 	}
 
-	// Handle QUIC-specific errors
-	if err == nil {
-		return nil
-	}
-
 	// Check if the connection was closed remotely
 	var appErr *quic.ApplicationError
-	if errors.As(err, &appErr) && appErr.ErrorCode == 0 { // 0 is normal closure
+	if errors.As(err, &appErr) && appErr.ErrorCode == 0x0 {
 		return net.ErrClosed
 	}
 

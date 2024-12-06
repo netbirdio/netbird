@@ -91,14 +91,14 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 // Shutdown stops the relay server. If there are active connections, they will be closed gracefully. In case of a context,
 // the connections will be forcefully closed.
 func (r *Server) Shutdown(ctx context.Context) error {
+	r.relay.Shutdown(ctx)
+
 	var multiErr *multierror.Error
 	for _, l := range r.listeners {
 		if err := l.Shutdown(ctx); err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
-
-	r.relay.Shutdown(ctx)
 	return nberrors.FormatErrorOrNil(multiErr)
 }
 
