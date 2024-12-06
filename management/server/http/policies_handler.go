@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -120,16 +121,21 @@ func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID 
 		return
 	}
 
+	description := ""
+	if req.Description != nil {
+		description = *req.Description
+	}
+
 	policy := &server.Policy{
 		ID:          policyID,
 		AccountID:   accountID,
 		Name:        req.Name,
 		Enabled:     req.Enabled,
-		Description: req.Description,
+		Description: description,
 	}
 	for _, rule := range req.Rules {
 		var ruleID string
-		if rule.Id != nil {
+		if rule.Id != nil && policyID != "" {
 			ruleID = *rule.Id
 		}
 
@@ -316,7 +322,7 @@ func toPolicyResponse(groups []*nbgroup.Group, policy *server.Policy) *api.Polic
 	ap := &api.Policy{
 		Id:                  &policy.ID,
 		Name:                policy.Name,
-		Description:         policy.Description,
+		Description:         &policy.Description,
 		Enabled:             policy.Enabled,
 		SourcePostureChecks: policy.SourcePostureChecks,
 	}
