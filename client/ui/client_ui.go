@@ -572,6 +572,7 @@ func (s *serviceClient) onTrayReady() {
 	s.update.SetOnUpdateListener(s.onUpdateAvailable)
 	go func() {
 		s.getSrvConfig()
+		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
 		for {
 			err := s.updateStatus()
 			if err != nil {
