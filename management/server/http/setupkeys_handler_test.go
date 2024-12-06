@@ -28,6 +28,30 @@ const (
 	notFoundSetupKeyID  = "notFoundSetupKeyID"
 )
 
+const (
+	testAccountId = "testAccountId"
+	testPeerId    = "testPeerId"
+	testGroupId   = "testGroupId"
+	testKeyId     = "testKeyId"
+
+	testUserId         = "testUserId"
+	testAdminId        = "testAdminId"
+	testOwnerId        = "testOwnerId"
+	testServiceUserId  = "testServiceUserId"
+	testServiceAdminId = "testServiceAdminId"
+	blockedUserId      = "blockedUserId"
+	otherUserId        = "otherUserId"
+	invalidToken       = "invalidToken"
+
+	newKeyName   = "newKey"
+	newGroupId   = "newGroupId"
+	expiresIn    = 3600
+	revokedKeyId = "revokedKeyId"
+	expiredKeyId = "expiredKeyId"
+
+	existingKeyName = "existingKey"
+)
+
 func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey,
 	user *server.User,
 ) *SetupKeysHandler {
@@ -227,7 +251,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 func assertKeys(t *testing.T, got *api.SetupKey, expected *api.SetupKey) {
 	t.Helper()
 	// this comparison is done manually because when converting to JSON dates formatted differently
-	// assert.Equal(t, got.UpdatedAt, tc.expectedSetupKey.UpdatedAt) //doesn't work
+	// assert.Equal(t, got.UpdatedAt, tc.expectedResponse.UpdatedAt) //doesn't work
 	assert.WithinDurationf(t, got.UpdatedAt, expected.UpdatedAt, 0, "")
 	assert.WithinDurationf(t, got.Expires, expected.Expires, 0, "")
 	assert.Equal(t, got.Name, expected.Name)

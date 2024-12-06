@@ -18,12 +18,12 @@ import (
 // PostureChecksHandler is a handler that returns posture checks of the account.
 type PostureChecksHandler struct {
 	accountManager     server.AccountManager
-	geolocationManager *geolocation.Geolocation
+	geolocationManager geolocation.Geolocation
 	claimsExtractor    *jwtclaims.ClaimsExtractor
 }
 
 // NewPostureChecksHandler creates a new PostureChecks handler
-func NewPostureChecksHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *PostureChecksHandler {
+func NewPostureChecksHandler(accountManager server.AccountManager, geolocationManager geolocation.Geolocation, authCfg AuthCfg) *PostureChecksHandler {
 	return &PostureChecksHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,

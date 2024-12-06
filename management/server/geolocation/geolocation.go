@@ -14,7 +14,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type Geolocation struct {
+type Geolocation interface {
+	Lookup(ip net.IP) (*Record, error)
+	GetAllCountries() ([]Country, error)
+	GetCitiesByCountry(countryISOCode string) ([]City, error)
+	Stop() error
+}
+
+type geolocationImpl struct {
 	mmdbPath   string
 	mux        sync.RWMutex
 	db         *maxminddb.Reader
@@ -54,7 +61,7 @@ const (
 	geonamesdbPattern = "geonames_*.db"
 )
 
-func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool) (*Geolocation, error) {
+func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool) (Geolocation, error) {
 	mmdbGlobPattern := filepath.Join(dataDir, mmdbPattern)
 	mmdbFile, err := getDatabaseFilename(ctx, geoLiteCityTarGZURL, mmdbGlobPattern, autoUpdate)
 	if err != nil {
@@ -86,7 +93,7 @@ func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool) (*Geol
 		return nil, err
 	}
 
-	geo := &Geolocation{
+	geo := &geolocationImpl{
 		mmdbPath:   mmdbPath,
 		mux:        sync.RWMutex{},
 		db:         db,
@@ -113,7 +120,7 @@ func openDB(mmdbPath string) (*maxminddb.Reader, error) {
 	return db, nil
 }
 
-func (gl *Geolocation) Lookup(ip net.IP) (*Record, error) {
+func (gl *geolocationImpl) Lookup(ip net.IP) (*Record, error) {
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
 
@@ -127,7 +134,7 @@ func (gl *Geolocation) Lookup(ip net.IP) (*Record, error) {
 }
 
 // GetAllCountries retrieves a list of all countries.
-func (gl *Geolocation) GetAllCountries() ([]Country, error) {
+func (gl *geolocationImpl) GetAllCountries() ([]Country, error) {
 	allCountries, err := gl.locationDB.GetAllCountries()
 	if err != nil {
 		return nil, err
@@ -143,7 +150,7 @@ func (gl *Geolocation) GetAllCountries() ([]Country, error) {
 }
 
 // GetCitiesByCountry retrieves a list of cities in a specific country based on the country's ISO code.
-func (gl *Geolocation) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+func (gl *geolocationImpl) GetCitiesByCountry(countryISOCode string) ([]City, error) {
 	allCities, err := gl.locationDB.GetCitiesByCountry(countryISOCode)
 	if err != nil {
 		return nil, err
@@ -158,7 +165,7 @@ func (gl *Geolocation) GetCitiesByCountry(countryISOCode string) ([]City, error)
 	return cities, nil
 }
 
-func (gl *Geolocation) Stop() error {
+func (gl *geolocationImpl) Stop() error {
 	close(gl.stopCh)
 	if gl.db != nil {
 		if err := gl.db.Close(); err != nil {
@@ -257,5 +264,23 @@ func cleanupMaxMindDatabases(ctx context.Context, dataDir string, mmdbFile strin
 			}
 		}
 	}
+	return nil
+}
+
+type Mock struct{}
+
+func (g *Mock) Lookup(ip net.IP) (*Record, error) {
+	return &Record{}, nil
+}
+
+func (g *Mock) GetAllCountries() ([]Country, error) {
+	return []Country{}, nil
+}
+
+func (g *Mock) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+	return []City{}, nil
+}
+
+func (g *Mock) Stop() error {
 	return nil
 }
