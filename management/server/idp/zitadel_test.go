@@ -313,8 +313,8 @@ func TestZitadelProfile(t *testing.T) {
 					DisplayName: "ZITADEL Admin",
 				},
 				Email: zitadelEmail{
-					Email:           "test1@mail.com",
-					IsEmailVerified: true,
+					Email:      "test1@mail.com",
+					IsVerified: true,
 				},
 			},
 		},

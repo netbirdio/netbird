@@ -48,8 +48,8 @@ type ZitadelCredentials struct {
 
 // zitadelEmail specifies details of a user email.
 type zitadelEmail struct {
-	Email           string `json:"email"`
-	IsEmailVerified bool   `json:"isEmailVerified"`
+	Email      string `json:"email"`
+	IsVerified bool   `json:"isVerified"`
 }
 
 // zitadelUserInfo specifies user information.
@@ -70,7 +70,7 @@ type zitadelAttributes map[string][]map[string]any
 
 // zitadelProfile represents an zitadel user profile response.
 type zitadelProfile struct {
-	ID                 string       `json:"id"`
+	ID                 string       `json:"userId"`
 	State              string       `json:"state"`
 	UserName           string       `json:"userName"`
 	PreferredLoginName string       `json:"preferredLoginName"`
@@ -86,17 +86,12 @@ type zitadelUserDetails struct {
 	ResourceOwner string
 }
 
-// zitadelPasswordlessRegistration represents the information for the user to complete signup
-type zitadelPasswordlessRegistration struct {
-	Link       string `json:"link"`
-	Expiration string `json:"expiration"` // ex: 3600s
-}
-
 // zitadelUser represents an zitadel create user response
 type zitadelUserResponse struct {
-	UserId                   string                          `json:"userId"`
-	Details                  zitadelUserDetails              `json:"details"`
-	PasswordlessRegistration zitadelPasswordlessRegistration `json:"passwordlessRegistration"`
+	UserId    string             `json:"userId"`
+	Details   zitadelUserDetails `json:"details"`
+	EmailCode string             `json:"emailCode"`
+	PhoneCode string             `json:"PhoneCode"`
 }
 
 // readZitadelError parses errors returned by the zitadel APIs from a response.
@@ -292,16 +287,14 @@ func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID
 	var addUser = map[string]any{
 		"userName": email,
 		"profile": map[string]string{
-			"firstName":   firstLast[0],
-			"lastName":    firstLast[0],
+			"givenName":   firstLast[0],
+			"familyName":  firstLast[0],
 			"displayName": name,
 		},
 		"email": map[string]any{
-			"email":           email,
-			"isEmailVerified": false,
+			"email":      email,
+			"isVerified": false,
 		},
-		"passwordChangeRequired":          true,
-		"requestPasswordlessRegistration": false, // let Zitadel send the invite for us
 	}
 
 	payload, err := zm.helper.Marshal(addUser)
@@ -309,7 +302,7 @@ func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID
 		return nil, err
 	}
 
-	body, err := zm.post(ctx, "users/human/_import", string(payload))
+	body, err := zm.post(ctx, "users/human", string(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +349,7 @@ func (zm *ZitadelManager) GetUserByEmail(ctx context.Context, email string) ([]*
 		return nil, err
 	}
 
-	body, err := zm.post(ctx, "users/_search", string(payload))
+	body, err := zm.post(ctx, "users", string(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +397,7 @@ func (zm *ZitadelManager) GetUserDataByID(ctx context.Context, userID string, ap
 
 // GetAccount returns all the users for a given profile.
 func (zm *ZitadelManager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
-	body, err := zm.post(ctx, "users/_search", "")
+	body, err := zm.post(ctx, "users", "")
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +426,7 @@ func (zm *ZitadelManager) GetAccount(ctx context.Context, accountID string) ([]*
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (zm *ZitadelManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
-	body, err := zm.post(ctx, "users/_search", "")
+	body, err := zm.post(ctx, "users", "")
 	if err != nil {
 		return nil, err
 	}
@@ -463,16 +456,12 @@ func (zm *ZitadelManager) UpdateUserAppMetadata(_ context.Context, _ string, _ A
 	return nil
 }
 
-type inviteUserRequest struct {
-	Email string `json:"email"`
-}
+type inviteUserRequest struct{}
 
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
 func (zm *ZitadelManager) InviteUserByID(ctx context.Context, userID string) error {
-	inviteUser := inviteUserRequest{
-		Email: userID,
-	}
+	inviteUser := inviteUserRequest{}
 
 	payload, err := zm.helper.Marshal(inviteUser)
 	if err != nil {
@@ -480,7 +469,7 @@ func (zm *ZitadelManager) InviteUserByID(ctx context.Context, userID string) err
 	}
 
 	// don't care about the body in the response
-	_, err = zm.post(ctx, fmt.Sprintf("users/%s/_resend_initialization", userID), string(payload))
+	_, err = zm.post(ctx, fmt.Sprintf("users/%s/invite_code/resend", userID), string(payload))
 	return err
 }
 
