@@ -417,25 +417,82 @@ func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string,
 			continue
 		}
 
-		policies := getAllRoutePoliciesFromGroups(a, route.AccessControlGroups)
-		for _, policy := range policies {
-			if !policy.Enabled {
-				continue
-			}
+		distributionPeers := a.getDistributionGroupsPeers(route)
 
-			for _, rule := range policy.Rules {
-				if !rule.Enabled {
-					continue
-				}
-
-				distributionGroupPeers, _ := a.getAllPeersFromGroups(ctx, route.Groups, peerID, nil, validatedPeersMap)
-				rules := generateRouteFirewallRules(ctx, route, rule, distributionGroupPeers, firewallRuleDirectionIN)
-				routesFirewallRules = append(routesFirewallRules, rules...)
-			}
+		for _, accessGroup := range route.AccessControlGroups {
+			policies := getAllRoutePoliciesFromGroups(a, []string{accessGroup})
+			rules := a.getRouteFirewallRules(ctx, peerID, policies, route, validatedPeersMap, distributionPeers)
+			routesFirewallRules = append(routesFirewallRules, rules...)
 		}
 	}
 
 	return routesFirewallRules
+}
+
+func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, policies []*Policy, route *route.Route, validatedPeersMap map[string]struct{}, distributionPeers map[string]struct{}) []*RouteFirewallRule {
+	var fwRules []*RouteFirewallRule
+	for _, policy := range policies {
+		if !policy.Enabled {
+			continue
+		}
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			rulePeers := a.getRulePeers(rule, peerID, distributionPeers, validatedPeersMap)
+			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, firewallRuleDirectionIN)
+			fwRules = append(fwRules, rules...)
+		}
+	}
+	return fwRules
+}
+
+func (a *Account) getRulePeers(rule *PolicyRule, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
+	distPeersWithPolicy := make(map[string]struct{})
+	for _, id := range rule.Sources {
+		group := a.Groups[id]
+		if group == nil {
+			continue
+		}
+
+		for _, pID := range group.Peers {
+			if pID == peerID {
+				continue
+			}
+			_, distPeer := distributionPeers[pID]
+			_, valid := validatedPeersMap[pID]
+			if distPeer && valid {
+				distPeersWithPolicy[pID] = struct{}{}
+			}
+		}
+	}
+
+	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
+	for pID := range distPeersWithPolicy {
+		peer := a.Peers[pID]
+		if peer == nil {
+			continue
+		}
+		distributionGroupPeers = append(distributionGroupPeers, peer)
+	}
+	return distributionGroupPeers
+}
+
+func (a *Account) getDistributionGroupsPeers(route *route.Route) map[string]struct{} {
+	distPeers := make(map[string]struct{})
+	for _, id := range route.Groups {
+		group := a.Groups[id]
+		if group == nil {
+			continue
+		}
+
+		for _, pID := range group.Peers {
+			distPeers[pID] = struct{}{}
+		}
+	}
+	return distPeers
 }
 
 func getDefaultPermit(route *route.Route) []*RouteFirewallRule {

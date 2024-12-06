@@ -68,15 +68,33 @@ func TestAnonymizeDomain(t *testing.T) {
 			true,
 		},
 		{
+			"Domain with Trailing Dot",
+			"example.com.",
+			`^anon-[a-zA-Z0-9]+\.domain.$`,
+			true,
+		},
+		{
 			"Subdomain",
 			"sub.example.com",
 			`^sub\.anon-[a-zA-Z0-9]+\.domain$`,
 			true,
 		},
 		{
+			"Subdomain with Trailing Dot",
+			"sub.example.com.",
+			`^sub\.anon-[a-zA-Z0-9]+\.domain.$`,
+			true,
+		},
+		{
 			"Protected Domain",
 			"netbird.io",
 			`^netbird\.io$`,
+			false,
+		},
+		{
+			"Protected Domain with Trailing Dot",
+			"netbird.io.",
+			`^netbird\.io.$`,
 			false,
 		},
 	}
@@ -140,8 +158,16 @@ func TestAnonymizeSchemeURI(t *testing.T) {
 		expect string
 	}{
 		{"STUN URI in text", "Connection made via stun:example.com", `Connection made via stun:anon-[a-zA-Z0-9]+\.domain`},
+		{"STUNS URI in message", "Secure connection to stuns:example.com:443", `Secure connection to stuns:anon-[a-zA-Z0-9]+\.domain:443`},
 		{"TURN URI in log", "Failed attempt turn:some.example.com:3478?transport=tcp: retrying", `Failed attempt turn:some.anon-[a-zA-Z0-9]+\.domain:3478\?transport=tcp: retrying`},
+		{"TURNS URI in message", "Secure connection to turns:example.com:5349", `Secure connection to turns:anon-[a-zA-Z0-9]+\.domain:5349`},
+		{"HTTP URI in text", "Visit http://example.com for more", `Visit http://anon-[a-zA-Z0-9]+\.domain for more`},
+		{"HTTPS URI in CAPS", "Visit HTTPS://example.com for more", `Visit https://anon-[a-zA-Z0-9]+\.domain for more`},
 		{"HTTPS URI in message", "Visit https://example.com for more", `Visit https://anon-[a-zA-Z0-9]+\.domain for more`},
+		{"WS URI in log", "Connection established to ws://example.com:8080", `Connection established to ws://anon-[a-zA-Z0-9]+\.domain:8080`},
+		{"WSS URI in message", "Secure connection to wss://example.com", `Secure connection to wss://anon-[a-zA-Z0-9]+\.domain`},
+		{"Rel URI in text", "Relaying to rel://example.com", `Relaying to rel://anon-[a-zA-Z0-9]+\.domain`},
+		{"Rels URI in message", "Relaying to rels://example.com", `Relaying to rels://anon-[a-zA-Z0-9]+\.domain`},
 	}
 
 	for _, tc := range tests {

@@ -21,7 +21,7 @@ type MockManager struct {
 	StopFunc             func(manager *statemanager.Manager)
 }
 
-func (m *MockManager) Init(*statemanager.Manager) (net.AddHookFunc, net.RemoveHookFunc, error) {
+func (m *MockManager) Init() (net.AddHookFunc, net.RemoveHookFunc, error) {
 	return nil, nil, nil
 }
 

@@ -496,7 +496,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			setupKeyName = sk.Name
 		}
 
-		if strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad" && userID != "" {
+		if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 			if am.idpManager != nil {
 				userdata, err := am.idpManager.GetUserDataByID(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
 				if err == nil && userdata != nil {
@@ -701,11 +701,34 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, err
 	}
 
-	if isStatusChanged || (updated && sync.UpdateAccountPeers) {
+	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if isStatusChanged || (updated && sync.UpdateAccountPeers) || (updated && len(postureChecks) > 0){
 		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return am.getValidatedPeerWithMap(ctx, peerNotValid, accountID, peer)
+}
+
+func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, login PeerLogin, err error) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
+	if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+		// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
+		// Try registering it.
+		newPeer := &nbpeer.Peer{
+			Key:      login.WireGuardPubKey,
+			Meta:     login.Meta,
+			SSHKey:   login.SSHKey,
+			Location: nbpeer.Location{ConnectionIP: login.ConnectionIP},
+		}
+
+		return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
+	}
+
+	log.WithContext(ctx).Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
+	return nil, nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
 }
 
 // LoginPeer logs in or registers a peer.
@@ -713,21 +736,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
-		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
-			// Try registering it.
-			newPeer := &nbpeer.Peer{
-				Key:      login.WireGuardPubKey,
-				Meta:     login.Meta,
-				SSHKey:   login.SSHKey,
-				Location: nbpeer.Location{ConnectionIP: login.ConnectionIP},
-			}
-
-			return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
-		}
-
-		log.WithContext(ctx).Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
-		return nil, nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
+		return am.handlePeerLoginNotFound(ctx, login, err)
 	}
 
 	// when the client sends a login request with a JWT which is used to get the user ID,
@@ -754,6 +763,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	var updateRemotePeers bool
 	var isRequiresApproval bool
 	var isStatusChanged bool
+	var isPeerUpdated bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, LockingStrengthUpdate, login.WireGuardPubKey)
@@ -795,8 +805,8 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 			return err
 		}
 
-		updated := peer.UpdateMetaIfNew(login.Meta)
-		if updated {
+		isPeerUpdated = peer.UpdateMetaIfNew(login.Meta)
+		if isPeerUpdated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			shouldStorePeer = true
 		}
@@ -821,7 +831,12 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	unlockPeer()
 	unlockPeer = nil
 
-	if updateRemotePeers || isStatusChanged {
+	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		am.updateAccountPeers(ctx, accountID)
 	}
 
