@@ -124,6 +124,8 @@ func NewManager(
 
 // Init sets up the routing
 func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+	m.routeSelector = m.initSelector()
+
 	if nbnet.CustomRoutingDisabled() {
 		return nil, nil, nil
 	}
@@ -143,8 +145,6 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 	if err != nil {
 		return nil, nil, fmt.Errorf("setup routing: %w", err)
 	}
-
-	m.routeSelector = m.initSelector()
 
 	log.Info("Routing setup complete")
 	return beforePeerHook, afterPeerHook, nil
