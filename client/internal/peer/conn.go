@@ -23,6 +23,7 @@ import (
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	nbnet "github.com/netbirdio/netbird/util/net"
+	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 type ConnPriority int
@@ -104,12 +105,13 @@ type Conn struct {
 	wgProxyICE   wgproxy.Proxy
 	wgProxyRelay wgproxy.Proxy
 
-	guard *guard.Guard
+	guard     *guard.Guard
+	semaphore *semaphoregroup.SemaphoreGroup
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Status, signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, relayManager *relayClient.Manager, srWatcher *guard.SRWatcher) (*Conn, error) {
+func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Status, signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, relayManager *relayClient.Manager, srWatcher *guard.SRWatcher, semaphore *semaphoregroup.SemaphoreGroup) (*Conn, error) {
 	allowedIP, _, err := net.ParseCIDR(config.WgConfig.AllowedIps)
 	if err != nil {
 		log.Errorf("failed to parse allowedIPS: %v", err)
@@ -130,6 +132,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		allowedIP:      allowedIP,
 		statusRelay:    NewAtomicConnStatus(),
 		statusICE:      NewAtomicConnStatus(),
+		semaphore:      semaphore,
 	}
 
 	rFns := WorkerRelayCallbacks{
@@ -169,6 +172,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
 func (conn *Conn) Open() {
+	conn.semaphore.Add()
 	conn.log.Debugf("open connection to peer")
 
 	conn.mu.Lock()
@@ -191,6 +195,7 @@ func (conn *Conn) Open() {
 }
 
 func (conn *Conn) startHandshakeAndReconnect(ctx context.Context) {
+	defer conn.semaphore.Done()
 	conn.waitInitialRandomSleepTime(ctx)
 
 	err := conn.handshaker.sendOffer()
