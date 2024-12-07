@@ -29,8 +29,8 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 	}
 
 	quicConfig := &quic.Config{
-		KeepAlivePeriod: 15 * time.Second,
-		MaxIdleTimeout:  60 * time.Second,
+		KeepAlivePeriod: 30 * time.Second,
+		MaxIdleTimeout:  4 * time.Minute,
 		EnableDatagrams: true,
 	}
 
