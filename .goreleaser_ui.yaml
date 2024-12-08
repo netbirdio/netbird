@@ -50,6 +50,8 @@ nfpms:
       - netbird-ui
     formats:
       - deb
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
     contents:
       - src: client/ui/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
@@ -67,6 +69,8 @@ nfpms:
       - netbird-ui
     formats:
       - rpm
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
     contents:
       - src: client/ui/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
