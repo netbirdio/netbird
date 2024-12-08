@@ -1,6 +1,7 @@
 package semaphoregroup
 
 import (
+	"context"
 	"sync"
 )
 
@@ -18,19 +19,27 @@ func NewSemaphoreGroup(limit int) *SemaphoreGroup {
 }
 
 // Add increments the internal WaitGroup counter and acquires a semaphore slot.
-func (sg *SemaphoreGroup) Add() {
+func (sg *SemaphoreGroup) Add(ctx context.Context) {
 	sg.waitGroup.Add(1)
 
 	// Acquire semaphore slot
-	sg.semaphore <- struct{}{}
+	select {
+	case <-ctx.Done():
+		return
+	case sg.semaphore <- struct{}{}:
+	}
 }
 
 // Done decrements the internal WaitGroup counter and releases a semaphore slot.
-func (sg *SemaphoreGroup) Done() {
+func (sg *SemaphoreGroup) Done(ctx context.Context) {
 	sg.waitGroup.Done()
 
 	// Release semaphore slot
-	<-sg.semaphore
+	select {
+	case <-ctx.Done():
+		return
+	case <-sg.semaphore:
+	}
 }
 
 // Wait waits until the internal WaitGroup counter is zero.

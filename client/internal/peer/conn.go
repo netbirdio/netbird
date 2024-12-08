@@ -172,7 +172,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
 func (conn *Conn) Open() {
-	conn.semaphore.Add()
+	conn.semaphore.Add(conn.ctx)
 	conn.log.Debugf("open connection to peer")
 
 	conn.mu.Lock()
@@ -195,7 +195,7 @@ func (conn *Conn) Open() {
 }
 
 func (conn *Conn) startHandshakeAndReconnect(ctx context.Context) {
-	defer conn.semaphore.Done()
+	defer conn.semaphore.Done(conn.ctx)
 	conn.waitInitialRandomSleepTime(ctx)
 
 	err := conn.handshaker.sendOffer()
