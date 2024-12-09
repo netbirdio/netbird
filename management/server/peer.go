@@ -649,6 +649,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	var isStatusChanged bool
 	var updated bool
 	var err error
+	var postureChecks []*posture.Checks
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, LockingStrengthUpdate, sync.WireGuardPubKey)
@@ -690,7 +691,11 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
-			err = transaction.SavePeer(ctx, LockingStrengthUpdate, accountID, peer)
+			if err = transaction.SavePeer(ctx, LockingStrengthUpdate, accountID, peer); err != nil {
+				return err
+			}
+
+			postureChecks, err = getPeerPostureChecks(ctx, transaction, accountID, peer.ID)
 			if err != nil {
 				return err
 			}
@@ -701,12 +706,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, err
 	}
 
-	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	if isStatusChanged || (updated && sync.UpdateAccountPeers) || (updated && len(postureChecks) > 0){
+	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
 		am.updateAccountPeers(ctx, accountID)
 	}
 
@@ -764,6 +764,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	var isRequiresApproval bool
 	var isStatusChanged bool
 	var isPeerUpdated bool
+	var postureChecks []*posture.Checks
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, LockingStrengthUpdate, login.WireGuardPubKey)
@@ -809,6 +810,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		if isPeerUpdated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			shouldStorePeer = true
+
+			postureChecks, err = getPeerPostureChecks(ctx, transaction, accountID, peer.ID)
+			if err != nil {
+				return err
+			}
 		}
 
 		if peer.SSHKey != login.SSHKey {
@@ -831,16 +837,71 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	unlockPeer()
 	unlockPeer = nil
 
-	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		am.updateAccountPeers(ctx, accountID)
 	}
 
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)
+}
+
+// getPeerPostureChecks returns the posture checks for the peer.
+func getPeerPostureChecks(ctx context.Context, transaction Store, accountID, peerID string) ([]*posture.Checks, error) {
+	policies, err := transaction.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(policies) == 0 {
+		return nil, nil
+	}
+
+	var peerPostureChecksIDs []string
+
+	for _, policy := range policies {
+		if !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
+			continue
+		}
+
+		postureChecksIDs, err := processPeerPostureChecks(ctx, transaction, policy, accountID, peerID)
+		if err != nil {
+			return nil, err
+		}
+
+		peerPostureChecksIDs = append(peerPostureChecksIDs, postureChecksIDs...)
+	}
+
+	peerPostureChecks, err := transaction.GetPostureChecksByIDs(ctx, LockingStrengthShare, accountID, peerPostureChecksIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return maps.Values(peerPostureChecks), nil
+}
+
+// processPeerPostureChecks checks if the peer is in the source group of the policy and returns the posture checks.
+func processPeerPostureChecks(ctx context.Context, transaction Store, policy *Policy, accountID, peerID string) ([]string, error) {
+	for _, rule := range policy.Rules {
+		if !rule.Enabled {
+			continue
+		}
+
+		sourceGroups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, rule.Sources)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, sourceGroup := range rule.Sources {
+			group, ok := sourceGroups[sourceGroup]
+			if !ok {
+				return nil, fmt.Errorf("failed to check peer in policy source group")
+			}
+
+			if slices.Contains(group.Peers, peerID) {
+				return policy.SourcePostureChecks, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 // checkIFPeerNeedsLoginWithoutLock checks if the peer needs login without acquiring the account lock. The check validate if the peer was not added via SSO
