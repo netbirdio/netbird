@@ -1,11 +1,15 @@
 package ws
 
+const (
+	Network = "ws"
+)
+
 type WebsocketAddr struct {
 	addr string
 }
 
 func (a WebsocketAddr) Network() string {
-	return "websocket"
+	return Network
 }
 
 func (a WebsocketAddr) String() string {

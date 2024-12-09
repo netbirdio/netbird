@@ -88,6 +88,8 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Infof("WS client connected from: %s", rAddr)
+
 	conn := NewConn(wsConn, lAddr, rAddr)
 	l.acceptFn(conn)
 }

@@ -150,6 +150,8 @@ func (r *Relay) Accept(conn net.Conn) {
 func (r *Relay) Shutdown(ctx context.Context) {
 	log.Infof("close connection with all peers")
 	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
+
 	wg := sync.WaitGroup{}
 	peers := r.store.Peers()
 	for _, peer := range peers {
@@ -161,7 +163,7 @@ func (r *Relay) Shutdown(ctx context.Context) {
 	}
 	wg.Wait()
 	r.metricsCancel()
-	r.closeMu.Unlock()
+	r.closed = true
 }
 
 // InstanceURL returns the instance URL of the relay server
