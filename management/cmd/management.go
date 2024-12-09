@@ -264,7 +264,7 @@ var (
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
 
-			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg, integratedPeerValidator)
+			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, geo, jwtValidator, appMetrics, httpAPIAuthCfg, integratedPeerValidator)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}

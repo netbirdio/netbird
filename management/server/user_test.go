@@ -10,12 +10,13 @@ import (
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"

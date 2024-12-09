@@ -167,7 +167,7 @@ type DefaultAccountManager struct {
 	externalCacheManager ExternalCacheManager
 	ctx                  context.Context
 	eventStore           activity.Store
-	geo                  *geolocation.Geolocation
+	geo                  geolocation.Geolocation
 
 	requestBuffer *AccountRequestBuffer
 
@@ -1041,7 +1041,7 @@ func BuildManager(
 	singleAccountModeDomain string,
 	dnsDomain string,
 	eventStore activity.Store,
-	geo *geolocation.Geolocation,
+	geo geolocation.Geolocation,
 	userDeleteFromIDPEnabled bool,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
