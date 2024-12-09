@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,10 +130,12 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 				NameServerGroups: []*nbdns.NameServerGroup{
 					{
+						Enabled:     true,
 						Domains:     []string{"netbird.io"},
 						NameServers: nameServers,
 					},
 					{
+						Enabled:     true,
 						NameServers: nameServers,
 						Primary:     true,
 					},
@@ -157,6 +160,7 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 				NameServerGroups: []*nbdns.NameServerGroup{
 					{
+						Enabled:     true,
 						Domains:     []string{"netbird.io"},
 						NameServers: nameServers,
 					},
@@ -292,7 +296,22 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{}, nil)
+			statusRecorder := peer.NewRecorder("https://mgm")
+			key := "abc"
+			err = statusRecorder.AddPeer(key, "abc.netbird")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = statusRecorder.UpdatePeerState(peer.State{
+				PubKey:           key,
+				Mux:              new(sync.RWMutex),
+				ConnStatus:       peer.StatusConnected,
+				ConnStatusUpdate: time.Now(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", statusRecorder, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -448,10 +467,12 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 			{
 				Domains:     []string{"netbird.io"},
 				NameServers: nameServers,
+				Enabled:     true,
 			},
 			{
 				NameServers: nameServers,
 				Primary:     true,
+				Enabled:     true,
 			},
 		},
 	}

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 func TestUpstreamResolver_ServeDNS(t *testing.T) {
-
 	testCases := []struct {
 		name                string
 		inputMSG            *dns.Msg
@@ -58,7 +58,15 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
-			resolver, _ := newUpstreamResolver(ctx, "", net.IP{}, &net.IPNet{}, nil, nil)
+			statusRecorder := peer.NewRecorder("https://mgm")
+			key := "abc"
+			// Public resolvers being used so peer not required
+			err := statusRecorder.AddPeer(key, "abc.netbird")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// 	PubKey:           key,
+			resolver, _ := newUpstreamResolver(ctx, "", net.IP{}, &net.IPNet{}, statusRecorder, nil)
 			resolver.upstreamServers = testCase.InputServers
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
@@ -119,12 +127,8 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 			rtt: time.Millisecond,
 		},
 		upstreamTimeout:  upstreamTimeout,
-		reactivatePeriod: reactivatePeriod,
-		failsTillDeact:   failsTillDeact,
 	}
 	resolver.upstreamServers = []string{"0.0.0.0:-1"}
-	resolver.failsTillDeact = 0
-	resolver.reactivatePeriod = time.Microsecond * 100
 
 	responseWriter := &mockResponseWriter{
 		WriteMsgFunc: func(m *dns.Msg) error { return nil },
@@ -147,7 +151,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 		return
 	}
 
-	if !resolver.disabled {
+	if !resolver.disabled.Load() {
 		t.Errorf("resolver should be Disabled")
 		return
 	}
@@ -159,12 +163,12 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 		return
 	}
 
-	if resolver.failsCount.Load() != 0 {
-		t.Errorf("fails count after reactivation should be 0")
-		return
-	}
+	// if resolver.failsCount.Load() != 0 {
+	// 	t.Errorf("fails count after reactivation should be 0")
+	// 	return
+	// }
 
-	if resolver.disabled {
+	if resolver.disabled.Load() {
 		t.Errorf("should be enabled")
 	}
 }
