@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
+	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 var connConf = ConnConfig{
@@ -46,7 +47,7 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 
 func TestConn_GetKey(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, nil, nil, nil, nil, swWatcher)
+	conn, err := NewConn(context.Background(), connConf, nil, nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
 	if err != nil {
 		return
 	}
@@ -58,7 +59,7 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher)
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
 	if err != nil {
 		return
 	}
@@ -92,7 +93,7 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher)
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
 	if err != nil {
 		return
 	}
@@ -125,7 +126,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 }
 func TestConn_Status(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher)
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
 	if err != nil {
 		return
 	}
