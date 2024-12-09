@@ -3,9 +3,9 @@ package server
 type ResourceType string
 
 const (
-	host   ResourceType = "Host"
-	subnet ResourceType = "Subnet"
-	domain ResourceType = "Domain"
+	hostType   ResourceType = "Host"
+	subnetType ResourceType = "Subnet"
+	domainType ResourceType = "Domain"
 )
 
 func (p ResourceType) String() string {
