@@ -43,15 +43,6 @@ func NewNetworkResource(networkID string, address string) (*NetworkResource, err
 	}, nil
 }
 
-func (nr *NetworkResource) Copy() *NetworkResource {
-	return &NetworkResource{
-		ID:        nr.ID,
-		NetworkID: nr.NetworkID,
-		Type:      nr.Type,
-		Address:   nr.Address,
-	}
-}
-
 // getResourceType returns the type of the resource based on the address
 func getResourceType(address string) (NetworkResourceType, error) {
 	if ip, cidr, err := net.ParseCIDR(address); err == nil {

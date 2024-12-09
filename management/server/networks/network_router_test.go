@@ -1,0 +1,91 @@
+package networks
+
+import "testing"
+
+func TestNewNetworkRouter(t *testing.T) {
+	tests := []struct {
+		name          string
+		networkID     string
+		peer          string
+		peerGroups    []string
+		masquerade    bool
+		metric        int
+		expectedError bool
+	}{
+		// Valid cases
+		{
+			name:          "Valid with peer only",
+			networkID:     "network-1",
+			peer:          "peer-1",
+			peerGroups:    nil,
+			masquerade:    true,
+			metric:        100,
+			expectedError: false,
+		},
+		{
+			name:          "Valid with peerGroups only",
+			networkID:     "network-2",
+			peer:          "",
+			peerGroups:    []string{"group-1", "group-2"},
+			masquerade:    false,
+			metric:        200,
+			expectedError: false,
+		},
+		{
+			name:          "Valid with no peer or peerGroups",
+			networkID:     "network-3",
+			peer:          "",
+			peerGroups:    nil,
+			masquerade:    true,
+			metric:        300,
+			expectedError: false,
+		},
+
+		// Invalid cases
+		{
+			name:          "Invalid with both peer and peerGroups",
+			networkID:     "network-4",
+			peer:          "peer-2",
+			peerGroups:    []string{"group-3"},
+			masquerade:    false,
+			metric:        400,
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, err := NewNetworkRouter(tt.networkID, tt.peer, tt.peerGroups, tt.masquerade, tt.metric)
+
+			if tt.expectedError && err == nil {
+				t.Fatalf("Expected an error, got nil")
+			}
+
+			if tt.expectedError == false {
+				if router == nil {
+					t.Fatalf("Expected a NetworkRouter object, got nil")
+				}
+
+				if router.NetworkID != tt.networkID {
+					t.Errorf("Expected NetworkID %s, got %s", tt.networkID, router.NetworkID)
+				}
+
+				if router.Peer != tt.peer {
+					t.Errorf("Expected Peer %s, got %s", tt.peer, router.Peer)
+				}
+
+				if len(router.PeerGroups) != len(tt.peerGroups) {
+					t.Errorf("Expected PeerGroups %v, got %v", tt.peerGroups, router.PeerGroups)
+				}
+
+				if router.Masquerade != tt.masquerade {
+					t.Errorf("Expected Masquerade %v, got %v", tt.masquerade, router.Masquerade)
+				}
+
+				if router.Metric != tt.metric {
+					t.Errorf("Expected Metric %d, got %d", tt.metric, router.Metric)
+				}
+			}
+		})
+	}
+}
