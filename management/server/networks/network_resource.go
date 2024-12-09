@@ -25,11 +25,12 @@ func (p NetworkResourceType) String() string {
 type NetworkResource struct {
 	ID        string `gorm:"index"`
 	NetworkID string `gorm:"index"`
+	AccountID string `gorm:"index"`
 	Type      NetworkResourceType
 	Address   string
 }
 
-func NewNetworkResource(networkID string, address string) (*NetworkResource, error) {
+func NewNetworkResource(accountID, networkID, address string) (*NetworkResource, error) {
 	resourceType, err := getResourceType(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
@@ -37,6 +38,7 @@ func NewNetworkResource(networkID string, address string) (*NetworkResource, err
 
 	return &NetworkResource{
 		ID:        xid.New().String(),
+		AccountID: accountID,
 		NetworkID: networkID,
 		Type:      resourceType,
 		Address:   address,

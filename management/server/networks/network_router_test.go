@@ -5,6 +5,7 @@ import "testing"
 func TestNewNetworkRouter(t *testing.T) {
 	tests := []struct {
 		name          string
+		accountID     string
 		networkID     string
 		peer          string
 		peerGroups    []string
@@ -16,6 +17,7 @@ func TestNewNetworkRouter(t *testing.T) {
 		{
 			name:          "Valid with peer only",
 			networkID:     "network-1",
+			accountID:     "account-1",
 			peer:          "peer-1",
 			peerGroups:    nil,
 			masquerade:    true,
@@ -25,6 +27,7 @@ func TestNewNetworkRouter(t *testing.T) {
 		{
 			name:          "Valid with peerGroups only",
 			networkID:     "network-2",
+			accountID:     "account-2",
 			peer:          "",
 			peerGroups:    []string{"group-1", "group-2"},
 			masquerade:    false,
@@ -34,6 +37,7 @@ func TestNewNetworkRouter(t *testing.T) {
 		{
 			name:          "Valid with no peer or peerGroups",
 			networkID:     "network-3",
+			accountID:     "account-3",
 			peer:          "",
 			peerGroups:    nil,
 			masquerade:    true,
@@ -45,6 +49,7 @@ func TestNewNetworkRouter(t *testing.T) {
 		{
 			name:          "Invalid with both peer and peerGroups",
 			networkID:     "network-4",
+			accountID:     "account-4",
 			peer:          "peer-2",
 			peerGroups:    []string{"group-3"},
 			masquerade:    false,
@@ -55,7 +60,7 @@ func TestNewNetworkRouter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router, err := NewNetworkRouter(tt.networkID, tt.peer, tt.peerGroups, tt.masquerade, tt.metric)
+			router, err := NewNetworkRouter(tt.accountID, tt.networkID, tt.peer, tt.peerGroups, tt.masquerade, tt.metric)
 
 			if tt.expectedError && err == nil {
 				t.Fatalf("Expected an error, got nil")
@@ -64,6 +69,10 @@ func TestNewNetworkRouter(t *testing.T) {
 			if tt.expectedError == false {
 				if router == nil {
 					t.Fatalf("Expected a NetworkRouter object, got nil")
+				}
+
+				if router.AccountID != tt.accountID {
+					t.Errorf("Expected AccountID %s, got %s", tt.accountID, router.AccountID)
 				}
 
 				if router.NetworkID != tt.networkID {
