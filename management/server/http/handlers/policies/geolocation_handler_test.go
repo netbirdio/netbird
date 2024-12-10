@@ -25,8 +25,8 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	t.Helper()
 
 	var (
-		mmdbPath       = "../../testdata/GeoLite2-City_20240305.mmdb"
-		geonamesdbPath = "../../testdata/geonames_20240305.db"
+		mmdbPath       = "../../../testdata/GeoLite2-City_20240305.mmdb"
+		geonamesdbPath = "../../../testdata/geonames_20240305.db"
 	)
 
 	tempDir := t.TempDir()
