@@ -147,13 +147,13 @@ type Store interface {
 	SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networks.Network) error
 	DeleteNetwork(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) error
 
-	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) ([]*networks.NetworkRouter, error)
+	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkRouter, error)
 	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*networks.NetworkRouter, error)
 	SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *networks.NetworkRouter) error
 	DeleteNetworkRouter(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) error
 
-	GetAccountNetworkResourceByNetID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networks.NetworkResource, error)
-	GetAccountNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error)
+	GetAccountNetworkResourceByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) (*networks.NetworkResource, error)
+	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error)
 	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *networks.NetworkResource) error
 	DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error
 }

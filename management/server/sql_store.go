@@ -1652,24 +1652,56 @@ func (s *SqlStore) DeleteNetwork(ctx context.Context, lockStrength LockingStreng
 	return nil
 }
 
-func (s *SqlStore) GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) ([]*networks.NetworkRouter, error) {
-	//TODO implement me
-	panic("implement me")
+func (s *SqlStore) GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkRouter, error) {
+	var netRouters []*networks.NetworkRouter
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&netRouters, "account_id = ? AND network_id = ?", accountID, netID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get network routers from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get network routers from store")
+	}
+
+	return netRouters, nil
 }
 
 func (s *SqlStore) GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*networks.NetworkRouter, error) {
-	//TODO implement me
-	panic("implement me")
+	var netRouter *networks.NetworkRouter
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&netRouter, accountAndIDQueryCondition, accountID, routerID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewNetworkRouterNotFoundError(routerID)
+		}
+		log.WithContext(ctx).Errorf("failed to get network router from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get network router from store")
+	}
+
+	return netRouter, nil
 }
 
 func (s *SqlStore) SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *networks.NetworkRouter) error {
-	//TODO implement me
-	panic("implement me")
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(router)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save network router to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save network router to store")
+	}
+
+	return nil
 }
 
 func (s *SqlStore) DeleteNetworkRouter(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) error {
-	//TODO implement me
-	panic("implement me")
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&networks.NetworkRouter{}, accountAndIDQueryCondition, accountID, routerID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete network router from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete network router from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewNetworkRouterNotFoundError(routerID)
+	}
+
+	return nil
 }
 
 func (s *SqlStore) GetAccountNetworkResourceByNetID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networks.NetworkResource, error) {
@@ -1677,7 +1709,7 @@ func (s *SqlStore) GetAccountNetworkResourceByNetID(ctx context.Context, lockStr
 	panic("implement me")
 }
 
-func (s *SqlStore) GetAccountNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error) {
+func (s *SqlStore) GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error) {
 	//TODO implement me
 	panic("implement me")
 }

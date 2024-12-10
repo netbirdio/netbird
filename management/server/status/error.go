@@ -159,3 +159,8 @@ func NewNameServerGroupNotFoundError(nsGroupID string) error {
 func NewNetworkNotFoundError(networkID string) error {
 	return Errorf(NotFound, "network: %s not found", networkID)
 }
+
+// NewNetworkRouterNotFoundError creates a new Error with NotFound type for a missing network router.
+func NewNetworkRouterNotFoundError(routerID string) error {
+	return Errorf(NotFound, "network router: %s not found", routerID)
+}
