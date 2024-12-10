@@ -374,7 +374,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
-		log.Debugf("received a nameserver group with %#v nameservers for %s domains", nsGroup.NameServers, nsGroup.Domains)
+		log.Debugf("received a nameserver group with %#v nameservers for \"%s\" domains", nsGroup.NameServers, nsGroup.Domains)
 
 		handler, err := newUpstreamResolver(
 			s.ctx,
