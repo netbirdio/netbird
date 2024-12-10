@@ -1738,14 +1738,14 @@ func addAllGroup(account *types.Account) error {
 
 		defaultPolicy := &types.Policy{
 			ID:          id,
-			Name:        DefaultRuleName,
-			Description: DefaultRuleDescription,
+			Name:        types.DefaultRuleName,
+			Description: types.DefaultRuleDescription,
 			Enabled:     true,
 			Rules: []*types.PolicyRule{
 				{
 					ID:            id,
-					Name:          DefaultRuleName,
-					Description:   DefaultRuleDescription,
+					Name:          types.DefaultRuleName,
+					Description:   types.DefaultRuleDescription,
 					Enabled:       true,
 					Sources:       []string{allGroup.ID},
 					Destinations:  []string{allGroup.ID},
