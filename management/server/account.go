@@ -37,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/networks"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -153,6 +154,7 @@ type AccountManager interface {
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
+	GetNetworksManager() networks.Manager
 }
 
 type DefaultAccountManager struct {
@@ -189,6 +191,8 @@ type DefaultAccountManager struct {
 	integratedPeerValidator integrated_validator.IntegratedValidator
 
 	metrics telemetry.AppMetrics
+
+	networksManager networks.Manager
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -1051,6 +1055,7 @@ func BuildManager(
 		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
+		networksManager:          networks.NewManager(store),
 		ctx:                      context.Background(),
 		cacheMux:                 sync.Mutex{},
 		cacheLoading:             map[string]chan struct{}{},
@@ -2507,6 +2512,10 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 	}
 
 	return am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+}
+
+func (am *DefaultAccountManager) GetNetworksManager() networks.Manager {
+	return am.networksManager
 }
 
 // addAllGroup to account object if it doesn't exist

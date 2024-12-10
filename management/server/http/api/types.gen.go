@@ -88,6 +88,13 @@ const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
 )
 
+// Defines values for NetworkResourceType.
+const (
+	NetworkResourceTypeDomain NetworkResourceType = "domain"
+	NetworkResourceTypeHost   NetworkResourceType = "host"
+	NetworkResourceTypeSubnet NetworkResourceType = "subnet"
+)
+
 // Defines values for PeerNetworkRangeCheckAction.
 const (
 	PeerNetworkRangeCheckActionAllow PeerNetworkRangeCheckAction = "allow"
@@ -492,6 +499,93 @@ type NameserverGroupRequest struct {
 
 	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
+}
+
+// Network defines model for Network.
+type Network struct {
+	// Description Network description
+	Description *string `json:"description,omitempty"`
+
+	// Id Network ID
+	Id string `json:"id"`
+
+	// Name Network name
+	Name string `json:"name"`
+}
+
+// NetworkRequest defines model for NetworkRequest.
+type NetworkRequest struct {
+	// Description Network description
+	Description *string `json:"description,omitempty"`
+
+	// Name Network name
+	Name string `json:"name"`
+}
+
+// NetworkResource defines model for NetworkResource.
+type NetworkResource struct {
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
+	Address string `json:"address"`
+
+	// Description Network resource description
+	Description *string `json:"description,omitempty"`
+
+	// Id Network Resource ID
+	Id string `json:"id"`
+
+	// Name Network resource name
+	Name string `json:"name"`
+
+	// Type Network resource type based of the address
+	Type NetworkResourceType `json:"type"`
+}
+
+// NetworkResourceType Network resource type based of the address
+type NetworkResourceType string
+
+// NetworkResourceRequest defines model for NetworkResourceRequest.
+type NetworkResourceRequest struct {
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
+	Address string `json:"address"`
+
+	// Description Network resource description
+	Description *string `json:"description,omitempty"`
+
+	// Name Network resource name
+	Name string `json:"name"`
+}
+
+// NetworkRouter defines model for NetworkRouter.
+type NetworkRouter struct {
+	// Id Network Router Id
+	Id string `json:"id"`
+
+	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
+	Masquerade bool `json:"masquerade"`
+
+	// Metric Route metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
+	Peer *string `json:"peer,omitempty"`
+
+	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
+	PeerGroups *[]string `json:"peer_groups,omitempty"`
+}
+
+// NetworkRouterRequest defines model for NetworkRouterRequest.
+type NetworkRouterRequest struct {
+	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
+	Masquerade bool `json:"masquerade"`
+
+	// Metric Route metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
+	Peer *string `json:"peer,omitempty"`
+
+	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
+	PeerGroups *[]string `json:"peer_groups,omitempty"`
 }
 
 // OSVersionCheck Posture check for the version of operating system
@@ -1291,6 +1385,24 @@ type PostApiGroupsJSONRequestBody = GroupRequest
 
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
 type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
+
+// PostApiNetworksJSONRequestBody defines body for PostApiNetworks for application/json ContentType.
+type PostApiNetworksJSONRequestBody = NetworkRequest
+
+// PutApiNetworksNetworkIdJSONRequestBody defines body for PutApiNetworksNetworkId for application/json ContentType.
+type PutApiNetworksNetworkIdJSONRequestBody = NetworkRequest
+
+// PostApiNetworksNetworkIdResourcesJSONRequestBody defines body for PostApiNetworksNetworkIdResources for application/json ContentType.
+type PostApiNetworksNetworkIdResourcesJSONRequestBody = NetworkResourceRequest
+
+// PutApiNetworksNetworkIdResourcesResourceIdJSONRequestBody defines body for PutApiNetworksNetworkIdResourcesResourceId for application/json ContentType.
+type PutApiNetworksNetworkIdResourcesResourceIdJSONRequestBody = NetworkResourceRequest
+
+// PostApiNetworksNetworkIdRoutersJSONRequestBody defines body for PostApiNetworksNetworkIdRouters for application/json ContentType.
+type PostApiNetworksNetworkIdRoutersJSONRequestBody = NetworkRouterRequest
+
+// PutApiNetworksNetworkIdRoutersRouterIdJSONRequestBody defines body for PutApiNetworksNetworkIdRoutersRouterId for application/json ContentType.
+type PutApiNetworksNetworkIdRoutersRouterIdJSONRequestBody = NetworkRouterRequest
 
 // PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
 type PutApiPeersPeerIdJSONRequestBody = PeerRequest

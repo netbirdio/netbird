@@ -1,9 +1,11 @@
-package networks
+package routers
 
 import (
 	"errors"
 
 	"github.com/rs/xid"
+
+	"github.com/netbirdio/netbird/management/server/http/api"
 )
 
 type NetworkRouter struct {
@@ -30,4 +32,21 @@ func NewNetworkRouter(accountID string, networkID string, peer string, peerGroup
 		Masquerade: masquerade,
 		Metric:     metric,
 	}, nil
+}
+
+func (n *NetworkRouter) ToAPIResponse() *api.NetworkRouter {
+	return &api.NetworkRouter{
+		Id:         n.ID,
+		Peer:       &n.Peer,
+		PeerGroups: &n.PeerGroups,
+		Masquerade: n.Masquerade,
+		Metric:     n.Metric,
+	}
+}
+
+func (n *NetworkRouter) FromAPIRequest(req *api.NetworkRouterRequest) {
+	n.Peer = *req.Peer
+	n.PeerGroups = *req.PeerGroups
+	n.Masquerade = req.Masquerade
+	n.Metric = req.Metric
 }

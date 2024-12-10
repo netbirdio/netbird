@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/dns"
 	"github.com/netbirdio/netbird/management/server/http/handlers/events"
 	"github.com/netbirdio/netbird/management/server/http/handlers/groups"
+	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
 	"github.com/netbirdio/netbird/management/server/http/handlers/routes"
@@ -93,6 +94,7 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 	routes.AddEndpoints(api.AccountManager, authCfg, router)
 	dns.AddEndpoints(api.AccountManager, authCfg, router)
 	events.AddEndpoints(api.AccountManager, authCfg, router)
+	networks.AddEndpoints(api.AccountManager.GetNetworksManager(), api.AccountManager.GetAccountIDFromToken, authCfg, router)
 
 	return rootRouter, nil
 }
