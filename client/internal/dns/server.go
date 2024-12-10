@@ -374,6 +374,8 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
+		log.Debugf("received a nameserver group with %#v nameservers for %s domains", nsGroup.NameServers, nsGroup.Domains)
+
 		handler, err := newUpstreamResolver(
 			s.ctx,
 			s.wgInterface.Name(),
@@ -444,9 +446,11 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 	var isContainRootUpdate bool
 
 	for _, update := range muxUpdates {
+		log.Debugf("registering a new handler for domain %s", update.domain)
 		s.service.RegisterMux(update.domain, update.handler)
 		muxUpdateMap[update.domain] = update.handler
 		if existingHandler, ok := s.dnsMuxMap[update.domain]; ok {
+			log.Debugf("stopping the existing handler for domain %s", update.domain)
 			existingHandler.stop()
 		}
 
@@ -462,6 +466,7 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 				s.addHostRootZone()
 				existingHandler.stop()
 			} else {
+				log.Debugf("stopping the existing handler for domain %s", key)
 				existingHandler.stop()
 				s.service.DeregisterMux(key)
 			}
