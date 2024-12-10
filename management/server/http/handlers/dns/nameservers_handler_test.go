@@ -1,4 +1,4 @@
-package http
+package dns
 
 import (
 	"bytes"
@@ -50,8 +50,8 @@ var baseExistingNSGroup = &nbdns.NameServerGroup{
 	Enabled: true,
 }
 
-func initNameserversTestData() *NameserversHandler {
-	return &NameserversHandler{
+func initNameserversTestData() *nameserversHandler {
+	return &nameserversHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetNameServerGroupFunc: func(_ context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 				if nsGroupID == existingNSGroupID {
@@ -206,10 +206,10 @@ func TestNameserversHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.GetNameserverGroup).Methods("GET")
-			router.HandleFunc("/api/dns/nameservers", p.CreateNameserverGroup).Methods("POST")
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.DeleteNameserverGroup).Methods("DELETE")
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.UpdateNameserverGroup).Methods("PUT")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.getNameserverGroup).Methods("GET")
+			router.HandleFunc("/api/dns/nameservers", p.createNameserverGroup).Methods("POST")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.deleteNameserverGroup).Methods("DELETE")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.updateNameserverGroup).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
