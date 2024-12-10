@@ -1,4 +1,4 @@
-package http
+package setup_keys
 
 import (
 	"bytes"
@@ -26,6 +26,7 @@ const (
 	newSetupKeyName     = "New Setup Key"
 	updatedSetupKeyName = "KKKey"
 	notFoundSetupKeyID  = "notFoundSetupKeyID"
+	testAccountID       = "test_id"
 )
 
 func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey,

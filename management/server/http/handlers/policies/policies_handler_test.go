@@ -1,4 +1,4 @@
-package http
+package policies
 
 import (
 	"bytes"

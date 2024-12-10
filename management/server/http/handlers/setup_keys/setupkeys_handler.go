@@ -1,4 +1,4 @@
-package http
+package setup_keys
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -22,7 +23,7 @@ type SetupKeysHandler struct {
 }
 
 // NewSetupKeysHandler creates a new SetupKeysHandler HTTP handler
-func NewSetupKeysHandler(accountManager server.AccountManager, authCfg AuthCfg) *SetupKeysHandler {
+func NewSetupKeysHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *SetupKeysHandler {
 	return &SetupKeysHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -199,7 +200,7 @@ func (h *SetupKeysHandler) DeleteSetupKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 func writeSuccess(ctx context.Context, w http.ResponseWriter, key *server.SetupKey) {

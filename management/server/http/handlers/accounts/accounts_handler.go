@@ -1,4 +1,4 @@
-package http
+package accounts
 
 import (
 	"encoding/json"
@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -22,7 +23,7 @@ type AccountsHandler struct {
 }
 
 // NewAccountsHandler creates a new AccountsHandler HTTP handler
-func NewAccountsHandler(accountManager server.AccountManager, authCfg AuthCfg) *AccountsHandler {
+func NewAccountsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *AccountsHandler {
 	return &AccountsHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -127,7 +128,7 @@ func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 func toAccountResponse(accountID string, settings *server.Settings) *api.Account {

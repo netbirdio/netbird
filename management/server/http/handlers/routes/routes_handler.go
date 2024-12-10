@@ -1,4 +1,4 @@
-package http
+package routes
 
 import (
 	"encoding/json"
@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -30,7 +31,7 @@ type RoutesHandler struct {
 }
 
 // NewRoutesHandler returns a new instance of RoutesHandler handler
-func NewRoutesHandler(accountManager server.AccountManager, authCfg AuthCfg) *RoutesHandler {
+func NewRoutesHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *RoutesHandler {
 	return &RoutesHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -278,7 +279,7 @@ func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 // GetRoute handles a route Get request identified by ID

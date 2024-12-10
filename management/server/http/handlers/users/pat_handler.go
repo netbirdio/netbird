@@ -1,4 +1,4 @@
-package http
+package users
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -21,7 +22,7 @@ type PATHandler struct {
 }
 
 // NewPATsHandler creates a new PATHandler HTTP handler
-func NewPATsHandler(accountManager server.AccountManager, authCfg AuthCfg) *PATHandler {
+func NewPATsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *PATHandler {
 	return &PATHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -152,7 +153,7 @@ func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 func toPATResponse(pat *server.PersonalAccessToken) *api.PersonalAccessToken {

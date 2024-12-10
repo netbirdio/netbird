@@ -1,4 +1,4 @@
-package http
+package events
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
@@ -21,7 +22,7 @@ type EventsHandler struct {
 }
 
 // NewEventsHandler creates a new EventsHandler HTTP handler
-func NewEventsHandler(accountManager server.AccountManager, authCfg AuthCfg) *EventsHandler {
+func NewEventsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *EventsHandler {
 	return &EventsHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(

@@ -1,4 +1,4 @@
-package http
+package dns
 
 import (
 	"encoding/json"
@@ -11,6 +11,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -23,7 +24,7 @@ type NameserversHandler struct {
 }
 
 // NewNameserversHandler returns a new instance of NameserversHandler handler
-func NewNameserversHandler(accountManager server.AccountManager, authCfg AuthCfg) *NameserversHandler {
+func NewNameserversHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *NameserversHandler {
 	return &NameserversHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -162,7 +163,7 @@ func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *htt
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 // GetNameserverGroup handles a nameserver group Get request identified by ID

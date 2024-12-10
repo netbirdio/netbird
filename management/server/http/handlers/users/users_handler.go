@@ -1,4 +1,4 @@
-package http
+package users
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
 
@@ -23,7 +24,7 @@ type UsersHandler struct {
 }
 
 // NewUsersHandler creates a new UsersHandler HTTP handler
-func NewUsersHandler(accountManager server.AccountManager, authCfg AuthCfg) *UsersHandler {
+func NewUsersHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *UsersHandler {
 	return &UsersHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -121,7 +122,7 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 // CreateUser creates a User in the system with a status "invited" (effectively this is a user invite).
@@ -250,7 +251,7 @@ func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {

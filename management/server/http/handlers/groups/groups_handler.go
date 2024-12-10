@@ -1,12 +1,14 @@
-package http
+package groups
 
 import (
 	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/http/configs"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
@@ -23,7 +25,7 @@ type GroupsHandler struct {
 }
 
 // NewGroupsHandler creates a new GroupsHandler HTTP handler
-func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *GroupsHandler {
+func NewGroupsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *GroupsHandler {
 	return &GroupsHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -215,7 +217,7 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 // GetGroup returns a group

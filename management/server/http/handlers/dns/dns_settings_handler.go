@@ -1,4 +1,4 @@
-package http
+package dns
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
@@ -19,7 +20,7 @@ type DNSSettingsHandler struct {
 }
 
 // NewDNSSettingsHandler returns a new instance of DNSSettingsHandler handler
-func NewDNSSettingsHandler(accountManager server.AccountManager, authCfg AuthCfg) *DNSSettingsHandler {
+func NewDNSSettingsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *DNSSettingsHandler {
 	return &DNSSettingsHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(

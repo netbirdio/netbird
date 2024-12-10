@@ -1,4 +1,4 @@
-package http
+package policies
 
 import (
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -26,7 +27,7 @@ type GeolocationsHandler struct {
 }
 
 // NewGeolocationsHandlerHandler creates a new Geolocations handler
-func NewGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *GeolocationsHandler {
+func NewGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg configs.AuthCfg) *GeolocationsHandler {
 	return &GeolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,

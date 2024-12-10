@@ -1,4 +1,4 @@
-package http
+package policies
 
 import (
 	"encoding/json"
@@ -6,9 +6,11 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -21,7 +23,7 @@ type Policies struct {
 }
 
 // NewPoliciesHandler creates a new Policies handler
-func NewPoliciesHandler(accountManager server.AccountManager, authCfg AuthCfg) *Policies {
+func NewPoliciesHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *Policies {
 	return &Policies{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -266,7 +268,7 @@ func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 // GetPolicy handles a group Get request identified by ID

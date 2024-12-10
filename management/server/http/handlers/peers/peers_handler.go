@@ -1,4 +1,4 @@
-package http
+package peers
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -25,7 +26,7 @@ type PeersHandler struct {
 }
 
 // NewPeersHandler creates a new PeersHandler HTTP handler
-func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *PeersHandler {
+func NewPeersHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *PeersHandler {
 	return &PeersHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -127,7 +128,7 @@ func (h *PeersHandler) deletePeer(ctx context.Context, accountID, userID string,
 		util.WriteError(ctx, err, w)
 		return
 	}
-	util.WriteJSONObject(ctx, w, emptyObject{})
+	util.WriteJSONObject(ctx, w, util.EmptyObject{})
 }
 
 // HandlePeer handles all peer requests for GET, PUT and DELETE operations

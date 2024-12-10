@@ -1,4 +1,4 @@
-package http
+package routes
 
 import (
 	"bytes"
@@ -152,7 +152,7 @@ func initRoutesTestData() *RoutesHandler {
 				return nil
 			},
 			GetAccountIDFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (string, string, error) {
-				//return testingAccount, testingAccount.Users["test_user"], nil
+				// return testingAccount, testingAccount.Users["test_user"], nil
 				return testingAccount.Id, testingAccount.Users["test_user"].Id, nil
 			},
 		},

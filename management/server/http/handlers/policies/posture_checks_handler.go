@@ -1,4 +1,4 @@
-package http
+package policies
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -23,7 +24,7 @@ type PostureChecksHandler struct {
 }
 
 // NewPostureChecksHandler creates a new PostureChecks handler
-func NewPostureChecksHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *PostureChecksHandler {
+func NewPostureChecksHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg configs.AuthCfg) *PostureChecksHandler {
 	return &PostureChecksHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,
@@ -140,7 +141,7 @@ func (p *PostureChecksHandler) DeletePostureCheck(w http.ResponseWriter, r *http
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 // savePostureChecks handles posture checks create and update
