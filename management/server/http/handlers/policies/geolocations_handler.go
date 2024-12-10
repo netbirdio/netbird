@@ -19,16 +19,22 @@ var (
 	countryCodeRegex = regexp.MustCompile("^[a-zA-Z]{2}$")
 )
 
-// GeolocationsHandler is a handler that returns locations.
-type GeolocationsHandler struct {
+// geolocationsHandler is a handler that returns locations.
+type geolocationsHandler struct {
 	accountManager     server.AccountManager
 	geolocationManager *geolocation.Geolocation
 	claimsExtractor    *jwtclaims.ClaimsExtractor
 }
 
-// NewGeolocationsHandlerHandler creates a new Geolocations handler
-func NewGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg configs.AuthCfg) *GeolocationsHandler {
-	return &GeolocationsHandler{
+func addLocationsEndpoint(accountManager server.AccountManager, locationManager *geolocation.Geolocation, authCfg configs.AuthCfg, router *mux.Router) {
+	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager, authCfg)
+	router.HandleFunc("/locations/countries", locationHandler.getAllCountries).Methods("GET", "OPTIONS")
+	router.HandleFunc("/locations/countries/{country}/cities", locationHandler.getCitiesByCountry).Methods("GET", "OPTIONS")
+}
+
+// newGeolocationsHandlerHandler creates a new Geolocations handler
+func newGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg configs.AuthCfg) *geolocationsHandler {
+	return &geolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -38,8 +44,8 @@ func NewGeolocationsHandlerHandler(accountManager server.AccountManager, geoloca
 	}
 }
 
-// GetAllCountries retrieves a list of all countries
-func (l *GeolocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Request) {
+// getAllCountries retrieves a list of all countries
+func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Request) {
 	if err := l.authenticateUser(r); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -64,8 +70,8 @@ func (l *GeolocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Req
 	util.WriteJSONObject(r.Context(), w, countries)
 }
 
-// GetCitiesByCountry retrieves a list of cities based on the given country code
-func (l *GeolocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.Request) {
+// getCitiesByCountry retrieves a list of cities based on the given country code
+func (l *geolocationsHandler) getCitiesByCountry(w http.ResponseWriter, r *http.Request) {
 	if err := l.authenticateUser(r); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -97,7 +103,7 @@ func (l *GeolocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.
 	util.WriteJSONObject(r.Context(), w, cities)
 }
 
-func (l *GeolocationsHandler) authenticateUser(r *http.Request) error {
+func (l *geolocationsHandler) authenticateUser(r *http.Request) error {
 	claims := l.claimsExtractor.FromRequestContext(r)
 	_, userID, err := l.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {

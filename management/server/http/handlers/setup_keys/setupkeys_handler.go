@@ -16,15 +16,24 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// SetupKeysHandler is a handler that returns a list of setup keys of the account
-type SetupKeysHandler struct {
+// handler is a handler that returns a list of setup keys of the account
+type handler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewSetupKeysHandler creates a new SetupKeysHandler HTTP handler
-func NewSetupKeysHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *SetupKeysHandler {
-	return &SetupKeysHandler{
+func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	keysHandler := newHandler(accountManager, authCfg)
+	router.HandleFunc("/setup-keys", keysHandler.getAllSetupKeys).Methods("GET", "OPTIONS")
+	router.HandleFunc("/setup-keys", keysHandler.createSetupKey).Methods("POST", "OPTIONS")
+	router.HandleFunc("/setup-keys/{keyId}", keysHandler.getSetupKey).Methods("GET", "OPTIONS")
+	router.HandleFunc("/setup-keys/{keyId}", keysHandler.updateSetupKey).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/setup-keys/{keyId}", keysHandler.deleteSetupKey).Methods("DELETE", "OPTIONS")
+}
+
+// newHandler creates a new setup key handler
+func newHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *handler {
+	return &handler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -33,8 +42,8 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authCfg configs.A
 	}
 }
 
-// CreateSetupKey is a POST requests that creates a new SetupKey
-func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request) {
+// createSetupKey is a POST requests that creates a new SetupKey
+func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -90,8 +99,8 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
 }
 
-// GetSetupKey is a GET request to get a SetupKey by ID
-func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
+// getSetupKey is a GET request to get a SetupKey by ID
+func (h *handler) getSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -115,8 +124,8 @@ func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(r.Context(), w, key)
 }
 
-// UpdateSetupKey is a PUT request to update server.SetupKey
-func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request) {
+// updateSetupKey is a PUT request to update server.SetupKey
+func (h *handler) updateSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -156,8 +165,8 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	writeSuccess(r.Context(), w, newKey)
 }
 
-// GetAllSetupKeys is a GET request that returns a list of SetupKey
-func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Request) {
+// getAllSetupKeys is a GET request that returns a list of SetupKey
+func (h *handler) getAllSetupKeys(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -179,7 +188,7 @@ func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Reques
 	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
 }
 
-func (h *SetupKeysHandler) DeleteSetupKey(w http.ResponseWriter, r *http.Request) {
+func (h *handler) deleteSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {

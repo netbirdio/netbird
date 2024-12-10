@@ -24,15 +24,24 @@ import (
 const maxDomains = 32
 const failedToConvertRoute = "failed to convert route to response: %v"
 
-// RoutesHandler is the routes handler of the account
-type RoutesHandler struct {
+// handler is the routes handler of the account
+type handler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewRoutesHandler returns a new instance of RoutesHandler handler
-func NewRoutesHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *RoutesHandler {
-	return &RoutesHandler{
+func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	routesHandler := newHandler(accountManager, authCfg)
+	router.HandleFunc("/routes", routesHandler.getAllRoutes).Methods("GET", "OPTIONS")
+	router.HandleFunc("/routes", routesHandler.createRoute).Methods("POST", "OPTIONS")
+	router.HandleFunc("/routes/{routeId}", routesHandler.updateRoute).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/routes/{routeId}", routesHandler.getRoute).Methods("GET", "OPTIONS")
+	router.HandleFunc("/routes/{routeId}", routesHandler.deleteRoute).Methods("DELETE", "OPTIONS")
+}
+
+// newHandler returns a new instance of routes handler
+func newHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *handler {
+	return &handler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -41,8 +50,8 @@ func NewRoutesHandler(accountManager server.AccountManager, authCfg configs.Auth
 	}
 }
 
-// GetAllRoutes returns the list of routes for the account
-func (h *RoutesHandler) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
+// getAllRoutes returns the list of routes for the account
+func (h *handler) getAllRoutes(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -68,8 +77,8 @@ func (h *RoutesHandler) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, apiRoutes)
 }
 
-// CreateRoute handles route creation request
-func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
+// createRoute handles route creation request
+func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -140,7 +149,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, routes)
 }
 
-func (h *RoutesHandler) validateRoute(req api.PostApiRoutesJSONRequestBody) error {
+func (h *handler) validateRoute(req api.PostApiRoutesJSONRequestBody) error {
 	if req.Network != nil && req.Domains != nil {
 		return status.Errorf(status.InvalidArgument, "only one of 'network' or 'domains' should be provided")
 	}
@@ -165,8 +174,8 @@ func (h *RoutesHandler) validateRoute(req api.PostApiRoutesJSONRequestBody) erro
 	return nil
 }
 
-// UpdateRoute handles update to a route identified by a given ID
-func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
+// updateRoute handles update to a route identified by a given ID
+func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -258,8 +267,8 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, routes)
 }
 
-// DeleteRoute handles route deletion request
-func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
+// deleteRoute handles route deletion request
+func (h *handler) deleteRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -282,8 +291,8 @@ func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-// GetRoute handles a route Get request identified by ID
-func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
+// getRoute handles a route Get request identified by ID
+func (h *handler) getRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {

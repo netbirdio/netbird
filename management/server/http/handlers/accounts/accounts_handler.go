@@ -16,15 +16,22 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// AccountsHandler is a handler that handles the server.Account HTTP endpoints
-type AccountsHandler struct {
+// handler is a handler that handles the server.Account HTTP endpoints
+type handler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewAccountsHandler creates a new AccountsHandler HTTP handler
-func NewAccountsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *AccountsHandler {
-	return &AccountsHandler{
+func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	accountsHandler := newHandler(accountManager, authCfg)
+	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/accounts", accountsHandler.getAllAccounts).Methods("GET", "OPTIONS")
+}
+
+// newHandler creates a new handler HTTP handler
+func newHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *handler {
+	return &handler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -33,8 +40,8 @@ func NewAccountsHandler(accountManager server.AccountManager, authCfg configs.Au
 	}
 }
 
-// GetAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
-func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request) {
+// getAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
+func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -52,8 +59,8 @@ func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request)
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
-// UpdateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
-func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) {
+// updateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
+func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	_, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -112,8 +119,8 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
-// DeleteAccount is a HTTP DELETE handler to delete an account
-func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+// deleteAccount is a HTTP DELETE handler to delete an account
+func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	vars := mux.Vars(r)
 	targetAccountID := vars["accountId"]

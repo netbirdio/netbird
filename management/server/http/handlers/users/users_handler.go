@@ -17,15 +17,25 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
-// UsersHandler is a handler that returns users of the account
-type UsersHandler struct {
+// handler is a handler that returns users of the account
+type handler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewUsersHandler creates a new UsersHandler HTTP handler
-func NewUsersHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *UsersHandler {
-	return &UsersHandler{
+func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	userHandler := newHandler(accountManager, authCfg)
+	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{userId}", userHandler.updateUser).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/users/{userId}", userHandler.deleteUser).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/users", userHandler.createUser).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/{userId}/invite", userHandler.inviteUser).Methods("POST", "OPTIONS")
+	addUsersTokensEndpoint(accountManager, authCfg, router)
+}
+
+// newHandler creates a new UsersHandler HTTP handler
+func newHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *handler {
+	return &handler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -34,8 +44,8 @@ func NewUsersHandler(accountManager server.AccountManager, authCfg configs.AuthC
 	}
 }
 
-// UpdateUser is a PUT requests to update User data
-func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+// updateUser is a PUT requests to update User data
+func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -95,8 +105,8 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, claims.UserId))
 }
 
-// DeleteUser is a DELETE request to delete a user
-func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+// deleteUser is a DELETE request to delete a user
+func (h *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -125,8 +135,8 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-// CreateUser creates a User in the system with a status "invited" (effectively this is a user invite).
-func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+// createUser creates a User in the system with a status "invited" (effectively this is a user invite).
+func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -176,9 +186,9 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, claims.UserId))
 }
 
-// GetAllUsers returns a list of users of the account this user belongs to.
+// getAllUsers returns a list of users of the account this user belongs to.
 // It also gathers additional user data (like email and name) from the IDP manager.
-func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -223,9 +233,9 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, users)
 }
 
-// InviteUser resend invitations to users who haven't activated their accounts,
+// inviteUser resend invitations to users who haven't activated their accounts,
 // prior to the expiration period.
-func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
+func (h *handler) inviteUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return

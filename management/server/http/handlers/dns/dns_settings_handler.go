@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
@@ -13,15 +14,26 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
-// DNSSettingsHandler is a handler that returns the DNS settings of the account
-type DNSSettingsHandler struct {
+// dnsSettingsHandler is a handler that returns the DNS settings of the account
+type dnsSettingsHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewDNSSettingsHandler returns a new instance of DNSSettingsHandler handler
-func NewDNSSettingsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *DNSSettingsHandler {
-	return &DNSSettingsHandler{
+func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	addDNSSettingEndpoint(accountManager, authCfg, router)
+	addDNSNameserversEndpoint(accountManager, authCfg, router)
+}
+
+func addDNSSettingEndpoint(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	dnsSettingsHandler := newDNSSettingsHandler(accountManager, authCfg)
+	router.HandleFunc("/dns/settings", dnsSettingsHandler.getDNSSettings).Methods("GET", "OPTIONS")
+	router.HandleFunc("/dns/settings", dnsSettingsHandler.updateDNSSettings).Methods("PUT", "OPTIONS")
+}
+
+// newDNSSettingsHandler returns a new instance of dnsSettingsHandler handler
+func newDNSSettingsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *dnsSettingsHandler {
+	return &dnsSettingsHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -30,8 +42,8 @@ func NewDNSSettingsHandler(accountManager server.AccountManager, authCfg configs
 	}
 }
 
-// GetDNSSettings returns the DNS settings for the account
-func (h *DNSSettingsHandler) GetDNSSettings(w http.ResponseWriter, r *http.Request) {
+// getDNSSettings returns the DNS settings for the account
+func (h *dnsSettingsHandler) getDNSSettings(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -53,8 +65,8 @@ func (h *DNSSettingsHandler) GetDNSSettings(w http.ResponseWriter, r *http.Reque
 	util.WriteJSONObject(r.Context(), w, apiDNSSettings)
 }
 
-// UpdateDNSSettings handles update to DNS settings of an account
-func (h *DNSSettingsHandler) UpdateDNSSettings(w http.ResponseWriter, r *http.Request) {
+// updateDNSSettings handles update to DNS settings of an account
+func (h *dnsSettingsHandler) updateDNSSettings(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {

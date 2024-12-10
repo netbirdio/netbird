@@ -17,15 +17,24 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// NameserversHandler is the nameserver group handler of the account
-type NameserversHandler struct {
+// nameserversHandler is the nameserver group handler of the account
+type nameserversHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewNameserversHandler returns a new instance of NameserversHandler handler
-func NewNameserversHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *NameserversHandler {
-	return &NameserversHandler{
+func addDNSNameserversEndpoint(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	nameserversHandler := newNameserversHandler(accountManager, authCfg)
+	router.HandleFunc("/dns/nameservers", nameserversHandler.getAllNameservers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/dns/nameservers", nameserversHandler.createNameserverGroup).Methods("POST", "OPTIONS")
+	router.HandleFunc("/dns/nameservers/{nsgroupId}", nameserversHandler.updateNameserverGroup).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/dns/nameservers/{nsgroupId}", nameserversHandler.getNameserverGroup).Methods("GET", "OPTIONS")
+	router.HandleFunc("/dns/nameservers/{nsgroupId}", nameserversHandler.deleteNameserverGroup).Methods("DELETE", "OPTIONS")
+}
+
+// newNameserversHandler returns a new instance of nameserversHandler handler
+func newNameserversHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *nameserversHandler {
+	return &nameserversHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -34,8 +43,8 @@ func NewNameserversHandler(accountManager server.AccountManager, authCfg configs
 	}
 }
 
-// GetAllNameservers returns the list of nameserver groups for the account
-func (h *NameserversHandler) GetAllNameservers(w http.ResponseWriter, r *http.Request) {
+// getAllNameservers returns the list of nameserver groups for the account
+func (h *nameserversHandler) getAllNameservers(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -58,8 +67,8 @@ func (h *NameserversHandler) GetAllNameservers(w http.ResponseWriter, r *http.Re
 	util.WriteJSONObject(r.Context(), w, apiNameservers)
 }
 
-// CreateNameserverGroup handles nameserver group creation request
-func (h *NameserversHandler) CreateNameserverGroup(w http.ResponseWriter, r *http.Request) {
+// createNameserverGroup handles nameserver group creation request
+func (h *nameserversHandler) createNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -91,8 +100,8 @@ func (h *NameserversHandler) CreateNameserverGroup(w http.ResponseWriter, r *htt
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
-// UpdateNameserverGroup handles update to a nameserver group identified by a given ID
-func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *http.Request) {
+// updateNameserverGroup handles update to a nameserver group identified by a given ID
+func (h *nameserversHandler) updateNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -142,8 +151,8 @@ func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *htt
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
-// DeleteNameserverGroup handles nameserver group deletion request
-func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *http.Request) {
+// deleteNameserverGroup handles nameserver group deletion request
+func (h *nameserversHandler) deleteNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -166,8 +175,8 @@ func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *htt
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-// GetNameserverGroup handles a nameserver group Get request identified by ID
-func (h *NameserversHandler) GetNameserverGroup(w http.ResponseWriter, r *http.Request) {
+// getNameserverGroup handles a nameserver group Get request identified by ID
+func (h *nameserversHandler) getNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {

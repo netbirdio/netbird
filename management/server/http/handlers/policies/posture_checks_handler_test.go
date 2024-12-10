@@ -25,13 +25,13 @@ import (
 var berlin = "Berlin"
 var losAngeles = "Los Angeles"
 
-func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksHandler {
+func initPostureChecksTestData(postureChecks ...*posture.Checks) *postureChecksHandler {
 	testPostureChecks := make(map[string]*posture.Checks, len(postureChecks))
 	for _, postureCheck := range postureChecks {
 		testPostureChecks[postureCheck.ID] = postureCheck
 	}
 
-	return &PostureChecksHandler{
+	return &postureChecksHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetPostureChecksFunc: func(_ context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
 				p, ok := testPostureChecks[postureChecksID]
@@ -147,35 +147,35 @@ func TestGetPostureCheck(t *testing.T) {
 		requestBody    io.Reader
 	}{
 		{
-			name:           "GetPostureCheck NBVersion OK",
+			name:           "getPostureCheck NBVersion OK",
 			expectedBody:   true,
 			id:             postureCheck.ID,
 			checkName:      postureCheck.Name,
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetPostureCheck OSVersion OK",
+			name:           "getPostureCheck OSVersion OK",
 			expectedBody:   true,
 			id:             osPostureCheck.ID,
 			checkName:      osPostureCheck.Name,
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetPostureCheck GeoLocation OK",
+			name:           "getPostureCheck GeoLocation OK",
 			expectedBody:   true,
 			id:             geoPostureCheck.ID,
 			checkName:      geoPostureCheck.Name,
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetPostureCheck PrivateNetwork OK",
+			name:           "getPostureCheck PrivateNetwork OK",
 			expectedBody:   true,
 			id:             privateNetworkCheck.ID,
 			checkName:      privateNetworkCheck.Name,
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetPostureCheck Not Found",
+			name:           "getPostureCheck Not Found",
 			id:             "not-exists",
 			expectedStatus: http.StatusNotFound,
 		},
@@ -189,7 +189,7 @@ func TestGetPostureCheck(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/posture-checks/"+tc.id, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/posture-checks/{postureCheckId}", p.GetPostureCheck).Methods("GET")
+			router.HandleFunc("/api/posture-checks/{postureCheckId}", p.getPostureCheck).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -231,7 +231,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 		requestType          string
 		requestPath          string
 		requestBody          io.Reader
-		setupHandlerFunc     func(handler *PostureChecksHandler)
+		setupHandlerFunc     func(handler *postureChecksHandler)
 	}{
 		{
 			name:        "Create Posture Checks NB version",
@@ -286,7 +286,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 					},
 				},
 			},
-			setupHandlerFunc: func(handler *PostureChecksHandler) {
+			setupHandlerFunc: func(handler *postureChecksHandler) {
 				handler.geolocationManager = nil
 			},
 		},
@@ -427,7 +427,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 				}`)),
 			expectedStatus: http.StatusPreconditionFailed,
 			expectedBody:   false,
-			setupHandlerFunc: func(handler *PostureChecksHandler) {
+			setupHandlerFunc: func(handler *postureChecksHandler) {
 				handler.geolocationManager = nil
 			},
 		},
@@ -614,7 +614,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 					},
 				},
 			},
-			setupHandlerFunc: func(handler *PostureChecksHandler) {
+			setupHandlerFunc: func(handler *postureChecksHandler) {
 				handler.geolocationManager = nil
 			},
 		},
@@ -677,7 +677,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 					}`)),
 			expectedStatus: http.StatusPreconditionFailed,
 			expectedBody:   false,
-			setupHandlerFunc: func(handler *PostureChecksHandler) {
+			setupHandlerFunc: func(handler *postureChecksHandler) {
 				handler.geolocationManager = nil
 			},
 		},
@@ -842,8 +842,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 			}
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/posture-checks", defaultHandler.CreatePostureCheck).Methods("POST")
-			router.HandleFunc("/api/posture-checks/{postureCheckId}", defaultHandler.UpdatePostureCheck).Methods("PUT")
+			router.HandleFunc("/api/posture-checks", defaultHandler.createPostureCheck).Methods("POST")
+			router.HandleFunc("/api/posture-checks/{postureCheckId}", defaultHandler.updatePostureCheck).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

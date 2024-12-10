@@ -61,8 +61,8 @@ var testAccount = &server.Account{
 	},
 }
 
-func initPATTestData() *PATHandler {
-	return &PATHandler{
+func initPATTestData() *patHandler {
+	return &patHandler{
 		accountManager: &mock_server.MockAccountManager{
 			CreatePATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error) {
 				if accountID != existingAccountID {
@@ -186,10 +186,10 @@ func TestTokenHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/users/{userId}/tokens", p.GetAllTokens).Methods("GET")
-			router.HandleFunc("/api/users/{userId}/tokens/{tokenId}", p.GetToken).Methods("GET")
-			router.HandleFunc("/api/users/{userId}/tokens", p.CreateToken).Methods("POST")
-			router.HandleFunc("/api/users/{userId}/tokens/{tokenId}", p.DeleteToken).Methods("DELETE")
+			router.HandleFunc("/api/users/{userId}/tokens", p.getAllTokens).Methods("GET")
+			router.HandleFunc("/api/users/{userId}/tokens/{tokenId}", p.getToken).Methods("GET")
+			router.HandleFunc("/api/users/{userId}/tokens", p.createToken).Methods("POST")
+			router.HandleFunc("/api/users/{userId}/tokens/{tokenId}", p.deleteToken).Methods("DELETE")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

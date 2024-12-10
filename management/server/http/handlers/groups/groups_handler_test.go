@@ -31,8 +31,8 @@ var TestPeers = map[string]*nbpeer.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
 
-func initGroupTestData(initGroups ...*nbgroup.Group) *GroupsHandler {
-	return &GroupsHandler{
+func initGroupTestData(initGroups ...*nbgroup.Group) *handler {
+	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *nbgroup.Group) error {
 				if !strings.HasPrefix(group.ID, "id-") {
@@ -106,14 +106,14 @@ func TestGetGroup(t *testing.T) {
 		requestBody    io.Reader
 	}{
 		{
-			name:           "GetGroup OK",
+			name:           "getGroup OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
 			requestPath:    "/api/groups/idofthegroup",
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetGroup not found",
+			name:           "getGroup not found",
 			requestType:    http.MethodGet,
 			requestPath:    "/api/groups/notexists",
 			expectedStatus: http.StatusNotFound,
@@ -133,7 +133,7 @@ func TestGetGroup(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{groupId}", p.GetGroup).Methods("GET")
+			router.HandleFunc("/api/groups/{groupId}", p.getGroup).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -254,8 +254,8 @@ func TestWriteGroup(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", p.CreateGroup).Methods("POST")
-			router.HandleFunc("/api/groups/{groupId}", p.UpdateGroup).Methods("PUT")
+			router.HandleFunc("/api/groups", p.createGroup).Methods("POST")
+			router.HandleFunc("/api/groups/{groupId}", p.updateGroup).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -331,7 +331,7 @@ func TestDeleteGroup(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{groupId}", p.DeleteGroup).Methods("DELETE")
+			router.HandleFunc("/api/groups/{groupId}", p.deleteGroup).Methods("DELETE")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

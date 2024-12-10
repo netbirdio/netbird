@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -21,7 +21,7 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
+func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	t.Helper()
 
 	var (
@@ -41,7 +41,7 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 	assert.NoError(t, err)
 	t.Cleanup(func() { _ = geo.Stop() })
 
-	return &GeolocationsHandler{
+	return &geolocationsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
@@ -114,7 +114,7 @@ func TestGetCitiesByCountry(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/locations/countries/{country}/cities", geolocationHandler.GetCitiesByCountry).Methods("GET")
+			router.HandleFunc("/api/locations/countries/{country}/cities", geolocationHandler.getCitiesByCountry).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -202,7 +202,7 @@ func TestGetAllCountries(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/locations/countries", geolocationHandler.GetAllCountries).Methods("GET")
+			router.HandleFunc("/api/locations/countries", geolocationHandler.getAllCountries).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

@@ -61,8 +61,8 @@ var usersTestAccount = &server.Account{
 	},
 }
 
-func initUsersTestData() *UsersHandler {
-	return &UsersHandler{
+func initUsersTestData() *handler {
+	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return usersTestAccount.Id, claims.UserId, nil
@@ -147,7 +147,7 @@ func TestGetUsers(t *testing.T) {
 		requestPath     string
 		expectedUserIDs []string
 	}{
-		{name: "GetAllUsers", requestType: http.MethodGet, requestPath: "/api/users", expectedStatus: http.StatusOK, expectedUserIDs: []string{existingUserID, regularUserID, serviceUserID}},
+		{name: "getAllUsers", requestType: http.MethodGet, requestPath: "/api/users", expectedStatus: http.StatusOK, expectedUserIDs: []string{existingUserID, regularUserID, serviceUserID}},
 		{name: "GetOnlyServiceUsers", requestType: http.MethodGet, requestPath: "/api/users?service_user=true", expectedStatus: http.StatusOK, expectedUserIDs: []string{serviceUserID}},
 		{name: "GetOnlyRegularUsers", requestType: http.MethodGet, requestPath: "/api/users?service_user=false", expectedStatus: http.StatusOK, expectedUserIDs: []string{existingUserID, regularUserID}},
 	}
@@ -159,7 +159,7 @@ func TestGetUsers(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 
-			userHandler.GetAllUsers(recorder, req)
+			userHandler.getAllUsers(recorder, req)
 
 			res := recorder.Result()
 			defer res.Body.Close()
@@ -265,7 +265,7 @@ func TestUpdateUser(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/users/{userId}", userHandler.UpdateUser).Methods("PUT")
+			router.HandleFunc("/api/users/{userId}", userHandler.updateUser).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -356,7 +356,7 @@ func TestCreateUser(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 			rr := httptest.NewRecorder()
 
-			userHandler.CreateUser(rr, req)
+			userHandler.createUser(rr, req)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -401,7 +401,7 @@ func TestInviteUser(t *testing.T) {
 			req = mux.SetURLVars(req, tc.requestVars)
 			rr := httptest.NewRecorder()
 
-			userHandler.InviteUser(rr, req)
+			userHandler.inviteUser(rr, req)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -454,7 +454,7 @@ func TestDeleteUser(t *testing.T) {
 			req = mux.SetURLVars(req, tc.requestVars)
 			rr := httptest.NewRecorder()
 
-			userHandler.DeleteUser(rr, req)
+			userHandler.deleteUser(rr, req)
 
 			res := rr.Result()
 			defer res.Body.Close()

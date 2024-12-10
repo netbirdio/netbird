@@ -20,8 +20,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initEventsTestData(account string, events ...*activity.Event) *EventsHandler {
-	return &EventsHandler{
+func initEventsTestData(account string, events ...*activity.Event) *handler {
+	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetEventsFunc: func(_ context.Context, accountID, userID string) ([]*activity.Event, error) {
 				if accountID == account {
@@ -183,7 +183,7 @@ func TestEvents_GetEvents(t *testing.T) {
 		requestBody    io.Reader
 	}{
 		{
-			name:           "GetAllEvents OK",
+			name:           "getAllEvents OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
 			requestPath:    "/api/events/",
@@ -201,7 +201,7 @@ func TestEvents_GetEvents(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/events/", handler.GetAllEvents).Methods("GET")
+			router.HandleFunc("/api/events/", handler.getAllEvents).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

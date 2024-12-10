@@ -15,15 +15,23 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// PATHandler is the nameserver group handler of the account
-type PATHandler struct {
+// patHandler is the nameserver group handler of the account
+type patHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewPATsHandler creates a new PATHandler HTTP handler
-func NewPATsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *PATHandler {
-	return &PATHandler{
+func addUsersTokensEndpoint(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	tokenHandler := newPATsHandler(accountManager, authCfg)
+	router.HandleFunc("/users/{userId}/tokens", tokenHandler.getAllTokens).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{userId}/tokens", tokenHandler.createToken).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/{userId}/tokens/{tokenId}", tokenHandler.getToken).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{userId}/tokens/{tokenId}", tokenHandler.deleteToken).Methods("DELETE", "OPTIONS")
+}
+
+// newPATsHandler creates a new patHandler HTTP handler
+func newPATsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *patHandler {
+	return &patHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -32,8 +40,8 @@ func NewPATsHandler(accountManager server.AccountManager, authCfg configs.AuthCf
 	}
 }
 
-// GetAllTokens is HTTP GET handler that returns a list of all personal access tokens for the given user
-func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
+// getAllTokens is HTTP GET handler that returns a list of all personal access tokens for the given user
+func (h *patHandler) getAllTokens(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -62,8 +70,8 @@ func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, patResponse)
 }
 
-// GetToken is HTTP GET handler that returns a personal access token for the given user
-func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
+// getToken is HTTP GET handler that returns a personal access token for the given user
+func (h *patHandler) getToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -93,8 +101,8 @@ func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toPATResponse(pat))
 }
 
-// CreateToken is HTTP POST handler that creates a personal access token for the given user
-func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
+// createToken is HTTP POST handler that creates a personal access token for the given user
+func (h *patHandler) createToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -125,8 +133,8 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toPATGeneratedResponse(pat))
 }
 
-// DeleteToken is HTTP DELETE handler that deletes a personal access token for the given user
-func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
+// deleteToken is HTTP DELETE handler that deletes a personal access token for the given user
+func (h *patHandler) deleteToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
