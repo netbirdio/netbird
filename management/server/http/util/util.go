@@ -14,6 +14,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
+// EmptyObject is an empty struct used to return empty JSON object
+type EmptyObject struct {
+}
+
 type ErrorResponse struct {
 	Message string `json:"message"`
 	Code    int    `json:"code"`
