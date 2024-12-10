@@ -1,4 +1,4 @@
-package http
+package dns
 
 import (
 	"bytes"
@@ -40,8 +40,8 @@ var testingDNSSettingsAccount = &server.Account{
 	DNSSettings: baseExistingDNSSettings,
 }
 
-func initDNSSettingsTestData() *DNSSettingsHandler {
-	return &DNSSettingsHandler{
+func initDNSSettingsTestData() *dnsSettingsHandler {
+	return &dnsSettingsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetDNSSettingsFunc: func(ctx context.Context, accountID string, userID string) (*server.DNSSettings, error) {
 				return &testingDNSSettingsAccount.DNSSettings, nil
@@ -120,8 +120,8 @@ func TestDNSSettingsHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/settings", p.GetDNSSettings).Methods("GET")
-			router.HandleFunc("/api/dns/settings", p.UpdateDNSSettings).Methods("PUT")
+			router.HandleFunc("/api/dns/settings", p.getDNSSettings).Methods("GET")
+			router.HandleFunc("/api/dns/settings", p.updateDNSSettings).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

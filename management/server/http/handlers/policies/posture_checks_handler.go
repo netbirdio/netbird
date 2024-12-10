@@ -1,4 +1,4 @@
-package http
+package policies
 
 import (
 	"encoding/json"
@@ -9,22 +9,33 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// PostureChecksHandler is a handler that returns posture checks of the account.
-type PostureChecksHandler struct {
+// postureChecksHandler is a handler that returns posture checks of the account.
+type postureChecksHandler struct {
 	accountManager     server.AccountManager
 	geolocationManager *geolocation.Geolocation
 	claimsExtractor    *jwtclaims.ClaimsExtractor
 }
 
-// NewPostureChecksHandler creates a new PostureChecks handler
-func NewPostureChecksHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *PostureChecksHandler {
-	return &PostureChecksHandler{
+func addPostureCheckEndpoint(accountManager server.AccountManager, locationManager *geolocation.Geolocation, authCfg configs.AuthCfg, router *mux.Router) {
+	postureCheckHandler := newPostureChecksHandler(accountManager, locationManager, authCfg)
+	router.HandleFunc("/posture-checks", postureCheckHandler.getAllPostureChecks).Methods("GET", "OPTIONS")
+	router.HandleFunc("/posture-checks", postureCheckHandler.createPostureCheck).Methods("POST", "OPTIONS")
+	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.updatePostureCheck).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.getPostureCheck).Methods("GET", "OPTIONS")
+	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.deletePostureCheck).Methods("DELETE", "OPTIONS")
+	addLocationsEndpoint(accountManager, locationManager, authCfg, router)
+}
+
+// newPostureChecksHandler creates a new PostureChecks handler
+func newPostureChecksHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg configs.AuthCfg) *postureChecksHandler {
+	return &postureChecksHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -34,8 +45,8 @@ func NewPostureChecksHandler(accountManager server.AccountManager, geolocationMa
 	}
 }
 
-// GetAllPostureChecks list for the account
-func (p *PostureChecksHandler) GetAllPostureChecks(w http.ResponseWriter, r *http.Request) {
+// getAllPostureChecks list for the account
+func (p *postureChecksHandler) getAllPostureChecks(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := p.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -57,8 +68,8 @@ func (p *PostureChecksHandler) GetAllPostureChecks(w http.ResponseWriter, r *htt
 	util.WriteJSONObject(r.Context(), w, postureChecks)
 }
 
-// UpdatePostureCheck handles update to a posture check identified by a given ID
-func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http.Request) {
+// updatePostureCheck handles update to a posture check identified by a given ID
+func (p *postureChecksHandler) updatePostureCheck(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := p.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -82,8 +93,8 @@ func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http
 	p.savePostureChecks(w, r, accountID, userID, postureChecksID)
 }
 
-// CreatePostureCheck handles posture check creation request
-func (p *PostureChecksHandler) CreatePostureCheck(w http.ResponseWriter, r *http.Request) {
+// createPostureCheck handles posture check creation request
+func (p *postureChecksHandler) createPostureCheck(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := p.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -94,8 +105,8 @@ func (p *PostureChecksHandler) CreatePostureCheck(w http.ResponseWriter, r *http
 	p.savePostureChecks(w, r, accountID, userID, "")
 }
 
-// GetPostureCheck handles a posture check Get request identified by ID
-func (p *PostureChecksHandler) GetPostureCheck(w http.ResponseWriter, r *http.Request) {
+// getPostureCheck handles a posture check Get request identified by ID
+func (p *postureChecksHandler) getPostureCheck(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := p.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -119,8 +130,8 @@ func (p *PostureChecksHandler) GetPostureCheck(w http.ResponseWriter, r *http.Re
 	util.WriteJSONObject(r.Context(), w, postureChecks.ToAPIResponse())
 }
 
-// DeletePostureCheck handles posture check deletion request
-func (p *PostureChecksHandler) DeletePostureCheck(w http.ResponseWriter, r *http.Request) {
+// deletePostureCheck handles posture check deletion request
+func (p *postureChecksHandler) deletePostureCheck(w http.ResponseWriter, r *http.Request) {
 	claims := p.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := p.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -140,11 +151,11 @@ func (p *PostureChecksHandler) DeletePostureCheck(w http.ResponseWriter, r *http
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
 // savePostureChecks handles posture checks create and update
-func (p *PostureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.Request, accountID, userID, postureChecksID string) {
+func (p *postureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.Request, accountID, userID, postureChecksID string) {
 	var (
 		err error
 		req api.PostureCheckUpdate
