@@ -154,3 +154,8 @@ func NewPolicyNotFoundError(policyID string) error {
 func NewNameServerGroupNotFoundError(nsGroupID string) error {
 	return Errorf(NotFound, "nameserver group: %s not found", nsGroupID)
 }
+
+// NewNetworkNotFoundError creates a new Error with NotFound type for a missing network.
+func NewNetworkNotFoundError(networkID string) error {
+	return Errorf(NotFound, "network: %s not found", networkID)
+}
