@@ -65,6 +65,7 @@ func newClientNetworkWatcher(
 	routeRefCounter *refcounter.RouteRefCounter,
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	dnsServer nbdns.Server,
+	peerConns map[string]*peer.Conn,
 ) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -77,7 +78,16 @@ func newClientNetworkWatcher(
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
-		handler:             handlerFromRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouteInterval, statusRecorder, wgInterface, dnsServer),
+		handler: handlerFromRoute(
+			rt,
+			routeRefCounter,
+			allowedIPsRefCounter,
+			dnsRouteInterval,
+			statusRecorder,
+			wgInterface,
+			dnsServer,
+			peerConns,
+		),
 	}
 	return client
 }
@@ -388,13 +398,29 @@ func handlerFromRoute(
 	statusRecorder *peer.Status,
 	wgInterface iface.IWGIface,
 	dnsServer nbdns.Server,
+	peerConns map[string]*peer.Conn,
 ) RouteHandler {
 	if rt.IsDynamic() {
 		if useNewDNSRoute {
-			return dnsinterceptor.New(rt, routeRefCounter, allowedIPsRefCounter, statusRecorder, dnsServer)
+			return dnsinterceptor.New(
+				rt,
+				routeRefCounter,
+				allowedIPsRefCounter,
+				statusRecorder,
+				dnsServer,
+				peerConns,
+			)
 		}
 		dns := nbdns.NewServiceViaMemory(wgInterface)
-		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouterInteval, statusRecorder, wgInterface, fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()))
+		return dynamic.NewRoute(
+			rt,
+			routeRefCounter,
+			allowedIPsRefCounter,
+			dnsRouterInteval,
+			statusRecorder,
+			wgInterface,
+			fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()),
+		)
 	}
 	return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
 }

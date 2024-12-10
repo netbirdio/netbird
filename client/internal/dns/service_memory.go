@@ -68,6 +68,7 @@ func (s *ServiceViaMemory) Stop() {
 }
 
 func (s *ServiceViaMemory) RegisterMux(pattern string, handler dns.Handler) {
+	log.Debugf("registering dns handler for pattern: %s", pattern)
 	s.dnsMux.Handle(pattern, handler)
 }
 

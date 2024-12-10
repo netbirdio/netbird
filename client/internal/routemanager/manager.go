@@ -12,6 +12,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
@@ -34,9 +35,11 @@ import (
 // Manager is a route manager interface
 type Manager interface {
 	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
-	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
+	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
+	GetClientRoutes() route.HAMap
+	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
 	EnableServerRouter(firewall firewall.Manager) error
@@ -61,7 +64,10 @@ type DefaultManager struct {
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter
 	dnsRouteInterval     time.Duration
 	stateManager         *statemanager.Manager
-	dnsServer            dns.Server
+	// clientRoutes is the most recent list of clientRoutes received from the Management Service
+	clientRoutes route.HAMap
+	dnsServer    dns.Server
+	peerConns    map[string]*peer.Conn
 }
 
 func NewManager(
@@ -74,6 +80,7 @@ func NewManager(
 	initialRoutes []*route.Route,
 	stateManager *statemanager.Manager,
 	dnsServer dns.Server,
+	peerConns map[string]*peer.Conn,
 ) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	notifier := notifier.NewNotifier()
@@ -92,6 +99,7 @@ func NewManager(
 		notifier:         notifier,
 		stateManager:     stateManager,
 		dnsServer:        dnsServer,
+		peerConns:        peerConns,
 	}
 
 	dm.routeRefCounter = refcounter.New(
@@ -120,7 +128,7 @@ func NewManager(
 	)
 
 	if runtime.GOOS == "android" {
-		cr := dm.clientRoutes(initialRoutes)
+		cr := dm.initialClientRoutes(initialRoutes)
 		dm.notifier.SetInitialClientRoutes(cr)
 	}
 	return dm
@@ -211,33 +219,40 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	}
 
 	m.ctx = nil
+
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	m.clientRoutes = nil
 }
 
 // UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
-func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
+func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not updating routes as context is closed")
-		return nil, nil, m.ctx.Err()
+		return nil
 	default:
-		m.mux.Lock()
-		defer m.mux.Unlock()
-
-		newServerRoutesMap, newClientRoutesIDMap := m.classifyRoutes(newRoutes)
-
-		filteredClientRoutes := m.routeSelector.FilterSelected(newClientRoutesIDMap)
-		m.updateClientNetworks(updateSerial, filteredClientRoutes)
-		m.notifier.OnNewRoutes(filteredClientRoutes)
-
-		if m.serverRouter != nil {
-			err := m.serverRouter.updateRoutes(newServerRoutesMap)
-			if err != nil {
-				return nil, nil, fmt.Errorf("update routes: %w", err)
-			}
-		}
-
-		return newServerRoutesMap, newClientRoutesIDMap, nil
 	}
+
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	newServerRoutesMap, newClientRoutesIDMap := m.classifyRoutes(newRoutes)
+
+	filteredClientRoutes := m.routeSelector.FilterSelected(newClientRoutesIDMap)
+	m.updateClientNetworks(updateSerial, filteredClientRoutes)
+	m.notifier.OnNewRoutes(filteredClientRoutes)
+
+	if m.serverRouter != nil {
+		err := m.serverRouter.updateRoutes(newServerRoutesMap)
+		if err != nil {
+			return err
+		}
+	}
+
+	m.clientRoutes = newClientRoutesIDMap
+
+	return nil
 }
 
 // SetRouteChangeListener set RouteListener for route change Notifier
@@ -255,9 +270,24 @@ func (m *DefaultManager) GetRouteSelector() *routeselector.RouteSelector {
 	return m.routeSelector
 }
 
-// GetClientRoutes returns the client routes
-func (m *DefaultManager) GetClientRoutes() map[route.HAUniqueID]*clientNetwork {
-	return m.clientNetworks
+// GetClientRoutes returns most recent list of clientRoutes received from the Management Service
+func (m *DefaultManager) GetClientRoutes() route.HAMap {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	return maps.Clone(m.clientRoutes)
+}
+
+// GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
+func (m *DefaultManager) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	routes := make(map[route.NetID][]*route.Route, len(m.clientRoutes))
+	for id, v := range m.clientRoutes {
+		routes[id.NetID()] = v
+	}
+	return routes
 }
 
 // TriggerSelection triggers the selection of routes, stopping deselected watchers and starting newly selected ones
@@ -286,6 +316,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			m.routeRefCounter,
 			m.allowedIPsRefCounter,
 			m.dnsServer,
+			m.peerConns,
 		)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
@@ -315,16 +346,7 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
-			clientNetworkWatcher = newClientNetworkWatcher(
-				m.ctx,
-				m.dnsRouteInterval,
-				m.wgInterface,
-				m.statusRecorder,
-				routes[0],
-				m.routeRefCounter,
-				m.allowedIPsRefCounter,
-				m.dnsServer,
-			)
+			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.dnsRouteInterval, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter, m.dnsServer, nil)
 			m.clientNetworks[id] = clientNetworkWatcher
 			go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		}
@@ -367,7 +389,7 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]
 	return newServerRoutesMap, newClientRoutesIDMap
 }
 
-func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Route {
+func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*route.Route {
 	_, crMap := m.classifyRoutes(initialRoutes)
 	rs := make([]*route.Route, 0, len(crMap))
 	for _, routes := range crMap {

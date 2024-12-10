@@ -24,6 +24,7 @@ type DnsInterceptor struct {
 	dnsServer            nbdns.Server
 	currentPeerKey       string
 	interceptedIPs       map[string]netip.Prefix
+	peerConns            map[string]*peer.Conn
 }
 
 func New(
@@ -32,6 +33,7 @@ func New(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	statusRecorder *peer.Status,
 	dnsServer nbdns.Server,
+	peerConns map[string]*peer.Conn,
 ) *DnsInterceptor {
 	return &DnsInterceptor{
 		route:                rt,
@@ -40,6 +42,7 @@ func New(
 		statusRecorder:       statusRecorder,
 		dnsServer:            dnsServer,
 		interceptedIPs:       make(map[string]netip.Prefix),
+		peerConns:            peerConns,
 	}
 }
 

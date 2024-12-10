@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -136,10 +135,6 @@ type Engine struct {
 	// TURNs is a list of STUN servers used by ICE
 	TURNs    []*stun.URI
 	stunTurn atomic.Value
-
-	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes   route.HAMap
-	clientRoutesMu sync.RWMutex
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -300,10 +295,6 @@ func (e *Engine) Stop() error {
 		return fmt.Errorf("failed to remove all peers: %s", err)
 	}
 
-	e.clientRoutesMu.Lock()
-	e.clientRoutes = nil
-	e.clientRoutesMu.Unlock()
-
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -383,6 +374,7 @@ func (e *Engine) Start() error {
 		initialRoutes,
 		e.stateManager,
 		dnsServer,
+		e.peerConns,
 	)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
@@ -812,14 +804,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoRoutes = []*mgmProto.Route{}
 	}
 
-	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
-	if err != nil {
+	if err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes)); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
-
-	e.clientRoutesMu.Lock()
-	e.clientRoutes = clientRoutes
-	e.clientRoutesMu.Unlock()
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
@@ -868,8 +855,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
 
-	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
-	if err != nil {
+	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig)); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
@@ -1136,7 +1122,7 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				go conn.OnRemoteCandidate(candidate, e.GetClientRoutes())
+				go conn.OnRemoteCandidate(candidate, e.routeManager.GetClientRoutes())
 			case sProto.Body_MODE:
 			}
 
@@ -1323,26 +1309,6 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 	}
 }
 
-// GetClientRoutes returns the current routes from the route map
-func (e *Engine) GetClientRoutes() route.HAMap {
-	e.clientRoutesMu.RLock()
-	defer e.clientRoutesMu.RUnlock()
-
-	return maps.Clone(e.clientRoutes)
-}
-
-// GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
-func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
-	e.clientRoutesMu.RLock()
-	defer e.clientRoutesMu.RUnlock()
-
-	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
-	for id, v := range e.clientRoutes {
-		routes[id.NetID()] = v
-	}
-	return routes
-}
-
 // GetRouteManager returns the route manager
 func (e *Engine) GetRouteManager() routemanager.Manager {
 	return e.routeManager
@@ -1506,7 +1472,7 @@ func (e *Engine) startNetworkMonitor() {
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 	var vpnRoutes []netip.Prefix
-	for _, routes := range e.GetClientRoutes() {
+	for _, routes := range e.routeManager.GetClientRoutes() {
 		if len(routes) > 0 && routes[0] != nil {
 			vpnRoutes = append(vpnRoutes, routes[0].Network)
 		}
