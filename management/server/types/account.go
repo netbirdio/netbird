@@ -83,10 +83,10 @@ type AccountSettings struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
-// getRoutesToSync returns the enabled routes for the peer ID and the routes
+// GetRoutesToSync returns the enabled routes for the peer ID and the routes
 // from the ACL peers that have distribution groups associated with the peer ID.
 // Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-func (a *Account) getRoutesToSync(ctx context.Context, peerID string, aclPeers []*nbpeer.Peer) []*route.Route {
+func (a *Account) GetRoutesToSync(ctx context.Context, peerID string, aclPeers []*nbpeer.Peer) []*route.Route {
 	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(ctx, peerID)
 	peerRoutesMembership := make(LookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
@@ -246,7 +246,7 @@ func (a *Account) GetPeerNetworkMap(
 		peersToConnect = append(peersToConnect, p)
 	}
 
-	routesUpdate := a.getRoutesToSync(ctx, peerID, peersToConnect)
+	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect)
 	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
@@ -1027,7 +1027,7 @@ func (a *Account) GetPeerRoutesFirewallRules(ctx context.Context, peerID string,
 		distributionPeers := a.getDistributionGroupsPeers(route)
 
 		for _, accessGroup := range route.AccessControlGroups {
-			policies := getAllRoutePoliciesFromGroups(a, []string{accessGroup})
+			policies := GetAllRoutePoliciesFromGroups(a, []string{accessGroup})
 			rules := a.getRouteFirewallRules(ctx, peerID, policies, route, validatedPeersMap, distributionPeers)
 			routesFirewallRules = append(routesFirewallRules, rules...)
 		}
@@ -1129,9 +1129,9 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 	return rules
 }
 
-// getAllRoutePoliciesFromGroups retrieves route policies associated with the specified access control groups
+// GetAllRoutePoliciesFromGroups retrieves route policies associated with the specified access control groups
 // and returns a list of policies that have rules with destinations matching the specified groups.
-func getAllRoutePoliciesFromGroups(account *Account, accessControlGroups []string) []*Policy {
+func GetAllRoutePoliciesFromGroups(account *Account, accessControlGroups []string) []*Policy {
 	routePolicies := make([]*Policy, 0)
 	for _, groupID := range accessControlGroups {
 		group, ok := account.Groups[groupID]

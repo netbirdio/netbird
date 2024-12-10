@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -619,7 +620,7 @@ func testSyncStatusRace(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, peerWithInvalidStatus.PublicKey().String())
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, peerWithInvalidStatus.PublicKey().String())
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -706,7 +707,7 @@ func Test_LoginPerformance(t *testing.T) {
 						return
 					}
 
-					setupKey, err := am.CreateSetupKey(context.Background(), account.Id, fmt.Sprintf("key-%d", j), SetupKeyReusable, time.Hour, nil, 0, fmt.Sprintf("user-%d", j), false)
+					setupKey, err := am.CreateSetupKey(context.Background(), account.Id, fmt.Sprintf("key-%d", j), types.SetupKeyReusable, time.Hour, nil, 0, fmt.Sprintf("user-%d", j), false)
 					if err != nil {
 						t.Logf("error creating setup key: %v", err)
 						return

@@ -1090,7 +1090,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1101,13 +1101,13 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	existingUserID := "edafee4e-63fb-11ec-90d6-0242ac120003"
 
-	_, err = store.GetAccount(context.Background(), existingAccountID)
+	_, err = s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	newPeer := &nbpeer.Peer{
@@ -1130,12 +1130,12 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	addedPeer, _, _, err := am.AddPeer(context.Background(), "", existingUserID, newPeer)
 	require.NoError(t, err)
 
-	peer, err := store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, addedPeer.Key)
+	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, addedPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.UserID, existingUserID)
 
-	account, err := store.GetAccount(context.Background(), existingAccountID)
+	account, err := s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 	assert.Contains(t, account.Peers, addedPeer.ID)
 	assert.Equal(t, peer.Meta.Hostname, newPeer.Meta.Hostname)
@@ -1154,7 +1154,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1165,13 +1165,13 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	existingSetupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
-	_, err = store.GetAccount(context.Background(), existingAccountID)
+	_, err = s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	newPeer := &nbpeer.Peer{
@@ -1194,11 +1194,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	require.NoError(t, err)
 
-	peer, err := store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
+	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 
-	account, err := store.GetAccount(context.Background(), existingAccountID)
+	account, err := s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 	assert.Contains(t, account.Peers, addedPeer.ID)
 	assert.Contains(t, account.Groups["cfefqs706sqkneg59g2g"].Peers, addedPeer.ID)
@@ -1221,7 +1221,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1232,13 +1232,13 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	faultyKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBC"
 
-	_, err = store.GetAccount(context.Background(), existingAccountID)
+	_, err = s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	newPeer := &nbpeer.Peer{
@@ -1260,10 +1260,10 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	_, _, _, err = am.AddPeer(context.Background(), faultyKey, "", newPeer)
 	require.Error(t, err)
 
-	_, err = store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
+	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
 	require.Error(t, err)
 
-	account, err := store.GetAccount(context.Background(), existingAccountID)
+	account, err := s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 	assert.NotContains(t, account.Peers, newPeer.ID)
 	assert.NotContains(t, account.Groups["cfefqs706sqkneg59g3g"].Peers, newPeer.ID)

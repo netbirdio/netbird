@@ -487,12 +487,12 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 	}
 
 	initUnknown := defaultInitAccount
-	initUnknown.DomainCategory = UnknownCategory
+	initUnknown.DomainCategory = types.UnknownCategory
 	initUnknown.Domain = unknownDomain
 
 	privateInitAccount := defaultInitAccount
 	privateInitAccount.Domain = privateDomain
-	privateInitAccount.DomainCategory = PrivateCategory
+	privateInitAccount.DomainCategory = types.PrivateCategory
 
 	testCases := []struct {
 		name                        string
@@ -514,7 +514,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         publicDomain,
 				UserId:         "pub-domain-user",
-				DomainCategory: PublicCategory,
+				DomainCategory: types.PublicCategory,
 			},
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.NotEqual,
@@ -531,7 +531,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         unknownDomain,
 				UserId:         "unknown-domain-user",
-				DomainCategory: UnknownCategory,
+				DomainCategory: types.UnknownCategory,
 			},
 			inputInitUserParams:         initUnknown,
 			testingFunc:                 require.NotEqual,
@@ -548,14 +548,14 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         privateDomain,
 				UserId:         "pvt-domain-user",
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.NotEqual,
 			expectedMSG:                 "account IDs shouldn't match",
 			expectedUserRole:            types.UserRoleOwner,
 			expectedDomain:              privateDomain,
-			expectedDomainCategory:      PrivateCategory,
+			expectedDomainCategory:      types.PrivateCategory,
 			expectedPrimaryDomainStatus: true,
 			expectedCreatedBy:           "pvt-domain-user",
 			expectedUsers:               []string{"pvt-domain-user"},
@@ -565,7 +565,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         privateDomain,
 				UserId:         "new-pvt-domain-user",
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputUpdateAttrs:            true,
 			inputInitUserParams:         privateInitAccount,
@@ -573,7 +573,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			expectedMSG:                 "account IDs should match",
 			expectedUserRole:            types.UserRoleUser,
 			expectedDomain:              privateDomain,
-			expectedDomainCategory:      PrivateCategory,
+			expectedDomainCategory:      types.PrivateCategory,
 			expectedPrimaryDomainStatus: true,
 			expectedCreatedBy:           defaultInitAccount.UserId,
 			expectedUsers:               []string{defaultInitAccount.UserId, "new-pvt-domain-user"},
@@ -583,14 +583,14 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         defaultInitAccount.Domain,
 				UserId:         defaultInitAccount.UserId,
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.Equal,
 			expectedMSG:                 "account IDs should match",
 			expectedUserRole:            types.UserRoleOwner,
 			expectedDomain:              defaultInitAccount.Domain,
-			expectedDomainCategory:      PrivateCategory,
+			expectedDomainCategory:      types.PrivateCategory,
 			expectedPrimaryDomainStatus: true,
 			expectedCreatedBy:           defaultInitAccount.UserId,
 			expectedUsers:               []string{defaultInitAccount.UserId},
@@ -600,7 +600,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         defaultInitAccount.Domain,
 				UserId:         defaultInitAccount.UserId,
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputUpdateClaimAccount:     true,
 			inputInitUserParams:         defaultInitAccount,
@@ -608,7 +608,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			expectedMSG:                 "account IDs should match",
 			expectedUserRole:            types.UserRoleOwner,
 			expectedDomain:              defaultInitAccount.Domain,
-			expectedDomainCategory:      PrivateCategory,
+			expectedDomainCategory:      types.PrivateCategory,
 			expectedPrimaryDomainStatus: true,
 			expectedCreatedBy:           defaultInitAccount.UserId,
 			expectedUsers:               []string{defaultInitAccount.UserId},
@@ -618,7 +618,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         "",
 				UserId:         "pvt-domain-user",
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.NotEqual,
@@ -753,7 +753,11 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 }
 
 func TestAccountManager_GetAccountFromPAT(t *testing.T) {
-	store := newStore(t)
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
@@ -768,7 +772,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 			},
 		},
 	}
-	err := store.SaveAccount(context.Background(), account)
+	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -788,7 +792,12 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 }
 
 func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
-	store := newStore(t)
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
@@ -804,7 +813,7 @@ func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 			},
 		},
 	}
-	err := store.SaveAccount(context.Background(), account)
+	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -992,13 +1001,13 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	claims := jwtclaims.AuthorizationClaims{
 		Domain:         "example.com",
 		UserId:         "pvt-domain-user",
-		DomainCategory: PrivateCategory,
+		DomainCategory: types.PrivateCategory,
 	}
 
 	publicClaims := jwtclaims.AuthorizationClaims{
 		Domain:         "test.com",
 		UserId:         "public-domain-user",
-		DomainCategory: PublicCategory,
+		DomainCategory: types.PublicCategory,
 	}
 
 	am, err := createManager(b)
@@ -1683,7 +1692,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 		},
 	}
 
-	routes := account.getRoutesToSync(context.Background(), "peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
+	routes := account.GetRoutesToSync(context.Background(), "peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[route.ID]struct{}, 2)
@@ -1693,7 +1702,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	assert.Contains(t, routeIDs, route.ID("route-2"))
 	assert.Contains(t, routeIDs, route.ID("route-3"))
 
-	emptyRoutes := account.getRoutesToSync(context.Background(), "peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
+	emptyRoutes := account.GetRoutesToSync(context.Background(), "peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
 
 	assert.Len(t, emptyRoutes, 0)
 }

@@ -76,11 +76,3 @@ func BenchmarkTest_StoreRead(b *testing.B) {
 		})
 	}
 }
-
-func newStore(t *testing.T) Store {
-	t.Helper()
-
-	store := newSqliteStore(t)
-
-	return store
-}

@@ -1793,15 +1793,15 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 	t.Run("check applied policies for the route", func(t *testing.T) {
 		route1 := account.Routes["route1"]
-		policies := getAllRoutePoliciesFromGroups(account, route1.AccessControlGroups)
+		policies := types.GetAllRoutePoliciesFromGroups(account, route1.AccessControlGroups)
 		assert.Len(t, policies, 1)
 
 		route2 := account.Routes["route2"]
-		policies = getAllRoutePoliciesFromGroups(account, route2.AccessControlGroups)
+		policies = types.GetAllRoutePoliciesFromGroups(account, route2.AccessControlGroups)
 		assert.Len(t, policies, 1)
 
 		route3 := account.Routes["route3"]
-		policies = getAllRoutePoliciesFromGroups(account, route3.AccessControlGroups)
+		policies = types.GetAllRoutePoliciesFromGroups(account, route3.AccessControlGroups)
 		assert.Len(t, policies, 0)
 	})
 

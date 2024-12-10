@@ -478,7 +478,7 @@ func TestDefaultAccountManager_CreateSetupKey_ShouldNotAllowToUpdateRevokedKey(t
 		t.Fatal(err)
 	}
 
-	key, err := manager.CreateSetupKey(context.Background(), account.Id, "testName", types.SetupKeyReusable, time.Hour, nil, SetupKeyUnlimitedUsage, userID, false)
+	key, err := manager.CreateSetupKey(context.Background(), account.Id, "testName", types.SetupKeyReusable, time.Hour, nil, types.SetupKeyUnlimitedUsage, userID, false)
 	assert.NoError(t, err)
 
 	// revoke the key
