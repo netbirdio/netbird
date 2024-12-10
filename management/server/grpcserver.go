@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	internalStatus "github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // GRPCServer an instance of a Management gRPC API server
@@ -599,7 +600,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *Token, relayToken *Tok
 	}
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *Network, dnsName string) *proto.PeerConfig {
+func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 	return &proto.PeerConfig{
@@ -609,7 +610,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *Network, dnsName string) *proto.Pe
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(config, turnCredentials, relayCredentials),
 		PeerConfig:        toPeerConfig(peer, networkMap.Network, dnsName),
@@ -661,7 +662,7 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer) error {
 	var err error
 
 	var turnToken *Token

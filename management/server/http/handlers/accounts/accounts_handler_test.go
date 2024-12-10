@@ -13,23 +13,23 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
-func initAccountsTestData(account *server.Account, admin *server.User) *handler {
+func initAccountsTestData(account *types.Account, admin *types.User) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountIDFromTokenFunc: func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return account.Id, admin.Id, nil
 			},
-			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*server.Settings, error) {
+			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 				return account.Settings, nil
 			},
-			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
+			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error) {
 				halfYearLimit := 180 * 24 * time.Hour
 				if newSettings.PeerLoginExpiration > halfYearLimit {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -58,19 +58,19 @@ func initAccountsTestData(account *server.Account, admin *server.User) *handler 
 
 func TestAccounts_AccountsHandler(t *testing.T) {
 	accountID := "test_account"
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := types.NewAdminUser("test_user")
 
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
 
-	handler := initAccountsTestData(&server.Account{
+	handler := initAccountsTestData(&types.Account{
 		Id:      accountID,
 		Domain:  "hotmail.com",
-		Network: server.NewNetwork(),
-		Users: map[string]*server.User{
+		Network: types.NewNetwork(),
+		Users: map[string]*types.User{
 			adminUser.Id: adminUser,
 		},
-		Settings: &server.Settings{
+		Settings: &types.Settings{
 			PeerLoginExpirationEnabled: false,
 			PeerLoginExpiration:        time.Hour,
 			RegularUsersViewBlocked:    true,

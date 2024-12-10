@@ -2,8 +2,9 @@ package resources
 
 import (
 	"context"
+	"errors"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/store"
 )
 
 type Manager interface {
@@ -15,31 +16,31 @@ type Manager interface {
 }
 
 type managerImpl struct {
-	store server.Store
+	store store.Store
 }
 
-func NewManager(store server.Store) Manager {
+func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store: store,
 	}
 }
 
 func (m *managerImpl) GetAllResources(ctx context.Context, accountID, userID, networkID string) ([]*NetworkResource, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) CreateResource(ctx context.Context, accountID string, resource *NetworkResource) (*NetworkResource, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*NetworkResource, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resource *NetworkResource) (*NetworkResource, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
-	return nil
+	return errors.New("not implemented")
 }

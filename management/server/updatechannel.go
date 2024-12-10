@@ -9,13 +9,14 @@ import (
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const channelBufferSize = 100
 
 type UpdateMessage struct {
 	Update     *proto.SyncResponse
-	NetworkMap *NetworkMap
+	NetworkMap *types.NetworkMap
 }
 
 type PeersUpdateManager struct {

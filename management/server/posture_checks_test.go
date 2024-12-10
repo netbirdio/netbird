@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/posture"
 )
@@ -92,17 +94,17 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 	})
 }
 
-func initTestPostureChecksAccount(am *DefaultAccountManager) (*Account, error) {
+func initTestPostureChecksAccount(am *DefaultAccountManager) (*types.Account, error) {
 	accountID := "testingAccount"
 	domain := "example.com"
 
-	admin := &User{
+	admin := &types.User{
 		Id:   adminUserID,
-		Role: UserRoleAdmin,
+		Role: types.UserRoleAdmin,
 	}
-	user := &User{
+	user := &types.User{
 		Id:   regularUserID,
-		Role: UserRoleUser,
+		Role: types.UserRoleUser,
 	}
 
 	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain)
@@ -209,15 +211,15 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	policy := &Policy{
+	policy := &types.Policy{
 		Enabled: true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupA"},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 		SourcePostureChecks: []string{postureCheckB.ID},
@@ -312,15 +314,15 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	// Updating linked posture check to policy with no peers should not trigger account peers update and not send peer update
 	t.Run("updating linked posture check to policy with no peers", func(t *testing.T) {
-		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 			Enabled: true,
-			Rules: []*PolicyRule{
+			Rules: []*types.PolicyRule{
 				{
 					Enabled:       true,
 					Sources:       []string{"groupB"},
 					Destinations:  []string{"groupC"},
 					Bidirectional: true,
-					Action:        PolicyTrafficActionAccept,
+					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
 			SourcePostureChecks: []string{postureCheckB.ID},
@@ -356,15 +358,15 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 			manager.peersUpdateManager.CloseChannel(context.Background(), peer2.ID)
 		})
 
-		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 			Enabled: true,
-			Rules: []*PolicyRule{
+			Rules: []*types.PolicyRule{
 				{
 					Enabled:       true,
 					Sources:       []string{"groupB"},
 					Destinations:  []string{"groupA"},
 					Bidirectional: true,
-					Action:        PolicyTrafficActionAccept,
+					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
 			SourcePostureChecks: []string{postureCheckB.ID},
@@ -395,15 +397,15 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	// Updating linked client posture check to policy where source has peers but destination does not,
 	// should trigger account peers update and send peer update
 	t.Run("updating linked posture check to policy where source has peers but destination does not", func(t *testing.T) {
-		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 			Enabled: true,
-			Rules: []*PolicyRule{
+			Rules: []*types.PolicyRule{
 				{
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupB"},
 					Bidirectional: true,
-					Action:        PolicyTrafficActionAccept,
+					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
 			SourcePostureChecks: []string{postureCheckB.ID},
@@ -454,7 +456,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		AccountID: account.Id,
 		Peers:     []string{},
 	}
-	err = manager.Store.SaveGroups(context.Background(), LockingStrengthUpdate, []*group.Group{groupA, groupB})
+	err = manager.Store.SaveGroups(context.Background(), store.LockingStrengthUpdate, []*group.Group{groupA, groupB})
 	require.NoError(t, err, "failed to save groups")
 
 	postureCheckA := &posture.Checks{
@@ -477,9 +479,9 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 	postureCheckB, err = manager.SavePostureChecks(context.Background(), account.Id, adminUserID, postureCheckB)
 	require.NoError(t, err, "failed to save postureCheckB")
 
-	policy := &Policy{
+	policy := &types.Policy{
 		AccountID: account.Id,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:      true,
 				Sources:      []string{"groupA"},
@@ -534,7 +536,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 
 	t.Run("posture check is linked to policy but no peers in groups", func(t *testing.T) {
 		groupA.Peers = []string{}
-		err = manager.Store.SaveGroup(context.Background(), LockingStrengthUpdate, groupA)
+		err = manager.Store.SaveGroup(context.Background(), store.LockingStrengthUpdate, groupA)
 		require.NoError(t, err, "failed to save groups")
 
 		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)

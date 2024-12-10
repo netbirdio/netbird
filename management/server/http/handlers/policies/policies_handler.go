@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // handler is a handler that returns policy of the account
@@ -133,7 +134,7 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 		return
 	}
 
-	policy := &server.Policy{
+	policy := &types.Policy{
 		ID:          policyID,
 		AccountID:   accountID,
 		Name:        req.Name,
@@ -146,7 +147,7 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 			ruleID = *rule.Id
 		}
 
-		pr := server.PolicyRule{
+		pr := types.PolicyRule{
 			ID:            ruleID,
 			PolicyID:      policyID,
 			Name:          rule.Name,
@@ -162,9 +163,9 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 
 		switch rule.Action {
 		case api.PolicyRuleUpdateActionAccept:
-			pr.Action = server.PolicyTrafficActionAccept
+			pr.Action = types.PolicyTrafficActionAccept
 		case api.PolicyRuleUpdateActionDrop:
-			pr.Action = server.PolicyTrafficActionDrop
+			pr.Action = types.PolicyTrafficActionDrop
 		default:
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown action type"), w)
 			return
@@ -172,13 +173,13 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 
 		switch rule.Protocol {
 		case api.PolicyRuleUpdateProtocolAll:
-			pr.Protocol = server.PolicyRuleProtocolALL
+			pr.Protocol = types.PolicyRuleProtocolALL
 		case api.PolicyRuleUpdateProtocolTcp:
-			pr.Protocol = server.PolicyRuleProtocolTCP
+			pr.Protocol = types.PolicyRuleProtocolTCP
 		case api.PolicyRuleUpdateProtocolUdp:
-			pr.Protocol = server.PolicyRuleProtocolUDP
+			pr.Protocol = types.PolicyRuleProtocolUDP
 		case api.PolicyRuleUpdateProtocolIcmp:
-			pr.Protocol = server.PolicyRuleProtocolICMP
+			pr.Protocol = types.PolicyRuleProtocolICMP
 		default:
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown protocol type: %v", rule.Protocol), w)
 			return
@@ -205,7 +206,7 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 					util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "valid port value is in 1..65535 range"), w)
 					return
 				}
-				pr.PortRanges = append(pr.PortRanges, server.RulePortRange{
+				pr.PortRanges = append(pr.PortRanges, types.RulePortRange{
 					Start: uint16(portRange.Start),
 					End:   uint16(portRange.End),
 				})
@@ -214,7 +215,7 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 
 		// validate policy object
 		switch pr.Protocol {
-		case server.PolicyRuleProtocolALL, server.PolicyRuleProtocolICMP:
+		case types.PolicyRuleProtocolALL, types.PolicyRuleProtocolICMP:
 			if len(pr.Ports) != 0 || len(pr.PortRanges) != 0 {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
 				return
@@ -223,7 +224,7 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
 				return
 			}
-		case server.PolicyRuleProtocolTCP, server.PolicyRuleProtocolUDP:
+		case types.PolicyRuleProtocolTCP, types.PolicyRuleProtocolUDP:
 			if !pr.Bidirectional && (len(pr.Ports) == 0 || len(pr.PortRanges) != 0) {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
 				return
@@ -319,7 +320,7 @@ func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-func toPolicyResponse(groups []*nbgroup.Group, policy *server.Policy) *api.Policy {
+func toPolicyResponse(groups []*nbgroup.Group, policy *types.Policy) *api.Policy {
 	groupsMap := make(map[string]*nbgroup.Group)
 	for _, group := range groups {
 		groupsMap[group.ID] = group

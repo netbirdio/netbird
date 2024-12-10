@@ -1,4 +1,4 @@
-package server
+package store
 
 import (
 	"context"
@@ -14,17 +14,22 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	route2 "github.com/netbirdio/netbird/route"
 
 	"github.com/netbirdio/netbird/management/server/status"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	nbroute "github.com/netbirdio/netbird/route"
 )
 
 func TestSqlite_NewStore(t *testing.T) {
@@ -73,7 +78,7 @@ func runLargeTest(t *testing.T, store Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setupKey, _ := GenerateDefaultSetupKey()
+	setupKey, _ := types.GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
@@ -86,14 +91,14 @@ func runLargeTest(t *testing.T, store Store) {
 			IP:         netIP,
 			Name:       peerID,
 			DNSLabel:   peerID,
-			UserID:     userID,
+			UserID:     "testuser",
 			Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 			SSHEnabled: false,
 		}
 		account.Peers[peerID] = peer
 		group, _ := account.GetGroupAll()
 		group.Peers = append(group.Peers, peerID)
-		user := &User{
+		user := &types.User{
 			Id:        fmt.Sprintf("%s-user-%d", account.Id, n),
 			AccountID: account.Id,
 		}
@@ -134,7 +139,7 @@ func runLargeTest(t *testing.T, store Store) {
 		}
 		account.NameServerGroups[nameserver.ID] = nameserver
 
-		setupKey, _ := GenerateDefaultSetupKey()
+		setupKey, _ := types.GenerateDefaultSetupKey()
 		account.SetupKeys[setupKey.Key] = setupKey
 	}
 
@@ -216,7 +221,7 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	assert.NoError(t, err)
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
-	setupKey, _ := GenerateDefaultSetupKey()
+	setupKey, _ := types.GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
@@ -230,7 +235,7 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
-	setupKey, _ = GenerateDefaultSetupKey()
+	setupKey, _ = types.GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
 		Key:    "peerkey2",
@@ -289,14 +294,14 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	assert.NoError(t, err)
 
 	testUserID := "testuser"
-	user := NewAdminUser(testUserID)
-	user.PATs = map[string]*PersonalAccessToken{"testtoken": {
+	user := types.NewAdminUser(testUserID)
+	user.PATs = map[string]*types.PersonalAccessToken{"testtoken": {
 		ID:   "testtoken",
 		Name: "test token",
 	}}
 
 	account := newAccountWithId(context.Background(), "account_id", testUserID, "")
-	setupKey, _ := GenerateDefaultSetupKey()
+	setupKey, _ := types.GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
@@ -337,16 +342,16 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by id")
 
 	for _, policy := range account.Policies {
-		var rules []*PolicyRule
-		err = store.(*SqlStore).db.Model(&PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
+		var rules []*types.PolicyRule
+		err = store.(*SqlStore).db.Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for policy rules")
 		require.Len(t, rules, 0, "expecting no policy rules to be found after removing DeleteAccount")
 
 	}
 
 	for _, accountUser := range account.Users {
-		var pats []*PersonalAccessToken
-		err = store.(*SqlStore).db.Model(&PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
+		var pats []*types.PersonalAccessToken
+		err = store.(*SqlStore).db.Model(&types.PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for personal access token")
 		require.Len(t, pats, 0, "expecting no personal access token to be found after removing DeleteAccount")
 
@@ -360,7 +365,7 @@ func TestSqlite_GetAccount(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -383,7 +388,7 @@ func TestSqlite_SavePeer(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -433,7 +438,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -488,7 +493,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -542,7 +547,7 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -565,7 +570,7 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -589,7 +594,7 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -625,7 +630,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to parse CIDR")
 
 	type network struct {
-		Network
+		types.Network
 		Net net.IPNet `gorm:"serializer:gob"`
 	}
 
@@ -640,7 +645,7 @@ func TestMigrate(t *testing.T) {
 	}
 
 	type account struct {
-		Account
+		types.Account
 		Network *network `gorm:"embedded;embeddedPrefix:network_"`
 		Peers   []peer   `gorm:"foreignKey:AccountID;references:id"`
 	}
@@ -700,23 +705,10 @@ func TestMigrate(t *testing.T) {
 
 }
 
-func newSqliteStore(t *testing.T) *SqlStore {
-	t.Helper()
-
-	store, err := NewSqliteStore(context.Background(), t.TempDir(), nil)
-	t.Cleanup(func() {
-		store.Close(context.Background())
-	})
-	require.NoError(t, err)
-	require.NotNil(t, store)
-
-	return store
-}
-
 func newAccount(store Store, id int) error {
 	str := fmt.Sprintf("%s-%d", uuid.New().String(), id)
 	account := newAccountWithId(context.Background(), str, str+"-testuser", "example.com")
-	setupKey, _ := GenerateDefaultSetupKey()
+	setupKey, _ := types.GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["p"+str] = &nbpeer.Peer{
 		Key:    "peerkey" + str,
@@ -755,7 +747,7 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	assert.NoError(t, err)
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
-	setupKey, _ := GenerateDefaultSetupKey()
+	setupKey, _ := types.GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
@@ -769,7 +761,7 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
-	setupKey, _ = GenerateDefaultSetupKey()
+	setupKey, _ = types.GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
 		Key:    "peerkey2",
@@ -828,14 +820,14 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	assert.NoError(t, err)
 
 	testUserID := "testuser"
-	user := NewAdminUser(testUserID)
-	user.PATs = map[string]*PersonalAccessToken{"testtoken": {
+	user := types.NewAdminUser(testUserID)
+	user.PATs = map[string]*types.PersonalAccessToken{"testtoken": {
 		ID:   "testtoken",
 		Name: "test token",
 	}}
 
 	account := newAccountWithId(context.Background(), "account_id", testUserID, "")
-	setupKey, _ := GenerateDefaultSetupKey()
+	setupKey, _ := types.GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
@@ -876,16 +868,16 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by id")
 
 	for _, policy := range account.Policies {
-		var rules []*PolicyRule
-		err = store.(*SqlStore).db.Model(&PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
+		var rules []*types.PolicyRule
+		err = store.(*SqlStore).db.Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for policy rules")
 		require.Len(t, rules, 0, "expecting no policy rules to be found after removing DeleteAccount")
 
 	}
 
 	for _, accountUser := range account.Users {
-		var pats []*PersonalAccessToken
-		err = store.(*SqlStore).db.Model(&PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
+		var pats []*types.PersonalAccessToken
+		err = store.(*SqlStore).db.Model(&types.PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for personal access token")
 		require.Len(t, pats, 0, "expecting no personal access token to be found after removing DeleteAccount")
 
@@ -899,7 +891,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -940,7 +932,7 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -960,7 +952,7 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -978,7 +970,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -991,7 +983,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 
 func TestSqlite_GetTakenIPs(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	defer cleanup()
 	if err != nil {
 		t.Fatal(err)
@@ -1036,7 +1028,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 
 func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		return
 	}
@@ -1078,7 +1070,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 
 func TestSqlite_GetAccountNetwork(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1101,7 +1093,7 @@ func TestSqlite_GetAccountNetwork(t *testing.T) {
 
 func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1119,14 +1111,14 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, encodedHashedKey, setupKey.Key)
-	assert.Equal(t, hiddenKey(plainKey, 4), setupKey.KeySecret)
+	assert.Equal(t, types.HiddenKey(plainKey, 4), setupKey.KeySecret)
 	assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", setupKey.AccountID)
 	assert.Equal(t, "Default key", setupKey.Name)
 }
 
 func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1162,7 +1154,7 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 
 func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1193,7 +1185,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 }
 
 func TestSqlite_GetAccoundUsers(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1207,7 +1199,7 @@ func TestSqlite_GetAccoundUsers(t *testing.T) {
 }
 
 func TestSqlStore_UpdateAccountDomainAttributes(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1253,7 +1245,7 @@ func TestSqlStore_UpdateAccountDomainAttributes(t *testing.T) {
 }
 
 func TestSqlite_GetGroupByName(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
@@ -1267,7 +1259,7 @@ func TestSqlite_GetGroupByName(t *testing.T) {
 
 func Test_DeleteSetupKeySuccessfully(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1283,7 +1275,7 @@ func Test_DeleteSetupKeySuccessfully(t *testing.T) {
 
 func Test_DeleteSetupKeyFailsForNonExistingKey(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1295,7 +1287,7 @@ func Test_DeleteSetupKeyFailsForNonExistingKey(t *testing.T) {
 }
 
 func TestSqlStore_GetGroupsByIDs(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1338,7 +1330,7 @@ func TestSqlStore_GetGroupsByIDs(t *testing.T) {
 }
 
 func TestSqlStore_SaveGroup(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1359,7 +1351,7 @@ func TestSqlStore_SaveGroup(t *testing.T) {
 }
 
 func TestSqlStore_SaveGroups(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1384,7 +1376,7 @@ func TestSqlStore_SaveGroups(t *testing.T) {
 }
 
 func TestSqlStore_DeleteGroup(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1432,7 +1424,7 @@ func TestSqlStore_DeleteGroup(t *testing.T) {
 }
 
 func TestSqlStore_DeleteGroups(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1479,7 +1471,7 @@ func TestSqlStore_DeleteGroups(t *testing.T) {
 }
 
 func TestSqlStore_GetPeerByID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1525,7 +1517,7 @@ func TestSqlStore_GetPeerByID(t *testing.T) {
 }
 
 func TestSqlStore_GetPeersByIDs(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1567,7 +1559,7 @@ func TestSqlStore_GetPeersByIDs(t *testing.T) {
 }
 
 func TestSqlStore_GetPostureChecksByID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1613,7 +1605,7 @@ func TestSqlStore_GetPostureChecksByID(t *testing.T) {
 }
 
 func TestSqlStore_GetPostureChecksByIDs(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1656,7 +1648,7 @@ func TestSqlStore_GetPostureChecksByIDs(t *testing.T) {
 }
 
 func TestSqlStore_SavePostureChecks(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1697,7 +1689,7 @@ func TestSqlStore_SavePostureChecks(t *testing.T) {
 }
 
 func TestSqlStore_DeletePostureChecks(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1744,7 +1736,7 @@ func TestSqlStore_DeletePostureChecks(t *testing.T) {
 }
 
 func TestSqlStore_GetPolicyByID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1790,23 +1782,23 @@ func TestSqlStore_GetPolicyByID(t *testing.T) {
 }
 
 func TestSqlStore_CreatePolicy(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	policy := &Policy{
+	policy := &types.Policy{
 		ID:        "policy-id",
 		AccountID: accountID,
 		Enabled:   true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupC"},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 	}
@@ -1820,7 +1812,7 @@ func TestSqlStore_CreatePolicy(t *testing.T) {
 }
 
 func TestSqlStore_SavePolicy(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1843,7 +1835,7 @@ func TestSqlStore_SavePolicy(t *testing.T) {
 }
 
 func TestSqlStore_DeletePolicy(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1859,7 +1851,7 @@ func TestSqlStore_DeletePolicy(t *testing.T) {
 }
 
 func TestSqlStore_GetDNSSettings(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1903,7 +1895,7 @@ func TestSqlStore_GetDNSSettings(t *testing.T) {
 }
 
 func TestSqlStore_SaveDNSSettings(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1922,7 +1914,7 @@ func TestSqlStore_SaveDNSSettings(t *testing.T) {
 }
 
 func TestSqlStore_GetAccountNameServerGroups(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -1959,7 +1951,7 @@ func TestSqlStore_GetAccountNameServerGroups(t *testing.T) {
 }
 
 func TestSqlStore_GetNameServerByID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2005,7 +1997,7 @@ func TestSqlStore_GetNameServerByID(t *testing.T) {
 }
 
 func TestSqlStore_SaveNameServerGroup(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2037,7 +2029,7 @@ func TestSqlStore_SaveNameServerGroup(t *testing.T) {
 }
 
 func TestSqlStore_DeleteNameServerGroup(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2050,4 +2042,93 @@ func TestSqlStore_DeleteNameServerGroup(t *testing.T) {
 	nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroupID)
 	require.Error(t, err)
 	require.Nil(t, nsGroup)
+}
+
+// newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
+func newAccountWithId(ctx context.Context, accountID, userID, domain string) *types.Account {
+	log.WithContext(ctx).Debugf("creating new account")
+
+	network := types.NewNetwork()
+	peers := make(map[string]*nbpeer.Peer)
+	users := make(map[string]*types.User)
+	routes := make(map[nbroute.ID]*nbroute.Route)
+	setupKeys := map[string]*types.SetupKey{}
+	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
+
+	owner := types.NewOwnerUser(userID)
+	owner.AccountID = accountID
+	users[userID] = owner
+
+	dnsSettings := types.DNSSettings{
+		DisabledManagementGroups: make([]string, 0),
+	}
+	log.WithContext(ctx).Debugf("created new account %s", accountID)
+
+	acc := &types.Account{
+		Id:               accountID,
+		CreatedAt:        time.Now().UTC(),
+		SetupKeys:        setupKeys,
+		Network:          network,
+		Peers:            peers,
+		Users:            users,
+		CreatedBy:        userID,
+		Domain:           domain,
+		Routes:           routes,
+		NameServerGroups: nameServersGroups,
+		DNSSettings:      dnsSettings,
+		Settings: &types.Settings{
+			PeerLoginExpirationEnabled: true,
+			PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+			GroupsPropagationEnabled:   true,
+			RegularUsersViewBlocked:    true,
+
+			PeerInactivityExpirationEnabled: false,
+			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
+		},
+	}
+
+	if err := addAllGroup(acc); err != nil {
+		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
+	}
+	return acc
+}
+
+// addAllGroup to account object if it doesn't exist
+func addAllGroup(account *types.Account) error {
+	if len(account.Groups) == 0 {
+		allGroup := &nbgroup.Group{
+			ID:     xid.New().String(),
+			Name:   "All",
+			Issued: nbgroup.GroupIssuedAPI,
+		}
+		for _, peer := range account.Peers {
+			allGroup.Peers = append(allGroup.Peers, peer.ID)
+		}
+		account.Groups = map[string]*nbgroup.Group{allGroup.ID: allGroup}
+
+		id := xid.New().String()
+
+		defaultPolicy := &types.Policy{
+			ID:          id,
+			Name:        types.DefaultRuleName,
+			Description: types.DefaultRuleDescription,
+			Enabled:     true,
+			Rules: []*types.PolicyRule{
+				{
+					ID:            id,
+					Name:          types.DefaultRuleName,
+					Description:   types.DefaultRuleDescription,
+					Enabled:       true,
+					Sources:       []string{allGroup.ID},
+					Destinations:  []string{allGroup.ID},
+					Bidirectional: true,
+					Protocol:      types.PolicyRuleProtocolALL,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}
+
+		account.Policies = []*types.Policy{defaultPolicy}
+	}
+	return nil
 }

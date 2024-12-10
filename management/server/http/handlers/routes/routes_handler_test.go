@@ -16,13 +16,13 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 
 	"github.com/gorilla/mux"
 	"github.com/magiconair/properties/assert"
 
 	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -61,7 +61,7 @@ var baseExistingRoute = &route.Route{
 	Groups:      []string{existingGroupID},
 }
 
-var testingAccount = &server.Account{
+var testingAccount = &types.Account{
 	Id:     testAccountID,
 	Domain: "hotmail.com",
 	Peers: map[string]*nbpeer.Peer{
@@ -82,8 +82,8 @@ var testingAccount = &server.Account{
 			},
 		},
 	},
-	Users: map[string]*server.User{
-		"test_user": server.NewAdminUser("test_user"),
+	Users: map[string]*types.User{
+		"test_user": types.NewAdminUser("test_user"),
 	},
 }
 

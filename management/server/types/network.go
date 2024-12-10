@@ -1,4 +1,4 @@
-package server
+package types
 
 import (
 	"math/rand"
@@ -43,7 +43,7 @@ type Network struct {
 	// Used to synchronize state to the client apps.
 	Serial uint64
 
-	mu sync.Mutex `json:"-" gorm:"-"`
+	Mu sync.Mutex `json:"-" gorm:"-"`
 }
 
 // NewNetwork creates a new Network initializing it with a Serial=0
@@ -66,15 +66,15 @@ func NewNetwork() *Network {
 
 // IncSerial increments Serial by 1 reflecting that the network state has been changed
 func (n *Network) IncSerial() {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.Mu.Lock()
+	defer n.Mu.Unlock()
 	n.Serial++
 }
 
 // CurrentSerial returns the Network.Serial of the network (latest state id)
 func (n *Network) CurrentSerial() uint64 {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.Mu.Lock()
+	defer n.Mu.Unlock()
 	return n.Serial
 }
 
