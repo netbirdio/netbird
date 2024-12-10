@@ -149,6 +149,7 @@ func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetr
 				GrantType:          config.ClientConfig.GrantType,
 				TokenEndpoint:      config.ClientConfig.TokenEndpoint,
 				ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
+				PAT:                config.ExtraConfig["PAT"],
 			}
 		}
 
