@@ -25,6 +25,17 @@ const (
 	PolicyRuleFlowBidirect = PolicyRuleDirection("bidirect")
 )
 
+const (
+	// DefaultRuleName is a name for the Default rule that is created for every account
+	DefaultRuleName = "Default"
+	// DefaultRuleDescription is a description for the Default rule that is created for every account
+	DefaultRuleDescription = "This is a default rule that allows connections between all the resources"
+	// DefaultPolicyName is a name for the Default policy that is created for every account
+	DefaultPolicyName = "Default"
+	// DefaultPolicyDescription is a description for the Default policy that is created for every account
+	DefaultPolicyDescription = "This is a default policy that allows connections between all the resources"
+)
+
 // PolicyUpdateOperation operation object with type and values to be applied
 type PolicyUpdateOperation struct {
 	Type   PolicyUpdateOperationType

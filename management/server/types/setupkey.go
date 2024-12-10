@@ -86,9 +86,9 @@ func (key *SetupKey) EventMeta() map[string]any {
 	return map[string]any{"name": key.Name, "type": key.Type, "key": key.KeySecret}
 }
 
-// hiddenKey returns the Key value hidden with "*" and a 5 character prefix.
+// HiddenKey returns the Key value hidden with "*" and a 5 character prefix.
 // E.g., "831F6*******************************"
-func hiddenKey(key string, length int) string {
+func HiddenKey(key string, length int) string {
 	prefix := key[0:5]
 	if length > utf8.RuneCountInString(key) {
 		length = utf8.RuneCountInString(key) - len(prefix)
@@ -151,7 +151,7 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 	return &SetupKey{
 		Id:         strconv.Itoa(int(Hash(key))),
 		Key:        encodedHashedKey,
-		KeySecret:  hiddenKey(key, 4),
+		KeySecret:  HiddenKey(key, 4),
 		Name:       name,
 		Type:       t,
 		CreatedAt:  time.Now().UTC(),

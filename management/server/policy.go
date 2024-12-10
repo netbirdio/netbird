@@ -16,17 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-const (
-	// DefaultRuleName is a name for the Default rule that is created for every account
-	DefaultRuleName = "Default"
-	// DefaultRuleDescription is a description for the Default rule that is created for every account
-	DefaultRuleDescription = "This is a default rule that allows connections between all the resources"
-	// DefaultPolicyName is a name for the Default policy that is created for every account
-	DefaultPolicyName = "Default"
-	// DefaultPolicyDescription is a description for the Default policy that is created for every account
-	DefaultPolicyDescription = "This is a default policy that allows connections between all the resources"
-)
-
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
