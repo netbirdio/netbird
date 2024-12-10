@@ -278,8 +278,9 @@ type Account struct {
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 
-	Networks       []*networks.Network       `gorm:"foreignKey:AccountID;references:id"`
-	NetworkRouters []*networks.NetworkRouter `gorm:"foreignKey:AccountID;references:id"`
+	Networks         []*networks.Network         `gorm:"foreignKey:AccountID;references:id"`
+	NetworkRouters   []*networks.NetworkRouter   `gorm:"foreignKey:AccountID;references:id"`
+	NetworkResources []*networks.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
 }
 
 // Subclass used in gorm to only load settings and not whole account

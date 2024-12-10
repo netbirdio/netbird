@@ -1704,22 +1704,54 @@ func (s *SqlStore) DeleteNetworkRouter(ctx context.Context, lockStrength Locking
 	return nil
 }
 
-func (s *SqlStore) GetAccountNetworkResourceByNetID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networks.NetworkResource, error) {
-	//TODO implement me
-	panic("implement me")
+func (s *SqlStore) GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) ([]*networks.NetworkResource, error) {
+	var netResources []*networks.NetworkResource
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&netResources, "account_id = ? AND network_id = ?", accountID, networkID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get network resources from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get network resources from store")
+	}
+
+	return netResources, nil
 }
 
 func (s *SqlStore) GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error) {
-	//TODO implement me
-	panic("implement me")
+	var netResources *networks.NetworkResource
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&netResources, accountAndIDQueryCondition, accountID, resourceID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewNetworkResourceNotFoundError(resourceID)
+		}
+		log.WithContext(ctx).Errorf("failed to get network resource from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get network resource from store")
+	}
+
+	return netResources, nil
 }
 
 func (s *SqlStore) SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *networks.NetworkResource) error {
-	//TODO implement me
-	panic("implement me")
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(resource)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save network resource to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save network resource to store")
+	}
+
+	return nil
 }
 
 func (s *SqlStore) DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error {
-	//TODO implement me
-	panic("implement me")
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&networks.NetworkResource{}, accountAndIDQueryCondition, accountID, resourceID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete network resource from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete network resource from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewNetworkResourceNotFoundError(resourceID)
+	}
+
+	return nil
 }
