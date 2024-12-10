@@ -705,19 +705,6 @@ func TestMigrate(t *testing.T) {
 
 }
 
-func newSqliteStore(t *testing.T) *SqlStore {
-	t.Helper()
-
-	store, err := NewSqliteStore(context.Background(), t.TempDir(), nil)
-	t.Cleanup(func() {
-		store.Close(context.Background())
-	})
-	require.NoError(t, err)
-	require.NotNil(t, store)
-
-	return store
-}
-
 func newAccount(store Store, id int) error {
 	str := fmt.Sprintf("%s-%d", uuid.New().String(), id)
 	account := newAccountWithId(context.Background(), str, str+"-testuser", "example.com")
