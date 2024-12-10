@@ -1,4 +1,4 @@
-package http
+package peers
 
 import (
 	"bytes"
@@ -38,8 +38,8 @@ const (
 	userIDKey   ctxKey = "user_id"
 )
 
-func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
-	return &PeersHandler{
+func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
+	return &Handler{
 		accountManager: &mock_server.MockAccountManager{
 			UpdatePeerFunc: func(_ context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
 				var p *nbpeer.Peer

@@ -1,4 +1,4 @@
-package http
+package routes
 
 import (
 	"bytes"
@@ -87,8 +87,8 @@ var testingAccount = &server.Account{
 	},
 }
 
-func initRoutesTestData() *RoutesHandler {
-	return &RoutesHandler{
+func initRoutesTestData() *handler {
+	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetRouteFunc: func(_ context.Context, _ string, routeID route.ID, _ string) (*route.Route, error) {
 				if routeID == existingRouteID {
@@ -152,7 +152,7 @@ func initRoutesTestData() *RoutesHandler {
 				return nil
 			},
 			GetAccountIDFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (string, string, error) {
-				//return testingAccount, testingAccount.Users["test_user"], nil
+				// return testingAccount, testingAccount.Users["test_user"], nil
 				return testingAccount.Id, testingAccount.Users["test_user"].Id, nil
 			},
 		},
@@ -521,10 +521,10 @@ func TestRoutesHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/routes/{routeId}", p.GetRoute).Methods("GET")
-			router.HandleFunc("/api/routes/{routeId}", p.DeleteRoute).Methods("DELETE")
-			router.HandleFunc("/api/routes", p.CreateRoute).Methods("POST")
-			router.HandleFunc("/api/routes/{routeId}", p.UpdateRoute).Methods("PUT")
+			router.HandleFunc("/api/routes/{routeId}", p.getRoute).Methods("GET")
+			router.HandleFunc("/api/routes/{routeId}", p.deleteRoute).Methods("DELETE")
+			router.HandleFunc("/api/routes", p.createRoute).Methods("POST")
+			router.HandleFunc("/api/routes/{routeId}", p.updateRoute).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

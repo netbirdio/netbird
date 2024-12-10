@@ -1,4 +1,4 @@
-package http
+package setup_keys
 
 import (
 	"bytes"
@@ -26,12 +26,13 @@ const (
 	newSetupKeyName     = "New Setup Key"
 	updatedSetupKeyName = "KKKey"
 	notFoundSetupKeyID  = "notFoundSetupKeyID"
+	testAccountID       = "test_id"
 )
 
 func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey,
 	user *server.User,
-) *SetupKeysHandler {
-	return &SetupKeysHandler{
+) *handler {
+	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
@@ -178,11 +179,11 @@ func TestSetupKeysHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/setup-keys", handler.GetAllSetupKeys).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys", handler.CreateSetupKey).Methods("POST", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", handler.GetSetupKey).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", handler.UpdateSetupKey).Methods("PUT", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", handler.DeleteSetupKey).Methods("DELETE", "OPTIONS")
+			router.HandleFunc("/api/setup-keys", handler.getAllSetupKeys).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys", handler.createSetupKey).Methods("POST", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", handler.getSetupKey).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", handler.updateSetupKey).Methods("PUT", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", handler.deleteSetupKey).Methods("DELETE", "OPTIONS")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

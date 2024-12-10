@@ -1,4 +1,4 @@
-package http
+package policies
 
 import (
 	"bytes"
@@ -24,12 +24,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initPoliciesTestData(policies ...*server.Policy) *Policies {
+func initPoliciesTestData(policies ...*server.Policy) *handler {
 	testPolicies := make(map[string]*server.Policy, len(policies))
 	for _, policy := range policies {
 		testPolicies[policy.ID] = policy
 	}
-	return &Policies{
+	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetPolicyFunc: func(_ context.Context, _, policyID, _ string) (*server.Policy, error) {
 				policy, ok := testPolicies[policyID]
@@ -91,14 +91,14 @@ func TestPoliciesGetPolicy(t *testing.T) {
 		requestBody    io.Reader
 	}{
 		{
-			name:           "GetPolicy OK",
+			name:           "getPolicy OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
 			requestPath:    "/api/policies/idofthepolicy",
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetPolicy not found",
+			name:           "getPolicy not found",
 			requestType:    http.MethodGet,
 			requestPath:    "/api/policies/notexists",
 			expectedStatus: http.StatusNotFound,
@@ -121,7 +121,7 @@ func TestPoliciesGetPolicy(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/policies/{policyId}", p.GetPolicy).Methods("GET")
+			router.HandleFunc("/api/policies/{policyId}", p.getPolicy).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -269,8 +269,8 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/policies", p.CreatePolicy).Methods("POST")
-			router.HandleFunc("/api/policies/{policyId}", p.UpdatePolicy).Methods("PUT")
+			router.HandleFunc("/api/policies", p.createPolicy).Methods("POST")
+			router.HandleFunc("/api/policies/{policyId}", p.updatePolicy).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
