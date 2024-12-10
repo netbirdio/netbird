@@ -44,7 +44,6 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	mgm "github.com/netbirdio/netbird/management/client"
-	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/relay/client"
@@ -802,14 +801,14 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 
-	protoRoutes := networkMap.GetRoutes()
-	if protoRoutes == nil {
-		protoRoutes = []*mgmProto.Route{}
+	// todo keep the state because of the serial or eliminate the serial usage from dns and route mgr
+	networkMapMgr := networkMapHandler{
+		DNSServer:    e.dnsServer,
+		RouteManager: e.routeManager,
 	}
-
-	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
-	if err != nil {
-		log.Errorf("failed to update clientRoutes, err: %v", err)
+	if err := networkMapMgr.update(serial, networkMap); err != nil {
+		log.Warnf("failed to update apply network map: %v", err)
+		// todo: consider to return here with error
 	}
 
 	e.clientRoutesMu.Lock()
@@ -858,16 +857,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 	}
 
-	protoDNSConfig := networkMap.GetDNSConfig()
-	if protoDNSConfig == nil {
-		protoDNSConfig = &mgmProto.DNSConfig{}
-	}
-
-	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
-	if err != nil {
-		log.Errorf("failed to update dns server, err: %v", err)
-	}
-
 	e.networkSerial = serial
 
 	// Test received (upstream) servers for availability right away instead of upon usage.
@@ -875,76 +864,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	e.dnsServer.ProbeAvailability()
 
 	return nil
-}
-
-func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
-	routes := make([]*route.Route, 0)
-	for _, protoRoute := range protoRoutes {
-		var prefix netip.Prefix
-		if len(protoRoute.Domains) == 0 {
-			var err error
-			if prefix, err = netip.ParsePrefix(protoRoute.Network); err != nil {
-				log.Errorf("Failed to parse prefix %s: %v", protoRoute.Network, err)
-				continue
-			}
-		}
-		convertedRoute := &route.Route{
-			ID:          route.ID(protoRoute.ID),
-			Network:     prefix,
-			Domains:     domain.FromPunycodeList(protoRoute.Domains),
-			NetID:       route.NetID(protoRoute.NetID),
-			NetworkType: route.NetworkType(protoRoute.NetworkType),
-			Peer:        protoRoute.Peer,
-			Metric:      int(protoRoute.Metric),
-			Masquerade:  protoRoute.Masquerade,
-			KeepRoute:   protoRoute.KeepRoute,
-		}
-		routes = append(routes, convertedRoute)
-	}
-	return routes
-}
-
-func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
-	dnsUpdate := nbdns.Config{
-		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
-		CustomZones:      make([]nbdns.CustomZone, 0),
-		NameServerGroups: make([]*nbdns.NameServerGroup, 0),
-	}
-
-	for _, zone := range protoDNSConfig.GetCustomZones() {
-		dnsZone := nbdns.CustomZone{
-			Domain: zone.GetDomain(),
-		}
-		for _, record := range zone.Records {
-			dnsRecord := nbdns.SimpleRecord{
-				Name:  record.GetName(),
-				Type:  int(record.GetType()),
-				Class: record.GetClass(),
-				TTL:   int(record.GetTTL()),
-				RData: record.GetRData(),
-			}
-			dnsZone.Records = append(dnsZone.Records, dnsRecord)
-		}
-		dnsUpdate.CustomZones = append(dnsUpdate.CustomZones, dnsZone)
-	}
-
-	for _, nsGroup := range protoDNSConfig.GetNameServerGroups() {
-		dnsNSGroup := &nbdns.NameServerGroup{
-			Primary:              nsGroup.GetPrimary(),
-			Domains:              nsGroup.GetDomains(),
-			SearchDomainsEnabled: nsGroup.GetSearchDomainsEnabled(),
-		}
-		for _, ns := range nsGroup.GetNameServers() {
-			dnsNS := nbdns.NameServer{
-				IP:     netip.MustParseAddr(ns.GetIP()),
-				NSType: nbdns.NameServerType(ns.GetNSType()),
-				Port:   int(ns.GetPort()),
-			}
-			dnsNSGroup.NameServers = append(dnsNSGroup.NameServers, dnsNS)
-		}
-		dnsUpdate.NameServerGroups = append(dnsUpdate.NameServerGroups, dnsNSGroup)
-	}
-	return dnsUpdate
 }
 
 func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
@@ -1235,7 +1154,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	routes := toRoutes(netMap.GetRoutes())
+	_, routes := toRoutes(netMap.GetRoutes())
 	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
 	return routes, &dnsCfg, nil
 }

@@ -33,7 +33,7 @@ import (
 // Manager is a route manager interface
 type Manager interface {
 	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
-	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
+	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (route.HAMap, error)
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
@@ -60,6 +60,7 @@ type DefaultManager struct {
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter
 	dnsRouteInterval     time.Duration
 	stateManager         *statemanager.Manager
+	dnsRule              []firewall.Rule // todo: remove rule in stop action
 }
 
 func NewManager(
@@ -210,11 +211,11 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 }
 
 // UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
-func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
+func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (route.HAMap, error) {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not updating routes as context is closed")
-		return nil, nil, m.ctx.Err()
+		return nil, m.ctx.Err()
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
@@ -226,13 +227,12 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		m.notifier.OnNewRoutes(filteredClientRoutes)
 
 		if m.serverRouter != nil {
-			err := m.serverRouter.updateRoutes(newServerRoutesMap)
-			if err != nil {
-				return nil, nil, fmt.Errorf("update routes: %w", err)
+			if err := m.serverRouter.updateRoutes(newServerRoutesMap); err != nil {
+				return nil, fmt.Errorf("update routes: %w", err)
 			}
 		}
 
-		return newServerRoutesMap, newClientRoutesIDMap, nil
+		return newClientRoutesIDMap, nil
 	}
 }
 

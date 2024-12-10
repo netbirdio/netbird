@@ -33,7 +33,8 @@ type Server interface {
 	Initialize() error
 	Stop()
 	DnsIP() string
-	UpdateDNSServer(serial uint64, update nbdns.Config) error
+	DnsPort() int
+	UpdateDNSServer(update nbdns.Config, hasDNSRoute bool) error
 	OnUpdatedHostDNSServer(strings []string)
 	SearchDomains() []string
 	ProbeAvailability()
@@ -51,7 +52,6 @@ type DefaultServer struct {
 	localResolver      *localResolver
 	wgInterface        WGIface
 	hostManager        hostManager
-	updateSerial       uint64
 	previousConfigHash uint64
 	currentConfig      HostDNSConfig
 
@@ -183,6 +183,11 @@ func (s *DefaultServer) DnsIP() string {
 	return s.service.RuntimeIP()
 }
 
+func (s *DefaultServer) DnsPort() int {
+	// Todo: review what will be if the service is not running yet
+	return s.service.RuntimePort()
+}
+
 // Stop stops the server
 func (s *DefaultServer) Stop() {
 	s.mux.Lock()
@@ -215,16 +220,12 @@ func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 }
 
 // UpdateDNSServer processes an update received from the management service
-func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
+func (s *DefaultServer) UpdateDNSServer(update nbdns.Config, hasDNSRoute bool) error {
 	select {
 	case <-s.ctx.Done():
 		log.Infof("not updating DNS server as context is closed")
 		return s.ctx.Err()
 	default:
-		if serial < s.updateSerial {
-			return fmt.Errorf("not applying dns update, error: "+
-				"network update is %d behind the last applied update", s.updateSerial-serial)
-		}
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
@@ -244,17 +245,14 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 
 		if s.previousConfigHash == hash {
 			log.Debugf("not applying the dns configuration update as there is nothing new")
-			s.updateSerial = serial
 			return nil
 		}
 
-		if err := s.applyConfiguration(update); err != nil {
+		if err := s.applyConfiguration(update, hasDNSRoute); err != nil {
 			return fmt.Errorf("apply configuration: %w", err)
 		}
 
-		s.updateSerial = serial
 		s.previousConfigHash = hash
-
 		return nil
 	}
 }
@@ -288,14 +286,17 @@ func (s *DefaultServer) ProbeAvailability() {
 	wg.Wait()
 }
 
-func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
+func (s *DefaultServer) applyConfiguration(update nbdns.Config, hasDNSRoute bool) error {
 	// is the service should be Disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
-	if update.ServiceEnable {
+	if update.ServiceEnable || hasDNSRoute {
 		_ = s.service.Listen()
 	} else if !s.permanent {
 		s.service.Stop()
 	}
+
+	// trace the dns configuration update
+	log.Infof("---- dns server listen address: %s:%d", s.service.RuntimeIP(), s.service.RuntimePort())
 
 	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {

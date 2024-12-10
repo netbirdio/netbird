@@ -509,7 +509,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 		expectedSerial uint64
 	}{
 		{
-			name: "Routes Config Should Be Passed To Manager",
+			name: "Routes Config Should Be Passed To networkMapHandler",
 			networkMap: &mgmtProto.NetworkMap{
 				Serial:             1,
 				PeerConfig:         nil,
