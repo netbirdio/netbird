@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"maps"
 	"math/rand"
 	"net"
@@ -161,9 +162,10 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall     manager.Manager
-	routeManager routemanager.Manager
-	acl          acl.Manager
+	firewall      manager.Manager
+	routeManager  routemanager.Manager
+	acl           acl.Manager
+	dnsForwardMgr *dnsfwd.Manager
 
 	dnsServer dns.Server
 
@@ -285,6 +287,13 @@ func (e *Engine) Stop() error {
 
 	if e.routeManager != nil {
 		e.routeManager.Stop(e.stateManager)
+	}
+
+	if e.dnsForwardMgr != nil {
+		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+			log.Errorf("failed to stop DNS forward: %v", err)
+		}
+		e.dnsForwardMgr = nil
 	}
 
 	if e.srWatcher != nil {
@@ -806,12 +815,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 
-	protoRoutes := networkMap.GetRoutes()
-	if protoRoutes == nil {
-		protoRoutes = []*mgmProto.Route{}
-	}
+	isDNSRouter, routes := toRoutes(networkMap.GetRoutes())
 
-	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
+	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, routes)
 	if err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
@@ -819,6 +825,26 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	e.clientRoutesMu.Lock()
 	e.clientRoutes = clientRoutes
 	e.clientRoutesMu.Unlock()
+
+	if isDNSRouter {
+		if e.dnsForwardMgr == nil {
+			e.dnsForwardMgr = &dnsfwd.Manager{
+				Firewall: e.firewall,
+			}
+
+			if err := e.dnsForwardMgr.Start(); err != nil {
+				log.Errorf("failed to start DNS forward: %v", err)
+			}
+		}
+	} else {
+		if e.dnsForwardMgr != nil {
+			// todo: review context
+			if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+				log.Errorf("failed to stop DNS forward: %v", err)
+			}
+			e.dnsForwardMgr = nil
+		}
+	}
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
@@ -881,7 +907,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	return nil
 }
 
-func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
+func toRoutes(protoRoutes []*mgmProto.Route) (bool, []*route.Route) {
+	if protoRoutes == nil {
+		protoRoutes = []*mgmProto.Route{}
+	}
+
+	var isDNSRouter bool
 	routes := make([]*route.Route, 0)
 	for _, protoRoute := range protoRoutes {
 		var prefix netip.Prefix
@@ -892,6 +923,8 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 				continue
 			}
 		}
+		isDNSRouter = true
+
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
 			Network:     prefix,
@@ -905,7 +938,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 		}
 		routes = append(routes, convertedRoute)
 	}
-	return routes
+	return isDNSRouter, routes
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
@@ -1239,7 +1272,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	routes := toRoutes(netMap.GetRoutes())
+	_, routes := toRoutes(netMap.GetRoutes())
 	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
 	return routes, &dnsCfg, nil
 }
