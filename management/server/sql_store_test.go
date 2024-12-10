@@ -2351,9 +2351,9 @@ func TestSqlStore_GetNetworkResourcesByNetID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resources, err := store.GetNetworkResourcesByNetID(context.Background(), LockingStrengthShare, accountID, tt.networkID)
+			netResources, err := store.GetNetworkResourcesByNetID(context.Background(), LockingStrengthShare, accountID, tt.networkID)
 			require.NoError(t, err)
-			require.Len(t, resources, tt.expectedCount)
+			require.Len(t, netResources, tt.expectedCount)
 		})
 	}
 }
@@ -2365,40 +2365,40 @@ func TestSqlStore_GetNetworkResourceByID(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	tests := []struct {
-		name              string
-		networkResourceID string
-		expectError       bool
+		name          string
+		netResourceID string
+		expectError   bool
 	}{
 		{
-			name:              "retrieve existing network resource ID",
-			networkResourceID: "ctc4nci7qv9061u6ilfg",
-			expectError:       false,
+			name:          "retrieve existing network resource ID",
+			netResourceID: "ctc4nci7qv9061u6ilfg",
+			expectError:   false,
 		},
 		{
-			name:              "retrieve non-existing network resource ID",
-			networkResourceID: "non-existing",
-			expectError:       true,
+			name:          "retrieve non-existing network resource ID",
+			netResourceID: "non-existing",
+			expectError:   true,
 		},
 		{
-			name:              "retrieve network with empty resource ID",
-			networkResourceID: "",
-			expectError:       true,
+			name:          "retrieve network with empty resource ID",
+			netResourceID: "",
+			expectError:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			networkResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthShare, accountID, tt.networkResourceID)
+			netResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthShare, accountID, tt.netResourceID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
 				require.True(t, ok)
 				require.Equal(t, sErr.Type(), status.NotFound)
-				require.Nil(t, networkResource)
+				require.Nil(t, netResource)
 			} else {
 				require.NoError(t, err)
-				require.NotNil(t, networkResource)
-				require.Equal(t, tt.networkResourceID, networkResource.ID)
+				require.NotNil(t, netResource)
+				require.Equal(t, tt.netResourceID, netResource.ID)
 			}
 		})
 	}
@@ -2412,7 +2412,7 @@ func TestSqlStore_SaveNetworkResource(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	networkID := "ct286bi7qv930dsrrug0"
 
-	netResource, err := networks.NewNetworkResource(accountID, networkID, "resource-name", "resource-description", "example.com")
+	netResource, err := networks.NewNetworkResource(accountID, networkID, "resource-name", "", "example.com")
 	require.NoError(t, err)
 
 	err = store.SaveNetworkResource(context.Background(), LockingStrengthUpdate, netResource)
@@ -2434,10 +2434,10 @@ func TestSqlStore_DeleteNetworkResource(t *testing.T) {
 	err = store.DeleteNetworkResource(context.Background(), LockingStrengthUpdate, accountID, netResourceID)
 	require.NoError(t, err)
 
-	netRouter, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, netResourceID)
+	netResource, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, netResourceID)
 	require.Error(t, err)
 	sErr, ok := status.FromError(err)
 	require.True(t, ok)
 	require.Equal(t, status.NotFound, sErr.Type())
-	require.Nil(t, netRouter)
+	require.Nil(t, netResource)
 }
