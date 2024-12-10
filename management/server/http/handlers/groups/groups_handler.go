@@ -1,12 +1,14 @@
-package http
+package groups
 
 import (
 	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/http/configs"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
@@ -16,15 +18,24 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// GroupsHandler is a handler that returns groups of the account
-type GroupsHandler struct {
+// handler is a handler that returns groups of the account
+type handler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewGroupsHandler creates a new GroupsHandler HTTP handler
-func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *GroupsHandler {
-	return &GroupsHandler{
+func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	groupsHandler := newHandler(accountManager, authCfg)
+	router.HandleFunc("/groups", groupsHandler.getAllGroups).Methods("GET", "OPTIONS")
+	router.HandleFunc("/groups", groupsHandler.createGroup).Methods("POST", "OPTIONS")
+	router.HandleFunc("/groups/{groupId}", groupsHandler.updateGroup).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/groups/{groupId}", groupsHandler.getGroup).Methods("GET", "OPTIONS")
+	router.HandleFunc("/groups/{groupId}", groupsHandler.deleteGroup).Methods("DELETE", "OPTIONS")
+}
+
+// newHandler creates a new groups handler
+func newHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *handler {
+	return &handler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -33,8 +44,8 @@ func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *Gr
 	}
 }
 
-// GetAllGroups list for the account
-func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
+// getAllGroups list for the account
+func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -63,8 +74,8 @@ func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, groupsResponse)
 }
 
-// UpdateGroup handles update to a group identified by a given ID
-func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
+// updateGroup handles update to a group identified by a given ID
+func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -141,8 +152,8 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, &group))
 }
 
-// CreateGroup handles group creation request
-func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
+// createGroup handles group creation request
+func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -189,8 +200,8 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toGroupResponse(accountPeers, &group))
 }
 
-// DeleteGroup handles group deletion request
-func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
+// deleteGroup handles group deletion request
+func (h *handler) deleteGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -215,11 +226,11 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-// GetGroup returns a group
-func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
+// getGroup returns a group
+func (h *handler) getGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {

@@ -1,4 +1,4 @@
-package http
+package policies
 
 import (
 	"encoding/json"
@@ -6,23 +6,36 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// Policies is a handler that returns policy of the account
-type Policies struct {
+// handler is a handler that returns policy of the account
+type handler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewPoliciesHandler creates a new Policies handler
-func NewPoliciesHandler(accountManager server.AccountManager, authCfg AuthCfg) *Policies {
-	return &Policies{
+func AddEndpoints(accountManager server.AccountManager, locationManager *geolocation.Geolocation, authCfg configs.AuthCfg, router *mux.Router) {
+	policiesHandler := newHandler(accountManager, authCfg)
+	router.HandleFunc("/policies", policiesHandler.getAllPolicies).Methods("GET", "OPTIONS")
+	router.HandleFunc("/policies", policiesHandler.createPolicy).Methods("POST", "OPTIONS")
+	router.HandleFunc("/policies/{policyId}", policiesHandler.updatePolicy).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/policies/{policyId}", policiesHandler.getPolicy).Methods("GET", "OPTIONS")
+	router.HandleFunc("/policies/{policyId}", policiesHandler.deletePolicy).Methods("DELETE", "OPTIONS")
+	addPostureCheckEndpoint(accountManager, locationManager, authCfg, router)
+}
+
+// newHandler creates a new policies handler
+func newHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *handler {
+	return &handler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -31,8 +44,8 @@ func NewPoliciesHandler(accountManager server.AccountManager, authCfg AuthCfg) *
 	}
 }
 
-// GetAllPolicies list for the account
-func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
+// getAllPolicies list for the account
+func (h *handler) getAllPolicies(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -65,8 +78,8 @@ func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, policies)
 }
 
-// UpdatePolicy handles update to a policy identified by a given ID
-func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
+// updatePolicy handles update to a policy identified by a given ID
+func (h *handler) updatePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -90,8 +103,8 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	h.savePolicy(w, r, accountID, userID, policyID)
 }
 
-// CreatePolicy handles policy creation request
-func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
+// createPolicy handles policy creation request
+func (h *handler) createPolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -103,7 +116,7 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 // savePolicy handles policy creation and update
-func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID string, userID string, policyID string) {
+func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID string, userID string, policyID string) {
 	var req api.PutApiPoliciesPolicyIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -245,8 +258,8 @@ func (h *Policies) savePolicy(w http.ResponseWriter, r *http.Request, accountID 
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-// DeletePolicy handles policy deletion request
-func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
+// deletePolicy handles policy deletion request
+func (h *handler) deletePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -266,11 +279,11 @@ func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-// GetPolicy handles a group Get request identified by ID
-func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
+// getPolicy handles a group Get request identified by ID
+func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {

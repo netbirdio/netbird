@@ -1,28 +1,35 @@
-package http
+package events
 
 import (
 	"context"
 	"fmt"
 	"net/http"
 
+	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
-// EventsHandler HTTP handler
-type EventsHandler struct {
+// handler HTTP handler
+type handler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewEventsHandler creates a new EventsHandler HTTP handler
-func NewEventsHandler(accountManager server.AccountManager, authCfg AuthCfg) *EventsHandler {
-	return &EventsHandler{
+func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	eventsHandler := newHandler(accountManager, authCfg)
+	router.HandleFunc("/events", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
+}
+
+// newHandler creates a new events handler
+func newHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *handler {
+	return &handler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -31,8 +38,8 @@ func NewEventsHandler(accountManager server.AccountManager, authCfg AuthCfg) *Ev
 	}
 }
 
-// GetAllEvents list of the given account
-func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
+// getAllEvents list of the given account
+func (h *handler) getAllEvents(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -60,7 +67,7 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, events)
 }
 
-func (h *EventsHandler) fillEventsWithUserInfo(ctx context.Context, events []*api.Event, accountId, userId string) error {
+func (h *handler) fillEventsWithUserInfo(ctx context.Context, events []*api.Event, accountId, userId string) error {
 	// build email, name maps based on users
 	userInfos, err := h.accountManager.GetUsersFromAccount(ctx, accountId, userId)
 	if err != nil {
