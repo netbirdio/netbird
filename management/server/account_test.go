@@ -1784,6 +1784,24 @@ func TestAccount_Copy(t *testing.T) {
 				ID: "network1",
 			},
 		},
+		NetworkRouters: []*networks.NetworkRouter{
+			{
+				ID:         "router1",
+				NetworkID:  "network1",
+				PeerGroups: []string{"group1"},
+				Masquerade: false,
+				Metric:     0,
+			},
+		},
+		NetworkResources: []*networks.NetworkResource{
+			{
+				ID:        "resource1",
+				NetworkID: "network1",
+				Name:      "resource",
+				Type:      "Subnet",
+				Address:   "172.12.6.1/24",
+			},
+		},
 	}
 	err := hasNilField(account)
 	if err != nil {
