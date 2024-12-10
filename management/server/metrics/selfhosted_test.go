@@ -178,7 +178,7 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 }
 
 // GetStoreEngine returns FileStoreEngine
-func (mockDatasource) GetStoreEngine() store.StoreEngine {
+func (mockDatasource) GetStoreEngine() store.Engine {
 	return store.FileStoreEngine
 }
 

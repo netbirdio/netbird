@@ -157,7 +157,7 @@ type ProviderConfig struct {
 
 // StoreConfig contains Store configuration
 type StoreConfig struct {
-	Engine store.StoreEngine
+	Engine store.Engine
 }
 
 // ReverseProxy contains reverse proxy configuration in front of management.

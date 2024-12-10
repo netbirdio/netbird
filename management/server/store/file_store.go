@@ -258,6 +258,6 @@ func (s *FileStore) Close(ctx context.Context) error {
 }
 
 // GetStoreEngine returns FileStoreEngine
-func (s *FileStore) GetStoreEngine() StoreEngine {
+func (s *FileStore) GetStoreEngine() Engine {
 	return FileStoreEngine
 }

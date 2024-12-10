@@ -137,30 +137,30 @@ type Store interface {
 
 	// Close should close the store persisting all unsaved data.
 	Close(ctx context.Context) error
-	// GetStoreEngine should return StoreEngine of the current store implementation.
+	// GetStoreEngine should return Engine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
-	GetStoreEngine() StoreEngine
+	GetStoreEngine() Engine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
 }
 
-type StoreEngine string
+type Engine string
 
 const (
-	FileStoreEngine     StoreEngine = "jsonfile"
-	SqliteStoreEngine   StoreEngine = "sqlite"
-	PostgresStoreEngine StoreEngine = "postgres"
+	FileStoreEngine     Engine = "jsonfile"
+	SqliteStoreEngine   Engine = "sqlite"
+	PostgresStoreEngine Engine = "postgres"
 
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 )
 
-func getStoreEngineFromEnv() StoreEngine {
+func getStoreEngineFromEnv() Engine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
 		return ""
 	}
 
-	value := StoreEngine(strings.ToLower(kind))
+	value := Engine(strings.ToLower(kind))
 	if value == SqliteStoreEngine || value == PostgresStoreEngine {
 		return value
 	}
@@ -172,7 +172,7 @@ func getStoreEngineFromEnv() StoreEngine {
 // If no engine is specified, it attempts to retrieve it from the environment.
 // If still not specified, it defaults to using SQLite.
 // Additionally, it handles the migration from a JSON store file to SQLite if applicable.
-func getStoreEngine(ctx context.Context, dataDir string, kind StoreEngine) StoreEngine {
+func getStoreEngine(ctx context.Context, dataDir string, kind Engine) Engine {
 	if kind == "" {
 		kind = getStoreEngineFromEnv()
 		if kind == "" {
@@ -198,7 +198,7 @@ func getStoreEngine(ctx context.Context, dataDir string, kind StoreEngine) Store
 }
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
-func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+func NewStore(ctx context.Context, kind Engine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
@@ -217,7 +217,7 @@ func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics tel
 	}
 }
 
-func checkFileStoreEngine(kind StoreEngine, dataDir string) error {
+func checkFileStoreEngine(kind Engine, dataDir string) error {
 	if kind == FileStoreEngine {
 		storeFile := filepath.Join(dataDir, storeFileName)
 		if util.FileExists(storeFile) {

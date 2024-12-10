@@ -49,7 +49,7 @@ type properties map[string]interface{}
 // DataSource metric data source
 type DataSource interface {
 	GetAllAccounts(ctx context.Context) []*types.Account
-	GetStoreEngine() store.StoreEngine
+	GetStoreEngine() store.Engine
 }
 
 // ConnManager peer connection manager that holds state for current active connections

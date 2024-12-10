@@ -50,7 +50,7 @@ type SqlStore struct {
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
-	storeEngine       StoreEngine
+	storeEngine       Engine
 }
 
 type installation struct {
@@ -61,7 +61,7 @@ type installation struct {
 type migrationFunc func(*gorm.DB) error
 
 // NewSqlStore creates a new SqlStore instance.
-func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -891,7 +891,7 @@ func (s *SqlStore) Close(_ context.Context) error {
 }
 
 // GetStoreEngine returns underlying store engine
-func (s *SqlStore) GetStoreEngine() StoreEngine {
+func (s *SqlStore) GetStoreEngine() Engine {
 	return s.storeEngine
 }
 
