@@ -123,11 +123,12 @@ func (cc *connContainer) close() {
 // the client can be reused by calling Connect again. When the client is closed, all connections are closed too.
 // While the Connect is in progress, the OpenConn function will block until the connection is established with relay server.
 type Client struct {
-	log            *log.Entry
-	parentCtx      context.Context
-	connectionURL  string
-	authTokenStore *auth.TokenStore
-	hashedID       []byte
+	log                   *log.Entry
+	parentCtx             context.Context
+	connectionURL         string
+	authTokenStore        *auth.TokenStore
+	hashedID              []byte
+	InitialConnectionTime time.Duration
 
 	bufPool *sync.Pool
 
@@ -264,11 +265,12 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := ws.Dial(c.connectionURL)
+	conn, latency, err := ws.Dial(c.connectionURL)
 	if err != nil {
 		return err
 	}
 	c.relayConn = conn
+	c.InitialConnectionTime = latency
 
 	err = c.handShake()
 	if err != nil {
