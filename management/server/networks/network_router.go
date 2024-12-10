@@ -31,3 +31,15 @@ func NewNetworkRouter(accountID string, networkID string, peer string, peerGroup
 		Metric:     metric,
 	}, nil
 }
+
+func (n *NetworkRouter) Copy() *NetworkRouter {
+	return &NetworkRouter{
+		ID:         n.ID,
+		NetworkID:  n.NetworkID,
+		AccountID:  n.AccountID,
+		Peer:       n.Peer,
+		PeerGroups: n.PeerGroups,
+		Masquerade: n.Masquerade,
+		Metric:     n.Metric,
+	}
+}

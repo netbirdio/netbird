@@ -21,6 +21,7 @@ import (
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
+	"github.com/netbirdio/netbird/management/server/networks"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -276,6 +277,10 @@ type Account struct {
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+
+	Networks         []*networks.Network         `gorm:"foreignKey:AccountID;references:id"`
+	NetworkRouters   []*networks.NetworkRouter   `gorm:"foreignKey:AccountID;references:id"`
+	NetworkResources []*networks.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
 }
 
 // Subclass used in gorm to only load settings and not whole account
@@ -879,6 +884,21 @@ func (a *Account) Copy() *Account {
 		postureChecks = append(postureChecks, postureCheck.Copy())
 	}
 
+	nets := []*networks.Network{}
+	for _, network := range a.Networks {
+		nets = append(nets, network.Copy())
+	}
+
+	networkRouters := []*networks.NetworkRouter{}
+	for _, router := range a.NetworkRouters {
+		networkRouters = append(networkRouters, router.Copy())
+	}
+
+	networkResources := []*networks.NetworkResource{}
+	for _, resource := range a.NetworkResources {
+		networkResources = append(networkResources, resource.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -897,6 +917,9 @@ func (a *Account) Copy() *Account {
 		DNSSettings:            dnsSettings,
 		PostureChecks:          postureChecks,
 		Settings:               settings,
+		Networks:               nets,
+		NetworkRouters:         networkRouters,
+		NetworkResources:       networkResources,
 	}
 }
 

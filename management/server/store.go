@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/networks"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -140,6 +141,21 @@ type Store interface {
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
+
+	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networks.Network, error)
+	GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networks.Network, error)
+	SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networks.Network) error
+	DeleteNetwork(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) error
+
+	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkRouter, error)
+	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*networks.NetworkRouter, error)
+	SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *networks.NetworkRouter) error
+	DeleteNetworkRouter(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) error
+
+	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkResource, error)
+	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error)
+	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *networks.NetworkResource) error
+	DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error
 }
 
 type StoreEngine string
