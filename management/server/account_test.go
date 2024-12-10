@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/management/server/networks"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1778,6 +1779,11 @@ func TestAccount_Copy(t *testing.T) {
 			},
 		},
 		Settings: &Settings{},
+		Networks: []*networks.Network{
+			{
+				ID: "network1",
+			},
+		},
 	}
 	err := hasNilField(account)
 	if err != nil {
