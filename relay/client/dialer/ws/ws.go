@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,7 +16,14 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func Dial(address string) (net.Conn, error) {
+type Dialer struct {
+}
+
+func (d Dialer) Protocol() string {
+	return "WS"
+}
+
+func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 	wsURL, err := prepareURL(address)
 	if err != nil {
 		return nil, err
@@ -31,8 +39,11 @@ func Dial(address string) (net.Conn, error) {
 	}
 	parsedURL.Path = ws.URLPath
 
-	wsConn, resp, err := websocket.Dial(context.Background(), parsedURL.String(), opts)
+	wsConn, resp, err := websocket.Dial(ctx, parsedURL.String(), opts)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
 		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)
 		return nil, err
 	}

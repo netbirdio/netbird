@@ -26,6 +26,7 @@ func NewConn(wsConn *websocket.Conn, serverAddress string) net.Conn {
 func (c *Conn) Read(b []byte) (n int, err error) {
 	t, ioReader, err := c.Conn.Reader(c.ctx)
 	if err != nil {
+		// todo use ErrClosedByServer
 		return 0, err
 	}
 
