@@ -3,7 +3,8 @@ package dns
 import (
 	"fmt"
 
-	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
+	"github.com/miekg/dns"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -14,7 +15,7 @@ type MockServer struct {
 	UpdateDNSServerFunc func(serial uint64, update nbdns.Config) error
 }
 
-func (m *MockServer) RegisterHandler(*dnsinterceptor.RouteMatchHandler) error {
+func (m *MockServer) RegisterHandler([]string, dns.Handler) error {
 	return nil
 }
 

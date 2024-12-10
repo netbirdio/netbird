@@ -14,7 +14,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
@@ -31,7 +30,7 @@ type IosDnsManager interface {
 
 // Server is a dns server interface
 type Server interface {
-	RegisterHandler(handler *dnsinterceptor.RouteMatchHandler) error
+	RegisterHandler(domains []string, handler dns.Handler) error
 	Initialize() error
 	Stop()
 	DnsIP() string
@@ -153,7 +152,16 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 	return defaultServer
 }
 
-func (m *DefaultServer) RegisterHandler(*dnsinterceptor.RouteMatchHandler) error {
+func (s *DefaultServer) RegisterHandler(domains []string, handler dns.Handler) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	log.Debugf("registering handler %s", handler)
+	for _, domain := range domains {
+		pattern := dns.Fqdn(domain)
+		s.service.RegisterMux(pattern, handler)
+	}
+
 	return nil
 }
 
