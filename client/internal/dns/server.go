@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
@@ -30,6 +31,7 @@ type IosDnsManager interface {
 
 // Server is a dns server interface
 type Server interface {
+	RegisterHandler(handler *dnsinterceptor.RouteMatchHandler) error
 	Initialize() error
 	Stop()
 	DnsIP() string
@@ -149,6 +151,10 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 	}
 
 	return defaultServer
+}
+
+func (m *DefaultServer) RegisterHandler(*dnsinterceptor.RouteMatchHandler) error {
+	return nil
 }
 
 // Initialize instantiate host manager and the dns service

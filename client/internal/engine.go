@@ -382,6 +382,7 @@ func (e *Engine) Start() error {
 		e.relayManager,
 		initialRoutes,
 		e.stateManager,
+		dnsServer,
 	)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {

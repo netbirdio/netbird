@@ -16,6 +16,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
@@ -60,6 +61,7 @@ type DefaultManager struct {
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter
 	dnsRouteInterval     time.Duration
 	stateManager         *statemanager.Manager
+	dnsServer            dns.Server
 }
 
 func NewManager(
@@ -71,6 +73,7 @@ func NewManager(
 	relayMgr *relayClient.Manager,
 	initialRoutes []*route.Route,
 	stateManager *statemanager.Manager,
+	dnsServer dns.Server,
 ) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	notifier := notifier.NewNotifier()
@@ -88,6 +91,7 @@ func NewManager(
 		pubKey:           pubKey,
 		notifier:         notifier,
 		stateManager:     stateManager,
+		dnsServer:        dnsServer,
 	}
 
 	dm.routeRefCounter = refcounter.New(
@@ -273,7 +277,16 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			continue
 		}
 
-		clientNetworkWatcher := newClientNetworkWatcher(m.ctx, m.dnsRouteInterval, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter)
+		clientNetworkWatcher := newClientNetworkWatcher(
+			m.ctx,
+			m.dnsRouteInterval,
+			m.wgInterface,
+			m.statusRecorder,
+			routes[0],
+			m.routeRefCounter,
+			m.allowedIPsRefCounter,
+			m.dnsServer,
+		)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
@@ -302,7 +315,16 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
-			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.dnsRouteInterval, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter)
+			clientNetworkWatcher = newClientNetworkWatcher(
+				m.ctx,
+				m.dnsRouteInterval,
+				m.wgInterface,
+				m.statusRecorder,
+				routes[0],
+				m.routeRefCounter,
+				m.allowedIPsRefCounter,
+				m.dnsServer,
+			)
 			m.clientNetworks[id] = clientNetworkWatcher
 			go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		}

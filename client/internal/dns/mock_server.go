@@ -3,6 +3,7 @@ package dns
 import (
 	"fmt"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -11,6 +12,10 @@ type MockServer struct {
 	InitializeFunc      func() error
 	StopFunc            func()
 	UpdateDNSServerFunc func(serial uint64, update nbdns.Config) error
+}
+
+func (m *MockServer) RegisterHandler(*dnsinterceptor.RouteMatchHandler) error {
+	return nil
 }
 
 // Initialize mock implementation of Initialize from Server interface
