@@ -2,6 +2,7 @@ package networks
 
 import (
 	"context"
+	"errors"
 
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
@@ -33,23 +34,23 @@ func NewManager(store store.Store) Manager {
 }
 
 func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID string) ([]*Network, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network *Network) (*Network, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, networkID string) (*Network, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network *Network) (*Network, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {
-	return nil
+	return errors.New("not implemented")
 }
 
 func (m *managerImpl) GetResourceManager() resources.Manager {

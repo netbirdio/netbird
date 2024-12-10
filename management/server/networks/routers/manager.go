@@ -2,6 +2,7 @@ package routers
 
 import (
 	"context"
+	"errors"
 
 	"github.com/netbirdio/netbird/management/server/store"
 )
@@ -25,21 +26,21 @@ func NewManager(store store.Store) Manager {
 }
 
 func (m *managerImpl) GetAllRouters(ctx context.Context, accountID, userID, networkID string) ([]*NetworkRouter, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *NetworkRouter) (*NetworkRouter, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkID, routerID string) (*NetworkRouter, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *NetworkRouter) (*NetworkRouter, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error {
-	return nil
+	return errors.New("not implemented")
 }
