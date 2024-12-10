@@ -14,6 +14,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -267,7 +268,7 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 	}
 }
 
-func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *Account, error) {
+func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *types.Account, error) {
 	accountID := "testingAcc"
 	domain := "example.com"
 
@@ -342,9 +343,9 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *A
 		Groups: []string{groupForNameServerGroups.ID},
 	}
 
-	policy := &Policy{
+	policy := &types.Policy{
 		ID: "example policy",
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				ID:           "example policy rule",
 				Destinations: []string{groupForPolicies.ID},
@@ -352,12 +353,12 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *A
 		},
 	}
 
-	setupKey := &SetupKey{
+	setupKey := &types.SetupKey{
 		Id:         "example setup key",
 		AutoGroups: []string{groupForSetupKeys.ID},
 	}
 
-	user := &User{
+	user := &types.User{
 		Id:         "example user",
 		AutoGroups: []string{groupForUsers.ID},
 	}
@@ -500,15 +501,15 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	})
 
 	// adding a group to policy
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 		Enabled: true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupA"},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 	})
@@ -648,7 +649,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Saving a group linked to dns settings should update account peers and send peer update
 	t.Run("saving group linked to dns settings", func(t *testing.T) {
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
 			DisabledManagementGroups: []string{"groupD"},
 		})
 		assert.NoError(t, err)

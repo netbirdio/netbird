@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // handler is a handler that returns a list of setup keys of the account
@@ -63,8 +64,8 @@ func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !(server.SetupKeyType(req.Type) == server.SetupKeyReusable ||
-		server.SetupKeyType(req.Type) == server.SetupKeyOneOff) {
+	if !(types.SetupKeyType(req.Type) == types.SetupKeyReusable ||
+		types.SetupKeyType(req.Type) == types.SetupKeyOneOff) {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown setup key type %s", req.Type), w)
 		return
 	}
@@ -85,7 +86,7 @@ func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 		ephemeral = *req.Ephemeral
 	}
 
-	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), accountID, req.Name, server.SetupKeyType(req.Type), expiresIn,
+	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), accountID, req.Name, types.SetupKeyType(req.Type), expiresIn,
 		req.AutoGroups, req.UsageLimit, userID, ephemeral)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -152,7 +153,7 @@ func (h *handler) updateSetupKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newKey := &server.SetupKey{}
+	newKey := &types.SetupKey{}
 	newKey.AutoGroups = req.AutoGroups
 	newKey.Revoked = req.Revoked
 	newKey.Id = keyID
@@ -212,7 +213,7 @@ func (h *handler) deleteSetupKey(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func writeSuccess(ctx context.Context, w http.ResponseWriter, key *server.SetupKey) {
+func writeSuccess(ctx context.Context, w http.ResponseWriter, key *types.SetupKey) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	err := json.NewEncoder(w).Encode(toResponseBody(key))
@@ -222,7 +223,7 @@ func writeSuccess(ctx context.Context, w http.ResponseWriter, key *server.SetupK
 	}
 }
 
-func toResponseBody(key *server.SetupKey) *api.SetupKey {
+func toResponseBody(key *types.SetupKey) *api.SetupKey {
 	var state string
 	switch {
 	case key.IsExpired():

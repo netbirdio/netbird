@@ -1,4 +1,4 @@
-package server
+package store
 
 import (
 	"context"
@@ -14,11 +14,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	route2 "github.com/netbirdio/netbird/route"
 

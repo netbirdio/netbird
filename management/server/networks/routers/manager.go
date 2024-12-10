@@ -3,7 +3,7 @@ package routers
 import (
 	"context"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/store"
 )
 
 type Manager interface {
@@ -15,10 +15,10 @@ type Manager interface {
 }
 
 type managerImpl struct {
-	store server.Store
+	store store.Store
 }
 
-func NewManager(store server.Store) Manager {
+func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store: store,
 	}

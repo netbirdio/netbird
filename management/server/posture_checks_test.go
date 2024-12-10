@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/posture"
 )
@@ -92,17 +93,17 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 	})
 }
 
-func initTestPostureChecksAccount(am *DefaultAccountManager) (*Account, error) {
+func initTestPostureChecksAccount(am *DefaultAccountManager) (*types.Account, error) {
 	accountID := "testingAccount"
 	domain := "example.com"
 
-	admin := &User{
+	admin := &types.User{
 		Id:   adminUserID,
-		Role: UserRoleAdmin,
+		Role: types.UserRoleAdmin,
 	}
-	user := &User{
+	user := &types.User{
 		Id:   regularUserID,
-		Role: UserRoleUser,
+		Role: types.UserRoleUser,
 	}
 
 	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain)

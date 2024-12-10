@@ -13,7 +13,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -772,10 +774,10 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 }
 
-func createNSStore(t *testing.T) (Store, error) {
+func createNSStore(t *testing.T) (store.Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", dataDir)
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -784,7 +786,7 @@ func createNSStore(t *testing.T) (Store, error) {
 	return store, nil
 }
 
-func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account, error) {
 	t.Helper()
 	peer1 := &nbpeer.Peer{
 		Key:  nsGroupPeer1Key,

@@ -3,9 +3,9 @@ package networks
 import (
 	"context"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	"github.com/netbirdio/netbird/management/server/store"
 )
 
 type Manager interface {
@@ -19,12 +19,12 @@ type Manager interface {
 }
 
 type managerImpl struct {
-	store            server.Store
+	store            store.Store
 	routersManager   routers.Manager
 	resourcesManager resources.Manager
 }
 
-func NewManager(store server.Store) Manager {
+func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store:            store,
 		routersManager:   routers.NewManager(store),

@@ -1,4 +1,4 @@
-package server
+package store
 
 import (
 	"context"
@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 
@@ -41,31 +42,31 @@ const (
 )
 
 type Store interface {
-	GetAllAccounts(ctx context.Context) []*Account
-	GetAccount(ctx context.Context, accountID string) (*Account, error)
+	GetAllAccounts(ctx context.Context) []*types.Account
+	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
-	GetAccountByUser(ctx context.Context, userID string) (*Account, error)
-	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error)
+	GetAccountByUser(ctx context.Context, userID string) (*types.Account, error)
+	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
-	GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error)
-	GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) // todo use key hash later
-	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
+	GetAccountByPeerID(ctx context.Context, peerID string) (*types.Account, error)
+	GetAccountBySetupKey(ctx context.Context, setupKey string) (*types.Account, error) // todo use key hash later
+	GetAccountByPrivateDomain(ctx context.Context, domain string) (*types.Account, error)
 	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
-	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
-	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error)
-	SaveAccount(ctx context.Context, account *Account) error
-	DeleteAccount(ctx context.Context, account *Account) error
+	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.Settings, error)
+	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.DNSSettings, error)
+	SaveAccount(ctx context.Context, account *types.Account) error
+	DeleteAccount(ctx context.Context, account *types.Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
-	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *DNSSettings) error
+	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
 
-	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
-	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
-	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*User, error)
-	SaveUsers(accountID string, users map[string]*User) error
-	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
+	GetUserByTokenID(ctx context.Context, tokenID string) (*types.User, error)
+	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
+	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
+	SaveUsers(accountID string, users map[string]*types.User) error
+	SaveUser(ctx context.Context, lockStrength LockingStrength, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
@@ -80,10 +81,10 @@ type Store interface {
 	DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error
 	DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error
 
-	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error)
-	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error)
-	CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
-	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
+	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Policy, error)
+	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error)
+	CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *types.Policy) error
+	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *types.Policy) error
 	DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error
 
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
@@ -105,11 +106,11 @@ type Store interface {
 	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
 
-	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error)
+	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error)
 	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
-	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error)
-	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*SetupKey, error)
-	SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *SetupKey) error
+	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SetupKey, error)
+	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*types.SetupKey, error)
+	SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *types.SetupKey) error
 	DeleteSetupKey(ctx context.Context, lockStrength LockingStrength, accountID, keyID string) error
 
 	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
@@ -122,7 +123,7 @@ type Store interface {
 
 	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
 	IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error
-	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*Network, error)
+	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types.Network, error)
 
 	GetInstallationID() string
 	SaveInstallationID(ctx context.Context, ID string) error
@@ -243,7 +244,7 @@ func migrate(ctx context.Context, db *gorm.DB) error {
 func getMigrations(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
-			return migration.MigrateFieldFromGobToJSON[Account, net.IPNet](ctx, db, "network_net")
+			return migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](ctx, db, "network_net")
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateFieldFromGobToJSON[route.Route, netip.Prefix](ctx, db, "network")
@@ -258,7 +259,7 @@ func getMigrations(ctx context.Context) []migrationFunc {
 			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](ctx, db, "ip", "idx_peers_account_id_ip")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateSetupKeyToHashedSetupKey[SetupKey](ctx, db)
+			return migration.MigrateSetupKeyToHashedSetupKey[types.SetupKey](ctx, db)
 		},
 	}
 }

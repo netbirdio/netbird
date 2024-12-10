@@ -15,7 +15,8 @@ import (
 	"github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	nbversion "github.com/netbirdio/netbird/version"
 )
 
@@ -47,8 +48,8 @@ type properties map[string]interface{}
 
 // DataSource metric data source
 type DataSource interface {
-	GetAllAccounts(ctx context.Context) []*server.Account
-	GetStoreEngine() server.StoreEngine
+	GetAllAccounts(ctx context.Context) []*types.Account
+	GetStoreEngine() store.StoreEngine
 }
 
 // ConnManager peer connection manager that holds state for current active connections

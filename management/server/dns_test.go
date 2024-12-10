@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/stretchr/testify/require"
 
@@ -210,10 +212,10 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 }
 
-func createDNSStore(t *testing.T) (Store, error) {
+func createDNSStore(t *testing.T) (store.Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", dataDir)
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +224,7 @@ func createDNSStore(t *testing.T) (Store, error) {
 	return store, nil
 }
 
-func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account, error) {
 	t.Helper()
 	peer1 := &nbpeer.Peer{
 		Key:  dnsPeer1Key,
@@ -259,9 +261,9 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 
 	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain)
 
-	account.Users[dnsRegularUserID] = &User{
+	account.Users[dnsRegularUserID] = &types.User{
 		Id:   dnsRegularUserID,
-		Role: UserRoleUser,
+		Role: types.UserRoleUser,
 	}
 
 	err := am.Store.SaveAccount(context.Background(), account)

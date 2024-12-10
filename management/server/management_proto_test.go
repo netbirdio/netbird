@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
 )
@@ -413,7 +414,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), testFile, t.TempDir())
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), testFile, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
