@@ -158,7 +158,8 @@ func (s *DefaultServer) RegisterHandler(domains []string, handler dns.Handler) e
 
 	log.Debugf("registering handler %s", handler)
 	for _, domain := range domains {
-		pattern := dns.Fqdn(domain)
+		wosuff, _ := strings.CutPrefix(domain, "*.")
+		pattern := dns.Fqdn(wosuff)
 		s.service.RegisterMux(pattern, handler)
 	}
 
