@@ -1080,6 +1080,53 @@ components:
       required:
         - name
         - description
+    NetworkRequest:
+      type: object
+      properties:
+        name:
+          description: Network name
+          type: string
+          example: Remote Network 1
+        description:
+          description: Network description
+          type: string
+          example: A remote network that needs to be accessed
+      required:
+        - name
+    Network:
+      type: object
+      properties:
+        id:
+          description: Network ID
+          type: string
+          example: chacdk86lnnboviihd7g
+        name:
+          description: Network name
+          type: string
+          example: Remote Network 1
+        description:
+          description: Network description
+          type: string
+          example: A remote network that needs to be accessed
+    NetworkResource:
+      type: object
+      properties:
+        id:
+          description: Network resource ID
+          type: string
+          example: chacdk86lnnboviihd7g
+        name:
+          description: Network resource name
+          type: string
+          example: Remote Network 1
+        description:
+          description: Network resource description
+          type: string
+          example: A remote network that needs to be accessed
+        network:
+          description: Network range in CIDR format
+          type: string
+          example:
     RouteRequest:
       type: object
       properties:
