@@ -894,6 +894,11 @@ func (a *Account) Copy() *Account {
 		networkRouters = append(networkRouters, router.Copy())
 	}
 
+	networkResources := []*networks.NetworkResource{}
+	for _, resource := range a.NetworkResources {
+		networkResources = append(networkResources, resource.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -914,6 +919,7 @@ func (a *Account) Copy() *Account {
 		Settings:               settings,
 		Networks:               nets,
 		NetworkRouters:         networkRouters,
+		NetworkResources:       networkResources,
 	}
 }
 
