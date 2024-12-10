@@ -278,7 +278,8 @@ type Account struct {
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 
-	Networks []*networks.Network `gorm:"foreignKey:AccountID;references:id"`
+	Networks       []*networks.Network       `gorm:"foreignKey:AccountID;references:id"`
+	NetworkRouters []*networks.NetworkRouter `gorm:"foreignKey:AccountID;references:id"`
 }
 
 // Subclass used in gorm to only load settings and not whole account
@@ -887,6 +888,11 @@ func (a *Account) Copy() *Account {
 		nets = append(nets, network.Copy())
 	}
 
+	networkRouters := []*networks.NetworkRouter{}
+	for _, router := range a.NetworkRouters {
+		networkRouters = append(networkRouters, router.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -906,6 +912,7 @@ func (a *Account) Copy() *Account {
 		PostureChecks:          postureChecks,
 		Settings:               settings,
 		Networks:               nets,
+		NetworkRouters:         networkRouters,
 	}
 }
 
