@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/networks"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -26,6 +25,9 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -91,7 +93,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &nbgroup.Group{},
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &account.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
-		&networks.Network{}, &networks.NetworkRouter{}, &networks.NetworkResource{},
+		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
@@ -1601,8 +1603,8 @@ func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStre
 	return nil
 }
 
-func (s *SqlStore) GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networks.Network, error) {
-	var networks []*networks.Network
+func (s *SqlStore) GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networkTypes.Network, error) {
+	var networks []*networkTypes.Network
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&networks, accountIDCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get networks from the store: %s", result.Error)
@@ -1612,8 +1614,8 @@ func (s *SqlStore) GetAccountNetworks(ctx context.Context, lockStrength LockingS
 	return networks, nil
 }
 
-func (s *SqlStore) GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networks.Network, error) {
-	var network *networks.Network
+func (s *SqlStore) GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networkTypes.Network, error) {
+	var network *networkTypes.Network
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&network, accountAndIDQueryCondition, accountID, networkID)
 	if result.Error != nil {
@@ -1628,7 +1630,7 @@ func (s *SqlStore) GetNetworkByID(ctx context.Context, lockStrength LockingStren
 	return network, nil
 }
 
-func (s *SqlStore) SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networks.Network) error {
+func (s *SqlStore) SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networkTypes.Network) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(network)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save network to store: %v", result.Error)
@@ -1640,7 +1642,7 @@ func (s *SqlStore) SaveNetwork(ctx context.Context, lockStrength LockingStrength
 
 func (s *SqlStore) DeleteNetwork(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&networks.Network{}, accountAndIDQueryCondition, accountID, networkID)
+		Delete(&networkTypes.Network{}, accountAndIDQueryCondition, accountID, networkID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete network from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete network from store")
@@ -1653,8 +1655,8 @@ func (s *SqlStore) DeleteNetwork(ctx context.Context, lockStrength LockingStreng
 	return nil
 }
 
-func (s *SqlStore) GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkRouter, error) {
-	var netRouters []*networks.NetworkRouter
+func (s *SqlStore) GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*routerTypes.NetworkRouter, error) {
+	var netRouters []*routerTypes.NetworkRouter
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Find(&netRouters, "account_id = ? AND network_id = ?", accountID, netID)
 	if result.Error != nil {
@@ -1665,8 +1667,8 @@ func (s *SqlStore) GetNetworkRoutersByNetID(ctx context.Context, lockStrength Lo
 	return netRouters, nil
 }
 
-func (s *SqlStore) GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*networks.NetworkRouter, error) {
-	var netRouter *networks.NetworkRouter
+func (s *SqlStore) GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*routerTypes.NetworkRouter, error) {
+	var netRouter *routerTypes.NetworkRouter
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&netRouter, accountAndIDQueryCondition, accountID, routerID)
 	if result.Error != nil {
@@ -1680,7 +1682,7 @@ func (s *SqlStore) GetNetworkRouterByID(ctx context.Context, lockStrength Lockin
 	return netRouter, nil
 }
 
-func (s *SqlStore) SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *networks.NetworkRouter) error {
+func (s *SqlStore) SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *routerTypes.NetworkRouter) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(router)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save network router to store: %v", result.Error)
@@ -1692,7 +1694,7 @@ func (s *SqlStore) SaveNetworkRouter(ctx context.Context, lockStrength LockingSt
 
 func (s *SqlStore) DeleteNetworkRouter(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&networks.NetworkRouter{}, accountAndIDQueryCondition, accountID, routerID)
+		Delete(&routerTypes.NetworkRouter{}, accountAndIDQueryCondition, accountID, routerID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete network router from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete network router from store")
@@ -1705,8 +1707,8 @@ func (s *SqlStore) DeleteNetworkRouter(ctx context.Context, lockStrength Locking
 	return nil
 }
 
-func (s *SqlStore) GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) ([]*networks.NetworkResource, error) {
-	var netResources []*networks.NetworkResource
+func (s *SqlStore) GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) ([]*resourceTypes.NetworkResource, error) {
+	var netResources []*resourceTypes.NetworkResource
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Find(&netResources, "account_id = ? AND network_id = ?", accountID, networkID)
 	if result.Error != nil {
@@ -1717,8 +1719,8 @@ func (s *SqlStore) GetNetworkResourcesByNetID(ctx context.Context, lockStrength 
 	return netResources, nil
 }
 
-func (s *SqlStore) GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error) {
-	var netResources *networks.NetworkResource
+func (s *SqlStore) GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error) {
+	var netResources *resourceTypes.NetworkResource
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&netResources, accountAndIDQueryCondition, accountID, resourceID)
 	if result.Error != nil {
@@ -1732,7 +1734,7 @@ func (s *SqlStore) GetNetworkResourceByID(ctx context.Context, lockStrength Lock
 	return netResources, nil
 }
 
-func (s *SqlStore) SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *networks.NetworkResource) error {
+func (s *SqlStore) SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *resourceTypes.NetworkResource) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(resource)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save network resource to store: %v", result.Error)
@@ -1744,7 +1746,7 @@ func (s *SqlStore) SaveNetworkResource(ctx context.Context, lockStrength Locking
 
 func (s *SqlStore) DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&networks.NetworkResource{}, accountAndIDQueryCondition, accountID, resourceID)
+		Delete(&resourceTypes.NetworkResource{}, accountAndIDQueryCondition, accountID, resourceID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete network resource from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete network resource from store")

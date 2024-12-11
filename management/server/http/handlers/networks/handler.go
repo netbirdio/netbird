@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks"
+	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -81,7 +82,7 @@ func (h *handler) createNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	network := &networks.Network{}
+	network := &types.Network{}
 	network.FromAPIRequest(&req)
 
 	network.AccountID = accountID
@@ -140,7 +141,7 @@ func (h *handler) updateNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	network := &networks.Network{}
+	network := &types.Network{}
 	network.FromAPIRequest(&req)
 
 	network.ID = networkID

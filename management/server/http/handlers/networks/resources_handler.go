@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 )
 
 type resourceHandler struct {
@@ -78,7 +79,7 @@ func (h *resourceHandler) createResource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resource := &resources.NetworkResource{}
+	resource := &types.NetworkResource{}
 	resource.FromAPIRequest(&req)
 
 	resource.NetworkID = mux.Vars(r)["networkId"]
@@ -126,7 +127,7 @@ func (h *resourceHandler) updateResource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resource := &resources.NetworkResource{}
+	resource := &types.NetworkResource{}
 	resource.FromAPIRequest(&req)
 
 	resource.ID = mux.Vars(r)["resourceId"]

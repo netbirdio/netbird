@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/networks"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -27,6 +26,9 @@ import (
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/migration"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/testutil"
@@ -143,19 +145,19 @@ type Store interface {
 	GetStoreEngine() Engine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
 
-	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networks.Network, error)
-	GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networks.Network, error)
-	SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networks.Network) error
+	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networkTypes.Network, error)
+	GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networkTypes.Network, error)
+	SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networkTypes.Network) error
 	DeleteNetwork(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) error
 
-	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkRouter, error)
-	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*networks.NetworkRouter, error)
-	SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *networks.NetworkRouter) error
+	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*routerTypes.NetworkRouter, error)
+	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*routerTypes.NetworkRouter, error)
+	SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *routerTypes.NetworkRouter) error
 	DeleteNetworkRouter(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) error
 
-	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkResource, error)
-	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error)
-	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *networks.NetworkResource) error
+	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*resourceTypes.NetworkResource, error)
+	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error)
+	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *resourceTypes.NetworkResource) error
 	DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error
 }
 

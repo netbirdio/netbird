@@ -21,7 +21,9 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
-	"github.com/netbirdio/netbird/management/server/networks"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -312,7 +314,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Users[testUserID] = user
-	account.Networks = []*networks.Network{
+	account.Networks = []*networkTypes.Network{
 		{
 			ID:          "network_id",
 			AccountID:   account.Id,
@@ -320,7 +322,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 			Description: "network description",
 		},
 	}
-	account.NetworkRouters = []*networks.NetworkRouter{
+	account.NetworkRouters = []*routerTypes.NetworkRouter{
 		{
 			ID:         "router_id",
 			NetworkID:  account.Networks[0].ID,
@@ -330,7 +332,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 			Metric:     1,
 		},
 	}
-	account.NetworkResources = []*networks.NetworkResource{
+	account.NetworkResources = []*resourceTypes.NetworkResource{
 		{
 			ID:          "resource_id",
 			NetworkID:   account.Networks[0].ID,
@@ -2256,7 +2258,7 @@ func TestSqlStore_SaveNetwork(t *testing.T) {
 	require.NoError(t, err)
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
-	network := &networks.Network{
+	network := &networkTypes.Network{
 		ID:        "net-id",
 		AccountID: accountID,
 		Name:      "net",
@@ -2376,7 +2378,7 @@ func TestSqlStore_SaveNetworkRouter(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	networkID := "ct286bi7qv930dsrrug0"
 
-	netRouter, err := networks.NewNetworkRouter(accountID, networkID, "", []string{"net-router-grp"}, true, 0)
+	netRouter, err := routerTypes.NewNetworkRouter(accountID, networkID, "", []string{"net-router-grp"}, true, 0)
 	require.NoError(t, err)
 
 	err = store.SaveNetworkRouter(context.Background(), LockingStrengthUpdate, netRouter)
@@ -2493,7 +2495,7 @@ func TestSqlStore_SaveNetworkResource(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	networkID := "ct286bi7qv930dsrrug0"
 
-	netResource, err := networks.NewNetworkResource(accountID, networkID, "resource-name", "", "example.com")
+	netResource, err := resourceTypes.NewNetworkResource(accountID, networkID, "resource-name", "", "example.com")
 	require.NoError(t, err)
 
 	err = store.SaveNetworkResource(context.Background(), LockingStrengthUpdate, netResource)

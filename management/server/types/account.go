@@ -17,6 +17,10 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -66,6 +70,10 @@ type Account struct {
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+
+	Networks         []*networkTypes.Network          `gorm:"foreignKey:AccountID;references:id"`
+	NetworkRouters   []*routerTypes.NetworkRouter     `gorm:"foreignKey:AccountID;references:id"`
+	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
 }
 
 // Subclass used in gorm to only load network and not whole account
@@ -727,6 +735,21 @@ func (a *Account) Copy() *Account {
 		postureChecks = append(postureChecks, postureCheck.Copy())
 	}
 
+	nets := []*networkTypes.Network{}
+	for _, network := range a.Networks {
+		nets = append(nets, network.Copy())
+	}
+
+	networkRouters := []*routerTypes.NetworkRouter{}
+	for _, router := range a.NetworkRouters {
+		networkRouters = append(networkRouters, router.Copy())
+	}
+
+	networkResources := []*resourceTypes.NetworkResource{}
+	for _, resource := range a.NetworkResources {
+		networkResources = append(networkResources, resource.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -745,6 +768,9 @@ func (a *Account) Copy() *Account {
 		DNSSettings:            dnsSettings,
 		PostureChecks:          postureChecks,
 		Settings:               settings,
+		Networks:               nets,
+		NetworkRouters:         networkRouters,
+		NetworkResources:       networkResources,
 	}
 }
 

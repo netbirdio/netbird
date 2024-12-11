@@ -1,4 +1,4 @@
-package routers
+package types
 
 import "testing"
 

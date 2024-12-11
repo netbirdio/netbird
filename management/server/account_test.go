@@ -16,7 +16,11 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/networks"
+
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1790,12 +1794,12 @@ func TestAccount_Copy(t *testing.T) {
 			},
 		},
 		Settings: &types.Settings{},
-		Networks: []*networks.Network{
+		Networks: []*networkTypes.Network{
 			{
 				ID: "network1",
 			},
 		},
-		NetworkRouters: []*networks.NetworkRouter{
+		NetworkRouters: []*routerTypes.NetworkRouter{
 			{
 				ID:         "router1",
 				NetworkID:  "network1",
@@ -1804,7 +1808,7 @@ func TestAccount_Copy(t *testing.T) {
 				Metric:     0,
 			},
 		},
-		NetworkResources: []*networks.NetworkResource{
+		NetworkResources: []*resourceTypes.NetworkResource{
 			{
 				ID:        "resource1",
 				NetworkID: "network1",

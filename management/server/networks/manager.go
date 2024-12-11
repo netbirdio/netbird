@@ -6,14 +6,15 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
 type Manager interface {
-	GetAllNetworks(ctx context.Context, accountID, userID string) ([]*Network, error)
-	CreateNetwork(ctx context.Context, userID string, network *Network) (*Network, error)
-	GetNetwork(ctx context.Context, accountID, userID, networkID string) (*Network, error)
-	UpdateNetwork(ctx context.Context, userID string, network *Network) (*Network, error)
+	GetAllNetworks(ctx context.Context, accountID, userID string) ([]*types.Network, error)
+	CreateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error)
+	GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error)
+	UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error)
 	DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error
 	GetResourceManager() resources.Manager
 	GetRouterManager() routers.Manager
@@ -33,19 +34,19 @@ func NewManager(store store.Store) Manager {
 	}
 }
 
-func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID string) ([]*Network, error) {
+func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID string) ([]*types.Network, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network *Network) (*Network, error) {
+func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, networkID string) (*Network, error) {
+func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network *Network) (*Network, error) {
+func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
 	return nil, errors.New("not implemented")
 }
 
