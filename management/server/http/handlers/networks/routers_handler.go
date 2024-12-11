@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 )
 
 type routersHandler struct {
@@ -79,7 +80,7 @@ func (h *routersHandler) createRouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	router := &routers.NetworkRouter{}
+	router := &types.NetworkRouter{}
 	router.FromAPIRequest(&req)
 
 	router.NetworkID = networkID
@@ -128,7 +129,7 @@ func (h *routersHandler) updateRouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	router := &routers.NetworkRouter{}
+	router := &types.NetworkRouter{}
 	router.FromAPIRequest(&req)
 
 	router.NetworkID = mux.Vars(r)["networkId"]

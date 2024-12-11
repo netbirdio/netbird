@@ -7,6 +7,9 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // AccountRequest holds the result channel to return the requested account.
@@ -17,19 +20,19 @@ type AccountRequest struct {
 
 // AccountResult holds the account data or an error.
 type AccountResult struct {
-	Account *Account
+	Account *types.Account
 	Err     error
 }
 
 type AccountRequestBuffer struct {
-	store               Store
+	store               store.Store
 	getAccountRequests  map[string][]*AccountRequest
 	mu                  sync.Mutex
 	getAccountRequestCh chan *AccountRequest
 	bufferInterval      time.Duration
 }
 
-func NewAccountRequestBuffer(ctx context.Context, store Store) *AccountRequestBuffer {
+func NewAccountRequestBuffer(ctx context.Context, store store.Store) *AccountRequestBuffer {
 	bufferIntervalStr := os.Getenv("NB_GET_ACCOUNT_BUFFER_INTERVAL")
 	bufferInterval, err := time.ParseDuration(bufferIntervalStr)
 	if err != nil {
@@ -52,7 +55,7 @@ func NewAccountRequestBuffer(ctx context.Context, store Store) *AccountRequestBu
 
 	return &ac
 }
-func (ac *AccountRequestBuffer) GetAccountWithBackpressure(ctx context.Context, accountID string) (*Account, error) {
+func (ac *AccountRequestBuffer) GetAccountWithBackpressure(ctx context.Context, accountID string) (*types.Account, error) {
 	req := &AccountRequest{
 		AccountID:  accountID,
 		ResultChan: make(chan *AccountResult, 1),

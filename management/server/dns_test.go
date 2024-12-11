@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/stretchr/testify/require"
 
@@ -53,7 +55,7 @@ func TestGetDNSSettings(t *testing.T) {
 		t.Fatal("DNS settings for new accounts shouldn't return nil")
 	}
 
-	account.DNSSettings = DNSSettings{
+	account.DNSSettings = types.DNSSettings{
 		DisabledManagementGroups: []string{group1ID},
 	}
 
@@ -86,20 +88,20 @@ func TestSaveDNSSettings(t *testing.T) {
 	testCases := []struct {
 		name          string
 		userID        string
-		inputSettings *DNSSettings
+		inputSettings *types.DNSSettings
 		shouldFail    bool
 	}{
 		{
 			name:   "Saving As Admin Should Be OK",
 			userID: dnsAdminUserID,
-			inputSettings: &DNSSettings{
+			inputSettings: &types.DNSSettings{
 				DisabledManagementGroups: []string{dnsGroup1ID},
 			},
 		},
 		{
 			name:   "Should Not Update Settings As Regular User",
 			userID: dnsRegularUserID,
-			inputSettings: &DNSSettings{
+			inputSettings: &types.DNSSettings{
 				DisabledManagementGroups: []string{dnsGroup1ID},
 			},
 			shouldFail: true,
@@ -113,7 +115,7 @@ func TestSaveDNSSettings(t *testing.T) {
 		{
 			name:   "Should Not Update Settings If Group Is Invalid",
 			userID: dnsAdminUserID,
-			inputSettings: &DNSSettings{
+			inputSettings: &types.DNSSettings{
 				DisabledManagementGroups: []string{"non-existing-group"},
 			},
 			shouldFail: true,
@@ -210,10 +212,10 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 }
 
-func createDNSStore(t *testing.T) (Store, error) {
+func createDNSStore(t *testing.T) (store.Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", dataDir)
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +224,7 @@ func createDNSStore(t *testing.T) (Store, error) {
 	return store, nil
 }
 
-func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account, error) {
 	t.Helper()
 	peer1 := &nbpeer.Peer{
 		Key:  dnsPeer1Key,
@@ -259,9 +261,9 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 
 	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain)
 
-	account.Users[dnsRegularUserID] = &User{
+	account.Users[dnsRegularUserID] = &types.User{
 		Id:   dnsRegularUserID,
-		Role: UserRoleUser,
+		Role: types.UserRoleUser,
 	}
 
 	err := am.Store.SaveAccount(context.Background(), account)
@@ -510,7 +512,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
 			DisabledManagementGroups: []string{"groupA"},
 		})
 		assert.NoError(t, err)
@@ -589,7 +591,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
 			DisabledManagementGroups: []string{"groupA", "groupB"},
 		})
 		assert.NoError(t, err)
@@ -609,7 +611,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
 			DisabledManagementGroups: []string{"groupA"},
 		})
 		assert.NoError(t, err)
@@ -629,7 +631,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
 			DisabledManagementGroups: []string{},
 		})
 		assert.NoError(t, err)

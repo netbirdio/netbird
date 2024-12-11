@@ -15,11 +15,11 @@ import (
 	"github.com/gorilla/mux"
 	"golang.org/x/exp/maps"
 
-	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/stretchr/testify/assert"
 
@@ -73,18 +73,18 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
-			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*server.Account, error) {
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
 				peersMap := make(map[string]*nbpeer.Peer)
 				for _, peer := range peers {
 					peersMap[peer.ID] = peer.Copy()
 				}
 
-				policy := &server.Policy{
+				policy := &types.Policy{
 					ID:        "policy",
 					AccountID: accountID,
 					Name:      "policy",
 					Enabled:   true,
-					Rules: []*server.PolicyRule{
+					Rules: []*types.PolicyRule{
 						{
 							ID:            "rule",
 							Name:          "rule",
@@ -99,16 +99,16 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 					},
 				}
 
-				srvUser := server.NewRegularUser(serviceUser)
+				srvUser := types.NewRegularUser(serviceUser)
 				srvUser.IsServiceUser = true
 
-				account := &server.Account{
+				account := &types.Account{
 					Id:     accountID,
 					Domain: "hotmail.com",
 					Peers:  peersMap,
-					Users: map[string]*server.User{
-						adminUser:   server.NewAdminUser(adminUser),
-						regularUser: server.NewRegularUser(regularUser),
+					Users: map[string]*types.User{
+						adminUser:   types.NewAdminUser(adminUser),
+						regularUser: types.NewRegularUser(regularUser),
 						serviceUser: srvUser,
 					},
 					Groups: map[string]*nbgroup.Group{
@@ -120,12 +120,12 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 							Peers:     maps.Keys(peersMap),
 						},
 					},
-					Settings: &server.Settings{
+					Settings: &types.Settings{
 						PeerLoginExpirationEnabled: true,
 						PeerLoginExpiration:        time.Hour,
 					},
-					Policies: []*server.Policy{policy},
-					Network: &server.Network{
+					Policies: []*types.Policy{policy},
+					Network: &types.Network{
 						Identifier: "ciclqisab2ss43jdn8q0",
 						Net: net.IPNet{
 							IP:   net.ParseIP("100.67.0.0"),

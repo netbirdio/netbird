@@ -2,44 +2,46 @@ package resources
 
 import (
 	"context"
+	"errors"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/networks/resources/types"
+	"github.com/netbirdio/netbird/management/server/store"
 )
 
 type Manager interface {
-	GetAllResources(ctx context.Context, accountID, userID, networkID string) ([]*NetworkResource, error)
-	CreateResource(ctx context.Context, accountID string, resource *NetworkResource) (*NetworkResource, error)
-	GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*NetworkResource, error)
-	UpdateResource(ctx context.Context, userID string, resource *NetworkResource) (*NetworkResource, error)
+	GetAllResources(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error)
+	CreateResource(ctx context.Context, accountID string, resource *types.NetworkResource) (*types.NetworkResource, error)
+	GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error)
+	UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error)
 	DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error
 }
 
 type managerImpl struct {
-	store server.Store
+	store store.Store
 }
 
-func NewManager(store server.Store) Manager {
+func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store: store,
 	}
 }
 
-func (m *managerImpl) GetAllResources(ctx context.Context, accountID, userID, networkID string) ([]*NetworkResource, error) {
-	return nil, nil
+func (m *managerImpl) GetAllResources(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error) {
+	return nil, errors.New("not implemented")
 }
 
-func (m *managerImpl) CreateResource(ctx context.Context, accountID string, resource *NetworkResource) (*NetworkResource, error) {
-	return nil, nil
+func (m *managerImpl) CreateResource(ctx context.Context, accountID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
+	return nil, errors.New("not implemented")
 }
 
-func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*NetworkResource, error) {
-	return nil, nil
+func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
+	return nil, errors.New("not implemented")
 }
 
-func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resource *NetworkResource) (*NetworkResource, error) {
-	return nil, nil
+func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
-	return nil
+	return errors.New("not implemented")
 }

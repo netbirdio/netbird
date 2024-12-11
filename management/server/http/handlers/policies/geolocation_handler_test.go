@@ -13,11 +13,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -46,8 +46,8 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
-			GetUserByIDFunc: func(ctx context.Context, id string) (*server.User, error) {
-				return server.NewAdminUser(id), nil
+			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
+				return types.NewAdminUser(id), nil
 			},
 		},
 		geolocationManager: geo,
