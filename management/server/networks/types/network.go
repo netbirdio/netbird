@@ -32,7 +32,9 @@ func (n *Network) ToAPIResponse() *api.Network {
 
 func (n *Network) FromAPIRequest(req *api.NetworkRequest) {
 	n.Name = req.Name
-	n.Description = *req.Description
+	if req.Description != nil {
+		n.Description = *req.Description
+	}
 }
 
 // Copy returns a copy of a posture checks.

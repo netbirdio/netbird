@@ -63,7 +63,7 @@ func (n *NetworkResource) ToAPIResponse() *api.NetworkResource {
 
 func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 	n.Name = req.Name
-	n.Description = ""
+
 	if req.Description != nil {
 		n.Description = *req.Description
 	}

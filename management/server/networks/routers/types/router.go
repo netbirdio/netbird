@@ -45,8 +45,14 @@ func (n *NetworkRouter) ToAPIResponse() *api.NetworkRouter {
 }
 
 func (n *NetworkRouter) FromAPIRequest(req *api.NetworkRouterRequest) {
-	n.Peer = *req.Peer
-	n.PeerGroups = *req.PeerGroups
+	if req.Peer != nil {
+		n.Peer = *req.Peer
+	}
+
+	if req.PeerGroups != nil {
+		n.PeerGroups = *req.PeerGroups
+	}
+
 	n.Masquerade = req.Masquerade
 	n.Metric = req.Metric
 }
