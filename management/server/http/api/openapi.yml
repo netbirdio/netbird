@@ -1186,11 +1186,11 @@ components:
       type: object
       properties:
         id:
-          description: Resource ID
+          description: ID of the resource
           type: string
           example: chacdk86lnnboviihd7g
         type:
-          description: Resource type
+          description: Type of the resource
           $ref: '#/components/schemas/ResourceType'
       required:
         - id
@@ -1251,9 +1251,7 @@ components:
               type: string
               example: chacdk86lnnboviihd7g
             type:
-              description: Network resource type based of the address
               $ref: '#/components/schemas/NetworkResourceType'
-              example: host
           required:
             - id
             - type
@@ -1262,6 +1260,7 @@ components:
       description: Network resource type based of the address
       type: string
       enum: [ "host", "subnet", "domain" ]
+      example: host
     NetworkRouterRequest:
       type: object
       properties:
