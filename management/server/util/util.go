@@ -1,6 +1,6 @@
 package util
 
-// difference returns the elements in `a` that aren't in `b`.
+// Difference returns the elements in `a` that aren't in `b`.
 func Difference(a, b []string) []string {
 	mb := make(map[string]struct{}, len(b))
 	for _, x := range b {
