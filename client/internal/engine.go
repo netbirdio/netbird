@@ -788,7 +788,6 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
-
 	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
 	if networkMap.GetPeerConfig() != nil {
 		err := e.updateConfig(networkMap.GetPeerConfig())
@@ -808,31 +807,13 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 
-	isDNSRouter, routes := toRoutes(networkMap.GetRoutes())
+	routedDomains, routes := toRoutes(networkMap.GetRoutes())
 
 	if err := e.routeManager.UpdateRoutes(serial, routes); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
-	if isDNSRouter {
-		if e.dnsForwardMgr == nil {
-			e.dnsForwardMgr = &dnsfwd.Manager{
-				Firewall: e.firewall,
-			}
-
-			if err := e.dnsForwardMgr.Start(); err != nil {
-				log.Errorf("failed to start DNS forward: %v", err)
-			}
-		}
-	} else {
-		if e.dnsForwardMgr != nil {
-			// todo: review context
-			if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
-				log.Errorf("failed to stop DNS forward: %v", err)
-			}
-			e.dnsForwardMgr = nil
-		}
-	}
+	e.updateDNSForwarder(routedDomains)
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
@@ -894,12 +875,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	return nil
 }
 
-func toRoutes(protoRoutes []*mgmProto.Route) (bool, []*route.Route) {
+func toRoutes(protoRoutes []*mgmProto.Route) ([]string, []*route.Route) {
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
 	}
 
-	var isDNSRouter bool
+	var dnsRoutes []string
 	routes := make([]*route.Route, 0)
 	for _, protoRoute := range protoRoutes {
 		var prefix netip.Prefix
@@ -910,7 +891,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) (bool, []*route.Route) {
 				continue
 			}
 		}
-		isDNSRouter = true
+		dnsRoutes = append(dnsRoutes, protoRoute.Domains...)
 
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
@@ -925,7 +906,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) (bool, []*route.Route) {
 		}
 		routes = append(routes, convertedRoute)
 	}
-	return isDNSRouter, routes
+	return dnsRoutes, routes
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
@@ -1571,6 +1552,31 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	}
 
 	return nm, nil
+}
+
+func (e *Engine) updateDNSForwarder(domains []string) {
+	if len(domains) > 0 {
+		log.Infof("enable domain router service for domains: %v", domains)
+		if e.dnsForwardMgr == nil {
+			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall)
+
+			if err := e.dnsForwardMgr.Start(domains); err != nil {
+				log.Errorf("failed to start DNS forward: %v", err)
+				e.dnsForwardMgr = nil
+			}
+		} else {
+			log.Infof("update domain router service for domains: %v", domains)
+			e.dnsForwardMgr.UpdateDomains(domains)
+		}
+	} else {
+		if e.dnsForwardMgr != nil {
+			log.Infof("disable domain router service")
+			if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+				log.Errorf("failed to stop DNS forward: %v", err)
+			}
+			e.dnsForwardMgr = nil
+		}
+	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.
