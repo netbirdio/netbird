@@ -58,7 +58,7 @@ func networksList(cmd *cobra.Command, _ []string) error {
 	defer conn.Close()
 
 	client := proto.NewDaemonServiceClient(conn)
-	resp, err := client.ListRoutes(cmd.Context(), &proto.ListRoutesRequest{})
+	resp, err := client.ListNetworks(cmd.Context(), &proto.ListNetworksRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to list network: %v", status.Convert(err).Message())
 	}
@@ -73,14 +73,14 @@ func networksList(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printRoutes(cmd *cobra.Command, resp *proto.ListRoutesResponse) {
+func printRoutes(cmd *cobra.Command, resp *proto.ListNetworksResponse) {
 	cmd.Println("Available Networks:")
 	for _, route := range resp.Routes {
 		printRoute(cmd, route)
 	}
 }
 
-func printRoute(cmd *cobra.Command, route *proto.Route) {
+func printRoute(cmd *cobra.Command, route *proto.Network) {
 	selectedStatus := getSelectedStatus(route)
 	domains := route.GetDomains()
 
@@ -91,14 +91,14 @@ func printRoute(cmd *cobra.Command, route *proto.Route) {
 	}
 }
 
-func getSelectedStatus(route *proto.Route) string {
+func getSelectedStatus(route *proto.Network) string {
 	if route.GetSelected() {
 		return "Selected"
 	}
 	return "Not Selected"
 }
 
-func printDomainRoute(cmd *cobra.Command, route *proto.Route, domains []string, selectedStatus string) {
+func printDomainRoute(cmd *cobra.Command, route *proto.Network, domains []string, selectedStatus string) {
 	cmd.Printf("\n  - ID: %s\n    Domains: %s\n    Status: %s\n", route.GetID(), strings.Join(domains, ", "), selectedStatus)
 	resolvedIPs := route.GetResolvedIPs()
 
@@ -109,8 +109,8 @@ func printDomainRoute(cmd *cobra.Command, route *proto.Route, domains []string, 
 	}
 }
 
-func printNetworkRoute(cmd *cobra.Command, route *proto.Route, selectedStatus string) {
-	cmd.Printf("\n  - ID: %s\n    Network: %s\n    Status: %s\n", route.GetID(), route.GetNetwork(), selectedStatus)
+func printNetworkRoute(cmd *cobra.Command, route *proto.Network, selectedStatus string) {
+	cmd.Printf("\n  - ID: %s\n    Network: %s\n    Status: %s\n", route.GetID(), route.GetRange(), selectedStatus)
 }
 
 func printResolvedIPs(cmd *cobra.Command, domains []string, resolvedIPs map[string]*proto.IPList) {
@@ -130,8 +130,8 @@ func networksSelect(cmd *cobra.Command, args []string) error {
 	defer conn.Close()
 
 	client := proto.NewDaemonServiceClient(conn)
-	req := &proto.SelectRoutesRequest{
-		RouteIDs: args,
+	req := &proto.SelectNetworksRequest{
+		NetworkIDs: args,
 	}
 
 	if len(args) == 1 && args[0] == "all" {
@@ -140,7 +140,7 @@ func networksSelect(cmd *cobra.Command, args []string) error {
 		req.Append = true
 	}
 
-	if _, err := client.SelectRoutes(cmd.Context(), req); err != nil {
+	if _, err := client.SelectNetworks(cmd.Context(), req); err != nil {
 		return fmt.Errorf("failed to select networks: %v", status.Convert(err).Message())
 	}
 
@@ -157,15 +157,15 @@ func networksDeselect(cmd *cobra.Command, args []string) error {
 	defer conn.Close()
 
 	client := proto.NewDaemonServiceClient(conn)
-	req := &proto.SelectRoutesRequest{
-		RouteIDs: args,
+	req := &proto.SelectNetworksRequest{
+		NetworkIDs: args,
 	}
 
 	if len(args) == 1 && args[0] == "all" {
 		req.All = true
 	}
 
-	if _, err := client.DeselectRoutes(cmd.Context(), req); err != nil {
+	if _, err := client.DeselectNetworks(cmd.Context(), req); err != nil {
 		return fmt.Errorf("failed to deselect networks: %v", status.Convert(err).Message())
 	}
 
