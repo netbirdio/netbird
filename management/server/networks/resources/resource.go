@@ -15,9 +15,9 @@ import (
 type NetworkResourceType string
 
 const (
-	host   NetworkResourceType = "Host"
-	subnet NetworkResourceType = "Subnet"
-	domain NetworkResourceType = "Domain"
+	host   NetworkResourceType = "host"
+	subnet NetworkResourceType = "subnet"
+	domain NetworkResourceType = "domain"
 )
 
 func (p NetworkResourceType) String() string {
