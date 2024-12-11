@@ -39,6 +39,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -62,6 +63,7 @@ import (
 const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
+	connInitLimit            = 200
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -177,6 +179,7 @@ type Engine struct {
 	// Network map persistence
 	persistNetworkMap bool
 	latestNetworkMap  *mgmProto.NetworkMap
+	connSemaphore     *semaphoregroup.SemaphoreGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -242,6 +245,18 @@ func NewEngineWithProbes(
 		statusRecorder: statusRecorder,
 		probes:         probes,
 		checks:         checks,
+		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+	}
+	if runtime.GOOS == "ios" {
+		if !fileExists(mobileDep.StateFilePath) {
+			err := createFile(mobileDep.StateFilePath)
+			if err != nil {
+				log.Errorf("failed to create state file: %v", err)
+				// we are not exiting as we can run without the state manager
+			}
+		}
+
+		engine.stateManager = statemanager.New(mobileDep.StateFilePath)
 	}
 	if path := statemanager.GetDefaultStatePath(); path != "" {
 		engine.stateManager = statemanager.New(path)
@@ -1040,7 +1055,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		},
 	}
 
-	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher)
+	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher, e.connSemaphore)
 	if err != nil {
 		return nil, err
 	}
