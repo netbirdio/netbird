@@ -3,26 +3,37 @@ package dnsfwd
 import (
 	"context"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"net"
 
+	"github.com/hashicorp/go-multierror"
+	log "github.com/sirupsen/logrus"
+
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
 
 const (
+	// ListenPort is the port that the DNS forwarder listens on. It has been used by the client peers also
 	ListenPort = 5353
+	dnsTTL     = 60 //seconds
 )
 
 type Manager struct {
-	Firewall firewall.Manager
+	firewall firewall.Manager
 
-	dnsRules []firewall.Rule
-	service  *DNSForwarder
+	fwRules      []firewall.Rule
+	dnsForwarder *DNSForwarder
 }
 
-func (m *Manager) Start() error {
+func NewManager(fw firewall.Manager) *Manager {
+	return &Manager{
+		firewall: fw,
+	}
+}
+
+func (m *Manager) Start(domains []string) error {
 	log.Infof("starting DNS forwarder")
-	if m.service != nil {
+	if m.dnsForwarder != nil {
 		return nil
 	}
 
@@ -30,14 +41,9 @@ func (m *Manager) Start() error {
 		return err
 	}
 
-	m.service = &DNSForwarder{
-		// todo listen only NetBird interface
-		ListenAddress: fmt.Sprintf(":%d", ListenPort),
-		TTL:           300,
-	}
-
+	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, domains)
 	go func() {
-		if err := m.service.Listen(); err != nil {
+		if err := m.dnsForwarder.Listen(); err != nil {
 			// todo handle close error if it is exists
 			log.Errorf("failed to start DNS forwarder, err: %v", err)
 		}
@@ -46,14 +52,30 @@ func (m *Manager) Start() error {
 	return nil
 }
 
+func (m *Manager) UpdateDomains(domains []string) {
+	if m.dnsForwarder == nil {
+		return
+	}
+
+	m.dnsForwarder.UpdateDomains(domains)
+}
+
 func (m *Manager) Stop(ctx context.Context) error {
-	if m.service == nil {
+	if m.dnsForwarder == nil {
 		return nil
 	}
 
-	err := m.service.Close(ctx)
-	m.service = nil
-	return err
+	var mErr *multierror.Error
+	if err := m.dropDNSFirewall(); err != nil {
+		mErr = multierror.Append(mErr, err)
+	}
+
+	if err := m.dnsForwarder.Close(ctx); err != nil {
+		mErr = multierror.Append(mErr, err)
+	}
+
+	m.dnsForwarder = nil
+	return nberrors.FormatErrorOrNil(mErr)
 }
 
 func (h *Manager) allowDNSFirewall() error {
@@ -61,28 +83,24 @@ func (h *Manager) allowDNSFirewall() error {
 		IsRange: false,
 		Values:  []int{ListenPort},
 	}
-	dnsRules, err := h.Firewall.AddPeerFiltering(net.ParseIP("0.0.0.0"), firewall.ProtocolUDP, nil, dport, firewall.RuleDirectionIN, firewall.ActionAccept, "", "")
+	dnsRules, err := h.firewall.AddPeerFiltering(net.ParseIP("0.0.0.0"), firewall.ProtocolUDP, nil, dport, firewall.RuleDirectionIN, firewall.ActionAccept, "", "")
 	if err != nil {
 		log.Errorf("failed to add allow DNS router rules, err: %v", err)
 		return err
 	}
-	h.dnsRules = dnsRules
+	h.fwRules = dnsRules
 
 	return nil
 }
 
 func (h *Manager) dropDNSFirewall() error {
-	if len(h.dnsRules) == 0 {
-		return nil
-	}
-
-	for _, rule := range h.dnsRules {
-		if err := h.Firewall.DeletePeerRule(rule); err != nil {
-			log.Errorf("failed to delete DNS router rules, err: %v", err)
-			return err
+	var mErr *multierror.Error
+	for _, rule := range h.fwRules {
+		if err := h.firewall.DeletePeerRule(rule); err != nil {
+			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete DNS router rules, err: %v", err))
 		}
 	}
 
-	h.dnsRules = nil
-	return nil
+	h.fwRules = nil
+	return nberrors.FormatErrorOrNil(mErr)
 }
