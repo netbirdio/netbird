@@ -17,3 +17,13 @@ func NewNetwork(accountId, name, description string) *Network {
 		Description: description,
 	}
 }
+
+// Copy returns a copy of a posture checks.
+func (n *Network) Copy() *Network {
+	return &Network{
+		ID:          n.ID,
+		AccountID:   n.AccountID,
+		Name:        n.Name,
+		Description: n.Description,
+	}
+}
