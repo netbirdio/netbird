@@ -4,6 +4,8 @@ import (
 	"net"
 	"sync"
 
+	"golang.org/x/exp/maps"
+
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
@@ -70,10 +72,5 @@ func (s *Store) PeersPubKey() []string {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
 
-	keys := make([]string, 0, len(s.peerConns))
-	for k, _ := range s.peerConns {
-		keys = append(keys, k)
-	}
-
-	return keys
+	return maps.Keys(s.peerConns)
 }
