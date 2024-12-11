@@ -70,6 +70,18 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 	n.Address = req.Address
 }
 
+func (n *NetworkResource) Copy() *NetworkResource {
+	return &NetworkResource{
+		ID:          n.ID,
+		AccountID:   n.AccountID,
+		NetworkID:   n.NetworkID,
+		Name:        n.Name,
+		Description: n.Description,
+		Type:        n.Type,
+		Address:     n.Address,
+	}
+}
+
 // getResourceType returns the type of the resource based on the address
 func getResourceType(address string) (NetworkResourceType, error) {
 	if ip, cidr, err := net.ParseCIDR(address); err == nil {

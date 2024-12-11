@@ -50,3 +50,15 @@ func (n *NetworkRouter) FromAPIRequest(req *api.NetworkRouterRequest) {
 	n.Masquerade = req.Masquerade
 	n.Metric = req.Metric
 }
+
+func (n *NetworkRouter) Copy() *NetworkRouter {
+	return &NetworkRouter{
+		ID:         n.ID,
+		NetworkID:  n.NetworkID,
+		AccountID:  n.AccountID,
+		Peer:       n.Peer,
+		PeerGroups: n.PeerGroups,
+		Masquerade: n.Masquerade,
+		Metric:     n.Metric,
+	}
+}
