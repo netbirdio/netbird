@@ -14,7 +14,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	networkTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -182,10 +181,9 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 
 		if hasSourceResource {
 			// TODO: validate the resource id and type
-			pr.SourceResource = networkTypes.Resource{
-				ID:   rule.SourceResource.Id,
-				Type: string(rule.SourceResource.Type),
-			}
+			sourceResource := &types.Resource{}
+			sourceResource.FromAPIRequest(rule.SourceResource)
+			pr.SourceResource = *sourceResource
 		}
 
 		if hasDestinations {
@@ -194,10 +192,9 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 
 		if hasDestinationResource {
 			// TODO: validate the resource id and type
-			pr.DestinationResource = networkTypes.Resource{
-				ID:   rule.DestinationResource.Id,
-				Type: string(rule.DestinationResource.Type),
-			}
+			destinationResource := &types.Resource{}
+			destinationResource.FromAPIRequest(rule.DestinationResource)
+			pr.DestinationResource = *destinationResource
 		}
 
 		pr.Enabled = rule.Enabled
@@ -382,13 +379,15 @@ func toPolicyResponse(groups []*nbgroup.Group, policy *types.Policy) *api.Policy
 		rID := r.ID
 		rDescription := r.Description
 		rule := api.PolicyRule{
-			Id:            &rID,
-			Name:          r.Name,
-			Enabled:       r.Enabled,
-			Description:   &rDescription,
-			Bidirectional: r.Bidirectional,
-			Protocol:      api.PolicyRuleProtocol(r.Protocol),
-			Action:        api.PolicyRuleAction(r.Action),
+			Id:                  &rID,
+			Name:                r.Name,
+			Enabled:             r.Enabled,
+			Description:         &rDescription,
+			Bidirectional:       r.Bidirectional,
+			Protocol:            api.PolicyRuleProtocol(r.Protocol),
+			Action:              api.PolicyRuleAction(r.Action),
+			SourceResource:      r.SourceResource.ToAPIResponse(),
+			DestinationResource: r.DestinationResource.ToAPIResponse(),
 		}
 
 		if len(r.Ports) != 0 {

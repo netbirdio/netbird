@@ -12,11 +12,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 )
 
-type Resource struct {
-	ID   string
-	Type string
-}
-
 type NetworkResourceType string
 
 const (
