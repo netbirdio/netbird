@@ -177,7 +177,9 @@ func TestPoliciesWritePolicy(t *testing.T) {
                             "Description": "Description",
                             "Protocol": "tcp",
                             "Action": "accept",
-                            "Bidirectional":true
+                            "Bidirectional":true,
+							"Sources": ["F"],
+							"Destinations": ["G"]
                         }
                 ]}`)),
 			expectedStatus: http.StatusOK,
@@ -193,6 +195,8 @@ func TestPoliciesWritePolicy(t *testing.T) {
 						Protocol:      "tcp",
 						Action:        "accept",
 						Bidirectional: true,
+						Sources:       &[]api.GroupMinimum{{Id: "F"}},
+						Destinations:  &[]api.GroupMinimum{{Id: "G"}},
 					},
 				},
 			},
@@ -221,7 +225,9 @@ func TestPoliciesWritePolicy(t *testing.T) {
                             "Description": "Description",
                             "Protocol": "tcp",
                             "Action": "accept",
-                            "Bidirectional":true
+                            "Bidirectional":true,
+							"Sources": ["F"],
+							"Destinations": ["F"]
                         }
                 ]}`)),
 			expectedStatus: http.StatusOK,
@@ -237,6 +243,8 @@ func TestPoliciesWritePolicy(t *testing.T) {
 						Protocol:      "tcp",
 						Action:        "accept",
 						Bidirectional: true,
+						Sources:       &[]api.GroupMinimum{{Id: "F"}},
+						Destinations:  &[]api.GroupMinimum{{Id: "F"}},
 					},
 				},
 			},

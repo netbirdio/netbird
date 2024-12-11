@@ -41,8 +41,14 @@ type PolicyRule struct {
 	// Destinations policy destination groups
 	Destinations []string `gorm:"serializer:json"`
 
+	// DestinationResource policy destination resource that the rule is applied to
+	DestinationResource Resource `gorm:"serializer:json"`
+
 	// Sources policy source groups
 	Sources []string `gorm:"serializer:json"`
+
+	// SourceResource policy source resource that the rule is applied to
+	SourceResource Resource `gorm:"serializer:json"`
 
 	// Bidirectional define if the rule is applicable in both directions, sources, and destinations
 	Bidirectional bool

@@ -143,6 +143,13 @@ const (
 	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
 )
 
+// Defines values for ResourceType.
+const (
+	ResourceTypeDomain ResourceType = "domain"
+	ResourceTypeHost   ResourceType = "host"
+	ResourceTypeSubnet ResourceType = "subnet"
+)
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive  UserStatus = "active"
@@ -540,9 +547,6 @@ type NetworkResource struct {
 	Type NetworkResourceType `json:"type"`
 }
 
-// NetworkResourceType Network resource type based of the address
-type NetworkResourceType string
-
 // NetworkResourceRequest defines model for NetworkResourceRequest.
 type NetworkResourceRequest struct {
 	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
@@ -554,6 +558,9 @@ type NetworkResourceRequest struct {
 	// Name Network resource name
 	Name string `json:"name"`
 }
+
+// NetworkResourceType Network resource type based of the address
+type NetworkResourceType string
 
 // NetworkRouter defines model for NetworkRouter.
 type NetworkRouter struct {
@@ -873,10 +880,11 @@ type PolicyRule struct {
 	Bidirectional bool `json:"bidirectional"`
 
 	// Description Policy rule friendly description
-	Description *string `json:"description,omitempty"`
+	Description         *string   `json:"description,omitempty"`
+	DestinationResource *Resource `json:"destinationResource,omitempty"`
 
 	// Destinations Policy rule destination group IDs
-	Destinations []GroupMinimum `json:"destinations"`
+	Destinations *[]GroupMinimum `json:"destinations,omitempty"`
 
 	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
@@ -894,10 +902,11 @@ type PolicyRule struct {
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
-	Protocol PolicyRuleProtocol `json:"protocol"`
+	Protocol       PolicyRuleProtocol `json:"protocol"`
+	SourceResource *Resource          `json:"sourceResource,omitempty"`
 
 	// Sources Policy rule source group IDs
-	Sources []GroupMinimum `json:"sources"`
+	Sources *[]GroupMinimum `json:"sources,omitempty"`
 }
 
 // PolicyRuleAction Policy rule accept or drops packets
@@ -951,10 +960,11 @@ type PolicyRuleUpdate struct {
 	Bidirectional bool `json:"bidirectional"`
 
 	// Description Policy rule friendly description
-	Description *string `json:"description,omitempty"`
+	Description         *string   `json:"description,omitempty"`
+	DestinationResource *Resource `json:"destinationResource,omitempty"`
 
 	// Destinations Policy rule destination group IDs
-	Destinations []string `json:"destinations"`
+	Destinations *[]string `json:"destinations,omitempty"`
 
 	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
@@ -972,10 +982,11 @@ type PolicyRuleUpdate struct {
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
-	Protocol PolicyRuleUpdateProtocol `json:"protocol"`
+	Protocol       PolicyRuleUpdateProtocol `json:"protocol"`
+	SourceResource *Resource                `json:"sourceResource,omitempty"`
 
 	// Sources Policy rule source group IDs
-	Sources []string `json:"sources"`
+	Sources *[]string `json:"sources,omitempty"`
 }
 
 // PolicyRuleUpdateAction Policy rule accept or drops packets
@@ -1048,6 +1059,16 @@ type Process struct {
 type ProcessCheck struct {
 	Processes []Process `json:"processes"`
 }
+
+// Resource defines model for Resource.
+type Resource struct {
+	// Id Resource ID
+	Id   string       `json:"id"`
+	Type ResourceType `json:"type"`
+}
+
+// ResourceType defines model for ResourceType.
+type ResourceType string
 
 // Route defines model for Route.
 type Route struct {
