@@ -71,7 +71,18 @@ type DefaultManager struct {
 	peerStore    *peerstore.Store
 }
 
-func NewManager(ctx context.Context, pubKey string, dnsRouteInterval time.Duration, wgInterface iface.IWGIface, statusRecorder *peer.Status, relayMgr *relayClient.Manager, initialRoutes []*route.Route, stateManager *statemanager.Manager, dnsServer dns.Server, peerStore *peerstore.Store) *DefaultManager {
+func NewManager(
+	ctx context.Context,
+	pubKey string,
+	dnsRouteInterval time.Duration,
+	wgInterface iface.IWGIface,
+	statusRecorder *peer.Status,
+	relayMgr *relayClient.Manager,
+	initialRoutes []*route.Route,
+	stateManager *statemanager.Manager,
+	dnsServer dns.Server,
+	peerStore *peerstore.Store,
+) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	notifier := notifier.NewNotifier()
 	sysOps := systemops.NewSysOps(wgInterface, notifier)
