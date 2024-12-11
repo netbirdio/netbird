@@ -1,4 +1,4 @@
-package server
+package store
 
 import (
 	"context"
@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/networks"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 
@@ -26,6 +26,9 @@ import (
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/migration"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/testutil"
@@ -42,31 +45,31 @@ const (
 )
 
 type Store interface {
-	GetAllAccounts(ctx context.Context) []*Account
-	GetAccount(ctx context.Context, accountID string) (*Account, error)
+	GetAllAccounts(ctx context.Context) []*types.Account
+	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
-	GetAccountByUser(ctx context.Context, userID string) (*Account, error)
-	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error)
+	GetAccountByUser(ctx context.Context, userID string) (*types.Account, error)
+	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
-	GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error)
-	GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) // todo use key hash later
-	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
+	GetAccountByPeerID(ctx context.Context, peerID string) (*types.Account, error)
+	GetAccountBySetupKey(ctx context.Context, setupKey string) (*types.Account, error) // todo use key hash later
+	GetAccountByPrivateDomain(ctx context.Context, domain string) (*types.Account, error)
 	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
-	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
-	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*DNSSettings, error)
-	SaveAccount(ctx context.Context, account *Account) error
-	DeleteAccount(ctx context.Context, account *Account) error
+	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.Settings, error)
+	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.DNSSettings, error)
+	SaveAccount(ctx context.Context, account *types.Account) error
+	DeleteAccount(ctx context.Context, account *types.Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
-	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *DNSSettings) error
+	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
 
-	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
-	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
-	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*User, error)
-	SaveUsers(accountID string, users map[string]*User) error
-	SaveUser(ctx context.Context, lockStrength LockingStrength, user *User) error
+	GetUserByTokenID(ctx context.Context, tokenID string) (*types.User, error)
+	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
+	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
+	SaveUsers(accountID string, users map[string]*types.User) error
+	SaveUser(ctx context.Context, lockStrength LockingStrength, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
@@ -81,10 +84,10 @@ type Store interface {
 	DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error
 	DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error
 
-	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*Policy, error)
-	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*Policy, error)
-	CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
-	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *Policy) error
+	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Policy, error)
+	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error)
+	CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *types.Policy) error
+	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *types.Policy) error
 	DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error
 
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
@@ -106,11 +109,11 @@ type Store interface {
 	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
 
-	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error)
+	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error)
 	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
-	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*SetupKey, error)
-	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*SetupKey, error)
-	SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *SetupKey) error
+	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SetupKey, error)
+	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*types.SetupKey, error)
+	SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *types.SetupKey) error
 	DeleteSetupKey(ctx context.Context, lockStrength LockingStrength, accountID, keyID string) error
 
 	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
@@ -123,7 +126,7 @@ type Store interface {
 
 	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
 	IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error
-	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*Network, error)
+	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types.Network, error)
 
 	GetInstallationID() string
 	SaveInstallationID(ctx context.Context, ID string) error
@@ -137,45 +140,45 @@ type Store interface {
 
 	// Close should close the store persisting all unsaved data.
 	Close(ctx context.Context) error
-	// GetStoreEngine should return StoreEngine of the current store implementation.
+	// GetStoreEngine should return Engine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
-	GetStoreEngine() StoreEngine
+	GetStoreEngine() Engine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
 
-	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networks.Network, error)
-	GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networks.Network, error)
-	SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networks.Network) error
+	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networkTypes.Network, error)
+	GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networkTypes.Network, error)
+	SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networkTypes.Network) error
 	DeleteNetwork(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) error
 
-	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkRouter, error)
-	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*networks.NetworkRouter, error)
-	SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *networks.NetworkRouter) error
+	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*routerTypes.NetworkRouter, error)
+	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*routerTypes.NetworkRouter, error)
+	SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *routerTypes.NetworkRouter) error
 	DeleteNetworkRouter(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) error
 
-	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*networks.NetworkResource, error)
-	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*networks.NetworkResource, error)
-	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *networks.NetworkResource) error
+	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*resourceTypes.NetworkResource, error)
+	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error)
+	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *resourceTypes.NetworkResource) error
 	DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error
 }
 
-type StoreEngine string
+type Engine string
 
 const (
-	FileStoreEngine     StoreEngine = "jsonfile"
-	SqliteStoreEngine   StoreEngine = "sqlite"
-	PostgresStoreEngine StoreEngine = "postgres"
+	FileStoreEngine     Engine = "jsonfile"
+	SqliteStoreEngine   Engine = "sqlite"
+	PostgresStoreEngine Engine = "postgres"
 
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 )
 
-func getStoreEngineFromEnv() StoreEngine {
+func getStoreEngineFromEnv() Engine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
 		return ""
 	}
 
-	value := StoreEngine(strings.ToLower(kind))
+	value := Engine(strings.ToLower(kind))
 	if value == SqliteStoreEngine || value == PostgresStoreEngine {
 		return value
 	}
@@ -187,7 +190,7 @@ func getStoreEngineFromEnv() StoreEngine {
 // If no engine is specified, it attempts to retrieve it from the environment.
 // If still not specified, it defaults to using SQLite.
 // Additionally, it handles the migration from a JSON store file to SQLite if applicable.
-func getStoreEngine(ctx context.Context, dataDir string, kind StoreEngine) StoreEngine {
+func getStoreEngine(ctx context.Context, dataDir string, kind Engine) Engine {
 	if kind == "" {
 		kind = getStoreEngineFromEnv()
 		if kind == "" {
@@ -213,7 +216,7 @@ func getStoreEngine(ctx context.Context, dataDir string, kind StoreEngine) Store
 }
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
-func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+func NewStore(ctx context.Context, kind Engine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
@@ -232,7 +235,7 @@ func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics tel
 	}
 }
 
-func checkFileStoreEngine(kind StoreEngine, dataDir string) error {
+func checkFileStoreEngine(kind Engine, dataDir string) error {
 	if kind == FileStoreEngine {
 		storeFile := filepath.Join(dataDir, storeFileName)
 		if util.FileExists(storeFile) {
@@ -259,7 +262,7 @@ func migrate(ctx context.Context, db *gorm.DB) error {
 func getMigrations(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
-			return migration.MigrateFieldFromGobToJSON[Account, net.IPNet](ctx, db, "network_net")
+			return migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](ctx, db, "network_net")
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateFieldFromGobToJSON[route.Route, netip.Prefix](ctx, db, "network")
@@ -274,7 +277,7 @@ func getMigrations(ctx context.Context) []migrationFunc {
 			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](ctx, db, "ip", "idx_peers_account_id_ip")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateSetupKeyToHashedSetupKey[SetupKey](ctx, db)
+			return migration.MigrateSetupKeyToHashedSetupKey[types.SetupKey](ctx, db)
 		},
 	}
 }

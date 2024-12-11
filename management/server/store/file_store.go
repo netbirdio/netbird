@@ -1,4 +1,4 @@
-package server
+package store
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -22,7 +23,7 @@ const storeFileName = "store.json"
 
 // FileStore represents an account storage backed by a file persisted to disk
 type FileStore struct {
-	Accounts                map[string]*Account
+	Accounts                map[string]*types.Account
 	SetupKeyID2AccountID    map[string]string `json:"-"`
 	PeerKeyID2AccountID     map[string]string `json:"-"`
 	PeerID2AccountID        map[string]string `json:"-"`
@@ -55,7 +56,7 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		// create a new FileStore if previously didn't exist (e.g. first run)
 		s := &FileStore{
-			Accounts:                make(map[string]*Account),
+			Accounts:                make(map[string]*types.Account),
 			mux:                     sync.Mutex{},
 			SetupKeyID2AccountID:    make(map[string]string),
 			PeerKeyID2AccountID:     make(map[string]string),
@@ -92,12 +93,12 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 
 	for accountID, account := range store.Accounts {
 		if account.Settings == nil {
-			account.Settings = &Settings{
+			account.Settings = &types.Settings{
 				PeerLoginExpirationEnabled: false,
-				PeerLoginExpiration:        DefaultPeerLoginExpiration,
+				PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
 
 				PeerInactivityExpirationEnabled: false,
-				PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
+				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 			}
 		}
 
@@ -112,7 +113,7 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 		for _, user := range account.Users {
 			store.UserID2AccountID[user.Id] = accountID
 			if user.Issued == "" {
-				user.Issued = UserIssuedAPI
+				user.Issued = types.UserIssuedAPI
 				account.Users[user.Id] = user
 			}
 
@@ -122,7 +123,7 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 			}
 		}
 
-		if account.Domain != "" && account.DomainCategory == PrivateCategory &&
+		if account.Domain != "" && account.DomainCategory == types.PrivateCategory &&
 			account.IsDomainPrimaryAccount {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
@@ -134,13 +135,13 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 			policy.UpgradeAndFix()
 		}
 		if account.Policies == nil {
-			account.Policies = make([]*Policy, 0)
+			account.Policies = make([]*types.Policy, 0)
 		}
 
 		// for data migration. Can be removed once most base will be with labels
-		existingLabels := account.getPeerDNSLabels()
+		existingLabels := account.GetPeerDNSLabels()
 		if len(existingLabels) != len(account.Peers) {
-			addPeerLabelsToAccount(ctx, account, existingLabels)
+			types.AddPeerLabelsToAccount(ctx, account, existingLabels)
 		}
 
 		// TODO: delete this block after migration
@@ -236,7 +237,7 @@ func (s *FileStore) persist(ctx context.Context, file string) error {
 }
 
 // GetAllAccounts returns all accounts
-func (s *FileStore) GetAllAccounts(_ context.Context) (all []*Account) {
+func (s *FileStore) GetAllAccounts(_ context.Context) (all []*types.Account) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	for _, a := range s.Accounts {
@@ -257,6 +258,6 @@ func (s *FileStore) Close(ctx context.Context) error {
 }
 
 // GetStoreEngine returns FileStoreEngine
-func (s *FileStore) GetStoreEngine() StoreEngine {
+func (s *FileStore) GetStoreEngine() Engine {
 	return FileStoreEngine
 }

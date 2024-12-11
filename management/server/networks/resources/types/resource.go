@@ -1,4 +1,4 @@
-package networks
+package types
 
 import (
 	"errors"
@@ -8,14 +8,16 @@ import (
 	"strings"
 
 	"github.com/rs/xid"
+
+	"github.com/netbirdio/netbird/management/server/http/api"
 )
 
 type NetworkResourceType string
 
 const (
-	host   NetworkResourceType = "Host"
-	subnet NetworkResourceType = "Subnet"
-	domain NetworkResourceType = "Domain"
+	host   NetworkResourceType = "host"
+	subnet NetworkResourceType = "subnet"
+	domain NetworkResourceType = "domain"
 )
 
 func (p NetworkResourceType) String() string {
@@ -47,6 +49,25 @@ func NewNetworkResource(accountID, networkID, name, description, address string)
 		Type:        resourceType,
 		Address:     address,
 	}, nil
+}
+
+func (n *NetworkResource) ToAPIResponse() *api.NetworkResource {
+	return &api.NetworkResource{
+		Id:          n.ID,
+		Name:        n.Name,
+		Description: &n.Description,
+		Type:        api.NetworkResourceType(n.Type.String()),
+		Address:     n.Address,
+	}
+}
+
+func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
+	n.Name = req.Name
+	n.Description = ""
+	if req.Description != nil {
+		n.Description = *req.Description
+	}
+	n.Address = req.Address
 }
 
 func (n *NetworkResource) Copy() *NetworkResource {

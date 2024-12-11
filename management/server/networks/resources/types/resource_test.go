@@ -1,4 +1,4 @@
-package networks
+package types
 
 import (
 	"testing"

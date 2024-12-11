@@ -1,6 +1,10 @@
-package networks
+package types
 
-import "github.com/rs/xid"
+import (
+	"github.com/rs/xid"
+
+	"github.com/netbirdio/netbird/management/server/http/api"
+)
 
 type Network struct {
 	ID          string `gorm:"index"`
@@ -16,6 +20,19 @@ func NewNetwork(accountId, name, description string) *Network {
 		Name:        name,
 		Description: description,
 	}
+}
+
+func (n *Network) ToAPIResponse() *api.Network {
+	return &api.Network{
+		Id:          n.ID,
+		Name:        n.Name,
+		Description: &n.Description,
+	}
+}
+
+func (n *Network) FromAPIRequest(req *api.NetworkRequest) {
+	n.Name = req.Name
+	n.Description = *req.Description
 }
 
 // Copy returns a copy of a posture checks.

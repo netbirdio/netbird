@@ -14,11 +14,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -29,17 +29,17 @@ const (
 	testAccountID       = "test_id"
 )
 
-func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey,
-	user *server.User,
+func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKey, updatedSetupKey *types.SetupKey,
+	user *types.User,
 ) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
-			CreateSetupKeyFunc: func(_ context.Context, _ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
+			CreateSetupKeyFunc: func(_ context.Context, _ string, keyName string, typ types.SetupKeyType, _ time.Duration, _ []string,
 				_ int, _ string, ephemeral bool,
-			) (*server.SetupKey, error) {
+			) (*types.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
 					nk := newKey.Copy()
 					nk.Ephemeral = ephemeral
@@ -47,7 +47,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}
 				return nil, fmt.Errorf("failed creating setup key")
 			},
-			GetSetupKeyFunc: func(_ context.Context, accountID, userID, keyID string) (*server.SetupKey, error) {
+			GetSetupKeyFunc: func(_ context.Context, accountID, userID, keyID string) (*types.SetupKey, error) {
 				switch keyID {
 				case defaultKey.Id:
 					return defaultKey, nil
@@ -58,15 +58,15 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}
 			},
 
-			SaveSetupKeyFunc: func(_ context.Context, accountID string, key *server.SetupKey, _ string) (*server.SetupKey, error) {
+			SaveSetupKeyFunc: func(_ context.Context, accountID string, key *types.SetupKey, _ string) (*types.SetupKey, error) {
 				if key.Id == updatedSetupKey.Id {
 					return updatedSetupKey, nil
 				}
 				return nil, status.Errorf(status.NotFound, "key %s not found", key.Id)
 			},
 
-			ListSetupKeysFunc: func(_ context.Context, accountID, userID string) ([]*server.SetupKey, error) {
-				return []*server.SetupKey{defaultKey}, nil
+			ListSetupKeysFunc: func(_ context.Context, accountID, userID string) ([]*types.SetupKey, error) {
+				return []*types.SetupKey{defaultKey}, nil
 			},
 
 			DeleteSetupKeyFunc: func(_ context.Context, accountID, userID, keyID string) error {
@@ -89,13 +89,13 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 }
 
 func TestSetupKeysHandlers(t *testing.T) {
-	defaultSetupKey, _ := server.GenerateDefaultSetupKey()
+	defaultSetupKey, _ := types.GenerateDefaultSetupKey()
 	defaultSetupKey.Id = existingSetupKeyID
 
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := types.NewAdminUser("test_user")
 
-	newSetupKey, plainKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"},
-		server.SetupKeyUnlimitedUsage, true)
+	newSetupKey, plainKey := types.GenerateSetupKey(newSetupKeyName, types.SetupKeyReusable, 0, []string{"group-1"},
+		types.SetupKeyUnlimitedUsage, true)
 	newSetupKey.Key = plainKey
 	updatedDefaultSetupKey := defaultSetupKey.Copy()
 	updatedDefaultSetupKey.AutoGroups = []string{"group-1"}
