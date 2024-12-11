@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -147,13 +148,56 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 			ruleID = *rule.Id
 		}
 
+		hasSources := rule.Sources != nil
+		hasSourceResource := rule.SourceResource != nil
+
+		hasDestinations := rule.Destinations != nil
+		hasDestinationResource := rule.DestinationResource != nil
+
+		if hasSources && hasSourceResource {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either sources or  source resources, not both"), w)
+			return
+		}
+
+		if hasDestinations && hasDestinationResource {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either destinations or  destination resources, not both"), w)
+			return
+		}
+
+		if !(hasSources || hasSourceResource) || !(hasDestinations || hasDestinationResource) {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either sources or source resources and destinations or destination resources"), w)
+			return
+		}
+
 		pr := types.PolicyRule{
 			ID:            ruleID,
 			PolicyID:      policyID,
 			Name:          rule.Name,
-			Destinations:  rule.Destinations,
-			Sources:       rule.Sources,
 			Bidirectional: rule.Bidirectional,
+		}
+
+		if hasSources {
+			pr.Sources = *rule.Sources
+		}
+
+		if hasSourceResource {
+			// TODO: validate the resource id and type
+			pr.SourceResource = networkTypes.Resource{
+				ID:   rule.SourceResource.Id,
+				Type: string(rule.SourceResource.Type),
+			}
+		}
+
+		if hasDestinations {
+			pr.Destinations = *rule.Destinations
+		}
+
+		if hasDestinationResource {
+			// TODO: validate the resource id and type
+			pr.DestinationResource = networkTypes.Resource{
+				ID:   rule.DestinationResource.Id,
+				Type: string(rule.DestinationResource.Type),
+			}
 		}
 
 		pr.Enabled = rule.Enabled
@@ -363,26 +407,30 @@ func toPolicyResponse(groups []*nbgroup.Group, policy *types.Policy) *api.Policy
 			rule.PortRanges = &portRanges
 		}
 
+		var sources []api.GroupMinimum
 		for _, gid := range r.Sources {
 			_, ok := cache[gid]
 			if ok {
 				continue
 			}
+
 			if group, ok := groupsMap[gid]; ok {
 				minimum := api.GroupMinimum{
 					Id:         group.ID,
 					Name:       group.Name,
 					PeersCount: len(group.Peers),
 				}
-				rule.Sources = append(rule.Sources, minimum)
+				sources = append(sources, minimum)
 				cache[gid] = minimum
 			}
 		}
+		rule.Sources = &sources
 
+		var destinations []api.GroupMinimum
 		for _, gid := range r.Destinations {
 			cachedMinimum, ok := cache[gid]
 			if ok {
-				rule.Destinations = append(rule.Destinations, cachedMinimum)
+				destinations = append(destinations, cachedMinimum)
 				continue
 			}
 			if group, ok := groupsMap[gid]; ok {
@@ -391,10 +439,12 @@ func toPolicyResponse(groups []*nbgroup.Group, policy *types.Policy) *api.Policy
 					Name:       group.Name,
 					PeersCount: len(group.Peers),
 				}
-				rule.Destinations = append(rule.Destinations, minimum)
+				destinations = append(destinations, minimum)
 				cache[gid] = minimum
 			}
 		}
+		rule.Destinations = &destinations
+
 		ap.Rules = append(ap.Rules, rule)
 	}
 	return ap
