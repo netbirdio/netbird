@@ -74,7 +74,7 @@ func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
 
 	var networkResponse []*api.Network
 	for _, network := range networks {
-		networkResponse = append(networkResponse, network.ToAPIResponse(resources[network.ID], routers[network.ID]))
+		networkResponse = append(networkResponse, network.ToAPIResponse(routers[network.ID], resources[network.ID]))
 	}
 
 	util.WriteJSONObject(r.Context(), w, networkResponse)
