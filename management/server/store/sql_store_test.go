@@ -2175,7 +2175,7 @@ func addAllGroup(account *types.Account) error {
 }
 
 func TestSqlStore_GetAccountNetworks(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2207,7 +2207,7 @@ func TestSqlStore_GetAccountNetworks(t *testing.T) {
 }
 
 func TestSqlStore_GetNetworkByID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2253,7 +2253,7 @@ func TestSqlStore_GetNetworkByID(t *testing.T) {
 }
 
 func TestSqlStore_SaveNetwork(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2273,7 +2273,7 @@ func TestSqlStore_SaveNetwork(t *testing.T) {
 }
 
 func TestSqlStore_DeleteNetwork(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2292,7 +2292,7 @@ func TestSqlStore_DeleteNetwork(t *testing.T) {
 }
 
 func TestSqlStore_GetNetworkRoutersByNetID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2325,7 +2325,7 @@ func TestSqlStore_GetNetworkRoutersByNetID(t *testing.T) {
 }
 
 func TestSqlStore_GetNetworkRouterByID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2371,7 +2371,7 @@ func TestSqlStore_GetNetworkRouterByID(t *testing.T) {
 }
 
 func TestSqlStore_SaveNetworkRouter(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2390,7 +2390,7 @@ func TestSqlStore_SaveNetworkRouter(t *testing.T) {
 }
 
 func TestSqlStore_DeleteNetworkRouter(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2409,7 +2409,7 @@ func TestSqlStore_DeleteNetworkRouter(t *testing.T) {
 }
 
 func TestSqlStore_GetNetworkResourcesByNetID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2442,7 +2442,7 @@ func TestSqlStore_GetNetworkResourcesByNetID(t *testing.T) {
 }
 
 func TestSqlStore_GetNetworkResourceByID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2488,7 +2488,7 @@ func TestSqlStore_GetNetworkResourceByID(t *testing.T) {
 }
 
 func TestSqlStore_SaveNetworkResource(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2507,7 +2507,7 @@ func TestSqlStore_SaveNetworkResource(t *testing.T) {
 }
 
 func TestSqlStore_DeleteNetworkResource(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
