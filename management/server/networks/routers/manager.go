@@ -104,7 +104,7 @@ func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkI
 }
 
 func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, router.ID, userID, permissions.Networks, permissions.Write)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, router.AccountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
