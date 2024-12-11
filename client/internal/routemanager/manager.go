@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
@@ -67,7 +68,7 @@ type DefaultManager struct {
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
 	clientRoutes route.HAMap
 	dnsServer    dns.Server
-	peerConns    map[string]*peer.Conn
+	peerStore    *peerstore.Store
 }
 
 func NewManager(
@@ -80,7 +81,7 @@ func NewManager(
 	initialRoutes []*route.Route,
 	stateManager *statemanager.Manager,
 	dnsServer dns.Server,
-	peerConns map[string]*peer.Conn,
+	peerStore *peerstore.Store,
 ) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	notifier := notifier.NewNotifier()
@@ -99,7 +100,7 @@ func NewManager(
 		notifier:         notifier,
 		stateManager:     stateManager,
 		dnsServer:        dnsServer,
-		peerConns:        peerConns,
+		peerStore:        peerStore,
 	}
 
 	dm.routeRefCounter = refcounter.New(
@@ -316,7 +317,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			m.routeRefCounter,
 			m.allowedIPsRefCounter,
 			m.dnsServer,
-			m.peerConns,
+			m.peerStore,
 		)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
@@ -346,7 +347,7 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
-			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.dnsRouteInterval, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter, m.dnsServer, m.peerConns)
+			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.dnsRouteInterval, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter, m.dnsServer, m.peerStore)
 			m.clientNetworks[id] = clientNetworkWatcher
 			go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		}

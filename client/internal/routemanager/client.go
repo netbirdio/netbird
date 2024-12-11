@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
@@ -65,7 +66,7 @@ func newClientNetworkWatcher(
 	routeRefCounter *refcounter.RouteRefCounter,
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	dnsServer nbdns.Server,
-	peerConns map[string]*peer.Conn,
+	peerStore *peerstore.Store,
 ) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -86,7 +87,7 @@ func newClientNetworkWatcher(
 			statusRecorder,
 			wgInterface,
 			dnsServer,
-			peerConns,
+			peerStore,
 		),
 	}
 	return client
@@ -398,7 +399,7 @@ func handlerFromRoute(
 	statusRecorder *peer.Status,
 	wgInterface iface.IWGIface,
 	dnsServer nbdns.Server,
-	peerConns map[string]*peer.Conn,
+	peerStore *peerstore.Store,
 ) RouteHandler {
 	if rt.IsDynamic() {
 		if useNewDNSRoute {
@@ -408,7 +409,7 @@ func handlerFromRoute(
 				allowedIPsRefCounter,
 				statusRecorder,
 				dnsServer,
-				peerConns,
+				peerStore,
 			)
 		}
 		dns := nbdns.NewServiceViaMemory(wgInterface)
