@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -117,7 +118,7 @@ type Engine struct {
 	// mgmClient is a Management Service client
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
-	peerConns map[string]*peer.Conn
+	peerStore *peerstore.Store
 
 	beforePeerHook nbnet.AddHookFunc
 	afterPeerHook  nbnet.RemoveHookFunc
@@ -231,7 +232,7 @@ func NewEngineWithProbes(
 		signaler:       peer.NewSignaler(signalClient, config.WgPrivateKey),
 		mgmClient:      mgmClient,
 		relayManager:   relayManager,
-		peerConns:      make(map[string]*peer.Conn),
+		peerStore:      peerstore.NewConnStore(),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
 		mobileDep:      mobileDep,
@@ -383,7 +384,7 @@ func (e *Engine) Start() error {
 		initialRoutes,
 		e.stateManager,
 		dnsServer,
-		e.peerConns,
+		e.peerStore,
 	)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
@@ -462,8 +463,8 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
 		peerPubKey := p.GetWgPubKey()
-		if peerConn, ok := e.peerConns[peerPubKey]; ok {
-			if peerConn.WgConfig().AllowedIps != strings.Join(p.AllowedIps, ",") {
+		if allowedIP, ok := e.peerStore.AllowedIP(peerPubKey); ok {
+			if allowedIP.String() != strings.Join(p.AllowedIps, ",") {
 				modified = append(modified, p)
 				continue
 			}
@@ -494,17 +495,12 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 // removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service.
 // It also removes peers that have been modified (e.g. change of IP address). They will be added again in addPeers method.
 func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
-	currentPeers := make([]string, 0, len(e.peerConns))
-	for p := range e.peerConns {
-		currentPeers = append(currentPeers, p)
-	}
-
 	newPeers := make([]string, 0, len(peersUpdate))
 	for _, p := range peersUpdate {
 		newPeers = append(newPeers, p.GetWgPubKey())
 	}
 
-	toRemove := util.SliceDiff(currentPeers, newPeers)
+	toRemove := util.SliceDiff(e.peerStore.PeersPubKey(), newPeers)
 
 	for _, p := range toRemove {
 		err := e.removePeer(p)
@@ -518,7 +514,7 @@ func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 
 func (e *Engine) removeAllPeers() error {
 	log.Debugf("removing all peer connections")
-	for p := range e.peerConns {
+	for _, p := range e.peerStore.PeersPubKey() {
 		err := e.removePeer(p)
 		if err != nil {
 			return err
@@ -542,9 +538,8 @@ func (e *Engine) removePeer(peerKey string) error {
 		}
 	}()
 
-	conn, exists := e.peerConns[peerKey]
+	conn, exists := e.peerStore.Remove(peerKey)
 	if exists {
-		delete(e.peerConns, peerKey)
 		conn.Close()
 	}
 	return nil
@@ -983,12 +978,16 @@ func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	peerKey := peerConfig.GetWgPubKey()
 	peerIPs := peerConfig.GetAllowedIps()
-	if _, ok := e.peerConns[peerKey]; !ok {
+	if _, ok := e.peerStore.PeerConn(peerKey); !ok {
 		conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
 		if err != nil {
 			return fmt.Errorf("create peer connection: %w", err)
 		}
-		e.peerConns[peerKey] = conn
+
+		if ok := e.peerStore.AddPeerConn(peerKey, conn); !ok {
+			conn.Close()
+			return fmt.Errorf("peer already exists: %s", peerKey)
+		}
 
 		if e.beforePeerHook != nil && e.afterPeerHook != nil {
 			conn.AddBeforeAddPeerHook(e.beforePeerHook)
@@ -1077,8 +1076,8 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn := e.peerConns[msg.Key]
-			if conn == nil {
+			conn, ok := e.peerStore.PeerConn(msg.Key)
+			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
 
@@ -1407,9 +1406,8 @@ func (e *Engine) receiveProbeEvents() {
 		go e.probes.WgProbe.Receive(e.ctx, func() bool {
 			log.Debug("received wg probe request")
 
-			for _, peer := range e.peerConns {
-				key := peer.GetKey()
-				wgStats, err := peer.WgConfig().WgInterface.GetStats(key)
+			for _, key := range e.peerStore.PeersPubKey() {
+				wgStats, err := e.wgInterface.GetStats(key)
 				if err != nil {
 					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
 				}

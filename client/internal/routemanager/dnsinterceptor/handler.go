@@ -17,6 +17,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
@@ -33,8 +34,7 @@ type DnsInterceptor struct {
 	dnsServer            nbdns.Server
 	currentPeerKey       string
 	interceptedDomains   domainMap
-	peerConns            map[string]*peer.Conn
-	// TODO:  peerConns add lock to sync with engine
+	peerStore            *peerstore.Store
 }
 
 func New(
@@ -43,7 +43,7 @@ func New(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	statusRecorder *peer.Status,
 	dnsServer nbdns.Server,
-	peerConns map[string]*peer.Conn,
+	peerStore *peerstore.Store,
 ) *DnsInterceptor {
 	return &DnsInterceptor{
 		route:                rt,
@@ -52,7 +52,7 @@ func New(
 		statusRecorder:       statusRecorder,
 		dnsServer:            dnsServer,
 		interceptedDomains:   make(domainMap),
-		peerConns:            peerConns,
+		peerStore:            peerStore,
 	}
 }
 
@@ -189,11 +189,11 @@ func (d *DnsInterceptor) getUpstreamIP() (net.IP, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	peerConn, exists := d.peerConns[d.currentPeerKey]
+	peerAllowedIP, exists := d.peerStore.AllowedIP(d.currentPeerKey)
 	if !exists {
 		return nil, fmt.Errorf("peer connection not found for key: %s", d.currentPeerKey)
 	}
-	return peerConn.AllowedIP(), nil
+	return peerAllowedIP, nil
 }
 
 func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
