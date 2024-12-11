@@ -2,7 +2,6 @@ package networks
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/rs/xid"
 
@@ -43,7 +42,7 @@ func NewManager(store store.Store, permissionsManager permissions.Manager) Manag
 func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID string) ([]*types.Network, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -55,7 +54,7 @@ func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID stri
 func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, network.AccountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -69,7 +68,7 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -81,7 +80,7 @@ func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, network
 func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, network.AccountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -93,7 +92,7 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return fmt.Errorf("failed to validate user permissions: %w", err)
+		return status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return status.NewPermissionDeniedError()

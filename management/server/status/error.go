@@ -174,3 +174,7 @@ func NewNetworkResourceNotFoundError(resourceID string) error {
 func NewPermissionDeniedError() error {
 	return Errorf(PermissionDenied, "permission denied")
 }
+
+func NewPermissionValidationError(err error) error {
+	return Errorf(PermissionDenied, "failed to vlidate user permissions: %s", err)
+}

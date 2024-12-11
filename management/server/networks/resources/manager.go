@@ -35,7 +35,7 @@ func NewManager(store store.Store, permissionsManager permissions.Manager) Manag
 func (m *managerImpl) GetAllResourcesInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -47,7 +47,7 @@ func (m *managerImpl) GetAllResourcesInNetwork(ctx context.Context, accountID, u
 func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -69,7 +69,7 @@ func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID,
 func (m *managerImpl) CreateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -86,7 +86,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -107,7 +107,7 @@ func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networ
 func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -126,7 +126,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return fmt.Errorf("failed to validate user permissions: %w", err)
+		return status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return status.NewPermissionDeniedError()

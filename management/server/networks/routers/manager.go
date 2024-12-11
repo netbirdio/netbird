@@ -37,7 +37,7 @@ func NewManager(store store.Store, permissionsManager permissions.Manager) Manag
 func (m *managerImpl) GetAllRoutersInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkRouter, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -49,7 +49,7 @@ func (m *managerImpl) GetAllRoutersInNetwork(ctx context.Context, accountID, use
 func (m *managerImpl) GetAllRouterIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -71,7 +71,7 @@ func (m *managerImpl) GetAllRouterIDsInAccount(ctx context.Context, accountID, u
 func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, router.AccountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -85,7 +85,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkID, routerID string) (*types.NetworkRouter, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -106,7 +106,7 @@ func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkI
 func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, router.ID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+		return nil, status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
@@ -118,7 +118,7 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Write)
 	if err != nil {
-		return fmt.Errorf("failed to validate user permissions: %w", err)
+		return status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return status.NewPermissionDeniedError()
