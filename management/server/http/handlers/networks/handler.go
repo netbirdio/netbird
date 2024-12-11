@@ -3,6 +3,7 @@ package networks
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -59,9 +60,21 @@ func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	routers, err := h.networksManager.GetRouterManager().GetAllRouterIDsInAccount(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	resources, err := h.networksManager.GetResourceManager().GetAllResourceIDsInAccount(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
 	var networkResponse []*api.Network
 	for _, network := range networks {
-		networkResponse = append(networkResponse, network.ToAPIResponse())
+		networkResponse = append(networkResponse, network.ToAPIResponse(resources[network.ID], routers[network.ID]))
 	}
 
 	util.WriteJSONObject(r.Context(), w, networkResponse)
@@ -92,7 +105,7 @@ func (h *handler) createNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse())
+	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse([]string{}, []string{}))
 }
 
 func (h *handler) getNetwork(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +129,13 @@ func (h *handler) getNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse())
+	routerIDs, resourceIDs, err := h.collectIDsInNetwork(r.Context(), accountID, userID, networkID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse(routerIDs, resourceIDs))
 }
 
 func (h *handler) updateNetwork(w http.ResponseWriter, r *http.Request) {
@@ -152,7 +171,13 @@ func (h *handler) updateNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse())
+	routerIDs, resourceIDs, err := h.collectIDsInNetwork(r.Context(), accountID, userID, networkID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse(routerIDs, resourceIDs))
 }
 
 func (h *handler) deleteNetwork(w http.ResponseWriter, r *http.Request) {
@@ -177,4 +202,28 @@ func (h *handler) deleteNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
+}
+
+func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, networkID string) ([]string, []string, error) {
+	resources, err := h.networksManager.GetResourceManager().GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get resources in network: %w", err)
+	}
+
+	var resourceIDs []string
+	for _, resource := range resources {
+		resourceIDs = append(resourceIDs, resource.ID)
+	}
+
+	routers, err := h.networksManager.GetRouterManager().GetAllRoutersInNetwork(ctx, accountID, userID, networkID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get routers in network: %w", err)
+	}
+
+	var routerIDs []string
+	for _, router := range routers {
+		routerIDs = append(routerIDs, router.ID)
+	}
+
+	return routerIDs, resourceIDs, nil
 }

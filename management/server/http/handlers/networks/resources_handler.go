@@ -50,7 +50,7 @@ func (h *resourceHandler) getAllResources(w http.ResponseWriter, r *http.Request
 	}
 
 	networkID := mux.Vars(r)["networkId"]
-	resources, err := h.resourceManager.GetAllResources(r.Context(), accountID, userID, networkID)
+	resources, err := h.resourceManager.GetAllResourcesInNetwork(r.Context(), accountID, userID, networkID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

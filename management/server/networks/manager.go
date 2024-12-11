@@ -2,7 +2,6 @@ package networks
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/rs/xid"
@@ -11,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
@@ -46,7 +46,7 @@ func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID stri
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return m.store.GetAccountNetworks(ctx, store.LockingStrengthShare, accountID)
@@ -58,7 +58,7 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	network.ID = xid.New().String()
@@ -72,7 +72,7 @@ func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, network
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return m.store.GetNetworkByID(ctx, store.LockingStrengthShare, accountID, networkID)
@@ -84,7 +84,7 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return network, m.store.SaveNetwork(ctx, store.LockingStrengthUpdate, network)
@@ -96,7 +96,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		return fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return errors.New("permission denied")
+		return status.NewPermissionDeniedError()
 	}
 
 	return m.store.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)

@@ -1197,8 +1197,22 @@ components:
               description: Network ID
               type: string
               example: chacdk86lnnboviihd7g
+            routers:
+              description: List of router IDs associated with the network
+              type: array
+              items:
+                type: string
+                example: ch8i4ug6lnn4g9hqv7m0
+            resources:
+              description: List of network resource IDs associated with the network
+              type: array
+              items:
+                type: string
+                example: ch8i4ug6lnn4g9hqv7m1
           required:
             - id
+            - routers
+            - resources
         - $ref: '#/components/schemas/NetworkRequest'
     NetworkResourceRequest:
       type: object

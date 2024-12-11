@@ -7,11 +7,13 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
 type Manager interface {
-	GetAllResources(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error)
+	GetAllResourcesInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error)
+	GetAllResourceIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error)
 	CreateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error)
 	GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error)
 	UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error)
@@ -30,16 +32,38 @@ func NewManager(store store.Store, permissionsManager permissions.Manager) Manag
 	}
 }
 
-func (m *managerImpl) GetAllResources(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error) {
+func (m *managerImpl) GetAllResourcesInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return m.store.GetNetworkResourcesByNetID(ctx, store.LockingStrengthShare, accountID, networkID)
+}
+
+func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	resources, err := m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network resources: %w", err)
+	}
+
+	resourceMap := make(map[string][]string)
+	for _, resource := range resources {
+		resourceMap[resource.NetworkID] = append(resourceMap[resource.NetworkID], resource.ID)
+	}
+
+	return resourceMap, nil
 }
 
 func (m *managerImpl) CreateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
@@ -48,7 +72,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	resource, err = types.NewNetworkResource(resource.AccountID, resource.NetworkID, resource.Name, resource.Description, resource.Address)
@@ -65,7 +89,7 @@ func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networ
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resourceID)
@@ -86,7 +110,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	resourceType, err := types.GetResourceType(resource.Address)
@@ -105,7 +129,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		return fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return errors.New("permission denied")
+		return status.NewPermissionDeniedError()
 	}
 
 	return m.store.DeleteNetworkResource(ctx, store.LockingStrengthUpdate, accountID, resourceID)

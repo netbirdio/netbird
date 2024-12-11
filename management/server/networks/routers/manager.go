@@ -9,11 +9,13 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
 type Manager interface {
-	GetAllRouters(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkRouter, error)
+	GetAllRoutersInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkRouter, error)
+	GetAllRouterIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error)
 	CreateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error)
 	GetRouter(ctx context.Context, accountID, userID, networkID, routerID string) (*types.NetworkRouter, error)
 	UpdateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error)
@@ -32,16 +34,38 @@ func NewManager(store store.Store, permissionsManager permissions.Manager) Manag
 	}
 }
 
-func (m *managerImpl) GetAllRouters(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkRouter, error) {
+func (m *managerImpl) GetAllRoutersInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkRouter, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return m.store.GetNetworkRoutersByNetID(ctx, store.LockingStrengthShare, accountID, networkID)
+}
+
+func (m *managerImpl) GetAllRouterIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	routers, err := m.store.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network routers: %w", err)
+	}
+
+	routersMap := make(map[string][]string)
+	for _, router := range routers {
+		routersMap[router.NetworkID] = append(routersMap[router.NetworkID], router.ID)
+	}
+
+	return routersMap, nil
 }
 
 func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
@@ -50,7 +74,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	router.ID = xid.New().String()
@@ -64,7 +88,7 @@ func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkI
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	router, err := m.store.GetNetworkRouterByID(ctx, store.LockingStrengthShare, accountID, routerID)
@@ -85,7 +109,7 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("permission denied")
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return router, m.store.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
@@ -97,7 +121,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 		return fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 	if !ok {
-		return errors.New("permission denied")
+		return status.NewPermissionDeniedError()
 	}
 
 	return m.store.DeleteNetworkRouter(ctx, store.LockingStrengthUpdate, accountID, routerID)
