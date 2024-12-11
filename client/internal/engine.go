@@ -463,8 +463,8 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
 		peerPubKey := p.GetWgPubKey()
-		if allowedIP, ok := e.peerStore.AllowedIP(peerPubKey); ok {
-			if allowedIP.String() != strings.Join(p.AllowedIps, ",") {
+		if allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey); ok {
+			if allowedIPs != strings.Join(p.AllowedIps, ",") {
 				modified = append(modified, p)
 				continue
 			}

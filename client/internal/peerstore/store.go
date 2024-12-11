@@ -46,6 +46,17 @@ func (s *Store) Remove(pubKey string) (*peer.Conn, bool) {
 	return p, true
 }
 
+func (s *Store) AllowedIPs(pubKey string) (string, bool) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return "", false
+	}
+	return p.WgConfig().AllowedIps, true
+}
+
 func (s *Store) AllowedIP(pubKey string) (net.IP, bool) {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
