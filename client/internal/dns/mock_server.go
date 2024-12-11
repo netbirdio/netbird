@@ -10,12 +10,24 @@ import (
 
 // MockServer is the mock instance of a dns server
 type MockServer struct {
-	InitializeFunc      func() error
-	StopFunc            func()
-	UpdateDNSServerFunc func(serial uint64, update nbdns.Config) error
+	InitializeFunc        func() error
+	StopFunc              func()
+	UpdateDNSServerFunc   func(serial uint64, update nbdns.Config) error
+	RegisterHandlerFunc   func([]string, dns.Handler) error
+	DeregisterHandlerFunc func([]string) error
 }
 
-func (m *MockServer) RegisterHandler([]string, dns.Handler) error {
+func (m *MockServer) RegisterHandler(domains []string, handler dns.Handler) error {
+	if m.RegisterHandlerFunc != nil {
+		return m.RegisterHandlerFunc(domains, handler)
+	}
+	return nil
+}
+
+func (m *MockServer) DeregisterHandler(domains []string) error {
+	if m.DeregisterHandlerFunc != nil {
+		return m.DeregisterHandlerFunc(domains)
+	}
 	return nil
 }
 
