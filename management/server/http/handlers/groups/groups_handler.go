@@ -292,7 +292,8 @@ func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 		peersMap[peer.ID] = peer
 	}
 
-	cache := make(map[string]api.PeerMinimum)
+	peerCache := make(map[string]api.PeerMinimum)
+	resCache := make(map[string]api.Resource)
 	gr := api.Group{
 		Id:     group.ID,
 		Name:   group.Name,
@@ -300,7 +301,7 @@ func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 	}
 
 	for _, pid := range group.Peers {
-		_, ok := cache[pid]
+		_, ok := peerCache[pid]
 		if !ok {
 			peer, ok := peersMap[pid]
 			if !ok {
@@ -310,7 +311,7 @@ func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 				Id:   peer.ID,
 				Name: peer.Name,
 			}
-			cache[pid] = peerResp
+			peerCache[pid] = peerResp
 			gr.Peers = append(gr.Peers, peerResp)
 		}
 	}
@@ -318,20 +319,19 @@ func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 	gr.PeersCount = len(gr.Peers)
 
 	for _, res := range group.Resources {
-		_, ok := cache[res.ID]
+		_, ok := resCache[res.ID]
 		if !ok {
-			peer, ok := peersMap[pid]
+			resource, ok := resMap[res.ID]
 			if !ok {
 				continue
 			}
-			peerResp := api.PeerMinimum{
-				Id:   peer.ID,
-				Name: peer.Name,
-			}
-			cache[pid] = peerResp
-			gr.Peers = append(gr.Peers, peerResp)
+			resResp := resource.ToAPIResponse()
+			resCache[res.ID] = *resResp
+			gr.Resources = append(gr.Resources, *resResp)
 		}
 	}
+
+	gr.ResourcesCount = len(gr.Resources)
 
 	return &gr
 }

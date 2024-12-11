@@ -436,7 +436,7 @@ func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, u
 }
 
 // SaveGroups saves the given list of groups to the database.
-func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*nbgroup.Group) error {
+func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*types.Group) error {
 	if len(groups) == 0 {
 		return nil
 	}
@@ -574,8 +574,8 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 	return users, nil
 }
 
-func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbgroup.Group, error) {
-	var groups []*nbgroup.Group
+func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error) {
+	var groups []*types.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountIDCondition, accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -658,7 +658,7 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	account.UsersG = nil
 
-	account.Groups = make(map[string]*nbgroup.Group, len(account.GroupsG))
+	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
 	for _, group := range account.GroupsG {
 		account.Groups[group.ID] = group.Copy()
 	}
@@ -1020,7 +1020,7 @@ func (s *SqlStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string
 }
 
 func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error {
-	var group nbgroup.Group
+	var group types.Group
 	result := s.db.Where("account_id = ? AND name = ?", accountID, "All").First(&group)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -1045,7 +1045,7 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 }
 
 func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error {
-	var group nbgroup.Group
+	var group types.Group
 	result := s.db.Where(accountAndIDQueryCondition, accountId, groupID).First(&group)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -1205,8 +1205,8 @@ func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, lockStrength
 }
 
 // GetGroupByID retrieves a group by ID and account ID.
-func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*nbgroup.Group, error) {
-	var group *nbgroup.Group
+func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error) {
+	var group *types.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).First(&group, accountAndIDQueryCondition, accountID, groupID)
 	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1220,8 +1220,8 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 }
 
 // GetGroupByName retrieves a group by name and account ID.
-func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*nbgroup.Group, error) {
-	var group nbgroup.Group
+func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*types.Group, error) {
+	var group types.Group
 
 	// TODO: This fix is accepted for now, but if we need to handle this more frequently
 	// we may need to reconsider changing the types.
@@ -1244,15 +1244,15 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 }
 
 // GetGroupsByIDs retrieves groups by their IDs and account ID.
-func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*nbgroup.Group, error) {
-	var groups []*nbgroup.Group
+func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error) {
+	var groups []*types.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get groups by ID's from store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get groups by ID's from store")
 	}
 
-	groupsMap := make(map[string]*nbgroup.Group)
+	groupsMap := make(map[string]*types.Group)
 	for _, group := range groups {
 		groupsMap[group.ID] = group
 	}
@@ -1261,7 +1261,7 @@ func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStren
 }
 
 // SaveGroup saves a group to the store.
-func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, group *nbgroup.Group) error {
+func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(group)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", result.Error)
@@ -1273,7 +1273,7 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 // DeleteGroup deletes a group from the database.
 func (s *SqlStore) DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&nbgroup.Group{}, accountAndIDQueryCondition, accountID, groupID)
+		Delete(&types.Group{}, accountAndIDQueryCondition, accountID, groupID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to delete group from store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to delete group from store")
@@ -1289,7 +1289,7 @@ func (s *SqlStore) DeleteGroup(ctx context.Context, lockStrength LockingStrength
 // DeleteGroups deletes groups from the database.
 func (s *SqlStore) DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(strength)}).
-		Delete(&nbgroup.Group{}, accountAndIDsQueryCondition, accountID, groupIDs)
+		Delete(&types.Group{}, accountAndIDsQueryCondition, accountID, groupIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete groups from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete groups from store")

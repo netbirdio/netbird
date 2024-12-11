@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -661,7 +659,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupD",
 			Name:  "GroupD",
 			Peers: []string{peer1.ID},

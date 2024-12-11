@@ -5,6 +5,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // IntegratedValidator interface exists to avoid the circle dependencies

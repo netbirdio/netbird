@@ -19,8 +19,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -1202,7 +1200,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	group := &nbgroup.Group{
+	group := &types.Group{
 		ID:        "group-id",
 		AccountID: "account-id",
 		Name:      "group-name",
@@ -1378,7 +1376,7 @@ func TestSqlStore_SaveGroup(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	group := &nbgroup.Group{
+	group := &types.Group{
 		ID:        "group-id",
 		AccountID: accountID,
 		Issued:    "api",
@@ -1399,7 +1397,7 @@ func TestSqlStore_SaveGroups(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	groups := []*nbgroup.Group{
+	groups := []*types.Group{
 		{
 			ID:        "group-1",
 			AccountID: accountID,
@@ -2138,15 +2136,15 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 // addAllGroup to account object if it doesn't exist
 func addAllGroup(account *types.Account) error {
 	if len(account.Groups) == 0 {
-		allGroup := &nbgroup.Group{
+		allGroup := &types.Group{
 			ID:     xid.New().String(),
 			Name:   "All",
-			Issued: nbgroup.GroupIssuedAPI,
+			Issued: types.GroupIssuedAPI,
 		}
 		for _, peer := range account.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
 		}
-		account.Groups = map[string]*nbgroup.Group{allGroup.ID: allGroup}
+		account.Groups = map[string]*types.Group{allGroup.ID: allGroup}
 
 		id := xid.New().String()
 

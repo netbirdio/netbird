@@ -16,8 +16,6 @@ import (
 	"github.com/magiconair/properties/assert"
 	"golang.org/x/exp/maps"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
-
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -25,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 var TestPeers = map[string]*nbpeer.Peer{
@@ -155,7 +154,7 @@ func TestGetGroup(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			got := &nbgroup.Group{}
+			got := &types.Group{}
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
