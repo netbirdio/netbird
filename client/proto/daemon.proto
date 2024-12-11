@@ -29,7 +29,7 @@ service DaemonService {
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
 
   // List available networks
-  rpc ListNetworks(ListRoutesRequest) returns (ListRoutesResponse) {}
+  rpc ListNetworks(ListNetworksRequest) returns (ListNetworksResponse) {}
 
   // Select specific routes
   rpc SelectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
@@ -244,15 +244,15 @@ message FullStatus {
   repeated NSGroupState dns_servers = 6;
 }
 
-message ListRoutesRequest {
+message ListNetworksRequest {
 }
 
-message ListRoutesResponse {
+message ListNetworksResponse {
   repeated Network routes = 1;
 }
 
 message SelectNetworksRequest {
-  repeated string routeIDs = 1;
+  repeated string networkIDs = 1;
   bool append = 2;
   bool all = 3;
 }

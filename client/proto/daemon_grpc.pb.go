@@ -32,7 +32,7 @@ type DaemonServiceClient interface {
 	// GetConfig of the daemon.
 	GetConfig(ctx context.Context, in *GetConfigRequest, opts ...grpc.CallOption) (*GetConfigResponse, error)
 	// List available networks
-	ListNetworks(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error)
+	ListNetworks(ctx context.Context, in *ListNetworksRequest, opts ...grpc.CallOption) (*ListNetworksResponse, error)
 	// Select specific routes
 	SelectNetworks(ctx context.Context, in *SelectNetworksRequest, opts ...grpc.CallOption) (*SelectNetworksResponse, error)
 	// Deselect specific routes
@@ -115,8 +115,8 @@ func (c *daemonServiceClient) GetConfig(ctx context.Context, in *GetConfigReques
 	return out, nil
 }
 
-func (c *daemonServiceClient) ListNetworks(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error) {
-	out := new(ListRoutesResponse)
+func (c *daemonServiceClient) ListNetworks(ctx context.Context, in *ListNetworksRequest, opts ...grpc.CallOption) (*ListNetworksResponse, error) {
+	out := new(ListNetworksResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/ListNetworks", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -223,7 +223,7 @@ type DaemonServiceServer interface {
 	// GetConfig of the daemon.
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error)
 	// List available networks
-	ListNetworks(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error)
+	ListNetworks(context.Context, *ListNetworksRequest) (*ListNetworksResponse, error)
 	// Select specific routes
 	SelectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error)
 	// Deselect specific routes
@@ -267,7 +267,7 @@ func (UnimplementedDaemonServiceServer) Down(context.Context, *DownRequest) (*Do
 func (UnimplementedDaemonServiceServer) GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConfig not implemented")
 }
-func (UnimplementedDaemonServiceServer) ListNetworks(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error) {
+func (UnimplementedDaemonServiceServer) ListNetworks(context.Context, *ListNetworksRequest) (*ListNetworksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNetworks not implemented")
 }
 func (UnimplementedDaemonServiceServer) SelectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error) {
@@ -419,7 +419,7 @@ func _DaemonService_GetConfig_Handler(srv interface{}, ctx context.Context, dec 
 }
 
 func _DaemonService_ListNetworks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListRoutesRequest)
+	in := new(ListNetworksRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -431,7 +431,7 @@ func _DaemonService_ListNetworks_Handler(srv interface{}, ctx context.Context, d
 		FullMethod: "/daemon.DaemonService/ListNetworks",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).ListNetworks(ctx, req.(*ListRoutesRequest))
+		return srv.(DaemonServiceServer).ListNetworks(ctx, req.(*ListNetworksRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
