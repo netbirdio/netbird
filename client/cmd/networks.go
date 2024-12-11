@@ -12,44 +12,45 @@ import (
 
 var appendFlag bool
 
-var routesCmd = &cobra.Command{
-	Use:   "routes",
-	Short: "Manage network routes",
-	Long:  `Commands to list, select, or deselect network routes.`,
+var networksCMD = &cobra.Command{
+	Use:     "networks",
+	Aliases: []string{"routes"},
+	Short:   "Manage networks",
+	Long:    `Commands to list, select, or deselect networks. Replaces the "routes" command.`,
 }
 
 var routesListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short:   "List routes",
-	Example: "  netbird routes list",
+	Short:   "List networks",
+	Example: "  netbird networks list",
 	Long:    "List all available network routes.",
-	RunE:    routesList,
+	RunE:    networksList,
 }
 
 var routesSelectCmd = &cobra.Command{
-	Use:     "select route...|all",
-	Short:   "Select routes",
-	Long:    "Select a list of routes by identifiers or 'all' to clear all selections and to accept all (including new) routes.\nDefault mode is replace, use -a to append to already selected routes.",
-	Example: "  netbird routes select all\n  netbird routes select route1 route2\n  netbird routes select -a route3",
+	Use:     "select network...|all",
+	Short:   "Select network",
+	Long:    "Select a list of networks by identifiers or 'all' to clear all selections and to accept all (including new) networks.\nDefault mode is replace, use -a to append to already selected networks.",
+	Example: "  netbird networks select all\n  netbird networks select route1 route2\n  netbird routes select -a route3",
 	Args:    cobra.MinimumNArgs(1),
-	RunE:    routesSelect,
+	RunE:    networksSelect,
 }
 
 var routesDeselectCmd = &cobra.Command{
-	Use:     "deselect route...|all",
-	Short:   "Deselect routes",
-	Long:    "Deselect previously selected routes by identifiers or 'all' to disable accepting any routes.",
-	Example: "  netbird routes deselect all\n  netbird routes deselect route1 route2",
+	Use:     "deselect network...|all",
+	Short:   "Deselect networks",
+	Long:    "Deselect previously selected networks by identifiers or 'all' to disable accepting any networks.",
+	Example: "  netbird networks deselect all\n  netbird networks deselect route1 route2",
 	Args:    cobra.MinimumNArgs(1),
-	RunE:    routesDeselect,
+	RunE:    networksDeselect,
 }
 
 func init() {
-	routesSelectCmd.PersistentFlags().BoolVarP(&appendFlag, "append", "a", false, "Append to current route selection instead of replacing")
+	routesSelectCmd.PersistentFlags().BoolVarP(&appendFlag, "append", "a", false, "Append to current network selection instead of replacing")
 }
 
-func routesList(cmd *cobra.Command, _ []string) error {
+func networksList(cmd *cobra.Command, _ []string) error {
 	conn, err := getClient(cmd)
 	if err != nil {
 		return err
@@ -59,11 +60,11 @@ func routesList(cmd *cobra.Command, _ []string) error {
 	client := proto.NewDaemonServiceClient(conn)
 	resp, err := client.ListRoutes(cmd.Context(), &proto.ListRoutesRequest{})
 	if err != nil {
-		return fmt.Errorf("failed to list routes: %v", status.Convert(err).Message())
+		return fmt.Errorf("failed to list network: %v", status.Convert(err).Message())
 	}
 
 	if len(resp.Routes) == 0 {
-		cmd.Println("No routes available.")
+		cmd.Println("No networks available.")
 		return nil
 	}
 
@@ -73,7 +74,7 @@ func routesList(cmd *cobra.Command, _ []string) error {
 }
 
 func printRoutes(cmd *cobra.Command, resp *proto.ListRoutesResponse) {
-	cmd.Println("Available Routes:")
+	cmd.Println("Available Networks:")
 	for _, route := range resp.Routes {
 		printRoute(cmd, route)
 	}
@@ -121,7 +122,7 @@ func printResolvedIPs(cmd *cobra.Command, domains []string, resolvedIPs map[stri
 	}
 }
 
-func routesSelect(cmd *cobra.Command, args []string) error {
+func networksSelect(cmd *cobra.Command, args []string) error {
 	conn, err := getClient(cmd)
 	if err != nil {
 		return err
@@ -140,15 +141,15 @@ func routesSelect(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := client.SelectRoutes(cmd.Context(), req); err != nil {
-		return fmt.Errorf("failed to select routes: %v", status.Convert(err).Message())
+		return fmt.Errorf("failed to select networks: %v", status.Convert(err).Message())
 	}
 
-	cmd.Println("Routes selected successfully.")
+	cmd.Println("Networks selected successfully.")
 
 	return nil
 }
 
-func routesDeselect(cmd *cobra.Command, args []string) error {
+func networksDeselect(cmd *cobra.Command, args []string) error {
 	conn, err := getClient(cmd)
 	if err != nil {
 		return err
@@ -165,10 +166,10 @@ func routesDeselect(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := client.DeselectRoutes(cmd.Context(), req); err != nil {
-		return fmt.Errorf("failed to deselect routes: %v", status.Convert(err).Message())
+		return fmt.Errorf("failed to deselect networks: %v", status.Convert(err).Message())
 	}
 
-	cmd.Println("Routes deselected successfully.")
+	cmd.Println("Networks deselected successfully.")
 
 	return nil
 }
