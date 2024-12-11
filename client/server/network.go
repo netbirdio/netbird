@@ -20,8 +20,8 @@ type selectRoute struct {
 	Selected bool
 }
 
-// ListRoutes returns a list of all available routes.
-func (s *Server) ListRoutes(context.Context, *proto.ListRoutesRequest) (*proto.ListRoutesResponse, error) {
+// ListNetworks returns a list of all available routes.
+func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*proto.ListNetworksResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -67,11 +67,11 @@ func (s *Server) ListRoutes(context.Context, *proto.ListRoutesRequest) (*proto.L
 	})
 
 	resolvedDomains := s.statusRecorder.GetResolvedDomainsStates()
-	var pbRoutes []*proto.Route
+	var pbRoutes []*proto.Network
 	for _, route := range routes {
-		pbRoute := &proto.Route{
+		pbRoute := &proto.Network{
 			ID:          string(route.NetID),
-			Network:     route.Network.String(),
+			Range:       route.Network.String(),
 			Domains:     route.Domains.ToSafeStringList(),
 			ResolvedIPs: map[string]*proto.IPList{},
 			Selected:    route.Selected,
@@ -91,13 +91,13 @@ func (s *Server) ListRoutes(context.Context, *proto.ListRoutesRequest) (*proto.L
 		pbRoutes = append(pbRoutes, pbRoute)
 	}
 
-	return &proto.ListRoutesResponse{
+	return &proto.ListNetworksResponse{
 		Routes: pbRoutes,
 	}, nil
 }
 
-// SelectRoutes selects specific routes based on the client request.
-func (s *Server) SelectRoutes(_ context.Context, req *proto.SelectRoutesRequest) (*proto.SelectRoutesResponse, error) {
+// SelectNetworks selects specific networks based on the client request.
+func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequest) (*proto.SelectNetworksResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -115,18 +115,18 @@ func (s *Server) SelectRoutes(_ context.Context, req *proto.SelectRoutesRequest)
 	if req.GetAll() {
 		routeSelector.SelectAllRoutes()
 	} else {
-		routes := toNetIDs(req.GetRouteIDs())
+		routes := toNetIDs(req.GetNetworkIDs())
 		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
 	}
 	routeManager.TriggerSelection(engine.GetClientRoutes())
 
-	return &proto.SelectRoutesResponse{}, nil
+	return &proto.SelectNetworksResponse{}, nil
 }
 
-// DeselectRoutes deselects specific routes based on the client request.
-func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesRequest) (*proto.SelectRoutesResponse, error) {
+// DeselectNetworks deselects specific networks based on the client request.
+func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRequest) (*proto.SelectNetworksResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -144,14 +144,14 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	if req.GetAll() {
 		routeSelector.DeselectAllRoutes()
 	} else {
-		routes := toNetIDs(req.GetRouteIDs())
+		routes := toNetIDs(req.GetNetworkIDs())
 		if err := routeSelector.DeselectRoutes(routes, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
 	}
 	routeManager.TriggerSelection(engine.GetClientRoutes())
 
-	return &proto.SelectRoutesResponse{}, nil
+	return &proto.SelectNetworksResponse{}, nil
 }
 
 func toNetIDs(routes []string) []route.NetID {
