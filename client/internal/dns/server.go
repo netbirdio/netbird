@@ -38,6 +38,7 @@ type Server interface {
 	OnUpdatedHostDNSServer(strings []string)
 	SearchDomains() []string
 	ProbeAvailability()
+	UnregisterHandler(domains []string) error
 }
 
 type registeredHandlerMap map[string]handlerWithStop
@@ -161,6 +162,20 @@ func (s *DefaultServer) RegisterHandler(domains []string, handler dns.Handler) e
 		wosuff, _ := strings.CutPrefix(domain, "*.")
 		pattern := dns.Fqdn(wosuff)
 		s.service.RegisterMux(pattern, handler)
+	}
+
+	return nil
+}
+
+func (s *DefaultServer) UnregisterHandler(domains []string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	log.Debugf("unregistering handler for domains %s", domains)
+	for _, domain := range domains {
+		wosuff, _ := strings.CutPrefix(domain, "*.")
+		pattern := dns.Fqdn(wosuff)
+		s.service.DeregisterMux(pattern)
 	}
 
 	return nil
