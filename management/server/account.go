@@ -19,6 +19,9 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	"github.com/hashicorp/go-multierror"
+	"github.com/miekg/dns"
+	"github.com/netbirdio/netbird/management/server/networks"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"

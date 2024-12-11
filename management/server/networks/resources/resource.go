@@ -15,9 +15,9 @@ import (
 type NetworkResourceType string
 
 const (
-	host   NetworkResourceType = "Host"
-	subnet NetworkResourceType = "Subnet"
-	domain NetworkResourceType = "Domain"
+	host   NetworkResourceType = "host"
+	subnet NetworkResourceType = "subnet"
+	domain NetworkResourceType = "domain"
 )
 
 func (p NetworkResourceType) String() string {
@@ -68,6 +68,18 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 		n.Description = *req.Description
 	}
 	n.Address = req.Address
+}
+
+func (n *NetworkResource) Copy() *NetworkResource {
+	return &NetworkResource{
+		ID:          n.ID,
+		AccountID:   n.AccountID,
+		NetworkID:   n.NetworkID,
+		Name:        n.Name,
+		Description: n.Description,
+		Type:        n.Type,
+		Address:     n.Address,
+	}
 }
 
 // getResourceType returns the type of the resource based on the address
