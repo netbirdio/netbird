@@ -1,4 +1,4 @@
-package group
+package types
 
 import (
 	"testing"

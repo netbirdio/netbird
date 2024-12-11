@@ -13,7 +13,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -1143,8 +1142,8 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 }
 
 // updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
-func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[string]*nbgroup.Group, peers []*nbpeer.Peer, groupsToAdd,
-	groupsToRemove []string) (groupsToUpdate []*nbgroup.Group, err error) {
+func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbpeer.Peer, groupsToAdd,
+	groupsToRemove []string) (groupsToUpdate []*types.Group, err error) {
 
 	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
 		return
@@ -1177,7 +1176,7 @@ func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[strin
 }
 
 // addUserPeersToGroup adds the user's peers to the group.
-func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) {
+func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *types.Group) {
 	groupPeers := make(map[string]struct{}, len(group.Peers))
 	for _, pid := range group.Peers {
 		groupPeers[pid] = struct{}{}
@@ -1194,7 +1193,7 @@ func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) 
 }
 
 // removeUserPeersFromGroup removes user's peers from the group.
-func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) {
+func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *types.Group) {
 	// skip removing peers from group All
 	if group.Name == "All" {
 		return

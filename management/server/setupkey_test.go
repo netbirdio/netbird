@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -31,7 +30,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "group_1",
 			Name:  "group_name_1",
@@ -106,7 +105,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
@@ -115,7 +114,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},
@@ -400,7 +399,7 @@ func TestSetupKey_Copy(t *testing.T) {
 func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},

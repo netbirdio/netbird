@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -45,8 +44,8 @@ func initPoliciesTestData(policies ...*types.Policy) *handler {
 				}
 				return policy, nil
 			},
-			GetAllGroupsFunc: func(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error) {
-				return []*nbgroup.Group{{ID: "F"}, {ID: "G"}}, nil
+			GetAllGroupsFunc: func(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
+				return []*types.Group{{ID: "F"}, {ID: "G"}}, nil
 			},
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
@@ -59,7 +58,7 @@ func initPoliciesTestData(policies ...*types.Policy) *handler {
 					Policies: []*types.Policy{
 						{ID: "id-existed"},
 					},
-					Groups: map[string]*nbgroup.Group{
+					Groups: map[string]*types.Group{
 						"F": {ID: "F"},
 						"G": {ID: "G"},
 					},

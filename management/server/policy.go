@@ -11,7 +11,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -239,7 +238,7 @@ func getValidPostureCheckIDs(postureChecks map[string]*posture.Checks, postureCh
 }
 
 // getValidGroupIDs filters and returns only the valid group IDs from the provided list.
-func getValidGroupIDs(groups map[string]*nbgroup.Group, groupIDs []string) []string {
+func getValidGroupIDs(groups map[string]*types.Group, groupIDs []string) []string {
 	validIDs := make([]string, 0, len(groupIDs))
 	for _, id := range groupIDs {
 		if _, exists := groups[id]; exists {

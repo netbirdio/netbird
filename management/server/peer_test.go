@@ -24,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -283,8 +282,8 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 	var (
-		group1 nbgroup.Group
-		group2 nbgroup.Group
+		group1 types.Group
+		group2 types.Group
 	)
 
 	group1.ID = xid.New().String()
@@ -751,7 +750,7 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 	account.Policies = make([]*types.Policy, 0, groups)
 	for i := 0; i < groups; i++ {
 		groupID := fmt.Sprintf("group-%d", i)
-		group := &nbgroup.Group{
+		group := &types.Group{
 			ID:   groupID,
 			Name: fmt.Sprintf("Group %d", i),
 		}
@@ -1286,7 +1285,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
 	require.NoError(t, err)
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",

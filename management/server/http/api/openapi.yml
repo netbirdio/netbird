@@ -668,6 +668,10 @@ components:
           description: Count of peers associated to the group
           type: integer
           example: 2
+        resources_count:
+          description: Count of resources associated to the group
+          type: integer
+          example: 5
         issued:
           description: How the group was issued (api, integration, jwt)
           type: string
@@ -677,6 +681,7 @@ components:
         - id
         - name
         - peers_count
+        - resources_count
     GroupRequest:
       type: object
       properties:
@@ -690,6 +695,10 @@ components:
           items:
             type: string
             example: "ch8i4ug6lnn4g9hqv7m1"
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resource'
       required:
         - name
     Group:
@@ -702,8 +711,13 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/PeerMinimum'
+            resources:
+              type: array
+              items:
+                $ref: '#/components/schemas/Resource'
           required:
             - peers
+            - resources
     PolicyRuleMinimum:
       type: object
       properties:

@@ -16,8 +16,9 @@ import (
 	"github.com/magiconair/properties/assert"
 	"golang.org/x/exp/maps"
 
-	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+
+	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -31,20 +32,20 @@ var TestPeers = map[string]*nbpeer.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
 
-func initGroupTestData(initGroups ...*nbgroup.Group) *handler {
+func initGroupTestData(initGroups ...*types.Group) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
-			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *nbgroup.Group) error {
+			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group) error {
 				if !strings.HasPrefix(group.ID, "id-") {
 					group.ID = "id-was-set"
 				}
 				return nil
 			},
-			GetGroupFunc: func(_ context.Context, _, groupID, _ string) (*nbgroup.Group, error) {
-				groups := map[string]*nbgroup.Group{
-					"id-jwt-group": {ID: "id-jwt-group", Name: "From JWT", Issued: nbgroup.GroupIssuedJWT},
-					"id-existed":   {ID: "id-existed", Peers: []string{"A", "B"}, Issued: nbgroup.GroupIssuedAPI},
-					"id-all":       {ID: "id-all", Name: "All", Issued: nbgroup.GroupIssuedAPI},
+			GetGroupFunc: func(_ context.Context, _, groupID, _ string) (*types.Group, error) {
+				groups := map[string]*types.Group{
+					"id-jwt-group": {ID: "id-jwt-group", Name: "From JWT", Issued: types.GroupIssuedJWT},
+					"id-existed":   {ID: "id-existed", Peers: []string{"A", "B"}, Issued: types.GroupIssuedAPI},
+					"id-all":       {ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI},
 				}
 
 				for _, group := range initGroups {
@@ -61,9 +62,9 @@ func initGroupTestData(initGroups ...*nbgroup.Group) *handler {
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
-			GetGroupByNameFunc: func(ctx context.Context, groupName, _ string) (*nbgroup.Group, error) {
+			GetGroupByNameFunc: func(ctx context.Context, groupName, _ string) (*types.Group, error) {
 				if groupName == "All" {
-					return &nbgroup.Group{ID: "id-all", Name: "All", Issued: nbgroup.GroupIssuedAPI}, nil
+					return &types.Group{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI}, nil
 				}
 
 				return nil, fmt.Errorf("unknown group name")
@@ -120,7 +121,7 @@ func TestGetGroup(t *testing.T) {
 		},
 	}
 
-	group := &nbgroup.Group{
+	group := &types.Group{
 		ID:   "idofthegroup",
 		Name: "Group",
 	}

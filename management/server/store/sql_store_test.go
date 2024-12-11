@@ -19,8 +19,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -119,7 +120,7 @@ func runLargeTest(t *testing.T, store Store) {
 		}
 		account.Routes[route.ID] = route
 
-		group = &nbgroup.Group{
+		group = &types.Group{
 			ID:        fmt.Sprintf("group-id-%d", n),
 			AccountID: account.Id,
 			Name:      fmt.Sprintf("group-id-%d", n),

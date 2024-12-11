@@ -29,7 +29,6 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -98,11 +97,11 @@ type AccountManager interface {
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error)
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*types.UserInfo, error)
-	GetGroup(ctx context.Context, accountId, groupID, userID string) (*nbgroup.Group, error)
-	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)
-	GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error)
-	SaveGroup(ctx context.Context, accountID, userID string, group *nbgroup.Group) error
-	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error
+	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
+	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
+	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
+	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group) error
+	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
@@ -192,8 +191,8 @@ type DefaultAccountManager struct {
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
 // Returns a bool indicating if there are changes in the JWT group membership, the updated user AutoGroups,
 // newly groups to create and an error if any occurred.
-func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []*nbgroup.Group, groupNames []string) (bool, []string, []*nbgroup.Group, error) {
-	existedGroupsByName := make(map[string]*nbgroup.Group)
+func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []*types.Group, groupNames []string) (bool, []string, []*types.Group, error) {
+	existedGroupsByName := make(map[string]*types.Group)
 	for _, group := range groups {
 		existedGroupsByName[group.Name] = group
 	}
@@ -208,21 +207,21 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []
 		return false, nil, nil, nil
 	}
 
-	newGroupsToCreate := make([]*nbgroup.Group, 0)
+	newGroupsToCreate := make([]*types.Group, 0)
 
 	var modified bool
 	for _, name := range groupsToAdd {
 		group, exists := existedGroupsByName[name]
 		if !exists {
-			group = &nbgroup.Group{
+			group = &types.Group{
 				ID:        xid.New().String(),
 				AccountID: user.AccountID,
 				Name:      name,
-				Issued:    nbgroup.GroupIssuedJWT,
+				Issued:    types.GroupIssuedJWT,
 			}
 			newGroupsToCreate = append(newGroupsToCreate, group)
 		}
-		if group.Issued == nbgroup.GroupIssuedJWT {
+		if group.Issued == types.GroupIssuedJWT {
 			newUserAutoGroups = append(newUserAutoGroups, group.ID)
 			modified = true
 		}
@@ -1310,7 +1309,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error getting account groups: %w", err)
 			}
 
-			groupsMap := make(map[string]*nbgroup.Group, len(groups))
+			groupsMap := make(map[string]*types.Group, len(groups))
 			for _, group := range groups {
 				groupsMap[group.ID] = group
 			}
@@ -1724,15 +1723,15 @@ func (am *DefaultAccountManager) GetNetworksManager() networks.Manager {
 // addAllGroup to account object if it doesn't exist
 func addAllGroup(account *types.Account) error {
 	if len(account.Groups) == 0 {
-		allGroup := &nbgroup.Group{
+		allGroup := &types.Group{
 			ID:     xid.New().String(),
 			Name:   "All",
-			Issued: nbgroup.GroupIssuedAPI,
+			Issued: types.GroupIssuedAPI,
 		}
 		for _, peer := range account.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
 		}
-		account.Groups = map[string]*nbgroup.Group{allGroup.ID: allGroup}
+		account.Groups = map[string]*types.Group{allGroup.ID: allGroup}
 
 		id := xid.New().String()
 
@@ -1846,18 +1845,18 @@ func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
 // separateGroups separates user's auto groups into non-JWT and JWT groups.
 // Returns the list of standard auto groups and a map of JWT auto groups,
 // where the keys are the group names and the values are the group IDs.
-func separateGroups(autoGroups []string, allGroups []*nbgroup.Group) ([]string, map[string]string) {
+func separateGroups(autoGroups []string, allGroups []*types.Group) ([]string, map[string]string) {
 	newAutoGroups := make([]string, 0)
 	jwtAutoGroups := make(map[string]string) // map of group name to group ID
 
-	allGroupsMap := make(map[string]*nbgroup.Group, len(allGroups))
+	allGroupsMap := make(map[string]*types.Group, len(allGroups))
 	for _, group := range allGroups {
 		allGroupsMap[group.ID] = group
 	}
 
 	for _, id := range autoGroups {
 		if group, ok := allGroupsMap[id]; ok {
-			if group.Issued == nbgroup.GroupIssuedJWT {
+			if group.Issued == types.GroupIssuedJWT {
 				jwtAutoGroups[group.Name] = id
 			} else {
 				newAutoGroups = append(newAutoGroups, id)
