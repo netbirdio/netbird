@@ -1,5 +1,9 @@
 package types
 
+import (
+	"github.com/netbirdio/netbird/management/server/networks/resources/types"
+)
+
 // PolicyUpdateOperationType operation type
 type PolicyUpdateOperationType int
 
@@ -41,8 +45,14 @@ type PolicyRule struct {
 	// Destinations policy destination groups
 	Destinations []string `gorm:"serializer:json"`
 
+	// DestinationResource policy destination resource that the rule is applied to
+	DestinationResource types.Resource `gorm:"serializer:json"`
+
 	// Sources policy source groups
 	Sources []string `gorm:"serializer:json"`
+
+	// SourceResource policy source resource that the rule is applied to
+	SourceResource types.Resource `gorm:"serializer:json"`
 
 	// Bidirectional define if the rule is applicable in both directions, sources, and destinations
 	Bidirectional bool
