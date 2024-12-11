@@ -9,24 +9,48 @@ import (
 )
 
 type DNSForwarder struct {
-	ListenAddress string
-	TTL           uint32
+	listenAddress string
+	ttl           uint32
+	domains       []string
 
 	dnsServer *dns.Server
+	mux       *dns.ServeMux
 }
 
+func NewDNSForwarder(listenAddress string, ttl uint32, domains []string) *DNSForwarder {
+	return &DNSForwarder{
+		listenAddress: listenAddress,
+		ttl:           ttl,
+		domains:       domains,
+	}
+}
 func (f *DNSForwarder) Listen() error {
-	log.Infof("listen DNS forwarder on: %s", f.ListenAddress)
+	log.Infof("listen DNS forwarder on: %s", f.listenAddress)
 	mux := dns.NewServeMux()
-	mux.HandleFunc(".", f.handleDNSQuery)
+
+	for _, d := range f.domains {
+		mux.HandleFunc(d, f.handleDNSQuery)
+	}
 
 	dnsServer := &dns.Server{
-		Addr:    f.ListenAddress,
+		Addr:    f.listenAddress,
 		Net:     "udp",
 		Handler: mux,
 	}
 	f.dnsServer = dnsServer
+	f.mux = mux
 	return dnsServer.ListenAndServe()
+}
+
+func (f *DNSForwarder) UpdateDomains(domains []string) {
+	for _, d := range f.domains {
+		f.mux.HandleRemove(d)
+	}
+
+	for _, d := range domains {
+		f.mux.HandleFunc(d, f.handleDNSQuery)
+	}
+	f.domains = domains
 }
 
 func (f *DNSForwarder) Close(ctx context.Context) error {
@@ -37,7 +61,7 @@ func (f *DNSForwarder) Close(ctx context.Context) error {
 }
 
 func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
-	log.Debugf("received DNS query for DNS forwarder: %v", query)
+	log.Tracef("received DNS query for DNS forwarder: %v", query)
 	if len(query.Question) == 0 {
 		return
 	}
@@ -49,8 +73,8 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 
 	ips, err := net.LookupIP(domain)
 	if err != nil {
-		log.Errorf("failed to resolve query for domain %s: %v", domain, err)
-		resp.Rcode = dns.RcodeServerFailure
+		log.Warnf("failed to resolve query for domain %s: %v", domain, err)
+		resp.Rcode = dns.RcodeRefused
 		_ = w.WriteMsg(resp)
 		return
 	}
@@ -66,7 +90,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 					Name:   domain,
 					Rrtype: dns.TypeAAAA,
 					Class:  dns.ClassINET,
-					Ttl:    f.TTL,
+					Ttl:    f.ttl,
 				},
 			}
 			respRecord = &rr
@@ -77,7 +101,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 					Name:   domain,
 					Rrtype: dns.TypeA,
 					Class:  dns.ClassINET,
-					Ttl:    f.TTL,
+					Ttl:    f.ttl,
 				},
 			}
 			respRecord = &rr
