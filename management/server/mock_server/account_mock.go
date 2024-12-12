@@ -123,6 +123,11 @@ func (am *MockAccountManager) GetNetworksManager() networks.Manager {
 	panic("implement me")
 }
 
+func (am *MockAccountManager) GetGroupsManager() networks.Manager {
+	// TODO implement me
+	panic("implement me")
+}
+
 func (am *MockAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {
 	if am.DeleteSetupKeyFunc != nil {
 		return am.DeleteSetupKeyFunc(ctx, accountID, userID, keyID)
