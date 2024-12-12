@@ -22,17 +22,21 @@ func NewNetwork(accountId, name, description string) *Network {
 	}
 }
 
-func (n *Network) ToAPIResponse() *api.Network {
+func (n *Network) ToAPIResponse(routerIDs []string, resourceIDs []string) *api.Network {
 	return &api.Network{
 		Id:          n.ID,
 		Name:        n.Name,
 		Description: &n.Description,
+		Routers:     routerIDs,
+		Resources:   resourceIDs,
 	}
 }
 
 func (n *Network) FromAPIRequest(req *api.NetworkRequest) {
 	n.Name = req.Name
-	n.Description = *req.Description
+	if req.Description != nil {
+		n.Description = *req.Description
+	}
 }
 
 // Copy returns a copy of a posture checks.

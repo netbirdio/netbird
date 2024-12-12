@@ -19,6 +19,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -110,6 +111,11 @@ type MockAccountManager struct {
 	GetUserByIDFunc                     func(ctx context.Context, id string) (*types.User, error)
 	GetAccountSettingsFunc              func(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
+}
+
+func (am *MockAccountManager) GetUserManager() users.Manager {
+	// TODO implement me
+	panic("implement me")
 }
 
 func (am *MockAccountManager) GetNetworksManager() networks.Manager {

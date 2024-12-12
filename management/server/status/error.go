@@ -169,3 +169,12 @@ func NewNetworkRouterNotFoundError(routerID string) error {
 func NewNetworkResourceNotFoundError(resourceID string) error {
 	return Errorf(NotFound, "network resource: %s not found", resourceID)
 }
+
+// NewPermissionDeniedError creates a new Error with PermissionDenied type for a permission denied error.
+func NewPermissionDeniedError() error {
+	return Errorf(PermissionDenied, "permission denied")
+}
+
+func NewPermissionValidationError(err error) error {
+	return Errorf(PermissionDenied, "failed to vlidate user permissions: %s", err)
+}

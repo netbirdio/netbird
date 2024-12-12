@@ -1666,6 +1666,18 @@ func (s *SqlStore) GetNetworkRoutersByNetID(ctx context.Context, lockStrength Lo
 	return netRouters, nil
 }
 
+func (s *SqlStore) GetNetworkRoutersByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*routerTypes.NetworkRouter, error) {
+	var netRouters []*routerTypes.NetworkRouter
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&netRouters, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get network routers from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get network routers from store")
+	}
+
+	return netRouters, nil
+}
+
 func (s *SqlStore) GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*routerTypes.NetworkRouter, error) {
 	var netRouter *routerTypes.NetworkRouter
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
@@ -1710,6 +1722,18 @@ func (s *SqlStore) GetNetworkResourcesByNetID(ctx context.Context, lockStrength 
 	var netResources []*resourceTypes.NetworkResource
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		Find(&netResources, "account_id = ? AND network_id = ?", accountID, networkID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get network resources from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get network resources from store")
+	}
+
+	return netResources, nil
+}
+
+func (s *SqlStore) GetNetworkResourcesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*resourceTypes.NetworkResource, error) {
+	var netResources []*resourceTypes.NetworkResource
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&netResources, accountIDCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get network resources from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get network resources from store")

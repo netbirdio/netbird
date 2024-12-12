@@ -50,7 +50,7 @@ func (h *routersHandler) getAllRouters(w http.ResponseWriter, r *http.Request) {
 	}
 
 	networkID := mux.Vars(r)["networkId"]
-	routers, err := h.routersManager.GetAllRouters(r.Context(), accountID, userID, networkID)
+	routers, err := h.routersManager.GetAllRoutersInNetwork(r.Context(), accountID, userID, networkID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

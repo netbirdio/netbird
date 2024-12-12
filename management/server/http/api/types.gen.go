@@ -526,6 +526,12 @@ type Network struct {
 
 	// Name Network name
 	Name string `json:"name"`
+
+	// Resources List of network resource IDs associated with the network
+	Resources []string `json:"resources"`
+
+	// Routers List of router IDs associated with the network
+	Routers []string `json:"routers"`
 }
 
 // NetworkRequest defines model for NetworkRequest.

@@ -34,11 +34,14 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
@@ -148,6 +151,7 @@ type AccountManager interface {
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	GetNetworksManager() networks.Manager
+	GetUserManager() users.Manager
 }
 
 type DefaultAccountManager struct {
@@ -185,7 +189,10 @@ type DefaultAccountManager struct {
 
 	metrics telemetry.AppMetrics
 
-	networksManager networks.Manager
+	networksManager    networks.Manager
+	userManager        users.Manager
+	settingsManager    settings.Manager
+	permissionsManager permissions.Manager
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -252,12 +259,18 @@ func BuildManager(
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
 ) (*DefaultAccountManager, error) {
+	userManager := users.NewManager(store)
+	settingsManager := settings.NewManager(store)
+	permissionsManager := permissions.NewManager(userManager, settingsManager)
 	am := &DefaultAccountManager{
 		Store:                    store,
 		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
-		networksManager:          networks.NewManager(store),
+		networksManager:          networks.NewManager(store, permissionsManager),
+		userManager:              userManager,
+		settingsManager:          settingsManager,
+		permissionsManager:       permissionsManager,
 		ctx:                      context.Background(),
 		cacheMux:                 sync.Mutex{},
 		cacheLoading:             map[string]chan struct{}{},
@@ -1718,6 +1731,10 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 
 func (am *DefaultAccountManager) GetNetworksManager() networks.Manager {
 	return am.networksManager
+}
+
+func (am *DefaultAccountManager) GetUserManager() users.Manager {
+	return am.userManager
 }
 
 // addAllGroup to account object if it doesn't exist
