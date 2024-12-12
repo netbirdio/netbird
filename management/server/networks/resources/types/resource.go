@@ -35,7 +35,7 @@ type NetworkResource struct {
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string) (*NetworkResource, error) {
-	resourceType, err := getResourceType(address)
+	resourceType, err := GetResourceType(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
 	}
@@ -63,7 +63,7 @@ func (n *NetworkResource) ToAPIResponse() *api.NetworkResource {
 
 func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 	n.Name = req.Name
-	n.Description = ""
+
 	if req.Description != nil {
 		n.Description = *req.Description
 	}
@@ -82,8 +82,8 @@ func (n *NetworkResource) Copy() *NetworkResource {
 	}
 }
 
-// getResourceType returns the type of the resource based on the address
-func getResourceType(address string) (NetworkResourceType, error) {
+// GetResourceType returns the type of the resource based on the address
+func GetResourceType(address string) (NetworkResourceType, error) {
 	if ip, cidr, err := net.ParseCIDR(address); err == nil {
 		ones, _ := cidr.Mask.Size()
 		if strings.HasSuffix(address, "/32") || (ip != nil && ones == 32) {

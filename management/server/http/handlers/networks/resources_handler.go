@@ -23,11 +23,12 @@ type resourceHandler struct {
 
 func addResourceEndpoints(resourcesManager resources.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
 	resourceHandler := newResourceHandler(resourcesManager, extractFromToken, authCfg)
-	router.HandleFunc("/networks/{networkId}/resources", resourceHandler.getAllResources).Methods("GET", "OPTIONS")
+	router.HandleFunc("/networks/{networkId}/resources", resourceHandler.getAllResourcesInNetwork).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/resources", resourceHandler.createResource).Methods("POST", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/resources/{resourceId}", resourceHandler.getResource).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/resources/{resourceId}", resourceHandler.updateResource).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/resources/{resourceId}", resourceHandler.deleteResource).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/networks/resources", resourceHandler.getAllResourcesInAccount).Methods("GET", "OPTIONS")
 }
 
 func newResourceHandler(resourceManager resources.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *resourceHandler {
@@ -41,7 +42,7 @@ func newResourceHandler(resourceManager resources.Manager, extractFromToken func
 	}
 }
 
-func (h *resourceHandler) getAllResources(w http.ResponseWriter, r *http.Request) {
+func (h *resourceHandler) getAllResourcesInNetwork(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.extractFromToken(r.Context(), claims)
 	if err != nil {
@@ -50,7 +51,28 @@ func (h *resourceHandler) getAllResources(w http.ResponseWriter, r *http.Request
 	}
 
 	networkID := mux.Vars(r)["networkId"]
-	resources, err := h.resourceManager.GetAllResources(r.Context(), accountID, userID, networkID)
+	resources, err := h.resourceManager.GetAllResourcesInNetwork(r.Context(), accountID, userID, networkID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var resourcesResponse []*api.NetworkResource
+	for _, resource := range resources {
+		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse())
+	}
+
+	util.WriteJSONObject(r.Context(), w, resourcesResponse)
+}
+func (h *resourceHandler) getAllResourcesInAccount(w http.ResponseWriter, r *http.Request) {
+	claims := h.claimsExtractor.FromRequestContext(r)
+	accountID, userID, err := h.extractFromToken(r.Context(), claims)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	resources, err := h.resourceManager.GetAllResourcesInAccount(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
