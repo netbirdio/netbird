@@ -1257,7 +1257,7 @@ components:
             - resources
             - routing_peers_count
         - $ref: '#/components/schemas/NetworkRequest'
-    NetworkResourceRequest:
+    NetworkResourceMinimum:
       type: object
       properties:
         name:
@@ -1275,6 +1275,19 @@ components:
       required:
         - name
         - address
+    NetworkResourceRequest:
+      allOf:
+        - $ref: '#/components/schemas/NetworkResourceMinimum'
+        - type: object
+          properties:
+            groups:
+              description: Group IDs containing the resource
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
+          required:
+            - groups
     NetworkResource:
       allOf:
         - type: object
@@ -1294,7 +1307,7 @@ components:
             - id
             - type
             - groups
-        - $ref: '#/components/schemas/NetworkResourceRequest'
+        - $ref: '#/components/schemas/NetworkResourceMinimum'
     NetworkResourceType:
       description: Network resource type based of the address
       type: string

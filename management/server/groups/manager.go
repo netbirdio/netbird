@@ -12,6 +12,7 @@ import (
 
 type Manager interface {
 	GetAllGroups(ctx context.Context, accountID, userID string) (map[string]*types.Group, error)
+	AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error
 }
 
 type managerImpl struct {
@@ -46,6 +47,18 @@ func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string
 	}
 
 	return groupsMap, nil
+}
+
+func (m *managerImpl) AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resource *types.Resource) error {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Groups, permissions.Write)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return err
+	}
+
+	return m.store.AddResourceToGroup(ctx, accountID, groupID, resource)
 }
 
 func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum {

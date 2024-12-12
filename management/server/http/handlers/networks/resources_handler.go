@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 )
 
 type resourceHandler struct {
@@ -129,6 +130,14 @@ func (h *resourceHandler) createResource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	res := nbtypes.Resource{
+		ID:   resource.ID,
+		Type: resource.Type.String(),
+	}
+	for _, groupID := range req.Groups {
+		err = h.groupsManager.AddResourceToGroup(r.Context(), accountID, userID, groupID, &res)
+	}
+
 	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -190,6 +199,14 @@ func (h *resourceHandler) updateResource(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
+	}
+
+	res := nbtypes.Resource{
+		ID:   resource.ID,
+		Type: resource.Type.String(),
+	}
+	for _, groupID := range req.Groups {
+		err = h.groupsManager.AddResourceToGroup(r.Context(), accountID, userID, groupID, &res)
 	}
 
 	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
