@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -152,6 +153,7 @@ type AccountManager interface {
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	GetNetworksManager() networks.Manager
 	GetUserManager() users.Manager
+	GetGroupsManager() groups.Manager
 }
 
 type DefaultAccountManager struct {
@@ -189,6 +191,7 @@ type DefaultAccountManager struct {
 
 	metrics telemetry.AppMetrics
 
+	groupsManager      groups.Manager
 	networksManager    networks.Manager
 	userManager        users.Manager
 	settingsManager    settings.Manager
@@ -1735,6 +1738,10 @@ func (am *DefaultAccountManager) GetNetworksManager() networks.Manager {
 
 func (am *DefaultAccountManager) GetUserManager() users.Manager {
 	return am.userManager
+}
+
+func (am *DefaultAccountManager) GetGroupsManager() groups.Manager {
+	return am.groupsManager
 }
 
 // addAllGroup to account object if it doesn't exist
