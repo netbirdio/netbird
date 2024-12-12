@@ -73,9 +73,10 @@ func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum 
 		for _, pk := range group.Peers {
 			if pk == id {
 				info := api.GroupMinimum{
-					Id:         group.ID,
-					Name:       group.Name,
-					PeersCount: len(group.Peers),
+					Id:             group.ID,
+					Name:           group.Name,
+					PeersCount:     len(group.Peers),
+					ResourcesCount: len(group.Resources),
 				}
 				groupsInfo = append(groupsInfo, info)
 				break
@@ -86,6 +87,7 @@ func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum 
 				info := api.GroupMinimum{
 					Id:             group.ID,
 					Name:           group.Name,
+					PeersCount:     len(group.Peers),
 					ResourcesCount: len(group.Resources),
 				}
 				groupsInfo = append(groupsInfo, info)
