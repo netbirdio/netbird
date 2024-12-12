@@ -42,6 +42,7 @@ import (
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/metrics"
@@ -257,7 +258,7 @@ var (
 				return fmt.Errorf("failed creating JWT validator: %v", err)
 			}
 
-			httpAPIAuthCfg := httpapi.AuthCfg{
+			httpAPIAuthCfg := configs.AuthCfg{
 				Issuer:       config.HttpConfig.AuthIssuer,
 				Audience:     config.HttpConfig.AuthAudience,
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
