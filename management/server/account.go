@@ -271,6 +271,7 @@ func BuildManager(
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
 		networksManager:          networks.NewManager(store, permissionsManager),
+		groupsManager:            groups.NewManager(store, permissionsManager),
 		userManager:              userManager,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
