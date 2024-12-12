@@ -29,7 +29,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -53,7 +52,7 @@ func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.P
 	}
 	return update, false, nil
 }
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*types.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}
@@ -740,7 +739,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 
 		require.Len(t, account.Groups, 3, "groups should be added to the account")
 
-		groupsByNames := map[string]*group.Group{}
+		groupsByNames := map[string]*types.Group{}
 		for _, g := range account.Groups {
 			groupsByNames[g.Name] = g
 		}
@@ -748,12 +747,12 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		g1, ok := groupsByNames["group1"]
 		require.True(t, ok, "group1 should be added to the account")
 		require.Equal(t, g1.Name, "group1", "group1 name should match")
-		require.Equal(t, g1.Issued, group.GroupIssuedJWT, "group1 issued should match")
+		require.Equal(t, g1.Issued, types.GroupIssuedJWT, "group1 issued should match")
 
 		g2, ok := groupsByNames["group2"]
 		require.True(t, ok, "group2 should be added to the account")
 		require.Equal(t, g2.Name, "group2", "group2 name should match")
-		require.Equal(t, g2.Issued, group.GroupIssuedJWT, "group2 issued should match")
+		require.Equal(t, g2.Issued, types.GroupIssuedJWT, "group2 issued should match")
 	})
 }
 
@@ -1248,7 +1247,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	group := group.Group{
+	group := types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{},
@@ -1325,7 +1324,7 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
 
-	group := group.Group{
+	group := types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID},
@@ -1373,7 +1372,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	manager, account, peer1, _, peer3 := setupNetworkMapTest(t)
 
-	group := group.Group{
+	group := types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer3.ID},
@@ -1429,7 +1428,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
@@ -1656,7 +1655,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peer-1": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-2": {Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-3": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
 		},
-		Groups: map[string]*group.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
+		Groups: map[string]*types.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
 		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
@@ -1757,10 +1756,11 @@ func TestAccount_Copy(t *testing.T) {
 				},
 			},
 		},
-		Groups: map[string]*group.Group{
+		Groups: map[string]*types.Group{
 			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1"},
+				ID:        "group1",
+				Peers:     []string{"peer1"},
+				Resources: []types.Resource{},
 			},
 		},
 		Policies: []*types.Policy{
@@ -2717,8 +2717,8 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*group.Group{
-			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
+		Groups: map[string]*types.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{}},
 		},
 		Settings: &types.Settings{GroupsPropagationEnabled: true, JWTGroupsEnabled: true, JWTGroupsClaimName: "groups"},
 		Users: map[string]*types.User{
@@ -2756,7 +2756,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 
 		group1, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
-		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
+		assert.Equal(t, group1.Issued, types.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("jwt match existing api group in user auto groups", func(t *testing.T) {
@@ -2776,7 +2776,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 
 		group1, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
-		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
+		assert.Equal(t, group1.Issued, types.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
@@ -2846,10 +2846,10 @@ func TestAccount_UserGroupsAddToPeers(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*group.Group{
-			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
-			"group2": {ID: "group2", Name: "group2", Issued: group.GroupIssuedAPI, Peers: []string{}},
-			"group3": {ID: "group3", Name: "group3", Issued: group.GroupIssuedAPI, Peers: []string{}},
+		Groups: map[string]*types.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{}},
+			"group2": {ID: "group2", Name: "group2", Issued: types.GroupIssuedAPI, Peers: []string{}},
+			"group3": {ID: "group3", Name: "group3", Issued: types.GroupIssuedAPI, Peers: []string{}},
 		},
 		Users: map[string]*types.User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
 	}
@@ -2882,10 +2882,10 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*group.Group{
-			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
-			"group2": {ID: "group2", Name: "group2", Issued: group.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
-			"group3": {ID: "group3", Name: "group3", Issued: group.GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
+		Groups: map[string]*types.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
+			"group2": {ID: "group2", Name: "group2", Issued: types.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
+			"group3": {ID: "group3", Name: "group3", Issued: types.GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
 		},
 		Users: map[string]*types.User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
 	}

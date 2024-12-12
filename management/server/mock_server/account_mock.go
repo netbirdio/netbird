@@ -13,7 +13,6 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks"
@@ -40,11 +39,11 @@ type MockAccountManager struct {
 	GetNetworkMapFunc                   func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
 	GetPeerNetworkFunc                  func(ctx context.Context, peerKey string) (*types.Network, error)
 	AddPeerFunc                         func(ctx context.Context, setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
-	GetGroupFunc                        func(ctx context.Context, accountID, groupID, userID string) (*group.Group, error)
-	GetAllGroupsFunc                    func(ctx context.Context, accountID, userID string) ([]*group.Group, error)
-	GetGroupByNameFunc                  func(ctx context.Context, accountID, groupName string) (*group.Group, error)
-	SaveGroupFunc                       func(ctx context.Context, accountID, userID string, group *group.Group) error
-	SaveGroupsFunc                      func(ctx context.Context, accountID, userID string, groups []*group.Group) error
+	GetGroupFunc                        func(ctx context.Context, accountID, groupID, userID string) (*types.Group, error)
+	GetAllGroupsFunc                    func(ctx context.Context, accountID, userID string) ([]*types.Group, error)
+	GetGroupByNameFunc                  func(ctx context.Context, accountID, groupName string) (*types.Group, error)
+	SaveGroupFunc                       func(ctx context.Context, accountID, userID string, group *types.Group) error
+	SaveGroupsFunc                      func(ctx context.Context, accountID, userID string, groups []*types.Group) error
 	DeleteGroupFunc                     func(ctx context.Context, accountID, userId, groupID string) error
 	DeleteGroupsFunc                    func(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeerFunc                    func(ctx context.Context, accountID, groupID, peerID string) error
@@ -146,7 +145,7 @@ func (am *MockAccountManager) GetValidatedPeers(account *types.Account) (map[str
 }
 
 // GetGroup mock implementation of GetGroup from server.AccountManager interface
-func (am *MockAccountManager) GetGroup(ctx context.Context, accountId, groupID, userID string) (*group.Group, error) {
+func (am *MockAccountManager) GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error) {
 	if am.GetGroupFunc != nil {
 		return am.GetGroupFunc(ctx, accountId, groupID, userID)
 	}
@@ -154,7 +153,7 @@ func (am *MockAccountManager) GetGroup(ctx context.Context, accountId, groupID, 
 }
 
 // GetAllGroups mock implementation of GetAllGroups from server.AccountManager interface
-func (am *MockAccountManager) GetAllGroups(ctx context.Context, accountID, userID string) ([]*group.Group, error) {
+func (am *MockAccountManager) GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
 	if am.GetAllGroupsFunc != nil {
 		return am.GetAllGroupsFunc(ctx, accountID, userID)
 	}
@@ -321,7 +320,7 @@ func (am *MockAccountManager) AddPeer(
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
-func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, groupName string) (*group.Group, error) {
+func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, groupName string) (*types.Group, error) {
 	if am.GetGroupFunc != nil {
 		return am.GetGroupByNameFunc(ctx, accountID, groupName)
 	}
@@ -329,7 +328,7 @@ func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, gro
 }
 
 // SaveGroup mock implementation of SaveGroup from server.AccountManager interface
-func (am *MockAccountManager) SaveGroup(ctx context.Context, accountID, userID string, group *group.Group) error {
+func (am *MockAccountManager) SaveGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
 	if am.SaveGroupFunc != nil {
 		return am.SaveGroupFunc(ctx, accountID, userID, group)
 	}
@@ -337,7 +336,7 @@ func (am *MockAccountManager) SaveGroup(ctx context.Context, accountID, userID s
 }
 
 // SaveGroups mock implementation of SaveGroups from server.AccountManager interface
-func (am *MockAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*group.Group) error {
+func (am *MockAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
 	if am.SaveGroupsFunc != nil {
 		return am.SaveGroupsFunc(ctx, accountID, userID, groups)
 	}

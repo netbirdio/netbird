@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -122,7 +121,7 @@ func initTestPostureChecksAccount(am *DefaultAccountManager) (*types.Account, er
 func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*group.Group{
+	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -445,18 +444,18 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 	account, err := initTestPostureChecksAccount(manager)
 	require.NoError(t, err, "failed to init testing account")
 
-	groupA := &group.Group{
+	groupA := &types.Group{
 		ID:        "groupA",
 		AccountID: account.Id,
 		Peers:     []string{"peer1"},
 	}
 
-	groupB := &group.Group{
+	groupB := &types.Group{
 		ID:        "groupB",
 		AccountID: account.Id,
 		Peers:     []string{},
 	}
-	err = manager.Store.SaveGroups(context.Background(), store.LockingStrengthUpdate, []*group.Group{groupA, groupB})
+	err = manager.Store.SaveGroups(context.Background(), store.LockingStrengthUpdate, []*types.Group{groupA, groupB})
 	require.NoError(t, err, "failed to save groups")
 
 	postureCheckA := &posture.Checks{
