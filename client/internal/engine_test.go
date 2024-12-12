@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	miekdns "github.com/miekg/dns"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -102,7 +103,9 @@ func TestEngine_SSH(t *testing.T) {
 	)
 
 	engine.dnsServer = &dns.MockServer{
-		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
+		UpdateDNSServerFunc:   func(serial uint64, update nbdns.Config) error { return nil },
+		RegisterHandlerFunc:   func(domains []string, handler miekdns.Handler) error { return nil },
+		DeregisterHandlerFunc: func(domains []string) error { return nil },
 	}
 
 	var sshKeysAdded []string

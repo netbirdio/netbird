@@ -91,7 +91,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 
 	clear(d.interceptedDomains)
 
-	if err := d.dnsServer.UnregisterHandler(d.route.Domains.ToPunycodeList()); err != nil {
+	if err := d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList()); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("unregister DNS handler: %v", err))
 	}
 

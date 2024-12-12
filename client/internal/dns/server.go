@@ -38,7 +38,7 @@ type Server interface {
 	OnUpdatedHostDNSServer(strings []string)
 	SearchDomains() []string
 	ProbeAvailability()
-	UnregisterHandler(domains []string) error
+	DeregisterHandler(domains []string) error
 }
 
 type registeredHandlerMap map[string]handlerWithStop
@@ -167,7 +167,7 @@ func (s *DefaultServer) RegisterHandler(domains []string, handler dns.Handler) e
 	return nil
 }
 
-func (s *DefaultServer) UnregisterHandler(domains []string) error {
+func (s *DefaultServer) DeregisterHandler(domains []string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
