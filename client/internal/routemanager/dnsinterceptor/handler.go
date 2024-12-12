@@ -206,9 +206,9 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 		dom := domain.Domain(r.Question[0].Name)
 
 		var newPrefixes []netip.Prefix
-		for _, ans := range r.Answer {
+		for _, answer := range r.Answer {
 			var ip netip.Addr
-			switch rr := ans.(type) {
+			switch rr := answer.(type) {
 			case *dns.A:
 				addr, ok := netip.AddrFromSlice(rr.A)
 				if !ok {
