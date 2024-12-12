@@ -625,10 +625,10 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
 					input.inputSerial = updateSerial
 					input.inputRoutes = newRoutes
-					return nil, nil, testCase.inputErr
+					return testCase.inputErr
 				},
 			}
 
@@ -801,8 +801,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
-					return nil, nil, nil
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+					return nil
 				},
 			}
 
@@ -1237,7 +1237,8 @@ func getConnectedPeers(e *Engine) int {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	i := 0
-	for _, conn := range e.peerConns {
+	for _, id := range e.peerStore.PeersPubKey() {
+		conn, _ := e.peerStore.PeerConn(id)
 		if conn.Status() == peer.StatusConnected {
 			i++
 		}
@@ -1249,5 +1250,5 @@ func getPeers(e *Engine) int {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	return len(e.peerConns)
+	return len(e.peerStore.PeersPubKey())
 }
