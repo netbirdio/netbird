@@ -15,7 +15,6 @@ import (
 	"github.com/gorilla/mux"
 	"golang.org/x/exp/maps"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -111,7 +110,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 						regularUser: types.NewRegularUser(regularUser),
 						serviceUser: srvUser,
 					},
-					Groups: map[string]*nbgroup.Group{
+					Groups: map[string]*types.Group{
 						"group1": {
 							ID:        "group1",
 							AccountID: accountID,

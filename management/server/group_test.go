@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -33,22 +32,22 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 	for _, group := range account.Groups {
-		group.Issued = nbgroup.GroupIssuedIntegration
+		group.Issued = types.GroupIssuedIntegration
 		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
-			t.Errorf("should allow to create %s groups", nbgroup.GroupIssuedIntegration)
+			t.Errorf("should allow to create %s groups", types.GroupIssuedIntegration)
 		}
 	}
 
 	for _, group := range account.Groups {
-		group.Issued = nbgroup.GroupIssuedJWT
+		group.Issued = types.GroupIssuedJWT
 		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
-			t.Errorf("should allow to create %s groups", nbgroup.GroupIssuedJWT)
+			t.Errorf("should allow to create %s groups", types.GroupIssuedJWT)
 		}
 	}
 	for _, group := range account.Groups {
-		group.Issued = nbgroup.GroupIssuedAPI
+		group.Issued = types.GroupIssuedAPI
 		group.ID = ""
 		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err == nil {
@@ -146,13 +145,13 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 	manager, account, err := initTestGroupAccount(am)
 	assert.NoError(t, err, "Failed to init testing account")
 
-	groups := make([]*nbgroup.Group, 10)
+	groups := make([]*types.Group, 10)
 	for i := 0; i < 10; i++ {
-		groups[i] = &nbgroup.Group{
+		groups[i] = &types.Group{
 			ID:        fmt.Sprintf("group-%d", i+1),
 			AccountID: account.Id,
 			Name:      fmt.Sprintf("group-%d", i+1),
-			Issued:    nbgroup.GroupIssuedAPI,
+			Issued:    types.GroupIssuedAPI,
 		}
 	}
 
@@ -272,59 +271,59 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	accountID := "testingAcc"
 	domain := "example.com"
 
-	groupForRoute := &nbgroup.Group{
+	groupForRoute := &types.Group{
 		ID:        "grp-for-route",
 		AccountID: "account-id",
 		Name:      "Group for route",
-		Issued:    nbgroup.GroupIssuedAPI,
+		Issued:    types.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForRoute2 := &nbgroup.Group{
+	groupForRoute2 := &types.Group{
 		ID:        "grp-for-route2",
 		AccountID: "account-id",
 		Name:      "Group for route",
-		Issued:    nbgroup.GroupIssuedAPI,
+		Issued:    types.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForNameServerGroups := &nbgroup.Group{
+	groupForNameServerGroups := &types.Group{
 		ID:        "grp-for-name-server-grp",
 		AccountID: "account-id",
 		Name:      "Group for name server groups",
-		Issued:    nbgroup.GroupIssuedAPI,
+		Issued:    types.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForPolicies := &nbgroup.Group{
+	groupForPolicies := &types.Group{
 		ID:        "grp-for-policies",
 		AccountID: "account-id",
 		Name:      "Group for policies",
-		Issued:    nbgroup.GroupIssuedAPI,
+		Issued:    types.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForSetupKeys := &nbgroup.Group{
+	groupForSetupKeys := &types.Group{
 		ID:        "grp-for-keys",
 		AccountID: "account-id",
 		Name:      "Group for setup keys",
-		Issued:    nbgroup.GroupIssuedAPI,
+		Issued:    types.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForUsers := &nbgroup.Group{
+	groupForUsers := &types.Group{
 		ID:        "grp-for-users",
 		AccountID: "account-id",
 		Name:      "Group for users",
-		Issued:    nbgroup.GroupIssuedAPI,
+		Issued:    types.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForIntegration := &nbgroup.Group{
+	groupForIntegration := &types.Group{
 		ID:        "grp-for-integration",
 		AccountID: "account-id",
 		Name:      "Group for users integration",
-		Issued:    nbgroup.GroupIssuedIntegration,
+		Issued:    types.GroupIssuedIntegration,
 		Peers:     make([]string, 0),
 	}
 
@@ -393,7 +392,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 func TestGroupAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -430,7 +429,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupB",
 			Name:  "GroupB",
 			Peers: []string{peer1.ID, peer2.ID},
@@ -523,7 +522,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID},
@@ -592,7 +591,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupC",
 			Name:  "GroupC",
 			Peers: []string{peer1.ID, peer3.ID},
@@ -633,7 +632,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
@@ -660,7 +659,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupD",
 			Name:  "GroupD",
 			Peers: []string{peer1.ID},

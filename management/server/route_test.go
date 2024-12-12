@@ -15,7 +15,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -1096,7 +1095,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	groups, err := am.Store.GetAccountGroups(context.Background(), store.LockingStrengthShare, account.Id)
 	require.NoError(t, err)
-	var groupHA1, groupHA2 *nbgroup.Group
+	var groupHA1, groupHA2 *types.Group
 	for _, group := range groups {
 		switch group.Name {
 		case routeGroupHA1:
@@ -1204,7 +1203,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
 	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
 
-	newGroup := &nbgroup.Group{
+	newGroup := &types.Group{
 		ID:    xid.New().String(),
 		Name:  "peer1 group",
 		Peers: []string{peer1ID},
@@ -1441,7 +1440,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 		return nil, err
 	}
 
-	newGroup := []*nbgroup.Group{
+	newGroup := []*types.Group{
 		{
 			ID:    routeGroup1,
 			Name:  routeGroup1,
@@ -1557,7 +1556,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
-		Groups: map[string]*nbgroup.Group{
+		Groups: map[string]*types.Group{
 			"routingPeer1": {
 				ID:   "routingPeer1",
 				Name: "RoutingPeer1",
@@ -1911,7 +1910,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	account, err := initTestRouteAccount(t, manager)
 	require.NoError(t, err, "failed to init testing account")
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -2107,7 +2106,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupB",
 			Name:  "GroupB",
 			Peers: []string{peer1ID},
@@ -2147,7 +2146,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupC",
 			Name:  "GroupC",
 			Peers: []string{peer1ID},

@@ -379,7 +379,11 @@ type Group struct {
 	Peers []PeerMinimum `json:"peers"`
 
 	// PeersCount Count of peers associated to the group
-	PeersCount int `json:"peers_count"`
+	PeersCount int        `json:"peers_count"`
+	Resources  []Resource `json:"resources"`
+
+	// ResourcesCount Count of resources associated to the group
+	ResourcesCount int `json:"resources_count"`
 }
 
 // GroupIssued How the group was issued (api, integration, jwt)
@@ -398,6 +402,9 @@ type GroupMinimum struct {
 
 	// PeersCount Count of peers associated to the group
 	PeersCount int `json:"peers_count"`
+
+	// ResourcesCount Count of resources associated to the group
+	ResourcesCount int `json:"resources_count"`
 }
 
 // GroupMinimumIssued How the group was issued (api, integration, jwt)
@@ -409,7 +416,8 @@ type GroupRequest struct {
 	Name string `json:"name"`
 
 	// Peers List of peers ids
-	Peers *[]string `json:"peers,omitempty"`
+	Peers     *[]string   `json:"peers,omitempty"`
+	Resources *[]Resource `json:"resources,omitempty"`
 }
 
 // Location Describe geographical location information
@@ -1068,7 +1076,7 @@ type ProcessCheck struct {
 
 // Resource defines model for Resource.
 type Resource struct {
-	// Id Resource ID
+	// Id ID of the resource
 	Id   string       `json:"id"`
 	Type ResourceType `json:"type"`
 }

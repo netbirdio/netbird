@@ -19,7 +19,6 @@ import (
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -295,13 +294,13 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 		return nil, err
 	}
 
-	newGroup1 := &group.Group{
+	newGroup1 := &types.Group{
 		ID:    dnsGroup1ID,
 		Peers: []string{peer1.ID},
 		Name:  dnsGroup1ID,
 	}
 
-	newGroup2 := &group.Group{
+	newGroup2 := &types.Group{
 		ID:   dnsGroup2ID,
 		Name: dnsGroup2ID,
 	}
@@ -485,7 +484,7 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 func TestDNSAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*group.Group{
+	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -552,7 +551,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 
 	// Creating DNS settings with groups that have peers should update account peers and send peer update
 	t.Run("creating dns setting with used groups", func(t *testing.T) {
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},

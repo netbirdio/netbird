@@ -10,7 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -200,7 +199,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groupsMap := map[string]*nbgroup.Group{}
+	groupsMap := map[string]*types.Group{}
 	groups, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 	for _, group := range groups {
 		groupsMap[group.ID] = group
@@ -325,7 +324,7 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 	}
 }
 
-func toGroupsInfo(groups map[string]*nbgroup.Group, peerID string) []api.GroupMinimum {
+func toGroupsInfo(groups map[string]*types.Group, peerID string) []api.GroupMinimum {
 	groupsInfo := []api.GroupMinimum{}
 	groupsChecked := make(map[string]struct{})
 	for _, group := range groups {

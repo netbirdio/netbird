@@ -9,7 +9,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -361,8 +360,8 @@ func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-func toPolicyResponse(groups []*nbgroup.Group, policy *types.Policy) *api.Policy {
-	groupsMap := make(map[string]*nbgroup.Group)
+func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
+	groupsMap := make(map[string]*types.Group)
 	for _, group := range groups {
 		groupsMap[group.ID] = group
 	}

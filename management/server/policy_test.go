@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/slices"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -60,7 +59,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
-		Groups: map[string]*nbgroup.Group{
+		Groups: map[string]*types.Group{
 			"GroupAll": {
 				ID:   "GroupAll",
 				Name: "All",
@@ -308,7 +307,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
-		Groups: map[string]*nbgroup.Group{
+		Groups: map[string]*types.Group{
 			"GroupAll": {
 				ID:   "GroupAll",
 				Name: "All",
@@ -583,7 +582,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				},
 			},
 		},
-		Groups: map[string]*nbgroup.Group{
+		Groups: map[string]*types.Group{
 			"GroupAll": {
 				ID:   "GroupAll",
 				Name: "All",
@@ -830,7 +829,7 @@ func sortFunc() func(a *types.FirewallRule, b *types.FirewallRule) int {
 func TestPolicyAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",

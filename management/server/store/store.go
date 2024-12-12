@@ -20,8 +20,6 @@ import (
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/types"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
-
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
 
@@ -75,12 +73,12 @@ type Store interface {
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
-	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbgroup.Group, error)
-	GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*nbgroup.Group, error)
-	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*nbgroup.Group, error)
-	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*nbgroup.Group, error)
-	SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*nbgroup.Group) error
-	SaveGroup(ctx context.Context, lockStrength LockingStrength, group *nbgroup.Group) error
+	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
+	GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*types.Group, error)
+	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*types.Group, error)
+	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error)
+	SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*types.Group) error
+	SaveGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error
 	DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error
 	DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error
 

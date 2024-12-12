@@ -11,7 +11,6 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -844,12 +843,12 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 
-	newGroup1 := &nbgroup.Group{
+	newGroup1 := &types.Group{
 		ID:   group1ID,
 		Name: group1ID,
 	}
 
-	newGroup2 := &nbgroup.Group{
+	newGroup2 := &types.Group{
 		ID:   group2ID,
 		Name: group2ID,
 	}
@@ -946,7 +945,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	var newNameServerGroupA *nbdns.NameServerGroup
 	var newNameServerGroupB *nbdns.NameServerGroup
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",

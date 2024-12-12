@@ -16,7 +16,6 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -59,8 +58,8 @@ type Account struct {
 	PeersG                 []nbpeer.Peer                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Users                  map[string]*User                  `gorm:"-"`
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Groups                 map[string]*nbgroup.Group         `gorm:"-"`
-	GroupsG                []nbgroup.Group                   `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Groups                 map[string]*Group                 `gorm:"-"`
+	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[route.ID]*route.Route         `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -214,7 +213,7 @@ func (a *Account) GetRoutesByPrefixOrDomains(prefix netip.Prefix, domains domain
 }
 
 // GetGroup returns a group by ID if exists, nil otherwise
-func (a *Account) GetGroup(groupID string) *nbgroup.Group {
+func (a *Account) GetGroup(groupID string) *Group {
 	return a.Groups[groupID]
 }
 
@@ -609,7 +608,7 @@ func (a *Account) FindUser(userID string) (*User, error) {
 }
 
 // FindGroupByName looks for a given group in the Account by name or returns error if the group wasn't found.
-func (a *Account) FindGroupByName(groupName string) (*nbgroup.Group, error) {
+func (a *Account) FindGroupByName(groupName string) (*Group, error) {
 	for _, group := range a.Groups {
 		if group.Name == groupName {
 			return group, nil
@@ -703,7 +702,7 @@ func (a *Account) Copy() *Account {
 		setupKeys[id] = key.Copy()
 	}
 
-	groups := map[string]*nbgroup.Group{}
+	groups := map[string]*Group{}
 	for id, group := range a.Groups {
 		groups[id] = group.Copy()
 	}
@@ -774,7 +773,7 @@ func (a *Account) Copy() *Account {
 	}
 }
 
-func (a *Account) GetGroupAll() (*nbgroup.Group, error) {
+func (a *Account) GetGroupAll() (*Group, error) {
 	for _, g := range a.Groups {
 		if g.Name == "All" {
 			return g, nil
@@ -910,7 +909,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 	all, err := a.GetGroupAll()
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get group all: %v", err)
-		all = &nbgroup.Group{}
+		all = &Group{}
 	}
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
