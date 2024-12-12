@@ -1566,14 +1566,12 @@ func (e *Engine) updateDNSForwarder(domains []string) {
 			log.Infof("update domain router service for domains: %v", domains)
 			e.dnsForwardMgr.UpdateDomains(domains)
 		}
-	} else {
-		if e.dnsForwardMgr != nil {
-			log.Infof("disable domain router service")
-			if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
-				log.Errorf("failed to stop DNS forward: %v", err)
-			}
-			e.dnsForwardMgr = nil
+	} else if e.dnsForwardMgr != nil {
+		log.Infof("disable domain router service")
+		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+			log.Errorf("failed to stop DNS forward: %v", err)
 		}
+		e.dnsForwardMgr = nil
 	}
 }
 
