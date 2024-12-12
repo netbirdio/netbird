@@ -29,14 +29,15 @@ type handler struct {
 }
 
 func AddEndpoints(networksManager networks.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
+	addRouterEndpoints(networksManager.GetRouterManager(), extractFromToken, authCfg, router)
+	addResourceEndpoints(networksManager.GetResourceManager(), groupsManager, extractFromToken, authCfg, router)
+
 	networksHandler := newHandler(networksManager, groupsManager, extractFromToken, authCfg)
 	router.HandleFunc("/networks", networksHandler.getAllNetworks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks", networksHandler.createNetwork).Methods("POST", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.getNetwork).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.updateNetwork).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.deleteNetwork).Methods("DELETE", "OPTIONS")
-	addRouterEndpoints(networksManager.GetRouterManager(), extractFromToken, authCfg, router)
-	addResourceEndpoints(networksManager.GetResourceManager(), groupsManager, extractFromToken, authCfg, router)
 }
 
 func newHandler(networksManager networks.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *handler {
