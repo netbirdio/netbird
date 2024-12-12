@@ -20,7 +20,7 @@ type selectRoute struct {
 	Selected bool
 }
 
-// ListNetworks returns a list of all available routes.
+// ListNetworks returns a list of all available networks.
 func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*proto.ListNetworksResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
