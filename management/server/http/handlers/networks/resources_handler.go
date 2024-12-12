@@ -136,6 +136,10 @@ func (h *resourceHandler) createResource(w http.ResponseWriter, r *http.Request)
 	}
 	for _, groupID := range req.Groups {
 		err = h.groupsManager.AddResourceToGroup(r.Context(), accountID, userID, groupID, &res)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
 	}
 
 	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
@@ -207,6 +211,10 @@ func (h *resourceHandler) updateResource(w http.ResponseWriter, r *http.Request)
 	}
 	for _, groupID := range req.Groups {
 		err = h.groupsManager.AddResourceToGroup(r.Context(), accountID, userID, groupID, &res)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
 	}
 
 	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
