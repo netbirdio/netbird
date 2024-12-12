@@ -38,6 +38,9 @@ type Settings struct {
 	// JWTAllowGroups list of groups to which users are allowed access
 	JWTAllowGroups []string `gorm:"serializer:json"`
 
+	// RoutingPeerDNSResolutionEnabled enabled the DNS resolution on the routing peers
+	RoutingPeerDNSResolutionEnabled bool
+
 	// Extra is a dictionary of Account settings
 	Extra *account.ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 }
@@ -55,6 +58,8 @@ func (s *Settings) Copy() *Settings {
 
 		PeerInactivityExpirationEnabled: s.PeerInactivityExpirationEnabled,
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
+
+		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

@@ -481,10 +481,16 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
+	settings, err := s.accountManager.GetSettingsManager().GetSettings(ctx, accountID, userID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get settings for account %s and user %s: %v", accountID, userID, err)
+		return nil, mapError(ctx, err)
+	}
+
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil, relayToken),
-		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain()),
+		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), settings.RoutingPeerDNSResolutionEnabled),
 		Checks:            toProtocolChecks(ctx, postureChecks),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
@@ -600,20 +606,21 @@ func toWiretrusteeConfig(config *Config, turnCredentials *Token, relayToken *Tok
 	}
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string) *proto.PeerConfig {
+func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dnsResolutionOnRoutingPeerEnabled bool) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 	return &proto.PeerConfig{
-		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
-		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
-		Fqdn:      fqdn,
+		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
+		SshConfig:                       &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
+		Fqdn:                            fqdn,
+		RoutingPeerDnsResolutionEnabled: dnsResolutionOnRoutingPeerEnabled,
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnbled bool) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(config, turnCredentials, relayCredentials),
-		PeerConfig:        toPeerConfig(peer, networkMap.Network, dnsName),
+		PeerConfig:        toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
@@ -681,7 +688,12 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		}
 	}
 
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil)
+	settings, err := s.accountManager.GetSettingsManager().GetSettings(ctx, peer.AccountID, peer.UserID)
+	if err != nil {
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
