@@ -19,32 +19,32 @@ import (
 )
 
 const (
-	allRoutesText                = "All routes"
-	overlappingRoutesText        = "Overlapping routes"
-	exitNodeRoutesText           = "Exit-node routes"
-	allRoutes             filter = "all"
-	overlappingRoutes     filter = "overlapping"
-	exitNodeRoutes        filter = "exit-node"
-	getClientFMT                 = "get client: %v"
+	allNetworksText                = "All networks"
+	overlappingNetworksText        = "Overlapping networks"
+	exitNodeNetworksText           = "Exit-node networks"
+	allNetworks             filter = "all"
+	overlappingNetworks     filter = "overlapping"
+	exitNodeNetworks        filter = "exit-node"
+	getClientFMT                   = "get client: %v"
 )
 
 type filter string
 
-func (s *serviceClient) showRoutesUI() {
-	s.wRoutes = s.app.NewWindow("NetBird Routes")
+func (s *serviceClient) showNetworksUI() {
+	s.wRoutes = s.app.NewWindow("Networks")
 
 	allGrid := container.New(layout.NewGridLayout(3))
-	go s.updateRoutes(allGrid, allRoutes)
+	go s.updateNetworks(allGrid, allNetworks)
 	overlappingGrid := container.New(layout.NewGridLayout(3))
 	exitNodeGrid := container.New(layout.NewGridLayout(3))
 	routeCheckContainer := container.NewVBox()
 	tabs := container.NewAppTabs(
-		container.NewTabItem(allRoutesText, allGrid),
-		container.NewTabItem(overlappingRoutesText, overlappingGrid),
-		container.NewTabItem(exitNodeRoutesText, exitNodeGrid),
+		container.NewTabItem(allNetworksText, allGrid),
+		container.NewTabItem(overlappingNetworksText, overlappingGrid),
+		container.NewTabItem(exitNodeNetworksText, exitNodeGrid),
 	)
 	tabs.OnSelected = func(item *container.TabItem) {
-		s.updateRoutesBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 	}
 	tabs.OnUnselected = func(item *container.TabItem) {
 		grid, _ := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
@@ -58,17 +58,17 @@ func (s *serviceClient) showRoutesUI() {
 	buttonBox := container.NewHBox(
 		layout.NewSpacer(),
 		widget.NewButton("Refresh", func() {
-			s.updateRoutesBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 		}),
 		widget.NewButton("Select all", func() {
 			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-			s.selectAllFilteredRoutes(f)
-			s.updateRoutesBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			s.selectAllFilteredNetworks(f)
+			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 		}),
 		widget.NewButton("Deselect All", func() {
 			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-			s.deselectAllFilteredRoutes(f)
-			s.updateRoutesBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			s.deselectAllFilteredNetworks(f)
+			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
 		}),
 		layout.NewSpacer(),
 	)
@@ -81,29 +81,29 @@ func (s *serviceClient) showRoutesUI() {
 	s.startAutoRefresh(10*time.Second, tabs, allGrid, overlappingGrid, exitNodeGrid)
 }
 
-func (s *serviceClient) updateRoutes(grid *fyne.Container, f filter) {
+func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 	grid.Objects = nil
 	grid.Refresh()
 	idHeader := widget.NewLabelWithStyle("      ID", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	networkHeader := widget.NewLabelWithStyle("Network/Domains", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	networkHeader := widget.NewLabelWithStyle("Range/Domains", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	resolvedIPsHeader := widget.NewLabelWithStyle("Resolved IPs", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
 	grid.Add(idHeader)
 	grid.Add(networkHeader)
 	grid.Add(resolvedIPsHeader)
 
-	filteredRoutes, err := s.getFilteredRoutes(f)
+	filteredRoutes, err := s.getFilteredNetworks(f)
 	if err != nil {
 		return
 	}
 
-	sortRoutesByIDs(filteredRoutes)
+	sortNetworksByIDs(filteredRoutes)
 
 	for _, route := range filteredRoutes {
 		r := route
 
 		checkBox := widget.NewCheck(r.GetID(), func(checked bool) {
-			s.selectRoute(r.ID, checked)
+			s.selectNetwork(r.ID, checked)
 		})
 		checkBox.Checked = route.Selected
 		checkBox.Resize(fyne.NewSize(20, 20))
@@ -151,24 +151,24 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container, f filter) {
 	grid.Refresh()
 }
 
-func (s *serviceClient) getFilteredRoutes(f filter) ([]*proto.Network, error) {
-	routes, err := s.fetchRoutes()
+func (s *serviceClient) getFilteredNetworks(f filter) ([]*proto.Network, error) {
+	routes, err := s.fetchNetworks()
 	if err != nil {
 		log.Errorf(getClientFMT, err)
 		s.showError(fmt.Errorf(getClientFMT, err))
 		return nil, err
 	}
 	switch f {
-	case overlappingRoutes:
-		return getOverlappingRoutes(routes), nil
-	case exitNodeRoutes:
-		return getExitNodeRoutes(routes), nil
+	case overlappingNetworks:
+		return getOverlappingNetworks(routes), nil
+	case exitNodeNetworks:
+		return getExitNodeNetworks(routes), nil
 	default:
 	}
 	return routes, nil
 }
 
-func getOverlappingRoutes(routes []*proto.Network) []*proto.Network {
+func getOverlappingNetworks(routes []*proto.Network) []*proto.Network {
 	var filteredRoutes []*proto.Network
 	existingRange := make(map[string][]*proto.Network)
 	for _, route := range routes {
@@ -190,7 +190,7 @@ func getOverlappingRoutes(routes []*proto.Network) []*proto.Network {
 	return filteredRoutes
 }
 
-func getExitNodeRoutes(routes []*proto.Network) []*proto.Network {
+func getExitNodeNetworks(routes []*proto.Network) []*proto.Network {
 	var filteredRoutes []*proto.Network
 	for _, route := range routes {
 		if route.Range == "0.0.0.0/0" {
@@ -200,13 +200,13 @@ func getExitNodeRoutes(routes []*proto.Network) []*proto.Network {
 	return filteredRoutes
 }
 
-func sortRoutesByIDs(routes []*proto.Network) {
+func sortNetworksByIDs(routes []*proto.Network) {
 	sort.Slice(routes, func(i, j int) bool {
 		return strings.ToLower(routes[i].GetID()) < strings.ToLower(routes[j].GetID())
 	})
 }
 
-func (s *serviceClient) fetchRoutes() ([]*proto.Network, error) {
+func (s *serviceClient) fetchNetworks() ([]*proto.Network, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		return nil, fmt.Errorf(getClientFMT, err)
@@ -220,7 +220,7 @@ func (s *serviceClient) fetchRoutes() ([]*proto.Network, error) {
 	return resp.Routes, nil
 }
 
-func (s *serviceClient) selectRoute(id string, checked bool) {
+func (s *serviceClient) selectNetwork(id string, checked bool) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf(getClientFMT, err)
@@ -235,61 +235,61 @@ func (s *serviceClient) selectRoute(id string, checked bool) {
 
 	if checked {
 		if _, err := conn.SelectNetworks(s.ctx, req); err != nil {
-			log.Errorf("failed to select route: %v", err)
-			s.showError(fmt.Errorf("failed to select route: %v", err))
+			log.Errorf("failed to select network: %v", err)
+			s.showError(fmt.Errorf("failed to select network: %v", err))
 			return
 		}
 		log.Infof("Route %s selected", id)
 	} else {
 		if _, err := conn.DeselectNetworks(s.ctx, req); err != nil {
-			log.Errorf("failed to deselect route: %v", err)
-			s.showError(fmt.Errorf("failed to deselect route: %v", err))
+			log.Errorf("failed to deselect network: %v", err)
+			s.showError(fmt.Errorf("failed to deselect network: %v", err))
 			return
 		}
-		log.Infof("Route %s deselected", id)
+		log.Infof("Network %s deselected", id)
 	}
 }
 
-func (s *serviceClient) selectAllFilteredRoutes(f filter) {
+func (s *serviceClient) selectAllFilteredNetworks(f filter) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf(getClientFMT, err)
 		return
 	}
 
-	req := s.getRoutesRequest(f, true)
+	req := s.getNetworksRequest(f, true)
 	if _, err := conn.SelectNetworks(s.ctx, req); err != nil {
-		log.Errorf("failed to select all routes: %v", err)
-		s.showError(fmt.Errorf("failed to select all routes: %v", err))
+		log.Errorf("failed to select all networks: %v", err)
+		s.showError(fmt.Errorf("failed to select all networks: %v", err))
 		return
 	}
 
-	log.Debug("All routes selected")
+	log.Debug("All networks selected")
 }
 
-func (s *serviceClient) deselectAllFilteredRoutes(f filter) {
+func (s *serviceClient) deselectAllFilteredNetworks(f filter) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf(getClientFMT, err)
 		return
 	}
 
-	req := s.getRoutesRequest(f, false)
+	req := s.getNetworksRequest(f, false)
 	if _, err := conn.DeselectNetworks(s.ctx, req); err != nil {
-		log.Errorf("failed to deselect all routes: %v", err)
-		s.showError(fmt.Errorf("failed to deselect all routes: %v", err))
+		log.Errorf("failed to deselect all networks: %v", err)
+		s.showError(fmt.Errorf("failed to deselect all networks: %v", err))
 		return
 	}
 
-	log.Debug("All routes deselected")
+	log.Debug("All networks deselected")
 }
 
-func (s *serviceClient) getRoutesRequest(f filter, appendRoute bool) *proto.SelectNetworksRequest {
+func (s *serviceClient) getNetworksRequest(f filter, appendRoute bool) *proto.SelectNetworksRequest {
 	req := &proto.SelectNetworksRequest{}
-	if f == allRoutes {
+	if f == allNetworks {
 		req.All = true
 	} else {
-		routes, err := s.getFilteredRoutes(f)
+		routes, err := s.getFilteredNetworks(f)
 		if err != nil {
 			return nil
 		}
@@ -311,7 +311,7 @@ func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container
 	ticker := time.NewTicker(interval)
 	go func() {
 		for range ticker.C {
-			s.updateRoutesBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
+			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
 		}
 	}()
 
@@ -320,20 +320,20 @@ func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container
 	})
 }
 
-func (s *serviceClient) updateRoutesBasedOnDisplayTab(tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) {
+func (s *serviceClient) updateNetworksBasedOnDisplayTab(tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) {
 	grid, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
 	s.wRoutes.Content().Refresh()
-	s.updateRoutes(grid, f)
+	s.updateNetworks(grid, f)
 }
 
 func getGridAndFilterFromTab(tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) (*fyne.Container, filter) {
 	switch tabs.Selected().Text {
-	case overlappingRoutesText:
-		return overlappingGrid, overlappingRoutes
-	case exitNodeRoutesText:
-		return exitNodesGrid, exitNodeRoutes
+	case overlappingNetworksText:
+		return overlappingGrid, overlappingNetworks
+	case exitNodeNetworksText:
+		return exitNodesGrid, exitNodeNetworks
 	default:
-		return allGrid, allRoutes
+		return allGrid, allNetworks
 	}
 }
 
