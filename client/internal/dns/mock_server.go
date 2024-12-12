@@ -13,8 +13,8 @@ type MockServer struct {
 	InitializeFunc        func() error
 	StopFunc              func()
 	UpdateDNSServerFunc   func(serial uint64, update nbdns.Config) error
-	RegisterHandlerFunc   func([]string, dns.Handler, int) error
-	DeregisterHandlerFunc func([]string) error
+	RegisterHandlerFunc   func([]string, dns.Handler, int)
+	DeregisterHandlerFunc func([]string)
 }
 
 func (m *MockServer) RegisterHandler(domains []string, handler dns.Handler, priority int) {
