@@ -110,7 +110,7 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container, f filter) {
 		checkBox.Refresh()
 
 		grid.Add(checkBox)
-		network := r.GetNetwork()
+		network := r.GetRange()
 		domains := r.GetDomains()
 
 		if len(domains) == 0 {
@@ -151,7 +151,7 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container, f filter) {
 	grid.Refresh()
 }
 
-func (s *serviceClient) getFilteredRoutes(f filter) ([]*proto.Route, error) {
+func (s *serviceClient) getFilteredRoutes(f filter) ([]*proto.Network, error) {
 	routes, err := s.fetchRoutes()
 	if err != nil {
 		log.Errorf(getClientFMT, err)
@@ -168,18 +168,18 @@ func (s *serviceClient) getFilteredRoutes(f filter) ([]*proto.Route, error) {
 	return routes, nil
 }
 
-func getOverlappingRoutes(routes []*proto.Route) []*proto.Route {
-	var filteredRoutes []*proto.Route
-	existingRange := make(map[string][]*proto.Route)
+func getOverlappingRoutes(routes []*proto.Network) []*proto.Network {
+	var filteredRoutes []*proto.Network
+	existingRange := make(map[string][]*proto.Network)
 	for _, route := range routes {
 		if len(route.Domains) > 0 {
 			continue
 		}
-		if r, exists := existingRange[route.GetNetwork()]; exists {
+		if r, exists := existingRange[route.GetRange()]; exists {
 			r = append(r, route)
-			existingRange[route.GetNetwork()] = r
+			existingRange[route.GetRange()] = r
 		} else {
-			existingRange[route.GetNetwork()] = []*proto.Route{route}
+			existingRange[route.GetRange()] = []*proto.Network{route}
 		}
 	}
 	for _, r := range existingRange {
@@ -190,29 +190,29 @@ func getOverlappingRoutes(routes []*proto.Route) []*proto.Route {
 	return filteredRoutes
 }
 
-func getExitNodeRoutes(routes []*proto.Route) []*proto.Route {
-	var filteredRoutes []*proto.Route
+func getExitNodeRoutes(routes []*proto.Network) []*proto.Network {
+	var filteredRoutes []*proto.Network
 	for _, route := range routes {
-		if route.Network == "0.0.0.0/0" {
+		if route.Range == "0.0.0.0/0" {
 			filteredRoutes = append(filteredRoutes, route)
 		}
 	}
 	return filteredRoutes
 }
 
-func sortRoutesByIDs(routes []*proto.Route) {
+func sortRoutesByIDs(routes []*proto.Network) {
 	sort.Slice(routes, func(i, j int) bool {
 		return strings.ToLower(routes[i].GetID()) < strings.ToLower(routes[j].GetID())
 	})
 }
 
-func (s *serviceClient) fetchRoutes() ([]*proto.Route, error) {
+func (s *serviceClient) fetchRoutes() ([]*proto.Network, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		return nil, fmt.Errorf(getClientFMT, err)
 	}
 
-	resp, err := conn.ListRoutes(s.ctx, &proto.ListRoutesRequest{})
+	resp, err := conn.ListNetworks(s.ctx, &proto.ListNetworksRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list routes: %v", err)
 	}
@@ -228,20 +228,20 @@ func (s *serviceClient) selectRoute(id string, checked bool) {
 		return
 	}
 
-	req := &proto.SelectRoutesRequest{
-		RouteIDs: []string{id},
-		Append:   checked,
+	req := &proto.SelectNetworksRequest{
+		NetworkIDs: []string{id},
+		Append:     checked,
 	}
 
 	if checked {
-		if _, err := conn.SelectRoutes(s.ctx, req); err != nil {
+		if _, err := conn.SelectNetworks(s.ctx, req); err != nil {
 			log.Errorf("failed to select route: %v", err)
 			s.showError(fmt.Errorf("failed to select route: %v", err))
 			return
 		}
 		log.Infof("Route %s selected", id)
 	} else {
-		if _, err := conn.DeselectRoutes(s.ctx, req); err != nil {
+		if _, err := conn.DeselectNetworks(s.ctx, req); err != nil {
 			log.Errorf("failed to deselect route: %v", err)
 			s.showError(fmt.Errorf("failed to deselect route: %v", err))
 			return
@@ -258,7 +258,7 @@ func (s *serviceClient) selectAllFilteredRoutes(f filter) {
 	}
 
 	req := s.getRoutesRequest(f, true)
-	if _, err := conn.SelectRoutes(s.ctx, req); err != nil {
+	if _, err := conn.SelectNetworks(s.ctx, req); err != nil {
 		log.Errorf("failed to select all routes: %v", err)
 		s.showError(fmt.Errorf("failed to select all routes: %v", err))
 		return
@@ -275,7 +275,7 @@ func (s *serviceClient) deselectAllFilteredRoutes(f filter) {
 	}
 
 	req := s.getRoutesRequest(f, false)
-	if _, err := conn.DeselectRoutes(s.ctx, req); err != nil {
+	if _, err := conn.DeselectNetworks(s.ctx, req); err != nil {
 		log.Errorf("failed to deselect all routes: %v", err)
 		s.showError(fmt.Errorf("failed to deselect all routes: %v", err))
 		return
@@ -284,8 +284,8 @@ func (s *serviceClient) deselectAllFilteredRoutes(f filter) {
 	log.Debug("All routes deselected")
 }
 
-func (s *serviceClient) getRoutesRequest(f filter, appendRoute bool) *proto.SelectRoutesRequest {
-	req := &proto.SelectRoutesRequest{}
+func (s *serviceClient) getRoutesRequest(f filter, appendRoute bool) *proto.SelectNetworksRequest {
+	req := &proto.SelectNetworksRequest{}
 	if f == allRoutes {
 		req.All = true
 	} else {
@@ -294,7 +294,7 @@ func (s *serviceClient) getRoutesRequest(f filter, appendRoute bool) *proto.Sele
 			return nil
 		}
 		for _, route := range routes {
-			req.RouteIDs = append(req.RouteIDs, route.GetID())
+			req.NetworkIDs = append(req.NetworkIDs, route.GetID())
 		}
 		req.Append = appendRoute
 	}
