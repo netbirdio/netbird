@@ -85,10 +85,9 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 	}
 
 	for _, ip := range ips {
-		log.Infof("resolved domain %s to IP %s", domain, ip)
 		var respRecord dns.RR
 		if ip.To4() == nil {
-			log.Infof("resolved domain %s to IPv6 %s", domain, ip)
+			log.Tracef("resolved domain %s to IPv6 %s", domain, ip)
 			rr := dns.AAAA{
 				AAAA: ip,
 				Hdr: dns.RR_Header{
@@ -100,6 +99,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 			}
 			respRecord = &rr
 		} else {
+			log.Tracef("resolved domain %s to IPv4 %s", domain, ip)
 			rr := dns.A{
 				A: ip,
 				Hdr: dns.RR_Header{
