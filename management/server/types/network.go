@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/c-robinson/iplib"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/rs/xid"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -29,6 +30,7 @@ type NetworkMap struct {
 	Peers               []*nbpeer.Peer
 	Network             *Network
 	Routes              []*route.Route
+	NetworkResources    []*resourceTypes.NetworkResource
 	DNSConfig           nbdns.Config
 	OfflinePeers        []*nbpeer.Peer
 	FirewallRules       []*FirewallRule
