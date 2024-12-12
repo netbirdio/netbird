@@ -391,8 +391,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 				return
 			}
 
-			if len(engine.peerConns) != c.expectedLen {
-				t.Errorf("expecting Engine.peerConns to be of size %d, got %d", c.expectedLen, len(engine.peerConns))
+			if len(engine.peerStore.PeersPubKey()) != c.expectedLen {
+				t.Errorf("expecting Engine.peerConns to be of size %d, got %d", c.expectedLen, len(engine.peerStore.PeersPubKey()))
 			}
 
 			if engine.networkSerial != c.expectedSerial {
@@ -400,7 +400,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			}
 
 			for _, p := range c.expectedPeers {
-				conn, ok := engine.peerConns[p.GetWgPubKey()]
+				conn, ok := engine.peerStore.PeerConn(p.GetWgPubKey())
 				if !ok {
 					t.Errorf("expecting Engine.peerConns to contain peer %s", p)
 				}
