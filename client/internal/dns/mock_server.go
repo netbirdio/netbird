@@ -13,27 +13,20 @@ type MockServer struct {
 	InitializeFunc        func() error
 	StopFunc              func()
 	UpdateDNSServerFunc   func(serial uint64, update nbdns.Config) error
-	RegisterHandlerFunc   func([]string, dns.Handler) error
-	UnregisterHandlerFunc func([]string) error
-	DeregisterHandlerFunc func([]string) error
+	RegisterHandlerFunc   func([]string, dns.Handler, int)
+	DeregisterHandlerFunc func([]string)
 }
 
-func (m *MockServer) UnregisterHandler(domains []string) error {
-	panic("implement me")
-}
-
-func (m *MockServer) RegisterHandler(domains []string, handler dns.Handler) error {
+func (m *MockServer) RegisterHandler(domains []string, handler dns.Handler, priority int) {
 	if m.RegisterHandlerFunc != nil {
-		return m.RegisterHandlerFunc(domains, handler)
+		m.RegisterHandlerFunc(domains, handler, priority)
 	}
-	return nil
 }
 
-func (m *MockServer) DeregisterHandler(domains []string) error {
+func (m *MockServer) DeregisterHandler(domains []string) {
 	if m.DeregisterHandlerFunc != nil {
-		return m.DeregisterHandlerFunc(domains)
+		m.DeregisterHandlerFunc(domains)
 	}
-	return nil
 }
 
 // Initialize mock implementation of Initialize from Server interface
