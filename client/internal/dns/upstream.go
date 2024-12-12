@@ -66,6 +66,11 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *
 	}
 }
 
+// String returns a string representation of the upstream resolver
+func (u *upstreamResolverBase) String() string {
+	return fmt.Sprintf("%v", u.upstreamServers)
+}
+
 func (u *upstreamResolverBase) stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()

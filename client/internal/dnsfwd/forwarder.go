@@ -6,6 +6,8 @@ import (
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 type DNSForwarder struct {
@@ -18,6 +20,7 @@ type DNSForwarder struct {
 }
 
 func NewDNSForwarder(listenAddress string, ttl uint32, domains []string) *DNSForwarder {
+	log.Debugf("creating DNS forwarder with listen address: %s, ttl: %d, domains: %v", listenAddress, ttl, domains)
 	return &DNSForwarder{
 		listenAddress: listenAddress,
 		ttl:           ttl,
@@ -29,7 +32,7 @@ func (f *DNSForwarder) Listen() error {
 	mux := dns.NewServeMux()
 
 	for _, d := range f.domains {
-		mux.HandleFunc(d, f.handleDNSQuery)
+		mux.HandleFunc(nbdns.NormalizeZone(d), f.handleDNSQuery)
 	}
 
 	dnsServer := &dns.Server{
@@ -47,8 +50,8 @@ func (f *DNSForwarder) UpdateDomains(domains []string) {
 		f.mux.HandleRemove(d)
 	}
 
-	for _, d := range domains {
-		f.mux.HandleFunc(d, f.handleDNSQuery)
+	for _, d := range f.domains {
+		f.mux.HandleFunc(nbdns.NormalizeZone(d), f.handleDNSQuery)
 	}
 	f.domains = domains
 }
@@ -61,10 +64,10 @@ func (f *DNSForwarder) Close(ctx context.Context) error {
 }
 
 func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
-	log.Tracef("received DNS query for DNS forwarder: %v", query)
 	if len(query.Question) == 0 {
 		return
 	}
+	log.Tracef("received DNS request for DNS forwarder: %v", query.Question[0].Name)
 
 	question := query.Question[0]
 	domain := question.Name
@@ -74,8 +77,10 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 	ips, err := net.LookupIP(domain)
 	if err != nil {
 		log.Warnf("failed to resolve query for domain %s: %v", domain, err)
-		resp.Rcode = dns.RcodeRefused
-		_ = w.WriteMsg(resp)
+		resp.Rcode = dns.RcodeServerFailure
+		if err := w.WriteMsg(resp); err != nil {
+			log.Errorf("failed to write failure DNS response: %v", err)
+		}
 		return
 	}
 

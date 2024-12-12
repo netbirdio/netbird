@@ -57,15 +57,12 @@ func New(
 }
 
 func (d *DnsInterceptor) String() string {
-	s, err := d.route.Domains.String()
-	if err != nil {
-		return d.route.Domains.PunycodeString()
-	}
-	return s
+	return d.route.Domains.SafeString()
 }
 
 func (d *DnsInterceptor) AddRoute(context.Context) error {
-	return d.dnsServer.RegisterHandler(d.route.Domains.ToPunycodeList(), d)
+	d.dnsServer.RegisterHandler(d.route.Domains.ToPunycodeList(), d, nbdns.PriorityDNSRoute)
+	return nil
 }
 
 func (d *DnsInterceptor) RemoveRoute() error {
@@ -91,9 +88,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 
 	clear(d.interceptedDomains)
 
-	if err := d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList()); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("unregister DNS handler: %v", err))
-	}
+	d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList())
 
 	return nberrors.FormatErrorOrNil(merr)
 }
@@ -143,23 +138,22 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if len(r.Question) == 0 {
 		return
 	}
-	log.Debugf("received DNS request: %v", r.Question[0].Name)
+	log.Tracef("received DNS request: %v", r.Question[0].Name)
 
-	if d.currentPeerKey == "" {
-		// TODO: call normal upstream instead of returning an error?
-		log.Debugf("no current peer key set, not resolving DNS request %s", r.Question[0].Name)
-		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
-			log.Errorf("failed writing DNS response: %v", err)
-		}
+	d.mu.RLock()
+	peerKey := d.currentPeerKey
+	d.mu.RUnlock()
+
+	if peerKey == "" {
+		log.Debugf("no current peer key set, letting next handler try for %s", r.Question[0].Name)
+		d.continueToNextHandler(w, r, "no current peer key")
 		return
 	}
 
-	upstreamIP, err := d.getUpstreamIP()
+	upstreamIP, err := d.getUpstreamIP(peerKey)
 	if err != nil {
 		log.Errorf("failed to get upstream IP: %v", err)
-		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
-			log.Errorf("failed writing DNS response: %v", err)
-		}
+		d.continueToNextHandler(w, r, fmt.Sprintf("failed to get upstream IP: %v", err))
 		return
 	}
 
@@ -169,7 +163,12 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 	upstream := fmt.Sprintf("%s:%d", upstreamIP, dnsfwd.ListenPort)
 	reply, _, err := client.ExchangeContext(context.Background(), r, upstream)
-	log.Debugf("upstream %s (%s) DNS response for %s: %v", upstreamIP, d.currentPeerKey, r.Question[0].Name, reply.Answer)
+
+	var answer []dns.RR
+	if reply != nil {
+		answer = reply.Answer
+	}
+	log.Debugf("upstream %s (%s) DNS response for %s: %v", upstreamIP, peerKey, r.Question[0].Name, answer)
 
 	if err != nil {
 		log.Errorf("failed to exchange DNS request with %s: %v", upstream, err)
@@ -185,13 +184,22 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 }
 
-func (d *DnsInterceptor) getUpstreamIP() (net.IP, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+// continueToNextHandler signals the handler chain to try the next handler
+func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, reason string) {
+	log.Debugf("continuing to next handler for %s: %s", r.Question[0].Name, reason)
+	resp := new(dns.Msg)
+	resp.SetRcode(r, dns.RcodeNameError)
+	// Set Zero bit to signal handler chain to continue
+	resp.MsgHdr.Zero = true
+	if err := w.WriteMsg(resp); err != nil {
+		log.Errorf("failed writing DNS continue response: %v", err)
+	}
+}
 
-	peerAllowedIP, exists := d.peerStore.AllowedIP(d.currentPeerKey)
+func (d *DnsInterceptor) getUpstreamIP(peerKey string) (net.IP, error) {
+	peerAllowedIP, exists := d.peerStore.AllowedIP(peerKey)
 	if !exists {
-		return nil, fmt.Errorf("peer connection not found for key: %s", d.currentPeerKey)
+		return nil, fmt.Errorf("peer connection not found for key: %s", peerKey)
 	}
 	return peerAllowedIP, nil
 }
