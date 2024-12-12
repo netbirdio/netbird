@@ -532,6 +532,9 @@ type Network struct {
 
 	// Routers List of router IDs associated with the network
 	Routers []string `json:"routers"`
+
+	// RoutingPeersCount Count of routing peers associated with the network
+	RoutingPeersCount int `json:"routing_peers_count"`
 }
 
 // NetworkRequest defines model for NetworkRequest.

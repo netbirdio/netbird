@@ -15,6 +15,7 @@ type Module string
 const (
 	Networks Module = "networks"
 	Peers    Module = "peers"
+	Groups   Module = "groups"
 )
 
 type Operation string

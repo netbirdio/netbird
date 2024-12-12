@@ -1241,6 +1241,10 @@ components:
               items:
                 type: string
                 example: ch8i4ug6lnn4g9hqv7m0
+            routing_peers_count:
+              description: Count of routing peers associated with the network
+              type: integer
+              example: 2
             resources:
               description: List of network resource IDs associated with the network
               type: array
@@ -1251,6 +1255,7 @@ components:
             - id
             - routers
             - resources
+            - routing_peers_count
         - $ref: '#/components/schemas/NetworkRequest'
     NetworkResourceRequest:
       type: object
