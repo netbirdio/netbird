@@ -44,7 +44,7 @@ var resp = &proto.StatusResponse{
 				LastWireguardHandshake:     timestamppb.New(time.Date(2001, time.Month(1), 1, 1, 1, 2, 0, time.UTC)),
 				BytesRx:                    200,
 				BytesTx:                    100,
-				Routes: []string{
+				Networks: []string{
 					"10.1.0.0/24",
 				},
 				Latency: durationpb.New(time.Duration(10000000)),
@@ -93,7 +93,7 @@ var resp = &proto.StatusResponse{
 			PubKey:          "Some-Pub-Key",
 			KernelInterface: true,
 			Fqdn:            "some-localhost.awesome-domain.com",
-			Routes: []string{
+			Networks: []string{
 				"10.10.0.0/24",
 			},
 		},
