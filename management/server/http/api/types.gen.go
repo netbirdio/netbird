@@ -554,6 +554,9 @@ type NetworkResource struct {
 	// Description Network resource description
 	Description *string `json:"description,omitempty"`
 
+	// Groups Groups that the resource belongs to
+	Groups []GroupMinimum `json:"groups"`
+
 	// Id Network Resource ID
 	Id string `json:"id"`
 

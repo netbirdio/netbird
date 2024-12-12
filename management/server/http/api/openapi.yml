@@ -1285,9 +1285,15 @@ components:
               example: chacdk86lnnboviihd7g
             type:
               $ref: '#/components/schemas/NetworkResourceType'
+            groups:
+              description: Groups that the resource belongs to
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupMinimum'
           required:
             - id
             - type
+            - groups
         - $ref: '#/components/schemas/NetworkResourceRequest'
     NetworkResourceType:
       description: Network resource type based of the address

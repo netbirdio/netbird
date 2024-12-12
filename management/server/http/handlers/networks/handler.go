@@ -36,7 +36,7 @@ func AddEndpoints(networksManager networks.Manager, groupsManager groups.Manager
 	router.HandleFunc("/networks/{networkId}", networksHandler.updateNetwork).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.deleteNetwork).Methods("DELETE", "OPTIONS")
 	addRouterEndpoints(networksManager.GetRouterManager(), extractFromToken, authCfg, router)
-	addResourceEndpoints(networksManager.GetResourceManager(), extractFromToken, authCfg, router)
+	addResourceEndpoints(networksManager.GetResourceManager(), groupsManager, extractFromToken, authCfg, router)
 }
 
 func newHandler(networksManager networks.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *handler {

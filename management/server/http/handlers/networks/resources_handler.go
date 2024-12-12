@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -17,12 +18,13 @@ import (
 
 type resourceHandler struct {
 	resourceManager  resources.Manager
+	groupsManager    groups.Manager
 	extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	claimsExtractor  *jwtclaims.ClaimsExtractor
 }
 
-func addResourceEndpoints(resourcesManager resources.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
-	resourceHandler := newResourceHandler(resourcesManager, extractFromToken, authCfg)
+func addResourceEndpoints(resourcesManager resources.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
+	resourceHandler := newResourceHandler(resourcesManager, groupsManager, extractFromToken, authCfg)
 	router.HandleFunc("/networks/{networkId}/resources", resourceHandler.getAllResourcesInNetwork).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/resources", resourceHandler.createResource).Methods("POST", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/resources/{resourceId}", resourceHandler.getResource).Methods("GET", "OPTIONS")
@@ -31,9 +33,10 @@ func addResourceEndpoints(resourcesManager resources.Manager, extractFromToken f
 	router.HandleFunc("/networks/resources", resourceHandler.getAllResourcesInAccount).Methods("GET", "OPTIONS")
 }
 
-func newResourceHandler(resourceManager resources.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *resourceHandler {
+func newResourceHandler(resourceManager resources.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *resourceHandler {
 	return &resourceHandler{
 		resourceManager:  resourceManager,
+		groupsManager:    groupsManager,
 		extractFromToken: extractFromToken,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -57,9 +60,16 @@ func (h *resourceHandler) getAllResourcesInNetwork(w http.ResponseWriter, r *htt
 		return
 	}
 
+	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
 	var resourcesResponse []*api.NetworkResource
 	for _, resource := range resources {
-		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse())
+		groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
+		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse(groupMinimumInfo))
 	}
 
 	util.WriteJSONObject(r.Context(), w, resourcesResponse)
@@ -78,9 +88,16 @@ func (h *resourceHandler) getAllResourcesInAccount(w http.ResponseWriter, r *htt
 		return
 	}
 
+	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
 	var resourcesResponse []*api.NetworkResource
 	for _, resource := range resources {
-		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse())
+		groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
+		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse(groupMinimumInfo))
 	}
 
 	util.WriteJSONObject(r.Context(), w, resourcesResponse)
@@ -112,7 +129,14 @@ func (h *resourceHandler) createResource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse())
+	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
+	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(groupMinimumInfo))
 }
 
 func (h *resourceHandler) getResource(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +155,14 @@ func (h *resourceHandler) getResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse())
+	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
+	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(groupMinimumInfo))
 }
 
 func (h *resourceHandler) updateResource(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +192,14 @@ func (h *resourceHandler) updateResource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse())
+	grps, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
+	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(groupMinimumInfo))
 }
 
 func (h *resourceHandler) deleteResource(w http.ResponseWriter, r *http.Request) {

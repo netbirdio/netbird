@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -45,4 +46,39 @@ func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string
 	}
 
 	return groupsMap, nil
+}
+
+func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum {
+	groupsInfo := []api.GroupMinimum{}
+	groupsChecked := make(map[string]struct{})
+	for _, group := range groups {
+		_, ok := groupsChecked[group.ID]
+		if ok {
+			continue
+		}
+		groupsChecked[group.ID] = struct{}{}
+		for _, pk := range group.Peers {
+			if pk == id {
+				info := api.GroupMinimum{
+					Id:         group.ID,
+					Name:       group.Name,
+					PeersCount: len(group.Peers),
+				}
+				groupsInfo = append(groupsInfo, info)
+				break
+			}
+		}
+		for _, rk := range group.Resources {
+			if rk.ID == id {
+				info := api.GroupMinimum{
+					Id:         group.ID,
+					Name:       group.Name,
+					PeersCount: len(group.Resources),
+				}
+				groupsInfo = append(groupsInfo, info)
+				break
+			}
+		}
+	}
+	return groupsInfo
 }
