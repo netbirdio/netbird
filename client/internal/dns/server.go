@@ -647,7 +647,7 @@ func (s *DefaultServer) addHostRootZone() {
 	handler.deactivate = func(error) {}
 	handler.reactivate = func() {}
 
-	s.RegisterHandler([]string{nbdns.RootZone}, handler, PriorityDefault)
+	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityDefault)
 }
 
 func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
