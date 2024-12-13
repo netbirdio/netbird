@@ -1070,6 +1070,32 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId 
 	return nil
 }
 
+func (s *SqlStore) AddResourceToGroup(ctx context.Context, accountId string, groupID string, resource *types.Resource) error {
+	var group types.Group
+	result := s.db.Where(accountAndIDQueryCondition, accountId, groupID).First(&group)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return status.NewGroupNotFoundError(groupID)
+		}
+
+		return status.Errorf(status.Internal, "issue finding group: %s", result.Error)
+	}
+
+	for _, res := range group.Resources {
+		if res.ID == resource.ID {
+			return nil
+		}
+	}
+
+	group.Resources = append(group.Resources, *resource)
+
+	if err := s.db.Save(&group).Error; err != nil {
+		return status.Errorf(status.Internal, "issue updating group: %s", err)
+	}
+
+	return nil
+}
+
 // GetUserPeers retrieves peers for a user.
 func (s *SqlStore) GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error) {
 	return getRecords[*nbpeer.Peer](s.db.Where("user_id = ?", userID), lockStrength, accountID)
