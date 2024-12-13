@@ -88,7 +88,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 
 	clear(d.interceptedDomains)
 
-	d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList())
+	d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList(), nbdns.PriorityDNSRoute)
 
 	return nberrors.FormatErrorOrNil(merr)
 }

@@ -512,7 +512,7 @@ func TestDNSServerStartStop(t *testing.T) {
 				t.Error(err)
 			}
 
-			dnsServer.service.RegisterMux("netbird.cloud", dnsServer.localResolver)
+			dnsServer.registerHandler([]string{"netbird.cloud"}, dnsServer.localResolver, 1)
 
 			resolver := &net.Resolver{
 				PreferGo: true,
@@ -560,7 +560,9 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
-		hostManager: hostManager,
+		handlerChain:      NewHandlerChain(),
+		handlerPriorities: make(map[string]int),
+		hostManager:       hostManager,
 		currentConfig: HostDNSConfig{
 			Domains: []DomainConfig{
 				{false, "domain0", false},

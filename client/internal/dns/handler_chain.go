@@ -22,6 +22,7 @@ type HandlerEntry struct {
 	StopHandler handlerWithStop
 }
 
+// HandlerChain represents a prioritized chain of DNS handlers
 type HandlerChain struct {
 	mu       sync.RWMutex
 	handlers []HandlerEntry
@@ -48,6 +49,7 @@ func NewHandlerChain() *HandlerChain {
 	}
 }
 
+// AddHandler adds a new handler to the chain, replacing any existing handler with the same pattern and priority
 func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority int, stopHandler handlerWithStop) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -57,6 +59,17 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 		pattern = pattern[2:]
 	}
 	pattern = dns.Fqdn(pattern)
+
+	// First remove any existing handler with same pattern and priority
+	for i := len(c.handlers) - 1; i >= 0; i-- {
+		if c.handlers[i].Pattern == pattern && c.handlers[i].Priority == priority {
+			if c.handlers[i].StopHandler != nil {
+				c.handlers[i].StopHandler.stop()
+			}
+			c.handlers = append(c.handlers[:i], c.handlers[i+1:]...)
+			break
+		}
+	}
 
 	log.Debugf("adding handler for pattern: %s (wildcard: %v) with priority %d", pattern, isWildcard, priority)
 
@@ -81,13 +94,17 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 	c.handlers = append(c.handlers[:pos], append([]HandlerEntry{entry}, c.handlers[pos:]...)...)
 }
 
-func (c *HandlerChain) RemoveHandler(pattern string) {
+// RemoveHandler removes a handler for the given pattern and priority
+func (c *HandlerChain) RemoveHandler(pattern string, priority int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	pattern = dns.Fqdn(pattern)
-	for i, entry := range c.handlers {
-		if entry.Pattern == pattern {
+
+	// Find and remove handlers matching both pattern and priority
+	for i := len(c.handlers) - 1; i >= 0; i-- {
+		entry := c.handlers[i]
+		if entry.Pattern == pattern && entry.Priority == priority {
 			if entry.StopHandler != nil {
 				entry.StopHandler.stop()
 			}
@@ -95,6 +112,20 @@ func (c *HandlerChain) RemoveHandler(pattern string) {
 			return
 		}
 	}
+}
+
+// HasHandlers returns true if there are any handlers remaining for the given pattern
+func (c *HandlerChain) HasHandlers(pattern string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	pattern = dns.Fqdn(pattern)
+	for _, entry := range c.handlers {
+		if entry.Pattern == pattern {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
