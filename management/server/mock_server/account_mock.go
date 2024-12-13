@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks"
@@ -125,6 +126,11 @@ func (am *MockAccountManager) GetNetworksManager() networks.Manager {
 }
 
 func (am *MockAccountManager) GetSettingsManager() settings.Manager {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (am *MockAccountManager) GetGroupsManager() groups.Manager {
 	// TODO implement me
 	panic("implement me")
 }

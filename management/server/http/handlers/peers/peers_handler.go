@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -71,7 +72,7 @@ func (h *Handler) getPeer(ctx context.Context, account *types.Account, peerID, u
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
+	groupsInfo := groups.ToGroupsInfo(account.Groups, peer.ID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
@@ -115,7 +116,7 @@ func (h *Handler) updatePeer(ctx context.Context, account *types.Account, userID
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
+	groupMinimumInfo := groups.ToGroupsInfo(account.Groups, peer.ID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
@@ -200,8 +201,8 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	groupsMap := map[string]*types.Group{}
-	groups, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
-	for _, group := range groups {
+	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
+	for _, group := range grps {
 		groupsMap[group.ID] = group
 	}
 
@@ -212,7 +213,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
-		groupMinimumInfo := toGroupsInfo(groupsMap, peer.ID)
+		groupMinimumInfo := groups.ToGroupsInfo(groupsMap, peer.ID)
 
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}
@@ -322,30 +323,6 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 		Os:          peer.Meta.OS,
 		UserId:      peer.UserID,
 	}
-}
-
-func toGroupsInfo(groups map[string]*types.Group, peerID string) []api.GroupMinimum {
-	groupsInfo := []api.GroupMinimum{}
-	groupsChecked := make(map[string]struct{})
-	for _, group := range groups {
-		_, ok := groupsChecked[group.ID]
-		if ok {
-			continue
-		}
-		groupsChecked[group.ID] = struct{}{}
-		for _, pk := range group.Peers {
-			if pk == peerID {
-				info := api.GroupMinimum{
-					Id:         group.ID,
-					Name:       group.Name,
-					PeersCount: len(group.Peers),
-				}
-				groupsInfo = append(groupsInfo, info)
-				break
-			}
-		}
-	}
-	return groupsInfo
 }
 
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool) *api.Peer {

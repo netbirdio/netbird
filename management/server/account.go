@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -153,7 +154,6 @@ type AccountManager interface {
 	GetNetworksManager() networks.Manager
 	GetUserManager() users.Manager
 	GetSettingsManager() settings.Manager
-}
 
 type DefaultAccountManager struct {
 	Store store.Store
@@ -190,6 +190,7 @@ type DefaultAccountManager struct {
 
 	metrics telemetry.AppMetrics
 
+	groupsManager      groups.Manager
 	networksManager    networks.Manager
 	userManager        users.Manager
 	settingsManager    settings.Manager
@@ -269,6 +270,7 @@ func BuildManager(
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
 		networksManager:          networks.NewManager(store, permissionsManager),
+		groupsManager:            groups.NewManager(store, permissionsManager),
 		userManager:              userManager,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
@@ -1755,6 +1757,10 @@ func (am *DefaultAccountManager) GetUserManager() users.Manager {
 
 func (am *DefaultAccountManager) GetSettingsManager() settings.Manager {
 	return am.settingsManager
+}
+  
+func (am *DefaultAccountManager) GetGroupsManager() groups.Manager {
+	return am.groupsManager
 }
 
 // addAllGroup to account object if it doesn't exist

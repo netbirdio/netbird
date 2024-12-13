@@ -1245,6 +1245,10 @@ components:
               items:
                 type: string
                 example: ch8i4ug6lnn4g9hqv7m0
+            routing_peers_count:
+              description: Count of routing peers associated with the network
+              type: integer
+              example: 2
             resources:
               description: List of network resource IDs associated with the network
               type: array
@@ -1255,8 +1259,9 @@ components:
             - id
             - routers
             - resources
+            - routing_peers_count
         - $ref: '#/components/schemas/NetworkRequest'
-    NetworkResourceRequest:
+    NetworkResourceMinimum:
       type: object
       properties:
         name:
@@ -1274,6 +1279,19 @@ components:
       required:
         - name
         - address
+    NetworkResourceRequest:
+      allOf:
+        - $ref: '#/components/schemas/NetworkResourceMinimum'
+        - type: object
+          properties:
+            groups:
+              description: Group IDs containing the resource
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
+          required:
+            - groups
     NetworkResource:
       allOf:
         - type: object
@@ -1284,10 +1302,16 @@ components:
               example: chacdk86lnnboviihd7g
             type:
               $ref: '#/components/schemas/NetworkResourceType'
+            groups:
+              description: Groups that the resource belongs to
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupMinimum'
           required:
             - id
             - type
-        - $ref: '#/components/schemas/NetworkResourceRequest'
+            - groups
+        - $ref: '#/components/schemas/NetworkResourceMinimum'
     NetworkResourceType:
       description: Network resource type based of the address
       type: string
