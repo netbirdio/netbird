@@ -808,6 +808,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
+	// todo: useRoutingPeerDnsResolutionEnabled from network map proto
 	e.updateDNSForwarder(true, routedDomains)
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
