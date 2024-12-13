@@ -1232,19 +1232,10 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 	routes := a.getRoutingPeerNetworkResourcesRoutes(ctx, peerID)
 
 	for _, route := range routes {
-		var networkResourceGroups []*Group
-
-		// get the groups in which the resource is already assigned to
-		for _, group := range a.Groups {
-			for _, r := range group.Resources {
-				if r.ID == string(route.ID) {
-					networkResourceGroups = append(networkResourceGroups, group)
-				}
-			}
-		}
+		networkResourceGroups := a.getNetworkResourceGroups(route)
+		distributionPeers := make(map[string]struct{})
 
 		var resourceAppliedPolicies []*Policy
-		distributionPeers := make(map[string]struct{})
 
 		for _, policy := range a.Policies {
 			if !policy.Enabled {
@@ -1256,8 +1247,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 					continue
 				}
 
-				// if policy rule destinations groups contains the network resource group then the network resources
-				// access will be controlled with this policy
+				// Policy applies to the network resource if its destination group matches
 				for _, group := range networkResourceGroups {
 					if slices.Contains(rule.Destinations, group.ID) {
 						resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
@@ -1265,8 +1255,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 					}
 				}
 
-				// if the policy destination resource is the network resource then the network resource
-				// access will be controlled with this policy
+				// Policy applies to the network resource, if the rule's destination resource matches
 				if rule.DestinationResource.ID == string(route.ID) {
 					resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
 				}
@@ -1284,7 +1273,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 			}
 		}
 
-		// if no policy is applied on the network resource we deny all access  by default
+		// If no policy applies to the network resource, deny all access by default
 		if len(resourceAppliedPolicies) == 0 {
 			defaultDeny := getDefaultFirewallRules(route, PolicyTrafficActionDrop)
 			routesFirewallRules = append(routesFirewallRules, defaultDeny...)
@@ -1296,6 +1285,21 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 	}
 
 	return routesFirewallRules
+}
+
+// getNetworkResourceGroups retrieves all groups associated with the given network resource route.
+func (a *Account) getNetworkResourceGroups(route *route.Route) []*Group {
+	var networkResourceGroups []*Group
+
+	for _, group := range a.Groups {
+		for _, resource := range group.Resources {
+			if resource.ID == string(route.ID) {
+				networkResourceGroups = append(networkResourceGroups, group)
+			}
+		}
+	}
+
+	return networkResourceGroups
 }
 
 // GetNetworkResourcesRoutesToSync returns network routes for syncing with a specific peer and its ACL peers.
@@ -1315,6 +1319,7 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 	return routes
 }
 
+// getNetworkResources filters and returns a list of network resources associated with the given network ID.
 func (a *Account) getNetworkResources(networkID string) []*resourceTypes.NetworkResource {
 	var resources []*resourceTypes.NetworkResource
 	for _, resource := range a.NetworkResources {
