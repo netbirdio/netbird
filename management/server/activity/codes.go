@@ -151,6 +151,9 @@ const (
 
 	UserGroupPropagationEnabled  Activity = 69
 	UserGroupPropagationDisabled Activity = 70
+
+	AccountRoutingPeerDNSResolutionEnabled  Activity = 71
+	AccountRoutingPeerDNSResolutionDisabled Activity = 72
 )
 
 var activityMap = map[Activity]Code{
@@ -228,6 +231,9 @@ var activityMap = map[Activity]Code{
 
 	UserGroupPropagationEnabled:  {"User group propagation enabled", "account.setting.group.propagation.enable"},
 	UserGroupPropagationDisabled: {"User group propagation disabled", "account.setting.group.propagation.disable"},
+
+	AccountRoutingPeerDNSResolutionEnabled:  {"Account routing peer DNS resolution enabled", "account.setting.routing.peer.dns.resolution.enable"},
+	AccountRoutingPeerDNSResolutionDisabled: {"Account routing peer DNS resolution disabled", "account.setting.routing.peer.dns.resolution.disable"},
 }
 
 // StringCode returns a string code of the activity

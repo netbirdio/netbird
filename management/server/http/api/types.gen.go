@@ -248,6 +248,9 @@ type AccountSettings struct {
 
 	// RegularUsersViewBlocked Allows blocking regular users from viewing parts of the system.
 	RegularUsersViewBlocked bool `json:"regular_users_view_blocked"`
+
+	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
+	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
 
 // Checks List of objects that perform the actual checks

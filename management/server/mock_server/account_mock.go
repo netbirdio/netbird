@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
@@ -120,6 +121,11 @@ func (am *MockAccountManager) GetUserManager() users.Manager {
 }
 
 func (am *MockAccountManager) GetNetworksManager() networks.Manager {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (am *MockAccountManager) GetSettingsManager() settings.Manager {
 	// TODO implement me
 	panic("implement me")
 }

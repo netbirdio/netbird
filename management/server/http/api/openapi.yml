@@ -84,6 +84,10 @@ components:
           items:
             type: string
             example: Administrators
+        routing_peer_dns_resolution_enabled:
+          description: Enables or disables DNS resolution on the routing peers
+          type: boolean
+          example: true
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
       required:
