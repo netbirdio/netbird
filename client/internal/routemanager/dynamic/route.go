@@ -74,11 +74,7 @@ func NewRoute(
 }
 
 func (r *Route) String() string {
-	s, err := r.route.Domains.String()
-	if err != nil {
-		return r.route.Domains.PunycodeString()
-	}
-	return s
+	return r.route.Domains.SafeString()
 }
 
 func (r *Route) AddRoute(ctx context.Context) error {

@@ -34,7 +34,7 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 		return nil, fmt.Errorf("not connected")
 	}
 
-	routesMap := engine.GetClientRoutesWithNetID()
+	routesMap := engine.GetRouteManager().GetClientRoutesWithNetID()
 	routeSelector := engine.GetRouteManager().GetRouteSelector()
 
 	var routes []*selectRoute
@@ -116,11 +116,12 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		routeSelector.SelectAllRoutes()
 	} else {
 		routes := toNetIDs(req.GetNetworkIDs())
-		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
+		netIdRoutes := maps.Keys(routeManager.GetClientRoutesWithNetID())
+		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), netIdRoutes); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
 	}
-	routeManager.TriggerSelection(engine.GetClientRoutes())
+	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
 	return &proto.SelectNetworksResponse{}, nil
 }
@@ -145,11 +146,12 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		routeSelector.DeselectAllRoutes()
 	} else {
 		routes := toNetIDs(req.GetNetworkIDs())
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
+		netIdRoutes := maps.Keys(routeManager.GetClientRoutesWithNetID())
+		if err := routeSelector.DeselectRoutes(routes, netIdRoutes); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
 	}
-	routeManager.TriggerSelection(engine.GetClientRoutes())
+	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
 	return &proto.SelectNetworksResponse{}, nil
 }

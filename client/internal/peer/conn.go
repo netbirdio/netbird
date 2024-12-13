@@ -747,6 +747,11 @@ func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
 	conn.wgProxyRelay = proxy
 }
 
+// AllowedIP returns the allowed IP of the remote peer
+func (conn *Conn) AllowedIP() net.IP {
+	return conn.allowedIP
+}
+
 func isController(config ConnConfig) bool {
 	return config.LocalKey > config.Key
 }
