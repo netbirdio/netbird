@@ -18,6 +18,7 @@ type HandlerEntry struct {
 	Handler     dns.Handler
 	Priority    int
 	Pattern     string
+	OrigPattern string
 	IsWildcard  bool
 	StopHandler handlerWithStop
 }
@@ -54,15 +55,17 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	origPattern := pattern
 	isWildcard := strings.HasPrefix(pattern, "*.")
 	if isWildcard {
 		pattern = pattern[2:]
 	}
 	pattern = dns.Fqdn(pattern)
+	origPattern = dns.Fqdn(origPattern)
 
-	// First remove any existing handler with same pattern and priority
+	// First remove any existing handler with same original pattern and priority
 	for i := len(c.handlers) - 1; i >= 0; i-- {
-		if c.handlers[i].Pattern == pattern && c.handlers[i].Priority == priority {
+		if c.handlers[i].OrigPattern == origPattern && c.handlers[i].Priority == priority {
 			if c.handlers[i].StopHandler != nil {
 				c.handlers[i].StopHandler.stop()
 			}
@@ -71,12 +74,14 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 		}
 	}
 
-	log.Debugf("adding handler for pattern: %s (wildcard: %v) with priority %d", pattern, isWildcard, priority)
+	log.Debugf("adding handler for pattern: %s (original: %s, wildcard: %v) with priority %d",
+		pattern, origPattern, isWildcard, priority)
 
 	entry := HandlerEntry{
 		Handler:     handler,
 		Priority:    priority,
 		Pattern:     pattern,
+		OrigPattern: origPattern,
 		IsWildcard:  isWildcard,
 		StopHandler: stopHandler,
 	}
@@ -101,10 +106,10 @@ func (c *HandlerChain) RemoveHandler(pattern string, priority int) {
 
 	pattern = dns.Fqdn(pattern)
 
-	// Find and remove handlers matching both pattern and priority
+	// Find and remove handlers matching both original pattern and priority
 	for i := len(c.handlers) - 1; i >= 0; i-- {
 		entry := c.handlers[i]
-		if entry.Pattern == pattern && entry.Priority == priority {
+		if entry.OrigPattern == pattern && entry.Priority == priority {
 			if entry.StopHandler != nil {
 				entry.StopHandler.stop()
 			}
@@ -141,7 +146,8 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	log.Debugf("current handlers (%d):", len(c.handlers))
 	for _, h := range c.handlers {
-		log.Debugf("  - pattern: %s, wildcard: %v, priority: %d", h.Pattern, h.IsWildcard, h.Priority)
+		log.Debugf("  - pattern: %s, original: %s, wildcard: %v, priority: %d",
+			h.Pattern, h.OrigPattern, h.IsWildcard, h.Priority)
 	}
 
 	// Try handlers in priority order
@@ -159,12 +165,12 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		if !matched {
 			log.Debugf("trying domain match: pattern=%s qname=%s wildcard=%v matched=false",
-				entry.Pattern, qname, entry.IsWildcard)
+				entry.OrigPattern, qname, entry.IsWildcard)
 			continue
 		}
 
 		log.Debugf("handler matched: pattern=%s qname=%s wildcard=%v",
-			entry.Pattern, qname, entry.IsWildcard)
+			entry.OrigPattern, qname, entry.IsWildcard)
 		chainWriter := &ResponseWriterChain{ResponseWriter: w}
 		entry.Handler.ServeDNS(chainWriter, r)
 
