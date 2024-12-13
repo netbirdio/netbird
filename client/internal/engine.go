@@ -808,7 +808,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
-	e.updateDNSForwarder(routedDomains)
+	// todo: useRoutingPeerDnsResolutionEnabled from network map proto
+	e.updateDNSForwarder(true, routedDomains)
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
@@ -1552,7 +1553,18 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	return nm, nil
 }
 
-func (e *Engine) updateDNSForwarder(domains []string) {
+// updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
+func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
+	if !enabled {
+		if e.dnsForwardMgr == nil {
+			return
+		}
+		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+			log.Errorf("failed to stop DNS forward: %v", err)
+		}
+		return
+	}
+
 	if len(domains) > 0 {
 		log.Infof("enable domain router service for domains: %v", domains)
 		if e.dnsForwardMgr == nil {
