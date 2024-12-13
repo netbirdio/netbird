@@ -481,7 +481,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
-	settings, err := s.accountManager.GetSettingsManager().GetSettings(ctx, accountID, userID)
+	settings, err := s.accountManager.GetSettingsManager().GetSettings(ctx, peer.AccountID, userID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get settings for account %s and user %s: %v", accountID, userID, err)
 		return nil, mapError(ctx, err)
