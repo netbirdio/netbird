@@ -803,8 +803,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	routedDomains, routes := toRoutes(networkMap.GetRoutes())
-
-	if err := e.routeManager.UpdateRoutes(serial, routes); err != nil {
+	// todo: useRoutingPeerDnsResolutionEnabled from network map proto
+	if err := e.routeManager.UpdateRoutes(serial, routes, true); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 

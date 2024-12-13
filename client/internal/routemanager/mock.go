@@ -32,7 +32,7 @@ func (m *MockManager) InitialRouteRange() []string {
 }
 
 // UpdateRoutes mock implementation of UpdateRoutes from Manager interface
-func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
+func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, b bool) error {
 	if m.UpdateRoutesFunc != nil {
 		return m.UpdateRoutesFunc(updateSerial, newRoutes)
 	}
