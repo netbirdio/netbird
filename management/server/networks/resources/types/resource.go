@@ -4,9 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"regexp"
 	"strings"
 
+	nbDomain "github.com/netbirdio/netbird/management/domain"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+
+	"github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -80,6 +86,47 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		Type:        n.Type,
 		Address:     n.Address,
 	}
+}
+
+func (n *NetworkResource) ToRoute(peer *peer.Peer, router *routerTypes.NetworkRouter) *route.Route {
+	r := &route.Route{
+		ID:                  route.ID(n.ID),
+		AccountID:           n.AccountID,
+		KeepRoute:           true,
+		NetID:               route.NetID(n.Name),
+		Description:         n.Description,
+		Peer:                peer.Key,
+		PeerGroups:          nil,
+		Masquerade:          router.Masquerade,
+		Metric:              router.Metric,
+		Enabled:             true,
+		Groups:              nil,
+		AccessControlGroups: nil,
+	}
+
+	if n.Type == host || n.Type == subnet {
+		prefix, err := netip.ParsePrefix(n.Address)
+		if err != nil {
+			return nil
+		}
+		r.Network = prefix
+
+		r.NetworkType = route.IPv4Network
+		if prefix.Addr().Is6() {
+			r.NetworkType = route.IPv6Network
+		}
+	}
+
+	if n.Type == domain {
+		domainList, err := nbDomain.FromStringList([]string{n.Address})
+		if err != nil {
+			return nil
+		}
+		r.Domains = domainList
+		r.NetworkType = route.DomainNetwork
+	}
+
+	return r
 }
 
 // GetResourceType returns the type of the resource based on the address

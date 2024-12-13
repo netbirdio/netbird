@@ -256,7 +256,7 @@ func (a *Account) GetPeerNetworkMap(
 	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect)
 	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
 
-	networkResources := a.GetNetworkResourcesToSync(ctx, peerID, peersToConnect)
+	networkResourcesRoutes := a.GetNetworkResourcesRoutesToSync(ctx, peerID, peersToConnect)
 	networkResourcesFirewallRules := a.GetPeerNetworkResourceFirewallRules(ctx, peerID, validatedPeersMap)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
@@ -277,8 +277,7 @@ func (a *Account) GetPeerNetworkMap(
 	nm := &NetworkMap{
 		Peers:               peersToConnect,
 		Network:             a.Network.Copy(),
-		NetworkResources:    networkResources,
-		Routes:              routesUpdate,
+		Routes:              slices.Concat(networkResourcesRoutes, routesUpdate),
 		DNSConfig:           dnsUpdate,
 		OfflinePeers:        expiredPeers,
 		FirewallRules:       firewallRules,
@@ -1184,22 +1183,20 @@ func GetAllRoutePoliciesFromGroups(account *Account, accessControlGroups []strin
 	return routePolicies
 }
 
-// getRoutingPeerNetworkResources returns the network resources associated with a routing peer ID for the account.
-func (a *Account) getRoutingPeerNetworkResources(ctx context.Context, peerID string) []*resourceTypes.NetworkResource {
-	var resources []*resourceTypes.NetworkResource
+// getRoutingPeerNetworkResourcesRoutes returns the network resources routes associated with a routing peer ID for the account.
+func (a *Account) getRoutingPeerNetworkResourcesRoutes(ctx context.Context, peerID string) []*route.Route {
+	var routes []*route.Route
 
 	peer := a.GetPeer(peerID)
 	if peer == nil {
 		log.WithContext(ctx).Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
-		return resources
+		return routes
 	}
 
 	// currently we support only linux routing peers
 	if peer.Meta.GoOS != "linux" {
-		return resources
+		return routes
 	}
-
-	// if no router the resource should not be accessible by any peer
 
 	for _, router := range a.NetworkRouters {
 		for _, groupID := range router.PeerGroups {
@@ -1214,81 +1211,89 @@ func (a *Account) getRoutingPeerNetworkResources(ctx context.Context, peerID str
 					continue
 				}
 
-				// TODO: handle duplicate case
-				resources = append(resources, a.getNetworkResources(router.NetworkID)...)
+				resources := a.getNetworkResources(router.NetworkID)
+				routes = append(routes, getRoutesFromResources(resources, router, peer)...)
 			}
 		}
 
 		for router.Peer == peerID {
-			resources = append(resources, a.getNetworkResources(router.NetworkID)...)
+			resources := a.getNetworkResources(router.NetworkID)
+			routes = append(routes, getRoutesFromResources(resources, router, peer)...)
 		}
 	}
 
-	return resources
+	return routes
 }
 
 // GetPeerNetworkResourceFirewallRules gets the network resources firewall rules associated with a routing peer ID for the account.
 func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) []*RouteFirewallRule {
-	routesFirewallRules := make([]*RouteFirewallRule, 0)
-	networkResources := a.getRoutingPeerNetworkResources(ctx, peerID)
+	//routesFirewallRules := make([]*RouteFirewallRule, 0)
+	//networkResources := a.getRoutingPeerNetworkResourcesRoutes(ctx, peerID)
+	//
+	//for _, networkResource := range networkResources {
+	//	var networkResourceGroups []*Group
+	//
+	//	// get the groups in which the resource is already assigned to
+	//	for _, group := range a.Groups {
+	//		for _, r := range group.Resources {
+	//			if r.ID == networkResource.ID && r.Type == networkResource.Type.String() {
+	//				networkResourceGroups = append(networkResourceGroups, group)
+	//			}
+	//		}
+	//	}
+	//
+	//	var resourceAppliedPolicies []*Policy
+	//	for _, policy := range a.Policies {
+	//		if !policy.Enabled {
+	//			continue
+	//		}
+	//
+	//		for _, rule := range policy.Rules {
+	//			if !rule.Enabled {
+	//				continue
+	//			}
+	//
+	//			// if policy rule destinations groups contains the network resource group then the network resources
+	//			// access will be controlled with this policy
+	//			for _, group := range networkResourceGroups {
+	//				if slices.Contains(rule.Destinations, group.ID) {
+	//					resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
+	//					break
+	//				}
+	//			}
+	//
+	//			// if the policy source resource or destination resource is the network resource then the network resource
+	//			// access will be controlled with this policy
+	//			if rule.SourceResource.ID == networkResource.ID || rule.DestinationResource.ID == networkResource.ID {
+	//				resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
+	//			}
+	//
+	//		}
+	//	}
+	//
+	//	// TODO: generate the firewall rules for the network resource
+	//}
 
-	for _, networkResource := range networkResources {
-		var networkResourceGroups []*Group
+	//return routesFirewallRules
 
-		// get the groups in which the resource is already assigned to
-		for _, group := range a.Groups {
-			for _, r := range group.Resources {
-				if r.ID == networkResource.ID && r.Type == networkResource.Type.String() {
-					networkResourceGroups = append(networkResourceGroups, group)
-				}
-			}
-		}
-
-		var resourceAppliedPolicies []*Policy
-		for _, policy := range a.Policies {
-			if !policy.Enabled {
-				continue
-			}
-
-			for _, rule := range policy.Rules {
-				if !rule.Enabled {
-					continue
-				}
-
-				// if policy rule destinations groups contains the network resource group then the network resources
-				// access will be controlled with this policy
-				for _, group := range networkResourceGroups {
-					if slices.Contains(rule.Destinations, group.ID) {
-						resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
-						break
-					}
-				}
-
-				// if the policy source resource or destination resource is the network resource then the network resource
-				// access will be controlled with this policy
-				if rule.SourceResource.ID == networkResource.ID || rule.DestinationResource.ID == networkResource.ID {
-					resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
-				}
-
-			}
-		}
-
-		// TODO: generate the firewall rules for the network resource
-	}
-
-	return routesFirewallRules
+	return nil
 }
 
-func (a *Account) GetNetworkResourcesToSync(ctx context.Context, peerID string, aclPeers []*nbpeer.Peer) []*resourceTypes.NetworkResource {
-	resources := a.getRoutingPeerNetworkResources(ctx, peerID)
-
-	for _, peer := range aclPeers {
-		peerResources := a.getRoutingPeerNetworkResources(ctx, peer.ID)
-		// TODO: filter the peer resources from same HA group
-		resources = append(resources, peerResources...)
+// GetNetworkResourcesRoutesToSync returns network routes for syncing with a specific peer and its ACL peers.
+func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, aclPeers []*nbpeer.Peer) []*route.Route {
+	routes := a.getRoutingPeerNetworkResourcesRoutes(ctx, peerID)
+	peerRoutesMembership := make(LookupMap)
+	for _, r := range routes {
+		peerRoutesMembership[string(r.GetHAUniqueID())] = struct{}{}
 	}
 
-	return resources
+	for _, peer := range aclPeers {
+		peerRoutes := a.getRoutingPeerNetworkResourcesRoutes(ctx, peer.ID)
+		filteredRoutes := a.filterRoutesFromPeersOfSameHAGroup(peerRoutes, peerRoutesMembership)
+		routes = append(routes, filteredRoutes...)
+	}
+
+	return routes
 }
 
 func (a *Account) getNetworkResources(networkID string) []*resourceTypes.NetworkResource {
@@ -1299,4 +1304,14 @@ func (a *Account) getNetworkResources(networkID string) []*resourceTypes.Network
 		}
 	}
 	return resources
+}
+
+// getRoutesFromResources convert the network resources list to routes list.
+func getRoutesFromResources(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peer *nbpeer.Peer) []*route.Route {
+	routes := make([]*route.Route, 0, len(resources))
+	for _, resource := range resources {
+		routes = append(routes, resource.ToRoute(peer, router))
+	}
+
+	return routes
 }
