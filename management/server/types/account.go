@@ -1212,13 +1212,13 @@ func (a *Account) getRoutingPeerNetworkResourcesRoutes(ctx context.Context, peer
 				}
 
 				resources := a.getNetworkResources(router.NetworkID)
-				routes = append(routes, getRoutesFromResources(resources, router, peer)...)
+				routes = append(routes, getNetworkResourcesRoutes(resources, router, peer)...)
 			}
 		}
 
 		for router.Peer == peerID {
 			resources := a.getNetworkResources(router.NetworkID)
-			routes = append(routes, getRoutesFromResources(resources, router, peer)...)
+			routes = append(routes, getNetworkResourcesRoutes(resources, router, peer)...)
 		}
 	}
 
@@ -1306,8 +1306,8 @@ func (a *Account) getNetworkResources(networkID string) []*resourceTypes.Network
 	return resources
 }
 
-// getRoutesFromResources convert the network resources list to routes list.
-func getRoutesFromResources(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peer *nbpeer.Peer) []*route.Route {
+// getNetworkResourcesRoutes convert the network resources list to routes list.
+func getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peer *nbpeer.Peer) []*route.Route {
 	routes := make([]*route.Route, 0, len(resources))
 	for _, resource := range resources {
 		routes = append(routes, resource.ToRoute(peer, router))
