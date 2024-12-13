@@ -385,14 +385,14 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 	localRecords := make(map[string]nbdns.SimpleRecord, 0)
 
 	for _, customZone := range customZones {
-
 		if len(customZone.Records) == 0 {
 			return nil, nil, fmt.Errorf("received an empty list of records")
 		}
 
 		muxUpdates = append(muxUpdates, muxUpdate{
-			domain:  customZone.Domain,
-			handler: s.localResolver,
+			domain:   customZone.Domain,
+			handler:  s.localResolver,
+			priority: PriorityMatchDomain,
 		})
 
 		for _, record := range customZone.Records {

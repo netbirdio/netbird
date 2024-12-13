@@ -49,6 +49,7 @@ func NewHandlerChain() *HandlerChain {
 	}
 }
 
+// AddHandler adds a new handler to the chain, replacing any existing handler with the same pattern and priority
 func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority int, stopHandler handlerWithStop) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -58,6 +59,17 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 		pattern = pattern[2:]
 	}
 	pattern = dns.Fqdn(pattern)
+
+	// First remove any existing handler with same pattern and priority
+	for i := len(c.handlers) - 1; i >= 0; i-- {
+		if c.handlers[i].Pattern == pattern && c.handlers[i].Priority == priority {
+			if c.handlers[i].StopHandler != nil {
+				c.handlers[i].StopHandler.stop()
+			}
+			c.handlers = append(c.handlers[:i], c.handlers[i+1:]...)
+			break
+		}
+	}
 
 	log.Debugf("adding handler for pattern: %s (wildcard: %v) with priority %d", pattern, isWildcard, priority)
 
