@@ -93,6 +93,11 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, fmt.Errorf("failed to create new network resource: %w", err)
 	}
 
+	_, err = m.store.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
+	if err == nil {
+		return nil, errors.New("resource already exists")
+	}
+
 	return resource, m.store.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
 }
 
@@ -126,12 +131,23 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resourceType, err := types.GetResourceType(resource.Address)
+	resourceType, addr, err := types.GetResourceType(resource.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get resource type: %w", err)
 	}
 
 	resource.Type = resourceType
+	resource.Address = addr
+
+	_, err = m.store.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network resource: %w", err)
+	}
+
+	oldResource, err := m.store.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
+	if err == nil && oldResource.ID != resource.ID {
+		return nil, errors.New("new resource name already exists")
+	}
 
 	return resource, m.store.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
 }

@@ -1783,6 +1783,21 @@ func (s *SqlStore) GetNetworkResourceByID(ctx context.Context, lockStrength Lock
 	return netResources, nil
 }
 
+func (s *SqlStore) GetNetworkResourceByName(ctx context.Context, lockStrength LockingStrength, accountID, resourceName string) (*resourceTypes.NetworkResource, error) {
+	var netResources *resourceTypes.NetworkResource
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&netResources, "account_id = ? AND name = ?", accountID, resourceName)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewNetworkResourceNotFoundError(resourceName)
+		}
+		log.WithContext(ctx).Errorf("failed to get network resource from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get network resource from store")
+	}
+
+	return netResources, nil
+}
+
 func (s *SqlStore) SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *resourceTypes.NetworkResource) error {
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(resource)
 	if result.Error != nil {

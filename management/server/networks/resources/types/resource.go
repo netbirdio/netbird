@@ -35,7 +35,7 @@ type NetworkResource struct {
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string) (*NetworkResource, error) {
-	resourceType, err := GetResourceType(address)
+	resourceType, address, err := GetResourceType(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
 	}
@@ -84,23 +84,26 @@ func (n *NetworkResource) Copy() *NetworkResource {
 }
 
 // GetResourceType returns the type of the resource based on the address
-func GetResourceType(address string) (NetworkResourceType, error) {
+func GetResourceType(address string) (NetworkResourceType, string, error) {
 	if ip, cidr, err := net.ParseCIDR(address); err == nil {
 		ones, _ := cidr.Mask.Size()
-		if strings.HasSuffix(address, "/32") || (ip != nil && ones == 32) {
-			return host, nil
+		if strings.HasSuffix(address, "/32") {
+			return host, address, nil
 		}
-		return subnet, nil
+		if ip != nil && ones == 32 {
+			return host, address + "/32", nil
+		}
+		return subnet, address, nil
 	}
 
 	if net.ParseIP(address) != nil {
-		return host, nil
+		return host, address + "/32", nil
 	}
 
 	domainRegex := regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 	if domainRegex.MatchString(address) {
-		return domain, nil
+		return domain, address, nil
 	}
 
-	return "", errors.New("not a host, subnet, or domain")
+	return "", "", errors.New("not a host, subnet, or domain")
 }
