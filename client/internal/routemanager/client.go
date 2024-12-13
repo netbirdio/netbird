@@ -23,7 +23,7 @@ import (
 
 const (
 	handlerTypeDynamic = iota
-	handlerTypeDoman
+	handlerTypeDomain
 	handlerTypeStatic
 )
 
@@ -409,7 +409,7 @@ func handlerFromRoute(
 	useNewDNSRoute bool,
 ) RouteHandler {
 	switch handlerType(rt, useNewDNSRoute) {
-	case handlerTypeDoman:
+	case handlerTypeDomain:
 		return dnsinterceptor.New(
 			rt,
 			routeRefCounter,
@@ -440,7 +440,7 @@ func handlerType(rt *route.Route, useNewDNSRoute bool) int {
 	}
 
 	if useNewDNSRoute {
-		return handlerTypeDoman
+		return handlerTypeDomain
 	}
 	return handlerTypeStatic
 }
