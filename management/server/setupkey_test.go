@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
@@ -30,7 +30,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "group_1",
 			Name:  "group_name_1",
@@ -49,15 +49,15 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	expiresIn := time.Hour
 	keyName := "my-test-key"
 
-	key, err := manager.CreateSetupKey(context.Background(), account.Id, keyName, SetupKeyReusable, expiresIn, []string{},
-		SetupKeyUnlimitedUsage, userID, false)
+	key, err := manager.CreateSetupKey(context.Background(), account.Id, keyName, types.SetupKeyReusable, expiresIn, []string{},
+		types.SetupKeyUnlimitedUsage, userID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	autoGroups := []string{"group_1", "group_2"}
 	revoked := true
-	newKey, err := manager.SaveSetupKey(context.Background(), account.Id, &SetupKey{
+	newKey, err := manager.SaveSetupKey(context.Background(), account.Id, &types.SetupKey{
 		Id:         key.Id,
 		Revoked:    revoked,
 		AutoGroups: autoGroups,
@@ -85,7 +85,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 
 	// saving setup key with All group assigned to auto groups should return error
 	autoGroups = append(autoGroups, groupAll.ID)
-	_, err = manager.SaveSetupKey(context.Background(), account.Id, &SetupKey{
+	_, err = manager.SaveSetupKey(context.Background(), account.Id, &types.SetupKey{
 		Id:         key.Id,
 		Revoked:    revoked,
 		AutoGroups: autoGroups,
@@ -105,7 +105,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
@@ -114,7 +114,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},
@@ -167,8 +167,8 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 
 	for _, tCase := range []testCase{testCase1, testCase2, testCase3} {
 		t.Run(tCase.name, func(t *testing.T) {
-			key, err := manager.CreateSetupKey(context.Background(), account.Id, tCase.expectedKeyName, SetupKeyReusable, expiresIn,
-				tCase.expectedGroups, SetupKeyUnlimitedUsage, userID, false)
+			key, err := manager.CreateSetupKey(context.Background(), account.Id, tCase.expectedKeyName, types.SetupKeyReusable, expiresIn,
+				tCase.expectedGroups, types.SetupKeyUnlimitedUsage, userID, false)
 
 			if tCase.expectedFailure {
 				if err == nil {
@@ -182,7 +182,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 			}
 
 			assertKey(t, key, tCase.expectedKeyName, false, tCase.expectedType, tCase.expectedUsedTimes,
-				tCase.expectedCreatedAt, tCase.expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))),
+				tCase.expectedCreatedAt, tCase.expectedExpiresAt, strconv.Itoa(int(types.Hash(key.Key))),
 				tCase.expectedUpdatedAt, tCase.expectedGroups, false)
 
 			// check the corresponding events that should have been generated
@@ -210,7 +210,7 @@ func TestGetSetupKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plainKey, err := manager.CreateSetupKey(context.Background(), account.Id, "key1", SetupKeyReusable, time.Hour, nil, SetupKeyUnlimitedUsage, userID, false)
+	plainKey, err := manager.CreateSetupKey(context.Background(), account.Id, "key1", types.SetupKeyReusable, time.Hour, nil, types.SetupKeyUnlimitedUsage, userID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,10 +258,10 @@ func TestGenerateDefaultSetupKey(t *testing.T) {
 	expectedExpiresAt := time.Now().UTC().Add(24 * 30 * time.Hour)
 	var expectedAutoGroups []string
 
-	key, plainKey := GenerateDefaultSetupKey()
+	key, plainKey := types.GenerateDefaultSetupKey()
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
-		expectedExpiresAt, strconv.Itoa(int(Hash(plainKey))), expectedUpdatedAt, expectedAutoGroups, true)
+		expectedExpiresAt, strconv.Itoa(int(types.Hash(plainKey))), expectedUpdatedAt, expectedAutoGroups, true)
 
 }
 
@@ -275,48 +275,48 @@ func TestGenerateSetupKey(t *testing.T) {
 	expectedUpdatedAt := time.Now().UTC()
 	var expectedAutoGroups []string
 
-	key, plain := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	key, plain := types.GenerateSetupKey(expectedName, types.SetupKeyOneOff, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false)
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
-		expectedExpiresAt, strconv.Itoa(int(Hash(plain))), expectedUpdatedAt, expectedAutoGroups, true)
+		expectedExpiresAt, strconv.Itoa(int(types.Hash(plain))), expectedUpdatedAt, expectedAutoGroups, true)
 
 }
 
 func TestSetupKey_IsValid(t *testing.T) {
-	validKey, _ := GenerateSetupKey("valid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	validKey, _ := types.GenerateSetupKey("valid key", types.SetupKeyOneOff, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false)
 	if !validKey.IsValid() {
 		t.Errorf("expected key to be valid, got invalid %v", validKey)
 	}
 
 	// expired
-	expiredKey, _ := GenerateSetupKey("invalid key", SetupKeyOneOff, -time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	expiredKey, _ := types.GenerateSetupKey("invalid key", types.SetupKeyOneOff, -time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false)
 	if expiredKey.IsValid() {
 		t.Errorf("expected key to be invalid due to expiration, got valid %v", expiredKey)
 	}
 
 	// revoked
-	revokedKey, _ := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	revokedKey, _ := types.GenerateSetupKey("invalid key", types.SetupKeyOneOff, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false)
 	revokedKey.Revoked = true
 	if revokedKey.IsValid() {
 		t.Errorf("expected revoked key to be invalid, got valid %v", revokedKey)
 	}
 
 	// overused
-	overUsedKey, _ := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	overUsedKey, _ := types.GenerateSetupKey("invalid key", types.SetupKeyOneOff, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false)
 	overUsedKey.UsedTimes = 1
 	if overUsedKey.IsValid() {
 		t.Errorf("expected overused key to be invalid, got valid %v", overUsedKey)
 	}
 
 	// overused
-	reusableKey, _ := GenerateSetupKey("valid key", SetupKeyReusable, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	reusableKey, _ := types.GenerateSetupKey("valid key", types.SetupKeyReusable, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false)
 	reusableKey.UsedTimes = 99
 	if !reusableKey.IsValid() {
 		t.Errorf("expected reusable key to be valid when used many times, got valid %v", reusableKey)
 	}
 }
 
-func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke bool, expectedType string,
+func assertKey(t *testing.T, key *types.SetupKey, expectedName string, expectedRevoke bool, expectedType string,
 	expectedUsedTimes int, expectedCreatedAt time.Time, expectedExpiresAt time.Time, expectedID string,
 	expectedUpdatedAt time.Time, expectedAutoGroups []string, expectHashedKey bool) {
 	t.Helper()
@@ -388,7 +388,7 @@ func isValidBase64SHA256(encodedKey string) bool {
 
 func TestSetupKey_Copy(t *testing.T) {
 
-	key, _ := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
+	key, _ := types.GenerateSetupKey("key name", types.SetupKeyOneOff, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false)
 	keyCopy := key.Copy()
 
 	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id,
@@ -399,22 +399,22 @@ func TestSetupKey_Copy(t *testing.T) {
 func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	})
 	assert.NoError(t, err)
 
-	policy := &Policy{
+	policy := &types.Policy{
 		Enabled: true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"group"},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 	}
@@ -426,7 +426,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
-	var setupKey *SetupKey
+	var setupKey *types.SetupKey
 
 	// Creating setup key should not update account peers and not send peer update
 	t.Run("creating setup key", func(t *testing.T) {
@@ -436,7 +436,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		setupKey, err = manager.CreateSetupKey(context.Background(), account.Id, "key1", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+		setupKey, err = manager.CreateSetupKey(context.Background(), account.Id, "key1", types.SetupKeyReusable, time.Hour, nil, 999, userID, false)
 		assert.NoError(t, err)
 
 		select {
@@ -477,7 +477,7 @@ func TestDefaultAccountManager_CreateSetupKey_ShouldNotAllowToUpdateRevokedKey(t
 		t.Fatal(err)
 	}
 
-	key, err := manager.CreateSetupKey(context.Background(), account.Id, "testName", SetupKeyReusable, time.Hour, nil, SetupKeyUnlimitedUsage, userID, false)
+	key, err := manager.CreateSetupKey(context.Background(), account.Id, "testName", types.SetupKeyReusable, time.Hour, nil, types.SetupKeyUnlimitedUsage, userID, false)
 	assert.NoError(t, err)
 
 	// revoke the key

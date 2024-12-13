@@ -15,9 +15,10 @@ import (
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -1092,9 +1093,9 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, peer4Routes.Routes, 1, "HA route should have 1 server route")
 
-	groups, err := am.Store.GetAccountGroups(context.Background(), LockingStrengthShare, account.Id)
+	groups, err := am.Store.GetAccountGroups(context.Background(), store.LockingStrengthShare, account.Id)
 	require.NoError(t, err)
-	var groupHA1, groupHA2 *nbgroup.Group
+	var groupHA1, groupHA2 *types.Group
 	for _, group := range groups {
 		switch group.Name {
 		case routeGroupHA1:
@@ -1202,7 +1203,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
 	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
 
-	newGroup := &nbgroup.Group{
+	newGroup := &types.Group{
 		ID:    xid.New().String(),
 		Name:  "peer1 group",
 		Peers: []string{peer1ID},
@@ -1255,10 +1256,10 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 }
 
-func createRouterStore(t *testing.T) (Store, error) {
+func createRouterStore(t *testing.T) (store.Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", dataDir)
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1267,7 +1268,7 @@ func createRouterStore(t *testing.T) (Store, error) {
 	return store, nil
 }
 
-func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Account, error) {
 	t.Helper()
 
 	accountID := "testingAcc"
@@ -1279,8 +1280,8 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	ips := account.getTakenIPs()
-	peer1IP, err := AllocatePeerIP(account.Network.Net, ips)
+	ips := account.GetTakenIPs()
+	peer1IP, err := types.AllocatePeerIP(account.Network.Net, ips)
 	if err != nil {
 		return nil, err
 	}
@@ -1306,8 +1307,8 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 	account.Peers[peer1.ID] = peer1
 
-	ips = account.getTakenIPs()
-	peer2IP, err := AllocatePeerIP(account.Network.Net, ips)
+	ips = account.GetTakenIPs()
+	peer2IP, err := types.AllocatePeerIP(account.Network.Net, ips)
 	if err != nil {
 		return nil, err
 	}
@@ -1333,8 +1334,8 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 	account.Peers[peer2.ID] = peer2
 
-	ips = account.getTakenIPs()
-	peer3IP, err := AllocatePeerIP(account.Network.Net, ips)
+	ips = account.GetTakenIPs()
+	peer3IP, err := types.AllocatePeerIP(account.Network.Net, ips)
 	if err != nil {
 		return nil, err
 	}
@@ -1360,8 +1361,8 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 	account.Peers[peer3.ID] = peer3
 
-	ips = account.getTakenIPs()
-	peer4IP, err := AllocatePeerIP(account.Network.Net, ips)
+	ips = account.GetTakenIPs()
+	peer4IP, err := types.AllocatePeerIP(account.Network.Net, ips)
 	if err != nil {
 		return nil, err
 	}
@@ -1387,8 +1388,8 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 	account.Peers[peer4.ID] = peer4
 
-	ips = account.getTakenIPs()
-	peer5IP, err := AllocatePeerIP(account.Network.Net, ips)
+	ips = account.GetTakenIPs()
+	peer5IP, err := types.AllocatePeerIP(account.Network.Net, ips)
 	if err != nil {
 		return nil, err
 	}
@@ -1439,7 +1440,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	newGroup := []*nbgroup.Group{
+	newGroup := []*types.Group{
 		{
 			ID:    routeGroup1,
 			Name:  routeGroup1,
@@ -1491,7 +1492,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		peerKIp = "100.65.29.66"
 	)
 
-	account := &Account{
+	account := &types.Account{
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
@@ -1555,7 +1556,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
-		Groups: map[string]*nbgroup.Group{
+		Groups: map[string]*types.Group{
 			"routingPeer1": {
 				ID:   "routingPeer1",
 				Name: "RoutingPeer1",
@@ -1685,19 +1686,19 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				AccessControlGroups: []string{"route4"},
 			},
 		},
-		Policies: []*Policy{
+		Policies: []*types.Policy{
 			{
 				ID:      "RuleRoute1",
 				Name:    "Route1",
 				Enabled: true,
-				Rules: []*PolicyRule{
+				Rules: []*types.PolicyRule{
 					{
 						ID:            "RuleRoute1",
 						Name:          "ruleRoute1",
 						Bidirectional: true,
 						Enabled:       true,
-						Protocol:      PolicyRuleProtocolALL,
-						Action:        PolicyTrafficActionAccept,
+						Protocol:      types.PolicyRuleProtocolALL,
+						Action:        types.PolicyTrafficActionAccept,
 						Ports:         []string{"80", "320"},
 						Sources: []string{
 							"dev",
@@ -1712,15 +1713,15 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				ID:      "RuleRoute2",
 				Name:    "Route2",
 				Enabled: true,
-				Rules: []*PolicyRule{
+				Rules: []*types.PolicyRule{
 					{
 						ID:            "RuleRoute2",
 						Name:          "ruleRoute2",
 						Bidirectional: true,
 						Enabled:       true,
-						Protocol:      PolicyRuleProtocolTCP,
-						Action:        PolicyTrafficActionAccept,
-						PortRanges: []RulePortRange{
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
+						PortRanges: []types.RulePortRange{
 							{
 								Start: 80,
 								End:   350,
@@ -1742,14 +1743,14 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				ID:      "RuleRoute4",
 				Name:    "RuleRoute4",
 				Enabled: true,
-				Rules: []*PolicyRule{
+				Rules: []*types.PolicyRule{
 					{
 						ID:            "RuleRoute4",
 						Name:          "RuleRoute4",
 						Bidirectional: true,
 						Enabled:       true,
-						Protocol:      PolicyRuleProtocolTCP,
-						Action:        PolicyTrafficActionAccept,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
 						Ports:         []string{"80"},
 						Sources: []string{
 							"restrictQA",
@@ -1764,14 +1765,14 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				ID:      "RuleRoute5",
 				Name:    "RuleRoute5",
 				Enabled: true,
-				Rules: []*PolicyRule{
+				Rules: []*types.PolicyRule{
 					{
 						ID:            "RuleRoute5",
 						Name:          "RuleRoute5",
 						Bidirectional: true,
 						Enabled:       true,
-						Protocol:      PolicyRuleProtocolALL,
-						Action:        PolicyTrafficActionAccept,
+						Protocol:      types.PolicyRuleProtocolALL,
+						Action:        types.PolicyTrafficActionAccept,
 						Sources: []string{
 							"unrestrictedQA",
 						},
@@ -1791,28 +1792,28 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 	t.Run("check applied policies for the route", func(t *testing.T) {
 		route1 := account.Routes["route1"]
-		policies := getAllRoutePoliciesFromGroups(account, route1.AccessControlGroups)
+		policies := types.GetAllRoutePoliciesFromGroups(account, route1.AccessControlGroups)
 		assert.Len(t, policies, 1)
 
 		route2 := account.Routes["route2"]
-		policies = getAllRoutePoliciesFromGroups(account, route2.AccessControlGroups)
+		policies = types.GetAllRoutePoliciesFromGroups(account, route2.AccessControlGroups)
 		assert.Len(t, policies, 1)
 
 		route3 := account.Routes["route3"]
-		policies = getAllRoutePoliciesFromGroups(account, route3.AccessControlGroups)
+		policies = types.GetAllRoutePoliciesFromGroups(account, route3.AccessControlGroups)
 		assert.Len(t, policies, 0)
 	})
 
 	t.Run("check peer routes firewall rules", func(t *testing.T) {
-		routesFirewallRules := account.getPeerRoutesFirewallRules(context.Background(), "peerA", validatedPeers)
+		routesFirewallRules := account.GetPeerRoutesFirewallRules(context.Background(), "peerA", validatedPeers)
 		assert.Len(t, routesFirewallRules, 4)
 
-		expectedRoutesFirewallRules := []*RouteFirewallRule{
+		expectedRoutesFirewallRules := []*types.RouteFirewallRule{
 			{
 				SourceRanges: []string{
-					fmt.Sprintf(AllowedIPsFormat, peerCIp),
-					fmt.Sprintf(AllowedIPsFormat, peerHIp),
-					fmt.Sprintf(AllowedIPsFormat, peerBIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerCIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerHIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerBIp),
 				},
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1821,9 +1822,9 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 			},
 			{
 				SourceRanges: []string{
-					fmt.Sprintf(AllowedIPsFormat, peerCIp),
-					fmt.Sprintf(AllowedIPsFormat, peerHIp),
-					fmt.Sprintf(AllowedIPsFormat, peerBIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerCIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerHIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerBIp),
 				},
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1831,10 +1832,10 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        320,
 			},
 		}
-		additionalFirewallRule := []*RouteFirewallRule{
+		additionalFirewallRule := []*types.RouteFirewallRule{
 			{
 				SourceRanges: []string{
-					fmt.Sprintf(AllowedIPsFormat, peerJIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerJIp),
 				},
 				Action:      "accept",
 				Destination: "192.168.10.0/16",
@@ -1843,7 +1844,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 			},
 			{
 				SourceRanges: []string{
-					fmt.Sprintf(AllowedIPsFormat, peerKIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerKIp),
 				},
 				Action:      "accept",
 				Destination: "192.168.10.0/16",
@@ -1854,21 +1855,21 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(append(expectedRoutesFirewallRules, additionalFirewallRule...)))
 
 		// peerD is also the routing peer for route1, should contain same routes firewall rules as peerA
-		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerD", validatedPeers)
+		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerD", validatedPeers)
 		assert.Len(t, routesFirewallRules, 2)
 		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(expectedRoutesFirewallRules))
 
 		// peerE is a single routing peer for route 2 and route 3
-		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerE", validatedPeers)
+		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerE", validatedPeers)
 		assert.Len(t, routesFirewallRules, 3)
 
-		expectedRoutesFirewallRules = []*RouteFirewallRule{
+		expectedRoutesFirewallRules = []*types.RouteFirewallRule{
 			{
 				SourceRanges: []string{"100.65.250.202/32", "100.65.13.186/32"},
 				Action:       "accept",
 				Destination:  existingNetwork.String(),
 				Protocol:     "tcp",
-				PortRange:    RulePortRange{Start: 80, End: 350},
+				PortRange:    types.RulePortRange{Start: 80, End: 350},
 			},
 			{
 				SourceRanges: []string{"0.0.0.0/0"},
@@ -1888,14 +1889,14 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(expectedRoutesFirewallRules))
 
 		// peerC is part of route1 distribution groups but should not receive the routes firewall rules
-		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers)
+		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers)
 		assert.Len(t, routesFirewallRules, 0)
 	})
 
 }
 
 // orderList is a helper function to sort a list of strings
-func orderRuleSourceRanges(ruleList []*RouteFirewallRule) []*RouteFirewallRule {
+func orderRuleSourceRanges(ruleList []*types.RouteFirewallRule) []*types.RouteFirewallRule {
 	for _, rule := range ruleList {
 		sort.Strings(rule.SourceRanges)
 	}
@@ -1909,7 +1910,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	account, err := initTestRouteAccount(t, manager)
 	require.NoError(t, err, "failed to init testing account")
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -2105,7 +2106,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupB",
 			Name:  "GroupB",
 			Peers: []string{peer1ID},
@@ -2145,7 +2146,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupC",
 			Name:  "GroupC",
 			Peers: []string{peer1ID},

@@ -42,9 +42,11 @@ import (
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/metrics"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
@@ -149,7 +151,7 @@ var (
 			if err != nil {
 				return err
 			}
-			store, err := server.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics)
+			store, err := store.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
@@ -257,7 +259,7 @@ var (
 				return fmt.Errorf("failed creating JWT validator: %v", err)
 			}
 
-			httpAPIAuthCfg := httpapi.AuthCfg{
+			httpAPIAuthCfg := configs.AuthCfg{
 				Issuer:       config.HttpConfig.AuthIssuer,
 				Audience:     config.HttpConfig.AuthAudience,
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
@@ -399,7 +401,7 @@ func notifyStop(ctx context.Context, msg string) {
 	}
 }
 
-func getInstallationID(ctx context.Context, store server.Store) (string, error) {
+func getInstallationID(ctx context.Context, store store.Store) (string, error) {
 	installationID := store.GetInstallationID()
 	if installationID != "" {
 		return installationID, nil
