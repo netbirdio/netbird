@@ -154,6 +154,8 @@ type AccountManager interface {
 	GetNetworksManager() networks.Manager
 	GetUserManager() users.Manager
 	GetSettingsManager() settings.Manager
+	GetGroupsManager() groups.Manager
+}
 
 type DefaultAccountManager struct {
 	Store store.Store
@@ -1758,7 +1760,7 @@ func (am *DefaultAccountManager) GetUserManager() users.Manager {
 func (am *DefaultAccountManager) GetSettingsManager() settings.Manager {
 	return am.settingsManager
 }
-  
+
 func (am *DefaultAccountManager) GetGroupsManager() groups.Manager {
 	return am.groupsManager
 }
