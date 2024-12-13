@@ -802,7 +802,10 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 
-	dnsRouteFeatureFlag := networkMap.PeerConfig.RoutingPeerDnsResolutionEnabled
+	var dnsRouteFeatureFlag bool
+	if networkMap.PeerConfig != nil {
+		dnsRouteFeatureFlag = networkMap.PeerConfig.RoutingPeerDnsResolutionEnabled
+	}
 	routedDomains, routes := toRoutes(networkMap.GetRoutes())
 
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
