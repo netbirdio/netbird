@@ -1555,7 +1555,7 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
 func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
-	if enabled {
+	if !enabled {
 		if e.dnsForwardMgr == nil {
 			return
 		}
