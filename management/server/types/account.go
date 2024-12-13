@@ -1047,7 +1047,7 @@ func (a *Account) GetPeerRoutesFirewallRules(ctx context.Context, peerID string,
 	for _, route := range enabledRoutes {
 		// If no access control groups are specified, accept all traffic.
 		if len(route.AccessControlGroups) == 0 {
-			defaultPermit := getDefaultPermit(route)
+			defaultPermit := getDefaultFirewallRules(route, PolicyTrafficActionAccept)
 			routesFirewallRules = append(routesFirewallRules, defaultPermit...)
 			continue
 		}
@@ -1130,7 +1130,7 @@ func (a *Account) getDistributionGroupsPeers(route *route.Route) map[string]stru
 	return distPeers
 }
 
-func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
+func getDefaultFirewallRules(route *route.Route, action PolicyTrafficActionType) []*RouteFirewallRule {
 	var rules []*RouteFirewallRule
 
 	sources := []string{"0.0.0.0/0"}
@@ -1139,7 +1139,7 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 	}
 	rule := RouteFirewallRule{
 		SourceRanges: sources,
-		Action:       string(PolicyTrafficActionAccept),
+		Action:       string(action),
 		Destination:  route.Network.String(),
 		Protocol:     string(PolicyRuleProtocolALL),
 		IsDynamic:    route.IsDynamic(),
@@ -1227,56 +1227,75 @@ func (a *Account) getRoutingPeerNetworkResourcesRoutes(ctx context.Context, peer
 
 // GetPeerNetworkResourceFirewallRules gets the network resources firewall rules associated with a routing peer ID for the account.
 func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) []*RouteFirewallRule {
-	//routesFirewallRules := make([]*RouteFirewallRule, 0)
-	//networkResources := a.getRoutingPeerNetworkResourcesRoutes(ctx, peerID)
-	//
-	//for _, networkResource := range networkResources {
-	//	var networkResourceGroups []*Group
-	//
-	//	// get the groups in which the resource is already assigned to
-	//	for _, group := range a.Groups {
-	//		for _, r := range group.Resources {
-	//			if r.ID == networkResource.ID && r.Type == networkResource.Type.String() {
-	//				networkResourceGroups = append(networkResourceGroups, group)
-	//			}
-	//		}
-	//	}
-	//
-	//	var resourceAppliedPolicies []*Policy
-	//	for _, policy := range a.Policies {
-	//		if !policy.Enabled {
-	//			continue
-	//		}
-	//
-	//		for _, rule := range policy.Rules {
-	//			if !rule.Enabled {
-	//				continue
-	//			}
-	//
-	//			// if policy rule destinations groups contains the network resource group then the network resources
-	//			// access will be controlled with this policy
-	//			for _, group := range networkResourceGroups {
-	//				if slices.Contains(rule.Destinations, group.ID) {
-	//					resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
-	//					break
-	//				}
-	//			}
-	//
-	//			// if the policy source resource or destination resource is the network resource then the network resource
-	//			// access will be controlled with this policy
-	//			if rule.SourceResource.ID == networkResource.ID || rule.DestinationResource.ID == networkResource.ID {
-	//				resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
-	//			}
-	//
-	//		}
-	//	}
-	//
-	//	// TODO: generate the firewall rules for the network resource
-	//}
+	routesFirewallRules := make([]*RouteFirewallRule, 0)
 
-	//return routesFirewallRules
+	routes := a.getRoutingPeerNetworkResourcesRoutes(ctx, peerID)
 
-	return nil
+	for _, route := range routes {
+		var networkResourceGroups []*Group
+
+		// get the groups in which the resource is already assigned to
+		for _, group := range a.Groups {
+			for _, r := range group.Resources {
+				if r.ID == string(route.ID) {
+					networkResourceGroups = append(networkResourceGroups, group)
+				}
+			}
+		}
+
+		var resourceAppliedPolicies []*Policy
+		distributionPeers := make(map[string]struct{})
+
+		for _, policy := range a.Policies {
+			if !policy.Enabled {
+				continue
+			}
+
+			for _, rule := range policy.Rules {
+				if !rule.Enabled {
+					continue
+				}
+
+				// if policy rule destinations groups contains the network resource group then the network resources
+				// access will be controlled with this policy
+				for _, group := range networkResourceGroups {
+					if slices.Contains(rule.Destinations, group.ID) {
+						resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
+						break
+					}
+				}
+
+				// if the policy destination resource is the network resource then the network resource
+				// access will be controlled with this policy
+				if rule.DestinationResource.ID == string(route.ID) {
+					resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
+				}
+
+				for _, sourceGroup := range rule.Sources {
+					group := a.Groups[sourceGroup]
+					if group == nil {
+						continue
+					}
+
+					for _, peer := range group.Peers {
+						distributionPeers[peer] = struct{}{}
+					}
+				}
+			}
+		}
+
+		// if no policy is applied on the network resource we deny all access  by default
+		if len(resourceAppliedPolicies) == 0 {
+			defaultDeny := getDefaultFirewallRules(route, PolicyTrafficActionDrop)
+			routesFirewallRules = append(routesFirewallRules, defaultDeny...)
+			continue
+		}
+
+		rules := a.getRouteFirewallRules(ctx, peerID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
+		routesFirewallRules = append(routesFirewallRules, rules...)
+	}
+
+	return routesFirewallRules
 }
 
 // GetNetworkResourcesRoutesToSync returns network routes for syncing with a specific peer and its ACL peers.
