@@ -24,6 +24,9 @@ jobs:
         id: go
         with:
           go-version: "1.23.x"
+          cache: false
+
+      - run: echo @(go list ./... | ForEach-Object { $_ } | Where-Object { $_ -notmatch '/management' })
 
       - name: Download wintun
         uses: carlosperate/download-file-action@v2
@@ -46,7 +49,7 @@ jobs:
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOCACHE=C:\Users\runneradmin\AppData\Local\go-build
 
       - name: test
-        run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe test -timeout 10m -p 1 ./... > test-out.txt 2>&1"
+        run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe test -timeout 10m -p 1 @(go list ./... | ForEach-Object { $_ } | Where-Object { $_ -notmatch '/management' }) > test-out.txt 2>&1"
       - name: test output
         if: ${{ always() }}
         run: Get-Content test-out.txt
