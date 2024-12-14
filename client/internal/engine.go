@@ -802,14 +802,17 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 
+	var dnsRouteFeatureFlag bool
+	if networkMap.PeerConfig != nil {
+		dnsRouteFeatureFlag = networkMap.PeerConfig.RoutingPeerDnsResolutionEnabled
+	}
 	routedDomains, routes := toRoutes(networkMap.GetRoutes())
 
-	if err := e.routeManager.UpdateRoutes(serial, routes); err != nil {
+	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
-	// todo: useRoutingPeerDnsResolutionEnabled from network map proto
-	e.updateDNSForwarder(true, routedDomains)
+	e.updateDNSForwarder(dnsRouteFeatureFlag, routedDomains)
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
