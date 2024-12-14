@@ -38,6 +38,15 @@ jobs:
           key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-gotest-cache-
+            
+
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+
+      - name: Install 32-bit libpcap
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
 
       - name: Build client
         if: steps.cache.outputs.cache-hit != 'true'
