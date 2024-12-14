@@ -37,7 +37,7 @@ jobs:
             ${{ env.modcache }}
           key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-gotest-cache-
+            ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
             
 
       - name: Install dependencies
