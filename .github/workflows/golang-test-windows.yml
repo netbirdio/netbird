@@ -34,13 +34,12 @@ jobs:
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
-          save-always: true
           path: |
             ${{ env.cache }}
             ${{ env.modcache }}
-          key: ${{ runner.os }}-gotestdocker-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-gotest-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-gotestdocker-
+            ${{ runner.os }}-gotest-
             ${{ runner.os }}-go-
 
       - name: Download wintun
@@ -63,7 +62,7 @@ jobs:
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOMODCACHE=${{ env.cache }}
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOCACHE=${{ env.modcache }}
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe mod tidy
-      - run: echo "files=@(go list ./... | ForEach-Object { $_ } | Where-Object { $_ -notmatch '/management' })" >> $env:GITHUB_ENV
+      - run: echo "files=$(go list ./... | ForEach-Object { $_ } | Where-Object { $_ -notmatch '/management' })" >> $env:GITHUB_ENV
 
       - name: test
         run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe test -timeout 10m -p 1 ${{ env.files }} > test-out.txt 2>&1"
