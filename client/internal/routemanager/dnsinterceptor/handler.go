@@ -138,14 +138,15 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if len(r.Question) == 0 {
 		return
 	}
-	log.Tracef("received DNS request: %v", r.Question[0].Name)
+	log.Tracef("received DNS request for domain=%s", r.Question[0].Name)
 
 	d.mu.RLock()
 	peerKey := d.currentPeerKey
 	d.mu.RUnlock()
 
 	if peerKey == "" {
-		log.Debugf("no current peer key set, letting next handler try for %s", r.Question[0].Name)
+		log.Tracef("no current peer key set, letting next handler try for domain=%s", r.Question[0].Name)
+
 		d.continueToNextHandler(w, r, "no current peer key")
 		return
 	}
@@ -168,7 +169,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if reply != nil {
 		answer = reply.Answer
 	}
-	log.Debugf("upstream %s (%s) DNS response for %s: %v", upstreamIP, peerKey, r.Question[0].Name, answer)
+	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP, peerKey, r.Question[0].Name, answer)
 
 	if err != nil {
 		log.Errorf("failed to exchange DNS request with %s: %v", upstream, err)
@@ -186,7 +187,8 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 // continueToNextHandler signals the handler chain to try the next handler
 func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, reason string) {
-	log.Debugf("continuing to next handler for %s: %s", r.Question[0].Name, reason)
+	log.Tracef("continuing to next handler for domain=%s reason=%s", r.Question[0].Name, reason)
+
 	resp := new(dns.Msg)
 	resp.SetRcode(r, dns.RcodeNameError)
 	// Set Zero bit to signal handler chain to continue
@@ -220,14 +222,14 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 			case *dns.A:
 				addr, ok := netip.AddrFromSlice(rr.A)
 				if !ok {
-					log.Debugf("failed to convert A record IP: %v", rr.A)
+					log.Tracef("failed to convert A record for domain=%s ip=%v", r.Question[0].Name, rr.A)
 					continue
 				}
 				ip = addr
 			case *dns.AAAA:
 				addr, ok := netip.AddrFromSlice(rr.AAAA)
 				if !ok {
-					log.Debugf("failed to convert AAAA record IP: %v", rr.AAAA)
+					log.Tracef("failed to convert AAAA record for domain=%s ip=%v", r.Question[0].Name, rr.AAAA)
 					continue
 				}
 				ip = addr

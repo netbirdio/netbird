@@ -74,7 +74,7 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 		}
 	}
 
-	log.Debugf("adding handler for pattern: %s (original: %s, wildcard: %v) with priority %d",
+	log.Debugf("adding handler pattern: domain=%s original: domain=%s wildcard=%v priority=%d",
 		pattern, origPattern, isWildcard, priority)
 
 	entry := HandlerEntry{
@@ -139,14 +139,14 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	qname := r.Question[0].Name
-	log.Debugf("handling DNS request for %s", qname)
+	log.Tracef("handling DNS request for domain=%s", qname)
 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	log.Debugf("current handlers (%d):", len(c.handlers))
+	log.Tracef("current handlers (%d):", len(c.handlers))
 	for _, h := range c.handlers {
-		log.Debugf("  - pattern: %s, original: %s, wildcard: %v, priority: %d",
+		log.Tracef("  - pattern: domain=%s original: domain=%s wildcard=%v priority=%d",
 			h.Pattern, h.OrigPattern, h.IsWildcard, h.Priority)
 	}
 
@@ -164,26 +164,27 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		}
 
 		if !matched {
-			log.Debugf("trying domain match: pattern=%s qname=%s wildcard=%v matched=false",
+			log.Tracef("trying domain match: pattern: domain=%s request: domain=%s wildcard=%v matched=false",
 				entry.OrigPattern, qname, entry.IsWildcard)
+
 			continue
 		}
 
-		log.Debugf("handler matched: pattern=%s qname=%s wildcard=%v",
+		log.Tracef("handler matched: pattern: domain=%s request: domain=%s wildcard=%v",
 			entry.OrigPattern, qname, entry.IsWildcard)
 		chainWriter := &ResponseWriterChain{ResponseWriter: w}
 		entry.Handler.ServeDNS(chainWriter, r)
 
 		// If handler wants to continue, try next handler
 		if chainWriter.shouldContinue {
-			log.Debugf("handler requested continue to next handler")
+			log.Tracef("handler requested continue to next handler")
 			continue
 		}
 		return
 	}
 
 	// No handler matched or all handlers passed
-	log.Debugf("no handler found for %s", qname)
+	log.Tracef("no handler found for domain=%s", qname)
 	resp := &dns.Msg{}
 	resp.SetRcode(r, dns.RcodeNameError)
 	if err := w.WriteMsg(resp); err != nil {
