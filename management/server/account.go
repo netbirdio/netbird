@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -152,6 +153,8 @@ type AccountManager interface {
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	GetNetworksManager() networks.Manager
 	GetUserManager() users.Manager
+	GetSettingsManager() settings.Manager
+	GetGroupsManager() groups.Manager
 }
 
 type DefaultAccountManager struct {
@@ -189,6 +192,7 @@ type DefaultAccountManager struct {
 
 	metrics telemetry.AppMetrics
 
+	groupsManager      groups.Manager
 	networksManager    networks.Manager
 	userManager        users.Manager
 	settingsManager    settings.Manager
@@ -268,6 +272,7 @@ func BuildManager(
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
 		networksManager:          networks.NewManager(store, permissionsManager),
+		groupsManager:            groups.NewManager(store, permissionsManager),
 		userManager:              userManager,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
@@ -406,6 +411,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.checkAndSchedulePeerLoginExpiration(ctx, account)
 	}
 
+	updateAccountPeers := false
+	if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled {
+		if newSettings.RoutingPeerDNSResolutionEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
+		}
+		updateAccountPeers = true
+		account.Network.Serial++
+	}
+
 	err = am.handleInactivityExpirationSettings(ctx, account, oldSettings, newSettings, userID, accountID)
 	if err != nil {
 		return nil, err
@@ -421,6 +437,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, err
+	}
+
+	if updateAccountPeers {
+		go am.updateAccountPeers(ctx, accountID)
 	}
 
 	return updatedAccount, nil
@@ -1737,6 +1757,14 @@ func (am *DefaultAccountManager) GetUserManager() users.Manager {
 	return am.userManager
 }
 
+func (am *DefaultAccountManager) GetSettingsManager() settings.Manager {
+	return am.settingsManager
+}
+
+func (am *DefaultAccountManager) GetGroupsManager() groups.Manager {
+	return am.groupsManager
+}
+
 // addAllGroup to account object if it doesn't exist
 func addAllGroup(account *types.Account) error {
 	if len(account.Groups) == 0 {
@@ -1817,6 +1845,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
+			RoutingPeerDNSResolutionEnabled: true,
 		},
 	}
 

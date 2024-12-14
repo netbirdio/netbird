@@ -1004,7 +1004,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, true)
 
 	assert.NotNil(t, response)
 	// assert peer config

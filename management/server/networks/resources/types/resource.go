@@ -57,13 +57,14 @@ func NewNetworkResource(accountID, networkID, name, description, address string)
 	}, nil
 }
 
-func (n *NetworkResource) ToAPIResponse() *api.NetworkResource {
+func (n *NetworkResource) ToAPIResponse(groups []api.GroupMinimum) *api.NetworkResource {
 	return &api.NetworkResource{
 		Id:          n.ID,
 		Name:        n.Name,
 		Description: &n.Description,
 		Type:        api.NetworkResourceType(n.Type.String()),
 		Address:     n.Address,
+		Groups:      groups,
 	}
 }
 

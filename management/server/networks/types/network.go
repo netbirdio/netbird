@@ -22,13 +22,14 @@ func NewNetwork(accountId, name, description string) *Network {
 	}
 }
 
-func (n *Network) ToAPIResponse(routerIDs []string, resourceIDs []string) *api.Network {
+func (n *Network) ToAPIResponse(routerIDs []string, resourceIDs []string, routingPeersCount int) *api.Network {
 	return &api.Network{
-		Id:          n.ID,
-		Name:        n.Name,
-		Description: &n.Description,
-		Routers:     routerIDs,
-		Resources:   resourceIDs,
+		Id:                n.ID,
+		Name:              n.Name,
+		Description:       &n.Description,
+		Routers:           routerIDs,
+		Resources:         resourceIDs,
+		RoutingPeersCount: routingPeersCount,
 	}
 }
 

@@ -94,7 +94,7 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 	routes.AddEndpoints(api.AccountManager, authCfg, router)
 	dns.AddEndpoints(api.AccountManager, authCfg, router)
 	events.AddEndpoints(api.AccountManager, authCfg, router)
-	networks.AddEndpoints(api.AccountManager.GetNetworksManager(), api.AccountManager.GetAccountIDFromToken, authCfg, router)
+	networks.AddEndpoints(api.AccountManager.GetNetworksManager(), api.AccountManager.GetGroupsManager(), api.AccountManager.GetAccountIDFromToken, authCfg, router)
 
 	return rootRouter, nil
 }

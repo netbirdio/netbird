@@ -248,6 +248,9 @@ type AccountSettings struct {
 
 	// RegularUsersViewBlocked Allows blocking regular users from viewing parts of the system.
 	RegularUsersViewBlocked bool `json:"regular_users_view_blocked"`
+
+	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
+	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
 
 // Checks List of objects that perform the actual checks
@@ -532,6 +535,9 @@ type Network struct {
 
 	// Routers List of router IDs associated with the network
 	Routers []string `json:"routers"`
+
+	// RoutingPeersCount Count of routing peers associated with the network
+	RoutingPeersCount int `json:"routing_peers_count"`
 }
 
 // NetworkRequest defines model for NetworkRequest.
@@ -551,6 +557,9 @@ type NetworkResource struct {
 	// Description Network resource description
 	Description *string `json:"description,omitempty"`
 
+	// Groups Groups that the resource belongs to
+	Groups []GroupMinimum `json:"groups"`
+
 	// Id Network Resource ID
 	Id string `json:"id"`
 
@@ -561,6 +570,18 @@ type NetworkResource struct {
 	Type NetworkResourceType `json:"type"`
 }
 
+// NetworkResourceMinimum defines model for NetworkResourceMinimum.
+type NetworkResourceMinimum struct {
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
+	Address string `json:"address"`
+
+	// Description Network resource description
+	Description *string `json:"description,omitempty"`
+
+	// Name Network resource name
+	Name string `json:"name"`
+}
+
 // NetworkResourceRequest defines model for NetworkResourceRequest.
 type NetworkResourceRequest struct {
 	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
@@ -568,6 +589,9 @@ type NetworkResourceRequest struct {
 
 	// Description Network resource description
 	Description *string `json:"description,omitempty"`
+
+	// Groups Group IDs containing the resource
+	Groups []string `json:"groups"`
 
 	// Name Network resource name
 	Name string `json:"name"`

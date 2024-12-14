@@ -331,6 +331,14 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
+			name:           "POST Wildcard Domain",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/routes",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"Description":"Post","domains":["*.example.com"],"network_id":"awesomeNet","Peer":"%s","groups":["%s"]}`, existingPeerID, existingGroupID)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   false,
+		},
+		{
 			name:        "POST UnprocessableEntity when both network and domains are provided",
 			requestType: http.MethodPost,
 			requestPath: "/api/routes",
@@ -607,6 +615,30 @@ func TestValidateDomains(t *testing.T) {
 			name:     "Multiple domains valid and invalid",
 			domains:  []string{"google.com", "invalid,nbdomain.com", "münchen.de"},
 			expected: domain.List{"google.com"},
+			wantErr:  true,
+		},
+		{
+			name:     "Valid wildcard domain",
+			domains:  []string{"*.example.com"},
+			expected: domain.List{"*.example.com"},
+			wantErr:  false,
+		},
+		{
+			name:     "Wildcard with dot domain",
+			domains:  []string{".*.example.com"},
+			expected: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "Wildcard with dot domain",
+			domains:  []string{".*.example.com"},
+			expected: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "Invalid wildcard domain",
+			domains:  []string{"a.*.example.com"},
+			expected: nil,
 			wantErr:  true,
 		},
 	}

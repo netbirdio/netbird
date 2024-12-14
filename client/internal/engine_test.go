@@ -252,7 +252,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 	}
 	engine.wgInterface = wgIface
-	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, relayMgr, nil, nil)
+	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, relayMgr, nil, nil, nil, nil)
 	_, _, err = engine.routeManager.Init()
 	require.NoError(t, err)
 	engine.dnsServer = &dns.MockServer{
@@ -392,8 +392,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 				return
 			}
 
-			if len(engine.peerConns) != c.expectedLen {
-				t.Errorf("expecting Engine.peerConns to be of size %d, got %d", c.expectedLen, len(engine.peerConns))
+			if len(engine.peerStore.PeersPubKey()) != c.expectedLen {
+				t.Errorf("expecting Engine.peerConns to be of size %d, got %d", c.expectedLen, len(engine.peerStore.PeersPubKey()))
 			}
 
 			if engine.networkSerial != c.expectedSerial {
@@ -401,7 +401,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			}
 
 			for _, p := range c.expectedPeers {
-				conn, ok := engine.peerConns[p.GetWgPubKey()]
+				conn, ok := engine.peerStore.PeerConn(p.GetWgPubKey())
 				if !ok {
 					t.Errorf("expecting Engine.peerConns to contain peer %s", p)
 				}
@@ -626,10 +626,10 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
 					input.inputSerial = updateSerial
 					input.inputRoutes = newRoutes
-					return nil, nil, testCase.inputErr
+					return testCase.inputErr
 				},
 			}
 
@@ -802,8 +802,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
-					return nil, nil, nil
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+					return nil
 				},
 			}
 
@@ -1238,7 +1238,8 @@ func getConnectedPeers(e *Engine) int {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	i := 0
-	for _, conn := range e.peerConns {
+	for _, id := range e.peerStore.PeersPubKey() {
+		conn, _ := e.peerStore.PeerConn(id)
 		if conn.Status() == peer.StatusConnected {
 			i++
 		}
@@ -1250,5 +1251,5 @@ func getPeers(e *Engine) int {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	return len(e.peerConns)
+	return len(e.peerStore.PeersPubKey())
 }

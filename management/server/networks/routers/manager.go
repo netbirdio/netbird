@@ -15,7 +15,7 @@ import (
 
 type Manager interface {
 	GetAllRoutersInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkRouter, error)
-	GetAllRouterIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error)
+	GetAllRoutersInAccount(ctx context.Context, accountID, userID string) (map[string][]*types.NetworkRouter, error)
 	CreateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error)
 	GetRouter(ctx context.Context, accountID, userID, networkID, routerID string) (*types.NetworkRouter, error)
 	UpdateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error)
@@ -46,7 +46,7 @@ func (m *managerImpl) GetAllRoutersInNetwork(ctx context.Context, accountID, use
 	return m.store.GetNetworkRoutersByNetID(ctx, store.LockingStrengthShare, accountID, networkID)
 }
 
-func (m *managerImpl) GetAllRouterIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
+func (m *managerImpl) GetAllRoutersInAccount(ctx context.Context, accountID, userID string) (map[string][]*types.NetworkRouter, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -60,9 +60,9 @@ func (m *managerImpl) GetAllRouterIDsInAccount(ctx context.Context, accountID, u
 		return nil, fmt.Errorf("failed to get network routers: %w", err)
 	}
 
-	routersMap := make(map[string][]string)
+	routersMap := make(map[string][]*types.NetworkRouter)
 	for _, router := range routers {
-		routersMap[router.NetworkID] = append(routersMap[router.NetworkID], router.ID)
+		routersMap[router.NetworkID] = append(routersMap[router.NetworkID], router)
 	}
 
 	return routersMap, nil

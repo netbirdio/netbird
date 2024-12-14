@@ -272,8 +272,8 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 		return nil, fmt.Errorf("not connected")
 	}
 
-	routesMap := engine.GetClientRoutesWithNetID()
 	routeManager := engine.GetRouteManager()
+	routesMap := routeManager.GetClientRoutesWithNetID()
 	if routeManager == nil {
 		return nil, fmt.Errorf("could not get route manager")
 	}
@@ -365,12 +365,12 @@ func (c *Client) SelectRoute(id string) error {
 	} else {
 		log.Debugf("select route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
+		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
 			log.Debugf("error when selecting routes: %s", err)
 			return fmt.Errorf("select routes: %w", err)
 		}
 	}
-	routeManager.TriggerSelection(engine.GetClientRoutes())
+	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 	return nil
 
 }
@@ -392,12 +392,12 @@ func (c *Client) DeselectRoute(id string) error {
 	} else {
 		log.Debugf("deselect route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
+		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
 			log.Debugf("error when deselecting routes: %s", err)
 			return fmt.Errorf("deselect routes: %w", err)
 		}
 	}
-	routeManager.TriggerSelection(engine.GetClientRoutes())
+	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 	return nil
 }
 
