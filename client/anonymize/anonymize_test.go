@@ -92,7 +92,6 @@ func TestAnonymizeDNSLogLine(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Helper()
 			result := anonymizer.AnonymizeDNSLogLine(tc.input)
 			if tc.original != "" {
 				assert.NotContains(t, result, tc.original)
