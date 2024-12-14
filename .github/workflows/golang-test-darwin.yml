@@ -29,8 +29,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
-          key: macos-go-${{ hashFiles('**/go.sum') }}
+          key: macos-gotest-${{ hashFiles('**/go.sum') }}
           restore-keys: |
+            macos-gotest-
             macos-go-
 
       - name: Install libpcap
