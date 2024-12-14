@@ -36,7 +36,7 @@ import (
 // Manager is a route manager interface
 type Manager interface {
 	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
-	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
+	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, useNewDNSRoute bool) error
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
 	GetClientRoutes() route.HAMap
@@ -66,9 +66,10 @@ type DefaultManager struct {
 	dnsRouteInterval     time.Duration
 	stateManager         *statemanager.Manager
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes route.HAMap
-	dnsServer    dns.Server
-	peerStore    *peerstore.Store
+	clientRoutes   route.HAMap
+	dnsServer      dns.Server
+	peerStore      *peerstore.Store
+	useNewDNSRoute bool
 }
 
 func NewManager(
@@ -227,7 +228,7 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 }
 
 // UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
-func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
+func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, useNewDNSRoute bool) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not updating routes as context is closed")
@@ -237,6 +238,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 
 	m.mux.Lock()
 	defer m.mux.Unlock()
+	m.useNewDNSRoute = useNewDNSRoute
 
 	newServerRoutesMap, newClientRoutesIDMap := m.classifyRoutes(newRoutes)
 
@@ -318,6 +320,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			m.allowedIPsRefCounter,
 			m.dnsServer,
 			m.peerStore,
+			m.useNewDNSRoute,
 		)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
@@ -347,7 +350,18 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
-			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.dnsRouteInterval, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter, m.dnsServer, m.peerStore)
+			clientNetworkWatcher = newClientNetworkWatcher(
+				m.ctx,
+				m.dnsRouteInterval,
+				m.wgInterface,
+				m.statusRecorder,
+				routes[0],
+				m.routeRefCounter,
+				m.allowedIPsRefCounter,
+				m.dnsServer,
+				m.peerStore,
+				m.useNewDNSRoute,
+			)
 			m.clientNetworks[id] = clientNetworkWatcher
 			go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		}
