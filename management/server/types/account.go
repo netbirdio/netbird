@@ -1228,56 +1228,17 @@ func (a *Account) getRoutingPeerNetworkResourcesRoutes(ctx context.Context, peer
 // GetPeerNetworkResourceFirewallRules gets the network resources firewall rules associated with a routing peer ID for the account.
 func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) []*RouteFirewallRule {
 	routesFirewallRules := make([]*RouteFirewallRule, 0)
-
 	routes := a.getRoutingPeerNetworkResourcesRoutes(ctx, peerID)
 
 	for _, route := range routes {
 		networkResourceGroups := a.getNetworkResourceGroups(route)
-		distributionPeers := make(map[string]struct{})
 
-		var resourceAppliedPolicies []*Policy
-
-		for _, policy := range a.Policies {
-			if !policy.Enabled {
-				continue
-			}
-
-			for _, rule := range policy.Rules {
-				if !rule.Enabled {
-					continue
-				}
-
-				// Policy applies to the network resource if its destination group matches
-				for _, group := range networkResourceGroups {
-					if slices.Contains(rule.Destinations, group.ID) {
-						resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
-						break
-					}
-				}
-
-				// Policy applies to the network resource, if the rule's destination resource matches
-				if rule.DestinationResource.ID == string(route.ID) {
-					resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
-				}
-
-				for _, sourceGroup := range rule.Sources {
-					group := a.Groups[sourceGroup]
-					if group == nil {
-						continue
-					}
-
-					for _, peer := range group.Peers {
-						distributionPeers[peer] = struct{}{}
-					}
-				}
-			}
-		}
+		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(route, networkResourceGroups)
+		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		// If no policy applies to the network resource, deny all access by default
 		if len(resourceAppliedPolicies) == 0 {
-			defaultDeny := getDefaultFirewallRules(route, PolicyTrafficActionDrop)
-			routesFirewallRules = append(routesFirewallRules, defaultDeny...)
-			continue
+			return getDefaultFirewallRules(route, PolicyTrafficActionDrop)
 		}
 
 		rules := a.getRouteFirewallRules(ctx, peerID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
@@ -1330,6 +1291,38 @@ func (a *Account) getNetworkResources(networkID string) []*resourceTypes.Network
 	return resources
 }
 
+// GetPoliciesForNetworkResource retrieves the list of policies that apply to a specific network resource.
+// A policy is deemed applicable if its destination groups include any of the given network resource groups
+// or if its destination resource explicitly matches the provided route.
+func (a *Account) GetPoliciesForNetworkResource(route *route.Route, networkResourceGroups []*Group) []*Policy {
+	var resourceAppliedPolicies []*Policy
+
+	for _, policy := range a.Policies {
+		if !policy.Enabled {
+			continue
+		}
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			for _, group := range networkResourceGroups {
+				if slices.Contains(rule.Destinations, group.ID) {
+					resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
+					break
+				}
+			}
+
+			if rule.DestinationResource.ID == string(route.ID) {
+				resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
+			}
+		}
+	}
+
+	return resourceAppliedPolicies
+}
+
 // getNetworkResourcesRoutes convert the network resources list to routes list.
 func getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peer *nbpeer.Peer) []*route.Route {
 	routes := make([]*route.Route, 0, len(resources))
@@ -1338,4 +1331,26 @@ func getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, route
 	}
 
 	return routes
+}
+
+// getPoliciesSourcePeers collects all unique peers from the source groups defined in the given policies.
+func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[string]struct{} {
+	sourcePeers := make(map[string]struct{})
+
+	for _, policy := range policies {
+		for _, rule := range policy.Rules {
+			for _, sourceGroup := range rule.Sources {
+				group := groups[sourceGroup]
+				if group == nil {
+					continue
+				}
+
+				for _, peer := range group.Peers {
+					sourcePeers[peer] = struct{}{}
+				}
+			}
+		}
+	}
+
+	return sourcePeers
 }
