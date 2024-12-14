@@ -138,7 +138,8 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if len(r.Question) == 0 {
 		return
 	}
-	log.Tracef("received DNS request for domain=%s", r.Question[0].Name)
+	log.Tracef("received DNS request for domain=%s type=%v class=%v",
+		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 
 	d.mu.RLock()
 	peerKey := d.currentPeerKey

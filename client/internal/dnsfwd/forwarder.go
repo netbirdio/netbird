@@ -71,7 +71,8 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 	if len(query.Question) == 0 {
 		return
 	}
-	log.Tracef("received DNS request for DNS forwarder: domain=%v", query.Question[0].Name)
+	log.Tracef("received DNS request for DNS forwarder: domain=%v type=%v class=%v",
+		query.Question[0].Name, query.Question[0].Qtype, query.Question[0].Qclass)
 
 	question := query.Question[0]
 	domain := question.Name
