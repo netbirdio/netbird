@@ -317,7 +317,7 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 
 }
 
-func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain][]netip.Prefix) *RoutesSelectionDetails {
+func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) *RoutesSelectionDetails {
 	var routeSelection []RoutesSelectionInfo
 	for _, r := range routes {
 		domainList := make([]DomainInfo, 0)
@@ -325,9 +325,10 @@ func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[dom
 			domainResp := DomainInfo{
 				Domain: d.SafeString(),
 			}
-			if prefixes, exists := resolvedDomains[d]; exists {
+
+			if info, exists := resolvedDomains[d]; exists {
 				var ipStrings []string
-				for _, prefix := range prefixes {
+				for _, prefix := range info.Prefixes {
 					ipStrings = append(ipStrings, prefix.Addr().String())
 				}
 				domainResp.ResolvedIPs = strings.Join(ipStrings, ", ")
