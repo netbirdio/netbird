@@ -71,6 +71,10 @@ func (u *upstreamResolverBase) String() string {
 	return fmt.Sprintf("%v", u.upstreamServers)
 }
 
+func (u *upstreamResolverBase) MatchSubdomains() bool {
+	return true
+}
+
 func (u *upstreamResolverBase) stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()

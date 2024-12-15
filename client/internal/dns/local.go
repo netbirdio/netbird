@@ -17,6 +17,10 @@ type localResolver struct {
 	records       sync.Map
 }
 
+func (d *localResolver) MatchSubdomains() bool {
+	return true
+}
+
 func (d *localResolver) stop() {
 }
 
