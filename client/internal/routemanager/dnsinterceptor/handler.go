@@ -83,6 +83,8 @@ func (d *DnsInterceptor) RemoveRoute() error {
 		}
 		log.Debugf("removed dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", prefixes), " ", ", "))
 
+	}
+	for _, domain := range d.route.Domains {
 		d.statusRecorder.DeleteResolvedDomainsStates(domain)
 	}
 
@@ -213,8 +215,18 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 	}
 
 	if len(r.Answer) > 0 && len(r.Question) > 0 {
-		// DNS names from miekg/dns are already in punycode format
-		dom := domain.Domain(r.Question[0].Name)
+		origPattern := ""
+		if writer, ok := w.(*nbdns.ResponseWriterChain); ok {
+			origPattern = writer.GetOrigPattern()
+		}
+
+		resolvedDomain := domain.Domain(r.Question[0].Name)
+
+		// already punycode via RegisterHandler()
+		originalDomain := domain.Domain(origPattern)
+		if originalDomain == "" {
+			originalDomain = resolvedDomain
+		}
 
 		var newPrefixes []netip.Prefix
 		for _, answer := range r.Answer {
@@ -223,14 +235,14 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 			case *dns.A:
 				addr, ok := netip.AddrFromSlice(rr.A)
 				if !ok {
-					log.Tracef("failed to convert A record for domain=%s ip=%v", r.Question[0].Name, rr.A)
+					log.Tracef("failed to convert A record for domain=%s ip=%v", resolvedDomain, rr.A)
 					continue
 				}
 				ip = addr
 			case *dns.AAAA:
 				addr, ok := netip.AddrFromSlice(rr.AAAA)
 				if !ok {
-					log.Tracef("failed to convert AAAA record for domain=%s ip=%v", r.Question[0].Name, rr.AAAA)
+					log.Tracef("failed to convert AAAA record for domain=%s ip=%v", resolvedDomain, rr.AAAA)
 					continue
 				}
 				ip = addr
@@ -243,7 +255,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 		}
 
 		if len(newPrefixes) > 0 {
-			if err := d.updateDomainPrefixes(dom, newPrefixes); err != nil {
+			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes); err != nil {
 				log.Errorf("failed to update domain prefixes: %v", err)
 			}
 		}
@@ -256,11 +268,11 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 	return nil
 }
 
-func (d *DnsInterceptor) updateDomainPrefixes(domain domain.Domain, newPrefixes []netip.Prefix) error {
+func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain domain.Domain, newPrefixes []netip.Prefix) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	oldPrefixes := d.interceptedDomains[domain]
+	oldPrefixes := d.interceptedDomains[resolvedDomain]
 	toAdd, toRemove := determinePrefixChanges(oldPrefixes, newPrefixes)
 
 	var merr *multierror.Error
@@ -280,7 +292,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(domain domain.Domain, newPrefixes 
 		} else if ref.Count > 1 && ref.Out != d.currentPeerKey {
 			log.Warnf("IP [%s] for domain [%s] is already routed by peer [%s]. HA routing disabled",
 				prefix.Addr(),
-				domain.SafeString(),
+				resolvedDomain.SafeString(),
 				ref.Out,
 			)
 		}
@@ -300,16 +312,23 @@ func (d *DnsInterceptor) updateDomainPrefixes(domain domain.Domain, newPrefixes 
 		}
 	}
 
-	// Update domain prefixes
+	// Update domain prefixes using resolved domain as key
 	if len(toAdd) > 0 || len(toRemove) > 0 {
-		d.interceptedDomains[domain] = newPrefixes
-		d.statusRecorder.UpdateResolvedDomainsStates(domain, newPrefixes)
+		d.interceptedDomains[resolvedDomain] = newPrefixes
+		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
+		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes)
 
 		if len(toAdd) > 0 {
-			log.Debugf("added dynamic route(s) for [%s]: %s", domain.SafeString(), toAdd)
+			log.Debugf("added dynamic route(s) for domain=%s (pattern: domain=%s): %s",
+				resolvedDomain.SafeString(),
+				originalDomain.SafeString(),
+				toAdd)
 		}
 		if len(toRemove) > 0 {
-			log.Debugf("removed dynamic route(s) for [%s]: %s", domain.SafeString(), toRemove)
+			log.Debugf("removed dynamic route(s) for domain=%s (pattern: domain=%s): %s",
+				resolvedDomain.SafeString(),
+				originalDomain.SafeString(),
+				toRemove)
 		}
 	}
 

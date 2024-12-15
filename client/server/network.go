@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sort"
 
 	"golang.org/x/exp/maps"
@@ -77,17 +78,27 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 			Selected:    route.Selected,
 		}
 
-		for _, domain := range route.Domains {
-			if prefixes, exists := resolvedDomains[domain]; exists {
-				var ipStrings []string
-				for _, prefix := range prefixes {
-					ipStrings = append(ipStrings, prefix.Addr().String())
+		// Group resolved IPs by their parent domain
+		domainMap := map[domain.Domain][]string{}
+
+		for resolvedDomain, info := range resolvedDomains {
+			// Check if this resolved domain's parent is in our route's domains
+			if slices.Contains(route.Domains, info.ParentDomain) {
+				ips := make([]string, 0, len(info.Prefixes))
+				for _, prefix := range info.Prefixes {
+					ips = append(ips, prefix.Addr().String())
 				}
-				pbRoute.ResolvedIPs[string(domain)] = &proto.IPList{
-					Ips: ipStrings,
-				}
+				domainMap[resolvedDomain] = ips
 			}
 		}
+
+		// Convert to proto format
+		for domain, ips := range domainMap {
+			pbRoute.ResolvedIPs[string(domain)] = &proto.IPList{
+				Ips: ips,
+			}
+		}
+
 		pbRoutes = append(pbRoutes, pbRoute)
 	}
 

@@ -32,6 +32,7 @@ type HandlerChain struct {
 // ResponseWriterChain wraps a dns.ResponseWriter to track if handler wants to continue chain
 type ResponseWriterChain struct {
 	dns.ResponseWriter
+	origPattern    string
 	shouldContinue bool
 }
 
@@ -48,6 +49,11 @@ func NewHandlerChain() *HandlerChain {
 	return &HandlerChain{
 		handlers: make([]HandlerEntry, 0),
 	}
+}
+
+// GetOrigPattern returns the original pattern of the handler that wrote the response
+func (w *ResponseWriterChain) GetOrigPattern() string {
+	return w.origPattern
 }
 
 // AddHandler adds a new handler to the chain, replacing any existing handler with the same pattern and priority
@@ -172,7 +178,11 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		log.Tracef("handler matched: pattern: domain=%s request: domain=%s wildcard=%v",
 			entry.OrigPattern, qname, entry.IsWildcard)
-		chainWriter := &ResponseWriterChain{ResponseWriter: w}
+
+		chainWriter := &ResponseWriterChain{
+			ResponseWriter: w,
+			origPattern:    entry.OrigPattern,
+		}
 		entry.Handler.ServeDNS(chainWriter, r)
 
 		// If handler wants to continue, try next handler
