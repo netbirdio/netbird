@@ -1142,6 +1142,7 @@ func getDefaultFirewallRules(route *route.Route, action PolicyTrafficActionType)
 		Action:       string(action),
 		Destination:  route.Network.String(),
 		Protocol:     string(PolicyRuleProtocolALL),
+		Domains:      route.Domains,
 		IsDynamic:    route.IsDynamic(),
 	}
 
@@ -1231,14 +1232,14 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 	routes := a.getRoutingPeerNetworkResourcesRoutes(ctx, peerID)
 
 	for _, route := range routes {
-		networkResourceGroups := a.getNetworkResourceGroups(route)
-
-		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(route, networkResourceGroups)
+		resourceAppliedPolicies := a.GetPoliciesForNetworkResourceRoute(route)
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		// If no policy applies to the network resource, deny all access by default
 		if len(resourceAppliedPolicies) == 0 {
-			return getDefaultFirewallRules(route, PolicyTrafficActionDrop)
+			defaultDenyRules := getDefaultFirewallRules(route, PolicyTrafficActionDrop)
+			routesFirewallRules = append(routesFirewallRules, defaultDenyRules...)
+			continue
 		}
 
 		rules := a.getRouteFirewallRules(ctx, peerID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
@@ -1291,11 +1292,13 @@ func (a *Account) getNetworkResources(networkID string) []*resourceTypes.Network
 	return resources
 }
 
-// GetPoliciesForNetworkResource retrieves the list of policies that apply to a specific network resource.
+// GetPoliciesForNetworkResourceRoute retrieves the list of policies that apply to a specific network resource route.
 // A policy is deemed applicable if its destination groups include any of the given network resource groups
 // or if its destination resource explicitly matches the provided route.
-func (a *Account) GetPoliciesForNetworkResource(route *route.Route, networkResourceGroups []*Group) []*Policy {
+func (a *Account) GetPoliciesForNetworkResourceRoute(route *route.Route) []*Policy {
 	var resourceAppliedPolicies []*Policy
+
+	networkResourceGroups := a.getNetworkResourceGroups(route)
 
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
