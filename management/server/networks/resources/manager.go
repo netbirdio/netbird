@@ -159,6 +159,9 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		}
 
 		account, err := transaction.GetAccount(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to get account: %w", err)
+		}
 		account.DeleteResource(resource.ID)
 
 		err = transaction.SaveAccount(ctx, account)
