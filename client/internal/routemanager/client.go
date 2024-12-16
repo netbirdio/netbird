@@ -442,5 +442,5 @@ func handlerType(rt *route.Route, useNewDNSRoute bool) int {
 	if useNewDNSRoute {
 		return handlerTypeDomain
 	}
-	return handlerTypeStatic
+	return handlerTypeDynamic
 }
