@@ -569,6 +569,13 @@ func (a *Account) DeletePeer(peerID string) {
 		}
 	}
 
+	for i, r := range a.NetworkRouters {
+		if r.Peer == peerID {
+			a.NetworkRouters = append(a.NetworkRouters[:i], a.NetworkRouters[i+1:]...)
+			break
+		}
+	}
+
 	delete(a.Peers, peerID)
 	a.Network.IncSerial()
 }
