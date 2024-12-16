@@ -27,14 +27,14 @@ import (
 type status int
 
 const (
-	defaultModuleDir        = "/lib/modules"
-	unknown          status = iota
-	unloaded
-	unloading
-	loading
-	live
-	inuse
-	envDisableWireGuardKernel = "NB_WG_KERNEL_DISABLED"
+	unknown                   status = 1
+	unloaded                  status = 2
+	unloading                 status = 3
+	loading                   status = 4
+	live                      status = 5
+	inuse                     status = 6
+	defaultModuleDir                 = "/lib/modules"
+	envDisableWireGuardKernel        = "NB_WG_KERNEL_DISABLED"
 )
 
 type module struct {
