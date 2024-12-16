@@ -21,7 +21,11 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-const useNewDNSRoute = true
+const (
+	handlerTypeDynamic = iota
+	handlerTypeDomain
+	handlerTypeStatic
+)
 
 type routerPeerStatus struct {
 	connected bool
@@ -67,6 +71,7 @@ func newClientNetworkWatcher(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	dnsServer nbdns.Server,
 	peerStore *peerstore.Store,
+	useNewDNSRoute bool,
 ) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -88,6 +93,7 @@ func newClientNetworkWatcher(
 			wgInterface,
 			dnsServer,
 			peerStore,
+			useNewDNSRoute,
 		),
 	}
 	return client
@@ -400,18 +406,19 @@ func handlerFromRoute(
 	wgInterface iface.IWGIface,
 	dnsServer nbdns.Server,
 	peerStore *peerstore.Store,
+	useNewDNSRoute bool,
 ) RouteHandler {
-	if rt.IsDynamic() {
-		if useNewDNSRoute {
-			return dnsinterceptor.New(
-				rt,
-				routeRefCounter,
-				allowedIPsRefCounter,
-				statusRecorder,
-				dnsServer,
-				peerStore,
-			)
-		}
+	switch handlerType(rt, useNewDNSRoute) {
+	case handlerTypeDomain:
+		return dnsinterceptor.New(
+			rt,
+			routeRefCounter,
+			allowedIPsRefCounter,
+			statusRecorder,
+			dnsServer,
+			peerStore,
+		)
+	case handlerTypeDynamic:
 		dns := nbdns.NewServiceViaMemory(wgInterface)
 		return dynamic.NewRoute(
 			rt,
@@ -422,6 +429,18 @@ func handlerFromRoute(
 			wgInterface,
 			fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()),
 		)
+	default:
+		return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
 	}
-	return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
+}
+
+func handlerType(rt *route.Route, useNewDNSRoute bool) int {
+	if !rt.IsDynamic() {
+		return handlerTypeStatic
+	}
+
+	if useNewDNSRoute {
+		return handlerTypeDomain
+	}
+	return handlerTypeStatic
 }
