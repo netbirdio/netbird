@@ -13,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -760,6 +763,62 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 		}
 		account.Groups[groupID] = group
 
+		// Create network, router and resource for this group
+		network := &networkTypes.Network{
+			ID:        fmt.Sprintf("network-%d", i),
+			AccountID: account.Id,
+			Name:      fmt.Sprintf("Network for Group %d", i),
+		}
+		account.Networks = append(account.Networks, network)
+
+		ips := account.GetTakenIPs()
+		peerIP, err := types.AllocatePeerIP(account.Network.Net, ips)
+		if err != nil {
+			return nil, "", "", err
+		}
+
+		peerKey, _ := wgtypes.GeneratePrivateKey()
+		peer := &nbpeer.Peer{
+			ID:       fmt.Sprintf("peer-%d", len(account.Peers)+1),
+			DNSLabel: fmt.Sprintf("peer-%d", len(account.Peers)+1),
+			Key:      peerKey.PublicKey().String(),
+			IP:       peerIP,
+			Status:   &nbpeer.PeerStatus{},
+			UserID:   regularUser,
+			Meta: nbpeer.PeerSystemMeta{
+				Hostname:  fmt.Sprintf("peer-%d", len(account.Peers)+1),
+				GoOS:      "linux",
+				Kernel:    "Linux",
+				Core:      "21.04",
+				Platform:  "x86_64",
+				OS:        "Ubuntu",
+				WtVersion: "development",
+				UIVersion: "development",
+			},
+		}
+		account.Peers[peer.ID] = peer
+
+		router := &routerTypes.NetworkRouter{
+			ID:         fmt.Sprintf("network-router-%d", i),
+			NetworkID:  network.ID,
+			AccountID:  account.Id,
+			Peer:       peer.ID,
+			PeerGroups: []string{},
+			Masquerade: false,
+			Metric:     9999,
+		}
+		account.NetworkRouters = append(account.NetworkRouters, router)
+
+		resource := &resourceTypes.NetworkResource{
+			ID:        fmt.Sprintf("network-resource-%d", i),
+			NetworkID: network.ID,
+			AccountID: account.Id,
+			Name:      fmt.Sprintf("Network resource for Group %d", i),
+			Type:      "host",
+			Address:   "192.0.2.0/32",
+		}
+		account.NetworkResources = append(account.NetworkResources, resource)
+
 		// Create a policy for this group
 		policy := &types.Policy{
 			ID:      fmt.Sprintf("policy-%d", i),
@@ -767,11 +826,14 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			Enabled: true,
 			Rules: []*types.PolicyRule{
 				{
-					ID:            fmt.Sprintf("rule-%d", i),
-					Name:          fmt.Sprintf("Rule for Group %d", i),
-					Enabled:       true,
-					Sources:       []string{groupID},
-					Destinations:  []string{groupID},
+					ID:           fmt.Sprintf("rule-%d", i),
+					Name:         fmt.Sprintf("Rule for Group %d", i),
+					Enabled:      true,
+					Sources:      []string{groupID},
+					Destinations: []string{groupID},
+					DestinationResource: types.Resource{
+						ID: resource.ID,
+					},
 					Bidirectional: true,
 					Protocol:      types.PolicyRuleProtocolALL,
 					Action:        types.PolicyTrafficActionAccept,
