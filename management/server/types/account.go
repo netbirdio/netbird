@@ -1216,7 +1216,7 @@ func (a *Account) getRoutingPeerNetworkResourcesRoutes(ctx context.Context, peer
 			}
 		}
 
-		for router.Peer == peerID {
+		if router.Peer == peerID {
 			resources := a.getNetworkResources(router.NetworkID)
 			routes = append(routes, getNetworkResourcesRoutes(resources, router, peer)...)
 		}
