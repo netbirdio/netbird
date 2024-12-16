@@ -761,7 +761,6 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			peerIndex := i*(peers/groups) + j
 			group.Peers = append(group.Peers, fmt.Sprintf("peer-%d", peerIndex))
 		}
-		account.Groups[groupID] = group
 
 		// Create network, router and resource for this group
 		network := &networkTypes.Network{
@@ -797,6 +796,9 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			},
 		}
 		account.Peers[peer.ID] = peer
+
+		group.Peers = append(group.Peers, peer.ID)
+		account.Groups[groupID] = group
 
 		router := &routerTypes.NetworkRouter{
 			ID:         fmt.Sprintf("network-router-%d", i),
