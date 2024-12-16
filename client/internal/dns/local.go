@@ -24,6 +24,11 @@ func (d *localResolver) MatchSubdomains() bool {
 func (d *localResolver) stop() {
 }
 
+// String returns a string representation of the local resolver
+func (d *localResolver) String() string {
+	return fmt.Sprintf("local resolver [%d records]", len(d.registeredMap))
+}
+
 // ServeDNS handles a DNS request
 func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if len(r.Question) > 0 {
