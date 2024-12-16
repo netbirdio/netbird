@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -24,12 +25,14 @@ type Manager interface {
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
+	accountManager     s.AccountManager
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager s.AccountManager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
+		accountManager:     accountManager,
 	}
 }
 
@@ -93,7 +96,14 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, fmt.Errorf("failed to create new network resource: %w", err)
 	}
 
-	return resource, m.store.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+	err = m.store.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create network resource: %w", err)
+	}
+
+	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+
+	return resource, nil
 }
 
 func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
@@ -133,7 +143,14 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 
 	resource.Type = resourceType
 
-	return resource, m.store.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+	err = m.store.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update network resource: %w", err)
+	}
+
+	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+
+	return resource, nil
 }
 
 func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
@@ -145,5 +162,12 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		return status.NewPermissionDeniedError()
 	}
 
-	return m.store.DeleteNetworkResource(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+	err = m.store.DeleteNetworkResource(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to delete network resource: %w", err)
+	}
+
+	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
 }

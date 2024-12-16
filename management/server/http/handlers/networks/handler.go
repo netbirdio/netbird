@@ -14,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks"
+	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/routers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -22,17 +24,20 @@ import (
 
 // handler is a handler that returns networks of the account
 type handler struct {
-	networksManager  networks.Manager
+	networksManager networks.Manager
+	resourceManager resources.Manager
+	routerManager   routers.Manager
+
 	groupsManager    groups.Manager
 	extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	claimsExtractor  *jwtclaims.ClaimsExtractor
 }
 
-func AddEndpoints(networksManager networks.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
-	addRouterEndpoints(networksManager.GetRouterManager(), extractFromToken, authCfg, router)
-	addResourceEndpoints(networksManager.GetResourceManager(), groupsManager, extractFromToken, authCfg, router)
+func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
+	addRouterEndpoints(routerManager, extractFromToken, authCfg, router)
+	addResourceEndpoints(resourceManager, groupsManager, extractFromToken, authCfg, router)
 
-	networksHandler := newHandler(networksManager, groupsManager, extractFromToken, authCfg)
+	networksHandler := newHandler(networksManager, resourceManager, routerManager, groupsManager, extractFromToken, authCfg)
 	router.HandleFunc("/networks", networksHandler.getAllNetworks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks", networksHandler.createNetwork).Methods("POST", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.getNetwork).Methods("GET", "OPTIONS")
@@ -40,9 +45,11 @@ func AddEndpoints(networksManager networks.Manager, groupsManager groups.Manager
 	router.HandleFunc("/networks/{networkId}", networksHandler.deleteNetwork).Methods("DELETE", "OPTIONS")
 }
 
-func newHandler(networksManager networks.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *handler {
+func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *handler {
 	return &handler{
 		networksManager:  networksManager,
+		resourceManager:  resourceManager,
+		routerManager:    routerManager,
 		groupsManager:    groupsManager,
 		extractFromToken: extractFromToken,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -66,7 +73,7 @@ func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resourceIDs, err := h.networksManager.GetResourceManager().GetAllResourceIDsInAccount(r.Context(), accountID, userID)
+	resourceIDs, err := h.resourceManager.GetAllResourceIDsInAccount(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -78,7 +85,7 @@ func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routers, err := h.networksManager.GetRouterManager().GetAllRoutersInAccount(r.Context(), accountID, userID)
+	routers, err := h.routerManager.GetAllRoutersInAccount(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -212,7 +219,7 @@ func (h *handler) deleteNetwork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, networkID string) ([]string, []string, int, error) {
-	resources, err := h.networksManager.GetResourceManager().GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
+	resources, err := h.resourceManager.GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("failed to get resources in network: %w", err)
 	}
@@ -222,7 +229,7 @@ func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, ne
 		resourceIDs = append(resourceIDs, resource.ID)
 	}
 
-	routers, err := h.networksManager.GetRouterManager().GetAllRoutersInNetwork(ctx, accountID, userID, networkID)
+	routers, err := h.routerManager.GetAllRoutersInNetwork(ctx, accountID, userID, networkID)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("failed to get routers in network: %w", err)
 	}

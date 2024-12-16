@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/xid"
 
+	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -25,12 +26,14 @@ type Manager interface {
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
+	accountManager     s.AccountManager
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager s.AccountManager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
+		accountManager:     accountManager,
 	}
 }
 
@@ -79,7 +82,14 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 	router.ID = xid.New().String()
 
-	return router, m.store.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
+	err = m.store.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create network router: %w", err)
+	}
+
+	go m.accountManager.UpdateAccountPeers(ctx, router.AccountID)
+
+	return router, nil
 }
 
 func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkID, routerID string) (*types.NetworkRouter, error) {
@@ -112,7 +122,14 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return router, m.store.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
+	err = m.store.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update network router: %w", err)
+	}
+
+	go m.accountManager.UpdateAccountPeers(ctx, router.AccountID)
+
+	return router, nil
 }
 
 func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error {
@@ -124,5 +141,12 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 		return status.NewPermissionDeniedError()
 	}
 
-	return m.store.DeleteNetworkRouter(ctx, store.LockingStrengthUpdate, accountID, routerID)
+	err = m.store.DeleteNetworkRouter(ctx, store.LockingStrengthUpdate, accountID, routerID)
+	if err != nil {
+		return fmt.Errorf("failed to delete network router: %w", err)
+	}
+
+	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
 }
