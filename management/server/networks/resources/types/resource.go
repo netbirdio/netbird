@@ -125,6 +125,9 @@ func (n *NetworkResource) ToRoute(peer *peer.Peer, router *routerTypes.NetworkRo
 		}
 		r.Domains = domainList
 		r.NetworkType = route.DomainNetwork
+
+		// add default placeholder for domain network
+		r.Network = netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 	}
 
 	return r
