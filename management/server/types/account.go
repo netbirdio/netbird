@@ -573,6 +573,18 @@ func (a *Account) DeletePeer(peerID string) {
 	a.Network.IncSerial()
 }
 
+func (a *Account) DeleteResource(resourceID string) {
+	// delete resource from groups
+	for _, g := range a.Groups {
+		for i, pk := range g.Resources {
+			if pk.ID == resourceID {
+				g.Resources = append(g.Resources[:i], g.Resources[i+1:]...)
+				break
+			}
+		}
+	}
+}
+
 // FindPeerByPubKey looks for a Peer by provided WireGuard public key in the Account or returns error if it wasn't found.
 // It will return an object copy of the peer.
 func (a *Account) FindPeerByPubKey(peerPubKey string) (*nbpeer.Peer, error) {

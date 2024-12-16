@@ -145,5 +145,32 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		return status.NewPermissionDeniedError()
 	}
 
-	return m.store.DeleteNetworkResource(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
+	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+		if err != nil {
+			return fmt.Errorf("failed to get network resource: %w", err)
+		}
+
+		if resource.NetworkID != networkID {
+			return errors.New("resource not part of network")
+		}
+
+		account, err := transaction.GetAccount(ctx, accountID)
+		account.DeleteResource(resource.ID)
+
+		err = transaction.SaveAccount(ctx, account)
+		if err != nil {
+			return fmt.Errorf("failed to save account: %w", err)
+		}
+
+		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
+		return transaction.DeleteNetworkResource(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+	})
 }

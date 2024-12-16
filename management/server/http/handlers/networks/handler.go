@@ -261,7 +261,11 @@ func (h *handler) generateNetworkResponse(networks []*types.Network, routers map
 			}
 			if len(router.PeerGroups) > 0 {
 				for _, groupID := range router.PeerGroups {
-					peerCounter += len(groups[groupID].Peers)
+					group, ok := groups[groupID]
+					if !ok {
+						continue
+					}
+					peerCounter += len(group.Peers)
 				}
 			}
 		}
