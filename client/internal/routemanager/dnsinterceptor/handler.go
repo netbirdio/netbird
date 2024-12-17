@@ -67,7 +67,6 @@ func (d *DnsInterceptor) AddRoute(context.Context) error {
 
 func (d *DnsInterceptor) RemoveRoute() error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	var merr *multierror.Error
 	for domain, prefixes := range d.interceptedDomains {
@@ -89,6 +88,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 	}
 
 	clear(d.interceptedDomains)
+	d.mu.Unlock()
 
 	d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList(), nbdns.PriorityDNSRoute)
 
