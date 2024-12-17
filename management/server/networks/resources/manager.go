@@ -227,10 +227,12 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		if err != nil {
 			return fmt.Errorf("failed to update resource groups: %w", err)
 		}
+
 		eventsToStore = append(eventsToStore, events...)
 		eventsToStore = append(eventsToStore, func() {
 			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network.Name))
 		})
+
 		return nil
 	})
 
