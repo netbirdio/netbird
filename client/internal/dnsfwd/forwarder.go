@@ -54,7 +54,7 @@ func (f *DNSForwarder) UpdateDomains(domains []string) {
 		f.mux.HandleRemove(d)
 	}
 
-	for _, d := range f.domains {
+	for _, d := range domains {
 		f.mux.HandleFunc(nbdns.NormalizeZone(d), f.handleDNSQuery)
 	}
 	f.domains = domains
