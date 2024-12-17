@@ -11,32 +11,14 @@ import (
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 )
 
-// MockHandler implements dns.Handler interface for testing
-type MockHandler struct {
-	mock.Mock
-}
-
-func (m *MockHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	m.Called(w, r)
-}
-
-type MockSubdomainHandler struct {
-	MockHandler
-	matchSubdomains bool
-}
-
-func (m *MockSubdomainHandler) MatchSubdomains() bool {
-	return m.matchSubdomains
-}
-
 // TestHandlerChain_ServeDNS_Priorities tests that handlers are executed in priority order
 func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 	chain := nbdns.NewHandlerChain()
 
 	// Create mock handlers for different priorities
-	defaultHandler := &MockHandler{}
-	matchDomainHandler := &MockHandler{}
-	dnsRouteHandler := &MockHandler{}
+	defaultHandler := &nbdns.MockHandler{}
+	matchDomainHandler := &nbdns.MockHandler{}
+	dnsRouteHandler := &nbdns.MockHandler{}
 
 	// Setup handlers with different priorities
 	chain.AddHandler("example.com.", defaultHandler, nbdns.PriorityDefault, nil)
@@ -138,13 +120,13 @@ func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 			var handler dns.Handler
 
 			if tt.matchSubdomains {
-				mockSubHandler := &MockSubdomainHandler{matchSubdomains: true}
+				mockSubHandler := &nbdns.MockSubdomainHandler{Subdomains: true}
 				handler = mockSubHandler
 				if tt.shouldMatch {
 					mockSubHandler.On("ServeDNS", mock.Anything, mock.Anything).Once()
 				}
 			} else {
-				mockHandler := &MockHandler{}
+				mockHandler := &nbdns.MockHandler{}
 				handler = mockHandler
 				if tt.shouldMatch {
 					mockHandler.On("ServeDNS", mock.Anything, mock.Anything).Once()
@@ -164,9 +146,9 @@ func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 
 			chain.ServeDNS(w, r)
 
-			if h, ok := handler.(*MockHandler); ok {
+			if h, ok := handler.(*nbdns.MockHandler); ok {
 				h.AssertExpectations(t)
-			} else if h, ok := handler.(*MockSubdomainHandler); ok {
+			} else if h, ok := handler.(*nbdns.MockSubdomainHandler); ok {
 				h.AssertExpectations(t)
 			}
 		})
@@ -257,11 +239,11 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chain := nbdns.NewHandlerChain()
-			var handlers []*MockHandler
+			var handlers []*nbdns.MockHandler
 
 			// Setup handlers and expectations
 			for i := range tt.handlers {
-				handler := &MockHandler{}
+				handler := &nbdns.MockHandler{}
 				handlers = append(handlers, handler)
 
 				// Set expectation based on whether this handler should be called
@@ -293,9 +275,9 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 	chain := nbdns.NewHandlerChain()
 
 	// Create handlers
-	handler1 := &MockHandler{}
-	handler2 := &MockHandler{}
-	handler3 := &MockHandler{}
+	handler1 := &nbdns.MockHandler{}
+	handler2 := &nbdns.MockHandler{}
+	handler3 := &nbdns.MockHandler{}
 
 	// Add handlers in priority order
 	chain.AddHandler("example.com.", handler1, nbdns.PriorityDNSRoute, nil)
@@ -427,12 +409,12 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chain := nbdns.NewHandlerChain()
-			handlers := make(map[int]*MockHandler)
+			handlers := make(map[int]*nbdns.MockHandler)
 
 			// Execute operations
 			for _, op := range tt.ops {
 				if op.action == "add" {
-					handler := &MockHandler{}
+					handler := &nbdns.MockHandler{}
 					handlers[op.priority] = handler
 					chain.AddHandler(op.pattern, handler, op.priority, nil)
 				} else {
@@ -480,9 +462,9 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	testQuery := "test.example.com."
 
 	// Create handlers with MatchSubdomains enabled
-	routeHandler := &MockSubdomainHandler{matchSubdomains: true}
-	matchHandler := &MockSubdomainHandler{matchSubdomains: true}
-	defaultHandler := &MockSubdomainHandler{matchSubdomains: true}
+	routeHandler := &nbdns.MockSubdomainHandler{Subdomains: true}
+	matchHandler := &nbdns.MockSubdomainHandler{Subdomains: true}
+	defaultHandler := &nbdns.MockSubdomainHandler{Subdomains: true}
 
 	// Create test request that will be reused
 	r := new(dns.Msg)
