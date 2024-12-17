@@ -103,6 +103,7 @@ func NewServer(
 		// peerKey -> event channel
 		peersUpdateManager: peersUpdateManager,
 		accountManager:     accountManager,
+		settingsManager:    settingsManager,
 		config:             config,
 		secretsManager:     secretsManager,
 		jwtValidator:       jwtValidator,
