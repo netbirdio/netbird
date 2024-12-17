@@ -190,38 +190,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			return fmt.Errorf("failed to save network resource: %w", err)
 		}
 
-		res := nbtypes.Resource{
-			ID:   resource.ID,
-			Type: resource.Type.String(),
-		}
-
-		oldResourceGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, oldResource.AccountID, oldResource.ID)
-		if err != nil {
-			return fmt.Errorf("failed to get resource groups: %w", err)
-		}
-
-		oldGroupsIds := make([]string, 0)
-		for _, group := range oldResourceGroups {
-			oldGroupsIds = append(oldGroupsIds, group.ID)
-		}
-
-		groupsToAdd := util.Difference(resource.GroupIDs, oldGroupsIds)
-		for _, groupID := range groupsToAdd {
-			err = m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, groupID, &res)
-			if err != nil {
-				return fmt.Errorf("failed to add resource to group: %w", err)
-			}
-		}
-
-		groupsToRemove := util.Difference(oldGroupsIds, resource.GroupIDs)
-		for _, groupID := range groupsToRemove {
-			err = m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, resource.AccountID, groupID, res.ID)
-			if err != nil {
-				return fmt.Errorf("failed to add resource to group: %w", err)
-			}
-		}
-
-		return nil
+		return m.updateResourceGroups(ctx, transaction, resource, oldResource)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to update network resource: %w", err)
@@ -230,6 +199,41 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
 
 	return resource, nil
+}
+
+func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction store.Store, newResource, oldResource *types.NetworkResource) error {
+	res := nbtypes.Resource{
+		ID:   newResource.ID,
+		Type: newResource.Type.String(),
+	}
+
+	oldResourceGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, oldResource.AccountID, oldResource.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get resource groups: %w", err)
+	}
+
+	oldGroupsIds := make([]string, 0)
+	for _, group := range oldResourceGroups {
+		oldGroupsIds = append(oldGroupsIds, group.ID)
+	}
+
+	groupsToAdd := util.Difference(newResource.GroupIDs, oldGroupsIds)
+	for _, groupID := range groupsToAdd {
+		err = m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, newResource.AccountID, groupID, &res)
+		if err != nil {
+			return fmt.Errorf("failed to add resource to group: %w", err)
+		}
+	}
+
+	groupsToRemove := util.Difference(oldGroupsIds, newResource.GroupIDs)
+	for _, groupID := range groupsToRemove {
+		err = m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, newResource.AccountID, groupID, res.ID)
+		if err != nil {
+			return fmt.Errorf("failed to add resource to group: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
