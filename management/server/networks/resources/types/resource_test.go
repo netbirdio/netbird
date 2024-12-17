@@ -32,6 +32,7 @@ func TestGetResourceType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result, domain, prefix, err := GetResourceType(tt.input)
+      
 			if result != tt.expectedType {
 				t.Errorf("Expected type %v, got %v", tt.expectedType, result)
 			}
