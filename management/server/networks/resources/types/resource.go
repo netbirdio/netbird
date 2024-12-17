@@ -32,7 +32,7 @@ type NetworkResource struct {
 	Type        NetworkResourceType
 	Address     string `gorm:"-"`
 	Domain      string
-	Prefix      netip.Prefix
+	Prefix      netip.Prefix `gorm:"serializer:json"`
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string) (*NetworkResource, error) {
