@@ -185,6 +185,11 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			return errors.New("new resource name already exists")
 		}
 
+		oldResource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get network resource: %w", err)
+		}
+
 		err = transaction.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
 		if err != nil {
 			return fmt.Errorf("failed to save network resource: %w", err)
