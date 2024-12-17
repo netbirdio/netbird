@@ -2,6 +2,7 @@ package networks
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/rs/xid"
 
@@ -90,5 +91,34 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		return status.NewPermissionDeniedError()
 	}
 
-	return m.store.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)
+	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
+	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		if err != nil {
+			return fmt.Errorf("failed to get resources in network: %w", err)
+		}
+
+		for _, resource := range resources {
+			err = m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resource.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete resource: %w", err)
+			}
+		}
+
+		routers, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		if err != nil {
+			return fmt.Errorf("failed to get routers in network: %w", err)
+		}
+
+		for _, router := range routers {
+			err = transaction.DeleteNetworkRouter(ctx, store.LockingStrengthUpdate, accountID, router.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete router: %w", err)
+			}
+		}
+
+		return transaction.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)
+	})
 }

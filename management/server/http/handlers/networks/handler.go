@@ -259,20 +259,29 @@ func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, ne
 func (h *handler) generateNetworkResponse(networks []*types.Network, routers map[string][]*routerTypes.NetworkRouter, resourceIDs map[string][]string, groups map[string]*nbtypes.Group) []*api.Network {
 	var networkResponse []*api.Network
 	for _, network := range networks {
-		routerIDs := []string{}
-		peerCounter := 0
-		for _, router := range routers[network.ID] {
-			routerIDs = append(routerIDs, router.ID)
-			if router.Peer != "" {
-				peerCounter++
-			}
-			if len(router.PeerGroups) > 0 {
-				for _, groupID := range router.PeerGroups {
-					peerCounter += len(groups[groupID].Peers)
-				}
-			}
-		}
+		routerIDs, peerCounter := getRouterIDs(network, routers, groups)
 		networkResponse = append(networkResponse, network.ToAPIResponse(routerIDs, resourceIDs[network.ID], peerCounter))
 	}
 	return networkResponse
+}
+
+func getRouterIDs(network *types.Network, routers map[string][]*routerTypes.NetworkRouter, groups map[string]*nbtypes.Group) ([]string, int) {
+	routerIDs := []string{}
+	peerCounter := 0
+	for _, router := range routers[network.ID] {
+		routerIDs = append(routerIDs, router.ID)
+		if router.Peer != "" {
+			peerCounter++
+		}
+		if len(router.PeerGroups) > 0 {
+			for _, groupID := range router.PeerGroups {
+				group, ok := groups[groupID]
+				if !ok {
+					continue
+				}
+				peerCounter += len(group.Peers)
+			}
+		}
+	}
+	return routerIDs, peerCounter
 }
