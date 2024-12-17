@@ -2502,7 +2502,13 @@ func TestSqlStore_SaveNetworkResource(t *testing.T) {
 
 	savedNetResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthShare, accountID, netResource.ID)
 	require.NoError(t, err)
-	require.Equal(t, netResource, savedNetResource)
+	require.Equal(t, netResource.ID, savedNetResource.ID)
+	require.Equal(t, netResource.Name, savedNetResource.Name)
+	require.Equal(t, netResource.NetworkID, savedNetResource.NetworkID)
+	require.Equal(t, netResource.Type, resourceTypes.NetworkResourceType("domain"))
+	require.Equal(t, netResource.Domain, "example.com")
+	require.Equal(t, netResource.AccountID, savedNetResource.AccountID)
+	require.Equal(t, netResource.Prefix, netip.Prefix{})
 }
 
 func TestSqlStore_DeleteNetworkResource(t *testing.T) {

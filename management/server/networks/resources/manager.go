@@ -142,13 +142,14 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resourceType, addr, err := types.GetResourceType(resource.Address)
+	resourceType, domain, prefix, err := types.GetResourceType(resource.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get resource type: %w", err)
 	}
 
 	resource.Type = resourceType
-	resource.Address = addr
+	resource.Domain = domain
+	resource.Prefix = prefix
 
 	_, err = m.store.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
 	if err != nil {

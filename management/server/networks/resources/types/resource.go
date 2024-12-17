@@ -3,9 +3,8 @@ package types
 import (
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 	"regexp"
-	"strings"
 
 	"github.com/rs/xid"
 
@@ -31,11 +30,13 @@ type NetworkResource struct {
 	Name        string
 	Description string
 	Type        NetworkResourceType
-	Address     string
+	Address     string `gorm:"-"`
+	Domain      string
+	Prefix      netip.Prefix `gorm:"serializer:json"`
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string) (*NetworkResource, error) {
-	resourceType, address, err := GetResourceType(address)
+	resourceType, domain, prefix, err := GetResourceType(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
 	}
@@ -48,6 +49,8 @@ func NewNetworkResource(accountID, networkID, name, description, address string)
 		Description: description,
 		Type:        resourceType,
 		Address:     address,
+		Domain:      domain,
+		Prefix:      prefix,
 	}, nil
 }
 
@@ -57,7 +60,8 @@ func (n *NetworkResource) ToAPIResponse(groups []api.GroupMinimum) *api.NetworkR
 		Name:        n.Name,
 		Description: &n.Description,
 		Type:        api.NetworkResourceType(n.Type.String()),
-		Address:     n.Address,
+		Domain:      n.Domain,
+		Prefix:      n.Prefix.String(),
 		Groups:      groups,
 	}
 }
@@ -84,26 +88,22 @@ func (n *NetworkResource) Copy() *NetworkResource {
 }
 
 // GetResourceType returns the type of the resource based on the address
-func GetResourceType(address string) (NetworkResourceType, string, error) {
-	if ip, cidr, err := net.ParseCIDR(address); err == nil {
-		ones, _ := cidr.Mask.Size()
-		if strings.HasSuffix(address, "/32") {
-			return host, address, nil
+func GetResourceType(address string) (NetworkResourceType, string, netip.Prefix, error) {
+	if prefix, err := netip.ParsePrefix(address); err == nil {
+		if prefix.Bits() == 32 || prefix.Bits() == 128 {
+			return host, "", prefix, nil
 		}
-		if ip != nil && ones == 32 {
-			return host, address + "/32", nil
-		}
-		return subnet, address, nil
+		return subnet, "", prefix, nil
 	}
 
-	if net.ParseIP(address) != nil {
-		return host, address + "/32", nil
+	if ip, err := netip.ParseAddr(address); err == nil {
+		return host, "", netip.PrefixFrom(ip, ip.BitLen()), nil
 	}
 
 	domainRegex := regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 	if domainRegex.MatchString(address) {
-		return domain, address, nil
+		return domain, address, netip.Prefix{}, nil
 	}
 
-	return "", "", errors.New("not a host, subnet, or domain")
+	return "", "", netip.Prefix{}, errors.New("not a valid host, subnet, or domain")
 }

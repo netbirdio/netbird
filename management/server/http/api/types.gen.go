@@ -551,11 +551,11 @@ type NetworkRequest struct {
 
 // NetworkResource defines model for NetworkResource.
 type NetworkResource struct {
-	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
-	Address string `json:"address"`
-
 	// Description Network resource description
 	Description *string `json:"description,omitempty"`
+
+	// Domain Domain name of the resource
+	Domain string `json:"domain"`
 
 	// Groups Groups that the resource belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -566,15 +566,15 @@ type NetworkResource struct {
 	// Name Network resource name
 	Name string `json:"name"`
 
+	// Prefix Prefix of the resource
+	Prefix string `json:"prefix"`
+
 	// Type Network resource type based of the address
 	Type NetworkResourceType `json:"type"`
 }
 
 // NetworkResourceMinimum defines model for NetworkResourceMinimum.
 type NetworkResourceMinimum struct {
-	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
-	Address string `json:"address"`
-
 	// Description Network resource description
 	Description *string `json:"description,omitempty"`
 
