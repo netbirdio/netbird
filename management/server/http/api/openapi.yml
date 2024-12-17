@@ -1273,7 +1273,7 @@ components:
           type: string
           example: A remote resource inside network 1
         address:
-          description: Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
+          description: Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
           type: string
           example: "1.1.1.1"
       required:
