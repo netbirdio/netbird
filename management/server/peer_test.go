@@ -946,7 +946,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 			start := time.Now()
 
 			for i := 0; i < b.N; i++ {
-				manager.updateAccountPeers(ctx, account.Id)
+				manager.UpdateAccountPeers(ctx, account.Id)
 			}
 
 			duration := time.Since(start)

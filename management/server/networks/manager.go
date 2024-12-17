@@ -2,11 +2,11 @@ package networks
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/networks/resources"
-	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -19,23 +19,19 @@ type Manager interface {
 	GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error)
 	UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error)
 	DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error
-	GetResourceManager() resources.Manager
-	GetRouterManager() routers.Manager
 }
 
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
-	routersManager     routers.Manager
 	resourcesManager   resources.Manager
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, manager resources.Manager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
-		routersManager:     routers.NewManager(store, permissionsManager),
-		resourcesManager:   resources.NewManager(store, permissionsManager),
+		resourcesManager:   manager,
 	}
 }
 
@@ -98,13 +94,34 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		return status.NewPermissionDeniedError()
 	}
 
-	return m.store.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)
-}
+	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
 
-func (m *managerImpl) GetResourceManager() resources.Manager {
-	return m.resourcesManager
-}
+	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		if err != nil {
+			return fmt.Errorf("failed to get resources in network: %w", err)
+		}
 
-func (m *managerImpl) GetRouterManager() routers.Manager {
-	return m.routersManager
+		for _, resource := range resources {
+			err = m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resource.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete resource: %w", err)
+			}
+		}
+
+		routers, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		if err != nil {
+			return fmt.Errorf("failed to get routers in network: %w", err)
+		}
+
+		for _, router := range routers {
+			err = transaction.DeleteNetworkRouter(ctx, store.LockingStrengthUpdate, accountID, router.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete router: %w", err)
+			}
+		}
+
+		return transaction.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)
+	})
 }

@@ -572,8 +572,27 @@ func (a *Account) DeletePeer(peerID string) {
 		}
 	}
 
+	for i, r := range a.NetworkRouters {
+		if r.Peer == peerID {
+			a.NetworkRouters = append(a.NetworkRouters[:i], a.NetworkRouters[i+1:]...)
+			break
+		}
+	}
+
 	delete(a.Peers, peerID)
 	a.Network.IncSerial()
+}
+
+func (a *Account) DeleteResource(resourceID string) {
+	// delete resource from groups
+	for _, g := range a.Groups {
+		for i, pk := range g.Resources {
+			if pk.ID == resourceID {
+				g.Resources = append(g.Resources[:i], g.Resources[i+1:]...)
+				break
+			}
+		}
+	}
 }
 
 // FindPeerByPubKey looks for a Peer by provided WireGuard public key in the Account or returns error if it wasn't found.

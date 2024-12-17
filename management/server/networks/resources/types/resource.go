@@ -3,16 +3,9 @@ package types
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"regexp"
-	"strings"
 
-	nbDomain "github.com/netbirdio/netbird/management/domain"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-
-	"github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -37,11 +30,13 @@ type NetworkResource struct {
 	Name        string
 	Description string
 	Type        NetworkResourceType
-	Address     string
+	Address     string `gorm:"-"`
+	Domain      string
+	Prefix      netip.Prefix `gorm:"serializer:json"`
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string) (*NetworkResource, error) {
-	resourceType, err := GetResourceType(address)
+	resourceType, domain, prefix, err := GetResourceType(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
 	}
@@ -54,6 +49,8 @@ func NewNetworkResource(accountID, networkID, name, description, address string)
 		Description: description,
 		Type:        resourceType,
 		Address:     address,
+		Domain:      domain,
+		Prefix:      prefix,
 	}, nil
 }
 
@@ -63,7 +60,8 @@ func (n *NetworkResource) ToAPIResponse(groups []api.GroupMinimum) *api.NetworkR
 		Name:        n.Name,
 		Description: &n.Description,
 		Type:        api.NetworkResourceType(n.Type.String()),
-		Address:     n.Address,
+		Domain:      n.Domain,
+		Prefix:      n.Prefix.String(),
 		Groups:      groups,
 	}
 }
@@ -89,68 +87,23 @@ func (n *NetworkResource) Copy() *NetworkResource {
 	}
 }
 
-func (n *NetworkResource) ToRoute(peer *peer.Peer, router *routerTypes.NetworkRouter) *route.Route {
-	r := &route.Route{
-		ID:                  route.ID(n.ID),
-		AccountID:           n.AccountID,
-		KeepRoute:           true,
-		NetID:               route.NetID(n.Name),
-		Description:         n.Description,
-		Peer:                peer.Key,
-		PeerGroups:          nil,
-		Masquerade:          router.Masquerade,
-		Metric:              router.Metric,
-		Enabled:             true,
-		Groups:              nil,
-		AccessControlGroups: nil,
-	}
-
-	if n.Type == host || n.Type == subnet {
-		prefix, err := netip.ParsePrefix(n.Address)
-		if err != nil {
-			return nil
-		}
-		r.Network = prefix
-
-		r.NetworkType = route.IPv4Network
-		if prefix.Addr().Is6() {
-			r.NetworkType = route.IPv6Network
-		}
-	}
-
-	if n.Type == domain {
-		domainList, err := nbDomain.FromStringList([]string{n.Address})
-		if err != nil {
-			return nil
-		}
-		r.Domains = domainList
-		r.NetworkType = route.DomainNetwork
-
-		// add default placeholder for domain network
-		r.Network = netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
-	}
-
-	return r
-}
-
 // GetResourceType returns the type of the resource based on the address
-func GetResourceType(address string) (NetworkResourceType, error) {
-	if ip, cidr, err := net.ParseCIDR(address); err == nil {
-		ones, _ := cidr.Mask.Size()
-		if strings.HasSuffix(address, "/32") || (ip != nil && ones == 32) {
-			return host, nil
+func GetResourceType(address string) (NetworkResourceType, string, netip.Prefix, error) {
+	if prefix, err := netip.ParsePrefix(address); err == nil {
+		if prefix.Bits() == 32 || prefix.Bits() == 128 {
+			return host, "", prefix, nil
 		}
-		return subnet, nil
+		return subnet, "", prefix, nil
 	}
 
-	if net.ParseIP(address) != nil {
-		return host, nil
+	if ip, err := netip.ParseAddr(address); err == nil {
+		return host, "", netip.PrefixFrom(ip, ip.BitLen()), nil
 	}
 
 	domainRegex := regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 	if domainRegex.MatchString(address) {
-		return domain, nil
+		return domain, address, netip.Prefix{}, nil
 	}
 
-	return "", errors.New("not a host, subnet, or domain")
+	return "", "", netip.Prefix{}, errors.New("not a valid host, subnet, or domain")
 }

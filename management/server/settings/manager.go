@@ -15,6 +15,9 @@ type managerImpl struct {
 	store store.Store
 }
 
+type managerMock struct {
+}
+
 func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store: store,
@@ -23,4 +26,12 @@ func NewManager(store store.Store) Manager {
 
 func (m *managerImpl) GetSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 	return m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+}
+
+func NewManagerMock() Manager {
+	return &managerMock{}
+}
+
+func (m *managerMock) GetSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
+	return &types.Settings{}, nil
 }

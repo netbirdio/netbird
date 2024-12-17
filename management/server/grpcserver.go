@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/settings"
 	internalStatus "github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -30,8 +31,9 @@ import (
 
 // GRPCServer an instance of a Management gRPC API server
 type GRPCServer struct {
-	accountManager AccountManager
-	wgKey          wgtypes.Key
+	accountManager  AccountManager
+	settingsManager settings.Manager
+	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peersUpdateManager *PeersUpdateManager
 	config             *Config
@@ -48,6 +50,7 @@ func NewServer(
 	ctx context.Context,
 	config *Config,
 	accountManager AccountManager,
+	settingsManager settings.Manager,
 	peersUpdateManager *PeersUpdateManager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
@@ -100,6 +103,7 @@ func NewServer(
 		// peerKey -> event channel
 		peersUpdateManager: peersUpdateManager,
 		accountManager:     accountManager,
+		settingsManager:    settingsManager,
 		config:             config,
 		secretsManager:     secretsManager,
 		jwtValidator:       jwtValidator,
@@ -481,16 +485,20 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
-	settings, err := s.accountManager.GetSettingsManager().GetSettings(ctx, peer.AccountID, userID)
+	settings, err := s.settingsManager.GetSettings(ctx, accountID, userID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get settings for account %s and user %s: %v", accountID, userID, err)
-		return nil, mapError(ctx, err)
+	}
+
+	routingPeerDNSResolutionEnabled := false
+	if settings != nil {
+		routingPeerDNSResolutionEnabled = settings.RoutingPeerDNSResolutionEnabled
 	}
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil, relayToken),
-		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), settings.RoutingPeerDNSResolutionEnabled),
+		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), routingPeerDNSResolutionEnabled),
 		Checks:            toProtocolChecks(ctx, postureChecks),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
@@ -688,7 +696,7 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		}
 	}
 
-	settings, err := s.accountManager.GetSettingsManager().GetSettings(ctx, peer.AccountID, peer.UserID)
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, peer.UserID)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}

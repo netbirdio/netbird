@@ -12,6 +12,7 @@ import (
 
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	nbgroups "github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/handlers/accounts"
 	"github.com/netbirdio/netbird/management/server/http/handlers/dns"
@@ -26,6 +27,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
+	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -39,7 +43,7 @@ type apiHandler struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg configs.AuthCfg, integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
+func APIHandler(ctx context.Context, accountManager s.AccountManager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg configs.AuthCfg, integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -94,7 +98,7 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 	routes.AddEndpoints(api.AccountManager, authCfg, router)
 	dns.AddEndpoints(api.AccountManager, authCfg, router)
 	events.AddEndpoints(api.AccountManager, authCfg, router)
-	networks.AddEndpoints(api.AccountManager.GetNetworksManager(), api.AccountManager.GetGroupsManager(), api.AccountManager.GetAccountIDFromToken, authCfg, router)
+	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, api.AccountManager.GetAccountIDFromToken, authCfg, router)
 
 	return rootRouter, nil
 }

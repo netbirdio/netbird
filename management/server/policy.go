@@ -84,7 +84,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return policy, nil
@@ -135,7 +135,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -171,7 +171,7 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 			return false, nil
 		}
 
-		hasPeers, err := anyGroupHasPeers(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
+		hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
 		if err != nil {
 			return false, err
 		}
@@ -181,7 +181,7 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 		}
 	}
 
-	return anyGroupHasPeers(ctx, transaction, policy.AccountID, policy.RuleGroups())
+	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
 }
 
 // validatePolicy validates the policy and its rules.
