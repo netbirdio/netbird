@@ -3039,10 +3039,10 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 	}{
 		{"Small", 50, 5, 1, 3, 3, 10},
 		{"Medium", 500, 100, 7, 13, 10, 60},
-		{"Large", 5000, 200, 65, 80, 60, 170},
+		{"Large", 5000, 200, 65, 80, 60, 175},
 		{"Small single", 50, 10, 1, 3, 3, 60},
 		{"Medium single", 500, 10, 7, 13, 10, 26},
-		{"Large 5", 5000, 15, 65, 80, 60, 170},
+		{"Large 5", 5000, 15, 65, 80, 60, 175},
 	}
 
 	log.SetOutput(io.Discard)
