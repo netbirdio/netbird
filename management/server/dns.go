@@ -136,7 +136,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	}
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -185,7 +185,7 @@ func (am *DefaultAccountManager) prepareDNSSettingsEvents(ctx context.Context, t
 
 // areDNSSettingChangesAffectPeers checks if the DNS settings changes affect any peers.
 func areDNSSettingChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, addedGroups, removedGroups []string) (bool, error) {
-	hasPeers, err := anyGroupHasPeers(ctx, transaction, accountID, addedGroups)
+	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, accountID, addedGroups)
 	if err != nil {
 		return false, err
 	}
@@ -194,7 +194,7 @@ func areDNSSettingChangesAffectPeers(ctx context.Context, transaction store.Stor
 		return true, nil
 	}
 
-	return anyGroupHasPeers(ctx, transaction, accountID, removedGroups)
+	return anyGroupHasPeersOrResources(ctx, transaction, accountID, removedGroups)
 }
 
 // validateDNSSettings validates the DNS settings.

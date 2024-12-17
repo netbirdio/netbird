@@ -83,7 +83,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return postureChecks, nil
@@ -182,7 +182,7 @@ func arePostureCheckChangesAffectPeers(ctx context.Context, transaction store.St
 
 	for _, policy := range policies {
 		if slices.Contains(policy.SourcePostureChecks, postureCheckID) {
-			hasPeers, err := anyGroupHasPeers(ctx, transaction, accountID, policy.RuleGroups())
+			hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, accountID, policy.RuleGroups())
 			if err != nil {
 				return false, err
 			}

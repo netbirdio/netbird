@@ -135,7 +135,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	if expired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
-		am.updateAccountPeers(ctx, account.Id)
+		am.UpdateAccountPeers(ctx, account.Id)
 	}
 
 	return nil
@@ -273,7 +273,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	if peerLabelUpdated || requiresPeerUpdates {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return peer, nil
@@ -353,7 +353,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -611,7 +611,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	if newGroupsAffectsPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
@@ -693,7 +693,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 
 	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
-		am.updateAccountPeers(ctx, account.Id)
+		am.UpdateAccountPeers(ctx, account.Id)
 	}
 
 	if peerNotValid {
@@ -839,7 +839,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	}
 
 	if updateRemotePeers || isStatusChanged || (updated && len(postureChecks) > 0) {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, account, peer)
@@ -1004,9 +1004,9 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
 }
 
-// updateAccountPeers updates all peers that belong to an account.
+// UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
-func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, accountID string) {
+func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers: %v", err)

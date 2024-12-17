@@ -111,3 +111,8 @@ func (g *Group) RemoveResource(resource Resource) bool {
 	}
 	return false
 }
+
+// HasResources checks if the group has any resources.
+func (g *Group) HasResources() bool {
+	return len(g.Resources) > 0
+}

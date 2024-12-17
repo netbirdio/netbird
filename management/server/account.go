@@ -29,20 +29,15 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/netbirdio/netbird/management/server/networks"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
@@ -151,10 +146,7 @@ type AccountManager interface {
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
-	GetNetworksManager() networks.Manager
-	GetUserManager() users.Manager
-	GetSettingsManager() settings.Manager
-	GetGroupsManager() groups.Manager
+	UpdateAccountPeers(ctx context.Context, accountID string)
 }
 
 type DefaultAccountManager struct {
@@ -191,12 +183,6 @@ type DefaultAccountManager struct {
 	integratedPeerValidator integrated_validator.IntegratedValidator
 
 	metrics telemetry.AppMetrics
-
-	groupsManager      groups.Manager
-	networksManager    networks.Manager
-	userManager        users.Manager
-	settingsManager    settings.Manager
-	permissionsManager permissions.Manager
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -263,19 +249,11 @@ func BuildManager(
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
 ) (*DefaultAccountManager, error) {
-	userManager := users.NewManager(store)
-	settingsManager := settings.NewManager(store)
-	permissionsManager := permissions.NewManager(userManager, settingsManager)
 	am := &DefaultAccountManager{
 		Store:                    store,
 		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
-		networksManager:          networks.NewManager(store, permissionsManager),
-		groupsManager:            groups.NewManager(store, permissionsManager),
-		userManager:              userManager,
-		settingsManager:          settingsManager,
-		permissionsManager:       permissionsManager,
 		ctx:                      context.Background(),
 		cacheMux:                 sync.Mutex{},
 		cacheLoading:             map[string]chan struct{}{},
@@ -440,7 +418,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	if updateAccountPeers {
-		go am.updateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return updatedAccount, nil
@@ -1417,7 +1395,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			am.updateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID)
 		}
 	}
 
@@ -1684,7 +1662,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context,
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	am.updateAccountPeers(ctx, accountID)
+	am.UpdateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
@@ -1747,22 +1725,6 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 	}
 
 	return am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-}
-
-func (am *DefaultAccountManager) GetNetworksManager() networks.Manager {
-	return am.networksManager
-}
-
-func (am *DefaultAccountManager) GetUserManager() users.Manager {
-	return am.userManager
-}
-
-func (am *DefaultAccountManager) GetSettingsManager() settings.Manager {
-	return am.settingsManager
-}
-
-func (am *DefaultAccountManager) GetGroupsManager() groups.Manager {
-	return am.groupsManager
 }
 
 // addAllGroup to account object if it doesn't exist

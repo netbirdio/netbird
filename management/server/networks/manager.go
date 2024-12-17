@@ -7,7 +7,6 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/networks/resources"
-	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -20,23 +19,19 @@ type Manager interface {
 	GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error)
 	UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error)
 	DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error
-	GetResourceManager() resources.Manager
-	GetRouterManager() routers.Manager
 }
 
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
-	routersManager     routers.Manager
 	resourcesManager   resources.Manager
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, manager resources.Manager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
-		routersManager:     routers.NewManager(store, permissionsManager),
-		resourcesManager:   resources.NewManager(store, permissionsManager),
+		resourcesManager:   manager,
 	}
 }
 
@@ -129,12 +124,4 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 
 		return transaction.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)
 	})
-}
-
-func (m *managerImpl) GetResourceManager() resources.Manager {
-	return m.resourcesManager
-}
-
-func (m *managerImpl) GetRouterManager() routers.Manager {
-	return m.routersManager
 }
