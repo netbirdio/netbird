@@ -53,6 +53,7 @@ func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 		Action:       string(rule.Action),
 		Destination:  route.Network.String(),
 		Protocol:     string(rule.Protocol),
+		Domains:      route.Domains,
 		IsDynamic:    route.IsDynamic(),
 	}
 

@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1876,6 +1879,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Action:       "accept",
 				Destination:  "192.0.2.0/32",
 				Protocol:     "all",
+				Domains:      domain.List{"example.com"},
 				IsDynamic:    true,
 			},
 			{
@@ -1883,6 +1887,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Action:       "accept",
 				Destination:  "192.0.2.0/32",
 				Protocol:     "all",
+				Domains:      domain.List{"example.com"},
 				IsDynamic:    true,
 			},
 		}
@@ -2158,5 +2163,446 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
+	})
+}
+
+func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
+	var (
+		peerBIp = "100.65.80.39"
+		peerCIp = "100.65.254.139"
+		peerHIp = "100.65.29.55"
+		peerJIp = "100.65.29.65"
+		peerKIp = "100.65.29.66"
+	)
+
+	account := &types.Account{
+		Peers: map[string]*nbpeer.Peer{
+			"peerA": {
+				ID:     "peerA",
+				IP:     net.ParseIP("100.65.14.88"),
+				Key:    "peerA",
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS: "linux",
+				},
+			},
+			"peerB": {
+				ID:     "peerB",
+				IP:     net.ParseIP(peerBIp),
+				Status: &nbpeer.PeerStatus{},
+				Meta:   nbpeer.PeerSystemMeta{},
+			},
+			"peerC": {
+				ID:     "peerC",
+				IP:     net.ParseIP(peerCIp),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerD": {
+				ID:     "peerD",
+				IP:     net.ParseIP("100.65.62.5"),
+				Key:    "peerD",
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS: "linux",
+				},
+			},
+			"peerE": {
+				ID:     "peerE",
+				IP:     net.ParseIP("100.65.32.206"),
+				Key:    "peerE",
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS: "linux",
+				},
+			},
+			"peerF": {
+				ID:     "peerF",
+				IP:     net.ParseIP("100.65.250.202"),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerG": {
+				ID:     "peerG",
+				IP:     net.ParseIP("100.65.13.186"),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerH": {
+				ID:     "peerH",
+				IP:     net.ParseIP(peerHIp),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerJ": {
+				ID:     "peerJ",
+				IP:     net.ParseIP(peerJIp),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerK": {
+				ID:     "peerK",
+				IP:     net.ParseIP(peerKIp),
+				Status: &nbpeer.PeerStatus{},
+			},
+		},
+		Groups: map[string]*types.Group{
+			"router1": {
+				ID:   "router1",
+				Name: "router1",
+				Peers: []string{
+					"peerA",
+				},
+			},
+			"router2": {
+				ID:   "router2",
+				Name: "router2",
+				Peers: []string{
+					"peerD",
+				},
+			},
+			"finance": {
+				ID:   "finance",
+				Name: "Finance",
+				Peers: []string{
+					"peerF",
+					"peerG",
+				},
+			},
+			"dev": {
+				ID:   "dev",
+				Name: "Dev",
+				Peers: []string{
+					"peerC",
+					"peerH",
+					"peerB",
+				},
+				Resources: []types.Resource{
+					{ID: "resource2"},
+				},
+			},
+			"qa": {
+				ID:   "qa",
+				Name: "QA",
+				Peers: []string{
+					"peerJ",
+					"peerK",
+				},
+			},
+			"restrictQA": {
+				ID:   "restrictQA",
+				Name: "restrictQA",
+				Peers: []string{
+					"peerJ",
+				},
+				Resources: []types.Resource{
+					{ID: "resource4"},
+				},
+			},
+			"unrestrictedQA": {
+				ID:   "unrestrictedQA",
+				Name: "unrestrictedQA",
+				Peers: []string{
+					"peerK",
+				},
+				Resources: []types.Resource{
+					{ID: "resource4"},
+				},
+			},
+			"contractors": {
+				ID:    "contractors",
+				Name:  "Contractors",
+				Peers: []string{},
+			},
+		},
+		Networks: []*networkTypes.Network{
+			{
+				ID:   "network1",
+				Name: "Finance Network",
+			},
+			{
+				ID:   "network2",
+				Name: "Devs Network",
+			},
+			{
+				ID:   "network3",
+				Name: "Contractors Network",
+			},
+			{
+				ID:   "network4",
+				Name: "QA Network",
+			},
+		},
+		NetworkRouters: []*routerTypes.NetworkRouter{
+			{
+				ID:         "router1",
+				NetworkID:  "network1",
+				Peer:       "peerE",
+				PeerGroups: nil,
+				Masquerade: false,
+				Metric:     9999,
+			},
+			{
+				ID:         "router2",
+				NetworkID:  "network2",
+				PeerGroups: []string{"router1", "router2"},
+				Masquerade: false,
+				Metric:     9999,
+			},
+			{
+				ID:         "router3",
+				NetworkID:  "network3",
+				Peer:       "peerE",
+				PeerGroups: []string{},
+			},
+			{
+				ID:         "router4",
+				NetworkID:  "network4",
+				PeerGroups: []string{"router1"},
+				Masquerade: false,
+				Metric:     9999,
+			},
+		},
+		NetworkResources: []*resourceTypes.NetworkResource{
+			{
+				ID:        "resource1",
+				NetworkID: "network1",
+				Name:      "Resource 1",
+				Type:      "subnet",
+				Prefix:    netip.MustParsePrefix("10.10.10.0/24"),
+			},
+			{
+				ID:        "resource2",
+				NetworkID: "network2",
+				Name:      "Resource 2",
+				Type:      "subnet",
+				Prefix:    netip.MustParsePrefix("192.168.0.0/16"),
+			},
+			{
+				ID:        "resource3",
+				NetworkID: "network3",
+				Name:      "Resource 3",
+				Type:      "domain",
+				Domain:    "example.com",
+			},
+			{
+				ID:        "resource4",
+				NetworkID: "network4",
+				Name:      "Resource 4",
+				Type:      "domain",
+				Domain:    "example.com",
+			},
+		},
+		Policies: []*types.Policy{
+			{
+				ID:      "policyResource1",
+				Name:    "Policy for resource 1",
+				Enabled: true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "ruleResource1",
+						Name:          "ruleResource1",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
+						PortRanges: []types.RulePortRange{
+							{
+								Start: 80,
+								End:   350,
+							}, {
+								Start: 80,
+								End:   350,
+							},
+						},
+						Sources: []string{
+							"finance",
+						},
+						DestinationResource: types.Resource{ID: "resource1"},
+					},
+				},
+			},
+			{
+				ID:      "policyResource2",
+				Name:    "Policy for resource 2",
+				Enabled: true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "ruleResource2",
+						Name:          "ruleResource2",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      types.PolicyRuleProtocolALL,
+						Action:        types.PolicyTrafficActionAccept,
+						Ports:         []string{"80", "320"},
+						Sources:       []string{"dev"},
+						Destinations:  []string{"dev"},
+					},
+				},
+			},
+			{
+				ID:      "policyResource3",
+				Name:    "policyResource3",
+				Enabled: true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "ruleResource3",
+						Name:          "ruleResource3",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
+						Ports:         []string{"80"},
+						Sources:       []string{"restrictQA"},
+						Destinations:  []string{"restrictQA"},
+					},
+				},
+			},
+			{
+				ID:      "policyResource4",
+				Name:    "policyResource4",
+				Enabled: true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "ruleResource4",
+						Name:          "ruleResource4",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      types.PolicyRuleProtocolALL,
+						Action:        types.PolicyTrafficActionAccept,
+						Sources:       []string{"unrestrictedQA"},
+						Destinations:  []string{"unrestrictedQA"},
+					},
+				},
+			},
+		},
+	}
+
+	validatedPeers := make(map[string]struct{})
+	for p := range account.Peers {
+		validatedPeers[p] = struct{}{}
+	}
+
+	t.Run("validate applied policies for different network resources", func(t *testing.T) {
+		getNetworkResourceByID := func(account *types.Account, id string) *resourceTypes.NetworkResource {
+			for _, resource := range account.NetworkResources {
+				if resource.ID == id {
+					return resource
+				}
+			}
+			return nil
+		}
+
+		getNetworkRouterByID := func(account *types.Account, id string) *routerTypes.NetworkRouter {
+			for _, router := range account.NetworkRouters {
+				if router.ID == id {
+					return router
+				}
+			}
+			return nil
+		}
+
+		// Test case: Resource1 is directly applied to the policy (policyResource1)
+		peerE := account.GetPeer("peerE")
+		router1 := getNetworkRouterByID(account, "router1")
+		route1 := getNetworkResourceByID(account, "resource1").ToRoute(peerE, router1)
+		policies := account.GetPoliciesForNetworkResourceRoute(route1)
+		assert.Len(t, policies, 1, "resource1 should have exactly 1 policy applied directly")
+
+		// Test case: Resource2 is applied to an access control group (dev),
+		// which is part of the destination in the policy (policyResource2)
+		peerA := account.GetPeer("peerA")
+		router2 := getNetworkRouterByID(account, "router2")
+		route2 := getNetworkResourceByID(account, "resource2").ToRoute(peerA, router2)
+		policies = account.GetPoliciesForNetworkResourceRoute(route2)
+		assert.Len(t, policies, 1, "resource2 should have exactly 1 policy applied via access control group")
+
+		// Test case: Resource3 is not applied to any access control group or policy
+		router3 := getNetworkRouterByID(account, "router3")
+		route3 := getNetworkResourceByID(account, "resource3").ToRoute(peerE, router3)
+		policies = account.GetPoliciesForNetworkResourceRoute(route3)
+		assert.Len(t, policies, 0, "resource3 should have no policies applied")
+
+		// Test case: Resource4 is applied to the access control groups (restrictQA and unrestrictedQA),
+		// which is part of the destination in the policies (policyResource3 and policyResource4)
+		router4 := getNetworkRouterByID(account, "router4")
+		route4 := getNetworkResourceByID(account, "resource4").ToRoute(peerA, router4)
+		policies = account.GetPoliciesForNetworkResourceRoute(route4)
+		assert.Len(t, policies, 2, "resource4 should have exactly 2 policy applied via access control groups")
+	})
+
+	t.Run("validate routing peer firewall rules for network resources", func(t *testing.T) {
+		firewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), "peerA", validatedPeers)
+		assert.Len(t, firewallRules, 4)
+
+		expectedFirewallRules := []*types.RouteFirewallRule{
+			{
+				SourceRanges: []string{
+					fmt.Sprintf(types.AllowedIPsFormat, peerCIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerHIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerBIp),
+				},
+				Action:      "accept",
+				Destination: "192.168.0.0/16",
+				Protocol:    "all",
+				Port:        80,
+			},
+			{
+				SourceRanges: []string{
+					fmt.Sprintf(types.AllowedIPsFormat, peerCIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerHIp),
+					fmt.Sprintf(types.AllowedIPsFormat, peerBIp),
+				},
+				Action:      "accept",
+				Destination: "192.168.0.0/16",
+				Protocol:    "all",
+				Port:        320,
+			},
+		}
+
+		additionalFirewallRules := []*types.RouteFirewallRule{
+			{
+				SourceRanges: []string{
+					fmt.Sprintf(types.AllowedIPsFormat, peerJIp),
+				},
+				Action:      "accept",
+				Destination: "192.0.2.0/32",
+				Protocol:    "tcp",
+				Port:        80,
+				Domains:     domain.List{"example.com"},
+				IsDynamic:   true,
+			},
+			{
+				SourceRanges: []string{
+					fmt.Sprintf(types.AllowedIPsFormat, peerKIp),
+				},
+				Action:      "accept",
+				Destination: "192.0.2.0/32",
+				Protocol:    "all",
+				Domains:     domain.List{"example.com"},
+				IsDynamic:   true,
+			},
+		}
+		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(append(expectedFirewallRules, additionalFirewallRules...)))
+
+		// peerD is also the routing peer for resource2
+		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), "peerD", validatedPeers)
+		assert.Len(t, firewallRules, 2)
+		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
+
+		// peerE is a single routing peer for resource1 and resource3
+		// PeerE should only receive rules for resource1 since resource3 has no applied policy
+		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), "peerE", validatedPeers)
+		assert.Len(t, firewallRules, 1)
+
+		expectedFirewallRules = []*types.RouteFirewallRule{
+			{
+				SourceRanges: []string{"100.65.250.202/32", "100.65.13.186/32"},
+				Action:       "accept",
+				Destination:  "10.10.10.0/24",
+				Protocol:     "tcp",
+				PortRange:    types.RulePortRange{Start: 80, End: 350},
+			},
+		}
+		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
+
+		// peerC is part of distribution groups for resource2 but should not receive the firewall rules
+		firewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers)
+		assert.Len(t, firewallRules, 0)
 	})
 }

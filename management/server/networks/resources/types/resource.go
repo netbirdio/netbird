@@ -6,6 +6,10 @@ import (
 	"net/netip"
 	"regexp"
 
+	nbDomain "github.com/netbirdio/netbird/management/domain"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -88,7 +92,49 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		Description: n.Description,
 		Type:        n.Type,
 		Address:     n.Address,
+		Domain:      n.Domain,
+		Prefix:      n.Prefix,
 	}
+}
+
+func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {
+	r := &route.Route{
+		ID:                  route.ID(n.ID),
+		AccountID:           n.AccountID,
+		KeepRoute:           true,
+		NetID:               route.NetID(n.Name),
+		Description:         n.Description,
+		Peer:                peer.Key,
+		PeerGroups:          nil,
+		Masquerade:          router.Masquerade,
+		Metric:              router.Metric,
+		Enabled:             true,
+		Groups:              nil,
+		AccessControlGroups: nil,
+	}
+
+	if n.Type == host || n.Type == subnet {
+		r.Network = n.Prefix
+
+		r.NetworkType = route.IPv4Network
+		if n.Prefix.Addr().Is6() {
+			r.NetworkType = route.IPv6Network
+		}
+	}
+
+	if n.Type == domain {
+		domainList, err := nbDomain.FromStringList([]string{n.Domain})
+		if err != nil {
+			return nil
+		}
+		r.Domains = domainList
+		r.NetworkType = route.DomainNetwork
+
+		// add default placeholder for domain network
+		r.Network = netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
+	}
+
+	return r
 }
 
 // GetResourceType returns the type of the resource based on the address
