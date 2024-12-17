@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -24,7 +25,8 @@ func Test_GetAllRoutersInNetworkReturnsRouters(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	routers, err := manager.GetAllRoutersInNetwork(ctx, accountID, userID, networkID)
 	require.NoError(t, err)
@@ -44,7 +46,8 @@ func Test_GetAllRoutersInNetworkReturnsPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	routers, err := manager.GetAllRoutersInNetwork(ctx, accountID, userID, networkID)
 	require.Error(t, err)
@@ -65,7 +68,8 @@ func Test_GetRouterReturnsRouter(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	router, err := manager.GetRouter(ctx, accountID, userID, networkID, resourceID)
 	require.NoError(t, err)
@@ -85,7 +89,8 @@ func Test_GetRouterReturnsPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	router, err := manager.GetRouter(ctx, accountID, userID, networkID, resourceID)
 	require.Error(t, err)
@@ -107,7 +112,8 @@ func Test_CreateRouterSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	createdRouter, err := manager.CreateRouter(ctx, userID, router)
 	require.NoError(t, err)
@@ -132,7 +138,8 @@ func Test_CreateRouterFailsWithPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	createdRouter, err := manager.CreateRouter(ctx, userID, router)
 	require.Error(t, err)
@@ -153,7 +160,8 @@ func Test_DeleteRouterSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	err = manager.DeleteRouter(ctx, accountID, userID, networkID, routerID)
 	require.NoError(t, err)
@@ -172,7 +180,8 @@ func Test_DeleteRouterFailsWithPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	err = manager.DeleteRouter(ctx, accountID, userID, networkID, routerID)
 	require.Error(t, err)
@@ -193,7 +202,8 @@ func Test_UpdateRouterSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	updatedRouter, err := manager.UpdateRouter(ctx, userID, router)
 	require.NoError(t, err)
@@ -214,7 +224,8 @@ func Test_UpdateRouterFailsWithPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	updatedRouter, err := manager.UpdateRouter(ctx, userID, router)
 	require.Error(t, err)

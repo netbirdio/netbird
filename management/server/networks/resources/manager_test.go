@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -25,7 +26,8 @@ func Test_GetAllResourcesInNetworkReturnsResources(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	resources, err := manager.GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
 	require.NoError(t, err)
@@ -44,7 +46,8 @@ func Test_GetAllResourcesInNetworkReturnsPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	resources, err := manager.GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
 	require.Error(t, err)
@@ -62,7 +65,8 @@ func Test_GetAllResourcesInAccountReturnsResources(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	resources, err := manager.GetAllResourcesInAccount(ctx, accountID, userID)
 	require.NoError(t, err)
@@ -80,7 +84,8 @@ func Test_GetAllResourcesInAccountReturnsPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	resources, err := manager.GetAllResourcesInAccount(ctx, accountID, userID)
 	require.Error(t, err)
@@ -101,7 +106,8 @@ func Test_GetResourceInNetworkReturnsResources(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	resource, err := manager.GetResource(ctx, accountID, userID, networkID, resourceID)
 	require.NoError(t, err)
@@ -121,7 +127,8 @@ func Test_GetResourceInNetworkReturnsPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	resources, err := manager.GetResource(ctx, accountID, userID, networkID, resourceID)
 	require.Error(t, err)
@@ -146,7 +153,8 @@ func Test_CreateResourceSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(store, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(store, permissionsManager, &am)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.NoError(t, err)
@@ -170,7 +178,8 @@ func Test_CreateResourceFailsWithPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(store, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(store, permissionsManager, &am)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -195,7 +204,8 @@ func Test_CreateResourceFailsWithInvalidAddress(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(store, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(store, permissionsManager, &am)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -219,7 +229,8 @@ func Test_CreateResourceFailsWithUsedName(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(store, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(store, permissionsManager, &am)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -247,7 +258,8 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.NoError(t, err)
@@ -277,7 +289,8 @@ func Test_UpdateResourceFailsWithResourceNotFound(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -305,7 +318,8 @@ func Test_UpdateResourceFailsWithNameInUse(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -333,7 +347,8 @@ func Test_UpdateResourceFailsWithPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -353,7 +368,8 @@ func Test_DeleteResourceSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(s, permissionsManager, &am)
 
 	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
 	require.NoError(t, err)
@@ -372,7 +388,8 @@ func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(store, permissionsManager)
+	am := mock_server.MockAccountManager{}
+	manager := NewManager(store, permissionsManager, &am)
 
 	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
 	require.Error(t, err)
