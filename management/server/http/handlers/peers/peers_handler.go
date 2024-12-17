@@ -1,4 +1,4 @@
-package http
+package peers
 
 import (
 	"context"
@@ -12,21 +12,30 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// PeersHandler is a handler that returns peers of the account
-type PeersHandler struct {
+// Handler is a handler that returns peers of the account
+type Handler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewPeersHandler creates a new PeersHandler HTTP handler
-func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *PeersHandler {
-	return &PeersHandler{
+func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
+	peersHandler := NewHandler(accountManager, authCfg)
+	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
+		Methods("GET", "PUT", "DELETE", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
+}
+
+// NewHandler creates a new peers Handler
+func NewHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *Handler {
+	return &Handler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -35,7 +44,7 @@ func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *Pee
 	}
 }
 
-func (h *PeersHandler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
+func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 	peerToReturn := peer.Copy()
 	if peer.Status.Connected {
 		// Although we have online status in store we do not yet have an updated channel so have to show it as disconnected
@@ -48,7 +57,7 @@ func (h *PeersHandler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) 
 	return peerToReturn, nil
 }
 
-func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, peerID, userID string, w http.ResponseWriter) {
+func (h *Handler) getPeer(ctx context.Context, account *server.Account, peerID, userID string, w http.ResponseWriter) {
 	peer, err := h.accountManager.GetPeer(ctx, account.Id, peerID, userID)
 	if err != nil {
 		util.WriteError(ctx, err, w)
@@ -75,7 +84,7 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, valid))
 }
 
-func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, userID, peerID string, w http.ResponseWriter, r *http.Request) {
+func (h *Handler) updatePeer(ctx context.Context, account *server.Account, userID, peerID string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PeerRequest{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -120,18 +129,18 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, valid))
 }
 
-func (h *PeersHandler) deletePeer(ctx context.Context, accountID, userID string, peerID string, w http.ResponseWriter) {
+func (h *Handler) deletePeer(ctx context.Context, accountID, userID string, peerID string, w http.ResponseWriter) {
 	err := h.accountManager.DeletePeer(ctx, accountID, peerID, userID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer: %v", err)
 		util.WriteError(ctx, err, w)
 		return
 	}
-	util.WriteJSONObject(ctx, w, emptyObject{})
+	util.WriteJSONObject(ctx, w, util.EmptyObject{})
 }
 
 // HandlePeer handles all peer requests for GET, PUT and DELETE operations
-func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -168,7 +177,7 @@ func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetAllPeers returns a list of all peers associated with a provided account
-func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {
@@ -219,7 +228,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, respBody)
 }
 
-func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approvedPeersMap map[string]struct{}) {
+func (h *Handler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approvedPeersMap map[string]struct{}) {
 	for _, peer := range respBody {
 		_, ok := approvedPeersMap[peer.Id]
 		if !ok {
@@ -229,7 +238,7 @@ func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approv
 }
 
 // GetAccessiblePeers returns a list of all peers that the specified peer can connect to within the network.
-func (h *PeersHandler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
 	if err != nil {

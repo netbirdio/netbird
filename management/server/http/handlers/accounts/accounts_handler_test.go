@@ -1,4 +1,4 @@
-package http
+package accounts
 
 import (
 	"bytes"
@@ -20,8 +20,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-func initAccountsTestData(account *server.Account, admin *server.User) *AccountsHandler {
-	return &AccountsHandler{
+func initAccountsTestData(account *server.Account, admin *server.User) *handler {
+	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountIDFromTokenFunc: func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return account.Id, admin.Id, nil
@@ -89,7 +89,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 		requestBody      io.Reader
 	}{
 		{
-			name:           "GetAllAccounts OK",
+			name:           "getAllAccounts OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
 			requestPath:    "/api/accounts",
@@ -189,8 +189,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/accounts", handler.GetAllAccounts).Methods("GET")
-			router.HandleFunc("/api/accounts/{accountId}", handler.UpdateAccount).Methods("PUT")
+			router.HandleFunc("/api/accounts", handler.getAllAccounts).Methods("GET")
+			router.HandleFunc("/api/accounts/{accountId}", handler.updateAccount).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
