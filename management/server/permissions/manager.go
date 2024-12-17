@@ -34,6 +34,9 @@ type managerImpl struct {
 	settingsManager settings.Manager
 }
 
+type managerMock struct {
+}
+
 func NewManager(userManager users.Manager, settingsManager settings.Manager) Manager {
 	return &managerImpl{
 		userManager:     userManager,
@@ -84,5 +87,16 @@ func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accoun
 		return true, nil
 	}
 
+	return false, nil
+}
+
+func NewManagerMock() Manager {
+	return &managerMock{}
+}
+
+func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
+	if userID == "allowedUser" {
+		return true, nil
+	}
 	return false, nil
 }
