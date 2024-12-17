@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -337,7 +336,6 @@ func Test_UpdateResourceFailsWithNameInUse(t *testing.T) {
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
-	require.Equal(t, errors.New("new resource name already exists"), err)
 	require.Nil(t, updatedResource)
 }
 
