@@ -1272,17 +1272,18 @@ components:
           description: Network resource description
           type: string
           example: A remote resource inside network 1
+        address:
+          description: Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
+          type: string
+          example: "1.1.1.1"
       required:
         - name
+        - address
     NetworkResourceRequest:
       allOf:
         - $ref: '#/components/schemas/NetworkResourceMinimum'
         - type: object
           properties:
-            address:
-              description: Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
-              type: string
-              example: "1.1.1.1"
             groups:
               description: Group IDs containing the resource
               type: array
@@ -1307,20 +1308,10 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
-            domain:
-              description: Domain name of the resource
-              type: string
-              example: example.com
-            prefix:
-              description: Prefix of the resource
-              type: string
-              example:
           required:
             - id
             - type
             - groups
-            - domain
-            - prefix
         - $ref: '#/components/schemas/NetworkResourceMinimum'
     NetworkResourceType:
       description: Network resource type based of the address

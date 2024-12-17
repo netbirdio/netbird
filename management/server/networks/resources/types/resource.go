@@ -55,13 +55,17 @@ func NewNetworkResource(accountID, networkID, name, description, address string)
 }
 
 func (n *NetworkResource) ToAPIResponse(groups []api.GroupMinimum) *api.NetworkResource {
+	addr := n.Prefix.String()
+	if n.Type == domain {
+		addr = n.Domain
+	}
+
 	return &api.NetworkResource{
 		Id:          n.ID,
 		Name:        n.Name,
 		Description: &n.Description,
 		Type:        api.NetworkResourceType(n.Type.String()),
-		Domain:      n.Domain,
-		Prefix:      n.Prefix.String(),
+		Address:     addr,
 		Groups:      groups,
 	}
 }
