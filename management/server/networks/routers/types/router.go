@@ -68,3 +68,7 @@ func (n *NetworkRouter) Copy() *NetworkRouter {
 		Metric:     n.Metric,
 	}
 }
+
+func (n *NetworkRouter) EventMeta(networkName string) map[string]any {
+	return map[string]any{"network_name": networkName}
+}

@@ -49,3 +49,7 @@ func (n *Network) Copy() *Network {
 		Description: n.Description,
 	}
 }
+
+func (n *Network) EventMeta() map[string]any {
+	return map[string]any{"name": n.Name}
+}

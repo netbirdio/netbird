@@ -178,3 +178,11 @@ func NewPermissionDeniedError() error {
 func NewPermissionValidationError(err error) error {
 	return Errorf(PermissionDenied, "failed to vlidate user permissions: %s", err)
 }
+
+func NewResourceNotPartOfNetworkError(resourceID, networkID string) error {
+	return Errorf(BadRequest, "resource %s is not part of the network %s", resourceID, networkID)
+}
+
+func NewRouterNotPartOfNetworkError(routerID, networkID string) error {
+	return Errorf(BadRequest, "router %s is not part of the network %s", routerID, networkID)
+}

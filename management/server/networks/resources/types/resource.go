@@ -142,6 +142,10 @@ func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.Network
 	return r
 }
 
+func (n *NetworkResource) EventMeta(networkName string) map[string]any {
+	return map[string]any{"name": n.Name, "type": n.Type, "network_name": networkName}
+}
+
 // GetResourceType returns the type of the resource based on the address
 func GetResourceType(address string) (NetworkResourceType, string, netip.Prefix, error) {
 	if prefix, err := netip.ParsePrefix(address); err == nil {
