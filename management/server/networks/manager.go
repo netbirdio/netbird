@@ -6,6 +6,7 @@ import (
 
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -23,12 +24,14 @@ type Manager interface {
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
+	resourcesManager   resources.Manager
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, manager resources.Manager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
+		resourcesManager:   manager,
 	}
 }
 

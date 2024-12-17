@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -21,8 +23,10 @@ func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	networks, err := manager.GetAllNetworks(ctx, accountID, userID)
 	require.NoError(t, err)
@@ -40,8 +44,10 @@ func Test_GetAllNetworksReturnsPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	networks, err := manager.GetAllNetworks(ctx, accountID, userID)
 	require.Error(t, err)
@@ -59,8 +65,10 @@ func Test_GetNetworkReturnsNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	networks, err := manager.GetNetwork(ctx, accountID, userID, networkID)
 	require.NoError(t, err)
@@ -78,8 +86,10 @@ func Test_GetNetworkReturnsPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	network, err := manager.GetNetwork(ctx, accountID, userID, networkID)
 	require.Error(t, err)
@@ -99,8 +109,10 @@ func Test_CreateNetworkSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	createdNetwork, err := manager.CreateNetwork(ctx, userID, network)
 	require.NoError(t, err)
@@ -120,8 +132,10 @@ func Test_CreateNetworkFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	createdNetwork, err := manager.CreateNetwork(ctx, userID, network)
 	require.Error(t, err)
@@ -139,8 +153,10 @@ func Test_DeleteNetworkSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	err = manager.DeleteNetwork(ctx, accountID, userID, networkID)
 	require.NoError(t, err)
@@ -157,8 +173,10 @@ func Test_DeleteNetworkFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	err = manager.DeleteNetwork(ctx, accountID, userID, networkID)
 	require.Error(t, err)
@@ -178,8 +196,10 @@ func Test_UpdateNetworkSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	updatedNetwork, err := manager.UpdateNetwork(ctx, userID, network)
 	require.NoError(t, err)
@@ -200,8 +220,11 @@ func Test_UpdateNetworkFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+
+	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
-	manager := NewManager(s, permissionsManager)
+	resourcesManager := resources.NewManager(s, permissionsManager, &am)
+	manager := NewManager(s, permissionsManager, resourcesManager)
 
 	updatedNetwork, err := manager.UpdateNetwork(ctx, userID, network)
 	require.Error(t, err)
