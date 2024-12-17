@@ -115,6 +115,11 @@ type MockAccountManager struct {
 	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
 }
 
+func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+	// TODO implement me
+	panic("implement me")
+}
+
 func (am *MockAccountManager) GetUserManager() users.Manager {
 	// TODO implement me
 	panic("implement me")
