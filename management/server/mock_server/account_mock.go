@@ -116,7 +116,7 @@ type MockAccountManager struct {
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
-	return
+	// do nothing
 }
 
 func (am *MockAccountManager) GetUserManager() users.Manager {
