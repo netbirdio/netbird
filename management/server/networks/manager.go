@@ -26,7 +26,6 @@ type Manager interface {
 
 type managerImpl struct {
 	store              store.Store
-	eventStore         activity.Store
 	accountManager     s.AccountManager
 	permissionsManager permissions.Manager
 	resourcesManager   resources.Manager
