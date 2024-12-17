@@ -1047,7 +1047,7 @@ func (a *Account) GetPeerRoutesFirewallRules(ctx context.Context, peerID string,
 	for _, route := range enabledRoutes {
 		// If no access control groups are specified, accept all traffic.
 		if len(route.AccessControlGroups) == 0 {
-			defaultPermit := getDefaultFirewallRules(route, PolicyTrafficActionAccept)
+			defaultPermit := getDefaultPermit(route)
 			routesFirewallRules = append(routesFirewallRules, defaultPermit...)
 			continue
 		}
@@ -1130,7 +1130,7 @@ func (a *Account) getDistributionGroupsPeers(route *route.Route) map[string]stru
 	return distPeers
 }
 
-func getDefaultFirewallRules(route *route.Route, action PolicyTrafficActionType) []*RouteFirewallRule {
+func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 	var rules []*RouteFirewallRule
 
 	sources := []string{"0.0.0.0/0"}
@@ -1139,7 +1139,7 @@ func getDefaultFirewallRules(route *route.Route, action PolicyTrafficActionType)
 	}
 	rule := RouteFirewallRule{
 		SourceRanges: sources,
-		Action:       string(action),
+		Action:       string(PolicyTrafficActionAccept),
 		Destination:  route.Network.String(),
 		Protocol:     string(PolicyRuleProtocolALL),
 		Domains:      route.Domains,
@@ -1213,13 +1213,13 @@ func (a *Account) getRoutingPeerNetworkResourcesRoutes(ctx context.Context, peer
 				}
 
 				resources := a.getNetworkResources(router.NetworkID)
-				routes = append(routes, getNetworkResourcesRoutes(resources, router, peer)...)
+				routes = append(routes, a.getNetworkResourcesRoutes(resources, router, peer)...)
 			}
 		}
 
 		if router.Peer == peerID {
 			resources := a.getNetworkResources(router.NetworkID)
-			routes = append(routes, getNetworkResourcesRoutes(resources, router, peer)...)
+			routes = append(routes, a.getNetworkResourcesRoutes(resources, router, peer)...)
 		}
 	}
 
@@ -1234,13 +1234,6 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 	for _, route := range routes {
 		resourceAppliedPolicies := a.GetPoliciesForNetworkResourceRoute(route)
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
-
-		// If no policy applies to the network resource, deny all access by default
-		if len(resourceAppliedPolicies) == 0 {
-			defaultDenyRules := getDefaultFirewallRules(route, PolicyTrafficActionDrop)
-			routesFirewallRules = append(routesFirewallRules, defaultDenyRules...)
-			continue
-		}
 
 		rules := a.getRouteFirewallRules(ctx, peerID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
 		routesFirewallRules = append(routesFirewallRules, rules...)
@@ -1327,10 +1320,16 @@ func (a *Account) GetPoliciesForNetworkResourceRoute(route *route.Route) []*Poli
 }
 
 // getNetworkResourcesRoutes convert the network resources list to routes list.
-func getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peer *nbpeer.Peer) []*route.Route {
+func (a *Account) getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peer *nbpeer.Peer) []*route.Route {
 	routes := make([]*route.Route, 0, len(resources))
 	for _, resource := range resources {
-		routes = append(routes, resource.ToRoute(peer, router))
+		resourceRoute := resource.ToRoute(peer, router)
+		resourceAppliedPolicies := a.GetPoliciesForNetworkResourceRoute(resourceRoute)
+
+		// distribute the resource routes only if there is policy applied to it
+		if len(resourceAppliedPolicies) > 0 {
+			routes = append(routes, resourceRoute)
+		}
 	}
 
 	return routes

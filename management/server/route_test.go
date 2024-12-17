@@ -1879,6 +1879,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Action:       "accept",
 				Destination:  "192.0.2.0/32",
 				Protocol:     "all",
+				Domains:      domain.List{"example.com"},
 				IsDynamic:    true,
 			},
 			{
@@ -1886,6 +1887,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Action:       "accept",
 				Destination:  "192.0.2.0/32",
 				Protocol:     "all",
+				Domains:      domain.List{"example.com"},
 				IsDynamic:    true,
 			},
 		}
@@ -2382,8 +2384,8 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				ID:        "resource4",
 				NetworkID: "network4",
 				Name:      "Resource 4",
-				Type:      "subnet",
-				Address:   "192.168.10.0/16",
+				Type:      "domain",
+				Address:   "example.com",
 			},
 		},
 		Policies: []*types.Policy{
@@ -2559,17 +2561,21 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 					fmt.Sprintf(types.AllowedIPsFormat, peerJIp),
 				},
 				Action:      "accept",
-				Destination: "192.168.10.0/16",
+				Destination: "192.0.2.0/32",
 				Protocol:    "tcp",
 				Port:        80,
+				Domains:     domain.List{"example.com"},
+				IsDynamic:   true,
 			},
 			{
 				SourceRanges: []string{
 					fmt.Sprintf(types.AllowedIPsFormat, peerKIp),
 				},
 				Action:      "accept",
-				Destination: "192.168.10.0/16",
+				Destination: "192.0.2.0/32",
 				Protocol:    "all",
+				Domains:     domain.List{"example.com"},
+				IsDynamic:   true,
 			},
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(append(expectedFirewallRules, additionalFirewallRules...)))
@@ -2580,8 +2586,9 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
 
 		// peerE is a single routing peer for resource1 and resource3
+		// PeerE should only receive rules for resource1 since resource3 has no applied policy
 		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), "peerE", validatedPeers)
-		assert.Len(t, firewallRules, 3)
+		assert.Len(t, firewallRules, 1)
 
 		expectedFirewallRules = []*types.RouteFirewallRule{
 			{
@@ -2590,22 +2597,6 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Destination:  "10.10.10.0/24",
 				Protocol:     "tcp",
 				PortRange:    types.RulePortRange{Start: 80, End: 350},
-			},
-			{
-				SourceRanges: []string{"0.0.0.0/0"},
-				Action:       "drop",
-				Destination:  "192.0.2.0/32",
-				Protocol:     "all",
-				Domains:      domain.List{"example.com"},
-				IsDynamic:    true,
-			},
-			{
-				SourceRanges: []string{"::/0"},
-				Action:       "drop",
-				Destination:  "192.0.2.0/32",
-				Protocol:     "all",
-				Domains:      domain.List{"example.com"},
-				IsDynamic:    true,
 			},
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
