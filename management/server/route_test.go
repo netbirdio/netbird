@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -2501,7 +2502,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		peerE := account.GetPeer("peerE")
 		router1 := getNetworkRouterByID(account, "router1")
 		route1 := getNetworkResourceByID(account, "resource1").ToRoute(peerE, router1)
-		policies := account.GetPoliciesForNetworkResourceRoute(route1)
+		policies := account.GetPoliciesForNetworkResource(string(route1.ID))
 		assert.Len(t, policies, 1, "resource1 should have exactly 1 policy applied directly")
 
 		// Test case: Resource2 is applied to an access control group (dev),
@@ -2509,20 +2510,20 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		peerA := account.GetPeer("peerA")
 		router2 := getNetworkRouterByID(account, "router2")
 		route2 := getNetworkResourceByID(account, "resource2").ToRoute(peerA, router2)
-		policies = account.GetPoliciesForNetworkResourceRoute(route2)
+		policies = account.GetPoliciesForNetworkResource(string(route2.ID))
 		assert.Len(t, policies, 1, "resource2 should have exactly 1 policy applied via access control group")
 
 		// Test case: Resource3 is not applied to any access control group or policy
 		router3 := getNetworkRouterByID(account, "router3")
 		route3 := getNetworkResourceByID(account, "resource3").ToRoute(peerE, router3)
-		policies = account.GetPoliciesForNetworkResourceRoute(route3)
+		policies = account.GetPoliciesForNetworkResource(string(route3.ID))
 		assert.Len(t, policies, 0, "resource3 should have no policies applied")
 
 		// Test case: Resource4 is applied to the access control groups (restrictQA and unrestrictedQA),
 		// which is part of the destination in the policies (policyResource3 and policyResource4)
 		router4 := getNetworkRouterByID(account, "router4")
 		route4 := getNetworkResourceByID(account, "resource4").ToRoute(peerA, router4)
-		policies = account.GetPoliciesForNetworkResourceRoute(route4)
+		policies = account.GetPoliciesForNetworkResource(string(route4.ID))
 		assert.Len(t, policies, 2, "resource4 should have exactly 2 policy applied via access control groups")
 	})
 
