@@ -203,7 +203,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			return status.NewResourceNotPartOfNetworkError(resource.ID, resource.NetworkID)
 		}
 
-		resource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+		_, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
