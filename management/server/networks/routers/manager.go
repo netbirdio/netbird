@@ -32,6 +32,9 @@ type managerImpl struct {
 	accountManager     s.AccountManager
 }
 
+type mockManager struct {
+}
+
 func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager s.AccountManager) Manager {
 	return &managerImpl{
 		store:              store,
@@ -223,4 +226,36 @@ func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction
 	}
 
 	return event, nil
+}
+
+func NewManagerMock() Manager {
+	return &mockManager{}
+}
+
+func (m *mockManager) GetAllRoutersInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkRouter, error) {
+	return []*types.NetworkRouter{}, nil
+}
+
+func (m *mockManager) GetAllRoutersInAccount(ctx context.Context, accountID, userID string) (map[string][]*types.NetworkRouter, error) {
+	return map[string][]*types.NetworkRouter{}, nil
+}
+
+func (m *mockManager) CreateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
+	return router, nil
+}
+
+func (m *mockManager) GetRouter(ctx context.Context, accountID, userID, networkID, routerID string) (*types.NetworkRouter, error) {
+	return &types.NetworkRouter{}, nil
+}
+
+func (m *mockManager) UpdateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
+	return router, nil
+}
+
+func (m *mockManager) DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error {
+	return nil
+}
+
+func (m *mockManager) DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, networkID, routerID string) (func(), error) {
+	return func() {}, nil
 }
