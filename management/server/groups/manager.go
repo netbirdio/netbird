@@ -23,6 +23,9 @@ type managerImpl struct {
 	permissionsManager permissions.Manager
 }
 
+type mockManager struct {
+}
+
 func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
 	return &managerImpl{
 		store:              store,
@@ -111,4 +114,28 @@ func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum 
 		}
 	}
 	return groupsInfo
+}
+
+func (m *mockManager) GetAllGroups(ctx context.Context, accountID, userID string) (map[string]*types.Group, error) {
+	return nil, nil
+}
+
+func (m *mockManager) GetResourceGroupsInTransaction(ctx context.Context, transaction store.Store, lockingStrength store.LockingStrength, accountID, resourceID string) ([]*types.Group, error) {
+	return nil, nil
+}
+
+func (m *mockManager) AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error {
+	return nil
+}
+
+func (m *mockManager) AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID string, resourceID *types.Resource) error {
+	return nil
+}
+
+func (m *mockManager) RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID, resourceID string) error {
+	return nil
+}
+
+func NewManagerMock() Manager {
+	return &mockManager{}
 }
