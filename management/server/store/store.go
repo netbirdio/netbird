@@ -74,7 +74,8 @@ type Store interface {
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
-	GetGroupByID(ctx context.Context, lockStrength LockingStrength, groupID, accountID string) (*types.Group, error)
+	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
+	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error)
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*types.Group, error)
 	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error)
 	SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*types.Group) error
@@ -99,6 +100,7 @@ type Store interface {
 	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
 	AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error
 	AddResourceToGroup(ctx context.Context, accountId string, groupID string, resource *types.Resource) error
+	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)

@@ -12,7 +12,10 @@ import (
 
 type Manager interface {
 	GetAllGroups(ctx context.Context, accountID, userID string) (map[string]*types.Group, error)
+	GetResourceGroupsInTransaction(ctx context.Context, transaction store.Store, lockingStrength store.LockingStrength, accountID, resourceID string) ([]*types.Group, error)
 	AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error
+	AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID string, resourceID *types.Resource) error
+	RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID, resourceID string) error
 }
 
 type managerImpl struct {
@@ -58,7 +61,19 @@ func (m *managerImpl) AddResourceToGroup(ctx context.Context, accountID, userID,
 		return err
 	}
 
-	return m.store.AddResourceToGroup(ctx, accountID, groupID, resource)
+	return m.AddResourceToGroupInTransaction(ctx, m.store, accountID, groupID, resource)
+}
+
+func (m *managerImpl) AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID string, resource *types.Resource) error {
+	return transaction.AddResourceToGroup(ctx, accountID, groupID, resource)
+}
+
+func (m *managerImpl) RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID, resourceID string) error {
+	return transaction.RemoveResourceFromGroup(ctx, accountID, groupID, resourceID)
+}
+
+func (m *managerImpl) GetResourceGroupsInTransaction(ctx context.Context, transaction store.Store, lockingStrength store.LockingStrength, accountID, resourceID string) ([]*types.Group, error) {
+	return transaction.GetResourceGroups(ctx, lockingStrength, accountID, resourceID)
 }
 
 func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum {
