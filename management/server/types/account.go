@@ -1219,27 +1219,27 @@ func (a *Account) getRoutingPeerNetworkResourcesRoutes(ctx context.Context, peer
 	}
 
 	for _, router := range a.NetworkRouters {
+		isMember := false
 		for _, groupID := range router.PeerGroups {
 			group := a.GetGroup(groupID)
 			if group == nil {
-				log.WithContext(ctx).Errorf("router %s has peers group %s that doesn't exist under account %s", router.ID, groupID, a.Id)
+				log.WithContext(ctx).Warnf("router %s has peers group %s that doesn't exist under account %s, will continue map generation", router.ID, groupID, a.Id)
 				continue
 			}
 
 			for _, id := range group.Peers {
-				if id != peerID {
-					continue
+				if id == peerID {
+					isMember = true
+					break
 				}
-
-				resources := a.getNetworkResources(router.NetworkID)
-				routes = append(routes, a.getNetworkResourcesRoutes(resources, router, peer)...)
 			}
 		}
 
-		if router.Peer == peerID {
+		if isMember || router.Peer == peerID {
 			resources := a.getNetworkResources(router.NetworkID)
 			routes = append(routes, a.getNetworkResourcesRoutes(resources, router, peer)...)
 		}
+
 	}
 
 	return routes
