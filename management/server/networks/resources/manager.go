@@ -271,6 +271,10 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 	}
 
 	groups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, accountID, resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to get resource groups: %w", err)
+	}
+
 	for _, group := range groups {
 		err = m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, accountID, group.ID, resourceID)
 		if err != nil {

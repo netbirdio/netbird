@@ -117,11 +117,11 @@ func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum 
 }
 
 func (m *mockManager) GetAllGroups(ctx context.Context, accountID, userID string) (map[string]*types.Group, error) {
-	return nil, nil
+	return map[string]*types.Group{}, nil
 }
 
 func (m *mockManager) GetResourceGroupsInTransaction(ctx context.Context, transaction store.Store, lockingStrength store.LockingStrength, accountID, resourceID string) ([]*types.Group, error) {
-	return nil, nil
+	return []*types.Group{}, nil
 }
 
 func (m *mockManager) AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error {
