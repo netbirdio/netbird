@@ -14,13 +14,19 @@ const (
 	PriorityDefault     = 0
 )
 
+type SubdomainMatcher interface {
+	dns.Handler
+	MatchSubdomains() bool
+}
+
 type HandlerEntry struct {
-	Handler     dns.Handler
-	Priority    int
-	Pattern     string
-	OrigPattern string
-	IsWildcard  bool
-	StopHandler handlerWithStop
+	Handler         dns.Handler
+	Priority        int
+	Pattern         string
+	OrigPattern     string
+	IsWildcard      bool
+	StopHandler     handlerWithStop
+	MatchSubdomains bool
 }
 
 // HandlerChain represents a prioritized chain of DNS handlers
@@ -32,6 +38,7 @@ type HandlerChain struct {
 // ResponseWriterChain wraps a dns.ResponseWriter to track if handler wants to continue chain
 type ResponseWriterChain struct {
 	dns.ResponseWriter
+	origPattern    string
 	shouldContinue bool
 }
 
@@ -48,6 +55,11 @@ func NewHandlerChain() *HandlerChain {
 	return &HandlerChain{
 		handlers: make([]HandlerEntry, 0),
 	}
+}
+
+// GetOrigPattern returns the original pattern of the handler that wrote the response
+func (w *ResponseWriterChain) GetOrigPattern() string {
+	return w.origPattern
 }
 
 // AddHandler adds a new handler to the chain, replacing any existing handler with the same pattern and priority
@@ -74,16 +86,23 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 		}
 	}
 
-	log.Debugf("adding handler for pattern: %s (original: %s, wildcard: %v) with priority %d",
-		pattern, origPattern, isWildcard, priority)
+	// Check if handler implements SubdomainMatcher interface
+	matchSubdomains := false
+	if matcher, ok := handler.(SubdomainMatcher); ok {
+		matchSubdomains = matcher.MatchSubdomains()
+	}
+
+	log.Debugf("adding handler pattern: domain=%s original: domain=%s wildcard=%v match_subdomain=%v priority=%d",
+		pattern, origPattern, isWildcard, matchSubdomains, priority)
 
 	entry := HandlerEntry{
-		Handler:     handler,
-		Priority:    priority,
-		Pattern:     pattern,
-		OrigPattern: origPattern,
-		IsWildcard:  isWildcard,
-		StopHandler: stopHandler,
+		Handler:         handler,
+		Priority:        priority,
+		Pattern:         pattern,
+		OrigPattern:     origPattern,
+		IsWildcard:      isWildcard,
+		StopHandler:     stopHandler,
+		MatchSubdomains: matchSubdomains,
 	}
 
 	// Insert handler in priority order
@@ -139,14 +158,14 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	qname := r.Question[0].Name
-	log.Debugf("handling DNS request for %s", qname)
+	log.Tracef("handling DNS request for domain=%s", qname)
 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	log.Debugf("current handlers (%d):", len(c.handlers))
+	log.Tracef("current handlers (%d):", len(c.handlers))
 	for _, h := range c.handlers {
-		log.Debugf("  - pattern: %s, original: %s, wildcard: %v, priority: %d",
+		log.Tracef("  - pattern: domain=%s original: domain=%s wildcard=%v priority=%d",
 			h.Pattern, h.OrigPattern, h.IsWildcard, h.Priority)
 	}
 
@@ -160,30 +179,41 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			parts := strings.Split(strings.TrimSuffix(qname, entry.Pattern), ".")
 			matched = len(parts) >= 2 && strings.HasSuffix(qname, entry.Pattern)
 		default:
-			matched = qname == entry.Pattern || strings.HasSuffix(qname, "."+entry.Pattern)
+			// For non-wildcard patterns:
+			// If handler wants subdomain matching, allow suffix match
+			// Otherwise require exact match
+			if entry.MatchSubdomains {
+				matched = qname == entry.Pattern || strings.HasSuffix(qname, "."+entry.Pattern)
+			} else {
+				matched = qname == entry.Pattern
+			}
 		}
 
 		if !matched {
-			log.Debugf("trying domain match: pattern=%s qname=%s wildcard=%v matched=false",
-				entry.OrigPattern, qname, entry.IsWildcard)
+			log.Tracef("trying domain match: request: domain=%s pattern: domain=%s wildcard=%v match_subdomain=%v matched=false",
+				qname, entry.OrigPattern, entry.MatchSubdomains, entry.IsWildcard)
 			continue
 		}
 
-		log.Debugf("handler matched: pattern=%s qname=%s wildcard=%v",
-			entry.OrigPattern, qname, entry.IsWildcard)
-		chainWriter := &ResponseWriterChain{ResponseWriter: w}
+		log.Tracef("handler matched: request: domain=%s pattern: domain=%s wildcard=%v match_subdomain=%v",
+			qname, entry.OrigPattern, entry.IsWildcard, entry.MatchSubdomains)
+
+		chainWriter := &ResponseWriterChain{
+			ResponseWriter: w,
+			origPattern:    entry.OrigPattern,
+		}
 		entry.Handler.ServeDNS(chainWriter, r)
 
 		// If handler wants to continue, try next handler
 		if chainWriter.shouldContinue {
-			log.Debugf("handler requested continue to next handler")
+			log.Tracef("handler requested continue to next handler")
 			continue
 		}
 		return
 	}
 
 	// No handler matched or all handlers passed
-	log.Debugf("no handler found for %s", qname)
+	log.Tracef("no handler found for domain=%s", qname)
 	resp := &dns.Msg{}
 	resp.SetRcode(r, dns.RcodeNameError)
 	if err := w.WriteMsg(resp); err != nil {

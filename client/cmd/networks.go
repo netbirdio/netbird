@@ -68,19 +68,19 @@ func networksList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	printRoutes(cmd, resp)
+	printNetworks(cmd, resp)
 
 	return nil
 }
 
-func printRoutes(cmd *cobra.Command, resp *proto.ListNetworksResponse) {
+func printNetworks(cmd *cobra.Command, resp *proto.ListNetworksResponse) {
 	cmd.Println("Available Networks:")
 	for _, route := range resp.Routes {
-		printRoute(cmd, route)
+		printNetwork(cmd, route)
 	}
 }
 
-func printRoute(cmd *cobra.Command, route *proto.Network) {
+func printNetwork(cmd *cobra.Command, route *proto.Network) {
 	selectedStatus := getSelectedStatus(route)
 	domains := route.GetDomains()
 
@@ -113,12 +113,10 @@ func printNetworkRoute(cmd *cobra.Command, route *proto.Network, selectedStatus 
 	cmd.Printf("\n  - ID: %s\n    Network: %s\n    Status: %s\n", route.GetID(), route.GetRange(), selectedStatus)
 }
 
-func printResolvedIPs(cmd *cobra.Command, domains []string, resolvedIPs map[string]*proto.IPList) {
+func printResolvedIPs(cmd *cobra.Command, _ []string, resolvedIPs map[string]*proto.IPList) {
 	cmd.Printf("    Resolved IPs:\n")
-	for _, domain := range domains {
-		if ipList, exists := resolvedIPs[domain]; exists {
-			cmd.Printf("      [%s]: %s\n", domain, strings.Join(ipList.GetIps(), ", "))
-		}
+	for resolvedDomain, ipList := range resolvedIPs {
+		cmd.Printf("      [%s]: %s\n", resolvedDomain, strings.Join(ipList.GetIps(), ", "))
 	}
 }
 

@@ -11,23 +11,14 @@ import (
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 )
 
-// MockHandler implements dns.Handler interface for testing
-type MockHandler struct {
-	mock.Mock
-}
-
-func (m *MockHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	m.Called(w, r)
-}
-
 // TestHandlerChain_ServeDNS_Priorities tests that handlers are executed in priority order
 func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 	chain := nbdns.NewHandlerChain()
 
 	// Create mock handlers for different priorities
-	defaultHandler := &MockHandler{}
-	matchDomainHandler := &MockHandler{}
-	dnsRouteHandler := &MockHandler{}
+	defaultHandler := &nbdns.MockHandler{}
+	matchDomainHandler := &nbdns.MockHandler{}
+	dnsRouteHandler := &nbdns.MockHandler{}
 
 	// Setup handlers with different priorities
 	chain.AddHandler("example.com.", defaultHandler, nbdns.PriorityDefault, nil)
@@ -58,78 +49,108 @@ func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 // TestHandlerChain_ServeDNS_DomainMatching tests various domain matching scenarios
 func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 	tests := []struct {
-		name          string
-		handlerDomain string
-		queryDomain   string
-		isWildcard    bool
-		shouldMatch   bool
+		name            string
+		handlerDomain   string
+		queryDomain     string
+		isWildcard      bool
+		matchSubdomains bool
+		shouldMatch     bool
 	}{
 		{
-			name:          "exact match",
-			handlerDomain: "example.com.",
-			queryDomain:   "example.com.",
-			isWildcard:    false,
-			shouldMatch:   true,
+			name:            "exact match",
+			handlerDomain:   "example.com.",
+			queryDomain:     "example.com.",
+			isWildcard:      false,
+			matchSubdomains: false,
+			shouldMatch:     true,
 		},
 		{
-			name:          "subdomain with non-wildcard",
-			handlerDomain: "example.com.",
-			queryDomain:   "sub.example.com.",
-			isWildcard:    false,
-			shouldMatch:   true,
+			name:            "subdomain with non-wildcard and MatchSubdomains true",
+			handlerDomain:   "example.com.",
+			queryDomain:     "sub.example.com.",
+			isWildcard:      false,
+			matchSubdomains: true,
+			shouldMatch:     true,
 		},
 		{
-			name:          "wildcard match",
-			handlerDomain: "*.example.com.",
-			queryDomain:   "sub.example.com.",
-			isWildcard:    true,
-			shouldMatch:   true,
+			name:            "subdomain with non-wildcard and MatchSubdomains false",
+			handlerDomain:   "example.com.",
+			queryDomain:     "sub.example.com.",
+			isWildcard:      false,
+			matchSubdomains: false,
+			shouldMatch:     false,
 		},
 		{
-			name:          "wildcard no match on apex",
-			handlerDomain: "*.example.com.",
-			queryDomain:   "example.com.",
-			isWildcard:    true,
-			shouldMatch:   false,
+			name:            "wildcard match",
+			handlerDomain:   "*.example.com.",
+			queryDomain:     "sub.example.com.",
+			isWildcard:      true,
+			matchSubdomains: false,
+			shouldMatch:     true,
 		},
 		{
-			name:          "root zone match",
-			handlerDomain: ".",
-			queryDomain:   "anything.com.",
-			isWildcard:    false,
-			shouldMatch:   true,
+			name:            "wildcard no match on apex",
+			handlerDomain:   "*.example.com.",
+			queryDomain:     "example.com.",
+			isWildcard:      true,
+			matchSubdomains: false,
+			shouldMatch:     false,
 		},
 		{
-			name:          "no match different domain",
-			handlerDomain: "example.com.",
-			queryDomain:   "example.org.",
-			isWildcard:    false,
-			shouldMatch:   false,
+			name:            "root zone match",
+			handlerDomain:   ".",
+			queryDomain:     "anything.com.",
+			isWildcard:      false,
+			matchSubdomains: false,
+			shouldMatch:     true,
+		},
+		{
+			name:            "no match different domain",
+			handlerDomain:   "example.com.",
+			queryDomain:     "example.org.",
+			isWildcard:      false,
+			matchSubdomains: false,
+			shouldMatch:     false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chain := nbdns.NewHandlerChain()
-			mockHandler := &MockHandler{}
+			var handler dns.Handler
+
+			if tt.matchSubdomains {
+				mockSubHandler := &nbdns.MockSubdomainHandler{Subdomains: true}
+				handler = mockSubHandler
+				if tt.shouldMatch {
+					mockSubHandler.On("ServeDNS", mock.Anything, mock.Anything).Once()
+				}
+			} else {
+				mockHandler := &nbdns.MockHandler{}
+				handler = mockHandler
+				if tt.shouldMatch {
+					mockHandler.On("ServeDNS", mock.Anything, mock.Anything).Once()
+				}
+			}
 
 			pattern := tt.handlerDomain
 			if tt.isWildcard {
-				pattern = "*." + tt.handlerDomain[2:] // Remove the first two chars if it's a wildcard
+				pattern = "*." + tt.handlerDomain[2:]
 			}
 
-			chain.AddHandler(pattern, mockHandler, nbdns.PriorityDefault, nil)
+			chain.AddHandler(pattern, handler, nbdns.PriorityDefault, nil)
 
 			r := new(dns.Msg)
 			r.SetQuestion(tt.queryDomain, dns.TypeA)
 			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
 
-			if tt.shouldMatch {
-				mockHandler.On("ServeDNS", mock.Anything, r).Once()
-			}
-
 			chain.ServeDNS(w, r)
-			mockHandler.AssertExpectations(t)
+
+			if h, ok := handler.(*nbdns.MockHandler); ok {
+				h.AssertExpectations(t)
+			} else if h, ok := handler.(*nbdns.MockSubdomainHandler); ok {
+				h.AssertExpectations(t)
+			}
 		})
 	}
 }
@@ -218,11 +239,11 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chain := nbdns.NewHandlerChain()
-			var handlers []*MockHandler
+			var handlers []*nbdns.MockHandler
 
 			// Setup handlers and expectations
 			for i := range tt.handlers {
-				handler := &MockHandler{}
+				handler := &nbdns.MockHandler{}
 				handlers = append(handlers, handler)
 
 				// Set expectation based on whether this handler should be called
@@ -254,9 +275,9 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 	chain := nbdns.NewHandlerChain()
 
 	// Create handlers
-	handler1 := &MockHandler{}
-	handler2 := &MockHandler{}
-	handler3 := &MockHandler{}
+	handler1 := &nbdns.MockHandler{}
+	handler2 := &nbdns.MockHandler{}
+	handler3 := &nbdns.MockHandler{}
 
 	// Add handlers in priority order
 	chain.AddHandler("example.com.", handler1, nbdns.PriorityDNSRoute, nil)
@@ -388,12 +409,12 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chain := nbdns.NewHandlerChain()
-			handlers := make(map[int]*MockHandler)
+			handlers := make(map[int]*nbdns.MockHandler)
 
 			// Execute operations
 			for _, op := range tt.ops {
 				if op.action == "add" {
-					handler := &MockHandler{}
+					handler := &nbdns.MockHandler{}
 					handlers[op.priority] = handler
 					chain.AddHandler(op.pattern, handler, op.priority, nil)
 				} else {
@@ -440,10 +461,10 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	testDomain := "example.com."
 	testQuery := "test.example.com."
 
-	// Create handlers for three priority levels
-	routeHandler := &MockHandler{}
-	matchHandler := &MockHandler{}
-	defaultHandler := &MockHandler{}
+	// Create handlers with MatchSubdomains enabled
+	routeHandler := &nbdns.MockSubdomainHandler{Subdomains: true}
+	matchHandler := &nbdns.MockSubdomainHandler{Subdomains: true}
+	defaultHandler := &nbdns.MockSubdomainHandler{Subdomains: true}
 
 	// Create test request that will be reused
 	r := new(dns.Msg)

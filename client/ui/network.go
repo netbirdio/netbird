@@ -129,10 +129,8 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 		grid.Add(domainsSelector)
 
 		var resolvedIPsList []string
-		for _, domain := range domains {
-			if ipList, exists := r.GetResolvedIPs()[domain]; exists {
-				resolvedIPsList = append(resolvedIPsList, fmt.Sprintf("%s: %s", domain, strings.Join(ipList.GetIps(), ", ")))
-			}
+		for domain, ipList := range r.GetResolvedIPs() {
+			resolvedIPsList = append(resolvedIPsList, fmt.Sprintf("%s: %s", domain, strings.Join(ipList.GetIps(), ", ")))
 		}
 
 		if len(resolvedIPsList) == 0 {

@@ -83,6 +83,8 @@ func (d *DnsInterceptor) RemoveRoute() error {
 		}
 		log.Debugf("removed dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", prefixes), " ", ", "))
 
+	}
+	for _, domain := range d.route.Domains {
 		d.statusRecorder.DeleteResolvedDomainsStates(domain)
 	}
 
@@ -138,14 +140,16 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if len(r.Question) == 0 {
 		return
 	}
-	log.Tracef("received DNS request: %v", r.Question[0].Name)
+	log.Tracef("received DNS request for domain=%s type=%v class=%v",
+		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 
 	d.mu.RLock()
 	peerKey := d.currentPeerKey
 	d.mu.RUnlock()
 
 	if peerKey == "" {
-		log.Debugf("no current peer key set, letting next handler try for %s", r.Question[0].Name)
+		log.Tracef("no current peer key set, letting next handler try for domain=%s", r.Question[0].Name)
+
 		d.continueToNextHandler(w, r, "no current peer key")
 		return
 	}
@@ -168,7 +172,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if reply != nil {
 		answer = reply.Answer
 	}
-	log.Debugf("upstream %s (%s) DNS response for %s: %v", upstreamIP, peerKey, r.Question[0].Name, answer)
+	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP, peerKey, r.Question[0].Name, answer)
 
 	if err != nil {
 		log.Errorf("failed to exchange DNS request with %s: %v", upstream, err)
@@ -186,7 +190,8 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 // continueToNextHandler signals the handler chain to try the next handler
 func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, reason string) {
-	log.Debugf("continuing to next handler for %s: %s", r.Question[0].Name, reason)
+	log.Tracef("continuing to next handler for domain=%s reason=%s", r.Question[0].Name, reason)
+
 	resp := new(dns.Msg)
 	resp.SetRcode(r, dns.RcodeNameError)
 	// Set Zero bit to signal handler chain to continue
@@ -210,8 +215,18 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 	}
 
 	if len(r.Answer) > 0 && len(r.Question) > 0 {
-		// DNS names from miekg/dns are already in punycode format
-		dom := domain.Domain(r.Question[0].Name)
+		origPattern := ""
+		if writer, ok := w.(*nbdns.ResponseWriterChain); ok {
+			origPattern = writer.GetOrigPattern()
+		}
+
+		resolvedDomain := domain.Domain(r.Question[0].Name)
+
+		// already punycode via RegisterHandler()
+		originalDomain := domain.Domain(origPattern)
+		if originalDomain == "" {
+			originalDomain = resolvedDomain
+		}
 
 		var newPrefixes []netip.Prefix
 		for _, answer := range r.Answer {
@@ -220,14 +235,14 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 			case *dns.A:
 				addr, ok := netip.AddrFromSlice(rr.A)
 				if !ok {
-					log.Debugf("failed to convert A record IP: %v", rr.A)
+					log.Tracef("failed to convert A record for domain=%s ip=%v", resolvedDomain, rr.A)
 					continue
 				}
 				ip = addr
 			case *dns.AAAA:
 				addr, ok := netip.AddrFromSlice(rr.AAAA)
 				if !ok {
-					log.Debugf("failed to convert AAAA record IP: %v", rr.AAAA)
+					log.Tracef("failed to convert AAAA record for domain=%s ip=%v", resolvedDomain, rr.AAAA)
 					continue
 				}
 				ip = addr
@@ -240,7 +255,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 		}
 
 		if len(newPrefixes) > 0 {
-			if err := d.updateDomainPrefixes(dom, newPrefixes); err != nil {
+			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes); err != nil {
 				log.Errorf("failed to update domain prefixes: %v", err)
 			}
 		}
@@ -253,11 +268,11 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 	return nil
 }
 
-func (d *DnsInterceptor) updateDomainPrefixes(domain domain.Domain, newPrefixes []netip.Prefix) error {
+func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain domain.Domain, newPrefixes []netip.Prefix) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	oldPrefixes := d.interceptedDomains[domain]
+	oldPrefixes := d.interceptedDomains[resolvedDomain]
 	toAdd, toRemove := determinePrefixChanges(oldPrefixes, newPrefixes)
 
 	var merr *multierror.Error
@@ -277,7 +292,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(domain domain.Domain, newPrefixes 
 		} else if ref.Count > 1 && ref.Out != d.currentPeerKey {
 			log.Warnf("IP [%s] for domain [%s] is already routed by peer [%s]. HA routing disabled",
 				prefix.Addr(),
-				domain.SafeString(),
+				resolvedDomain.SafeString(),
 				ref.Out,
 			)
 		}
@@ -297,16 +312,23 @@ func (d *DnsInterceptor) updateDomainPrefixes(domain domain.Domain, newPrefixes 
 		}
 	}
 
-	// Update domain prefixes
+	// Update domain prefixes using resolved domain as key
 	if len(toAdd) > 0 || len(toRemove) > 0 {
-		d.interceptedDomains[domain] = newPrefixes
-		d.statusRecorder.UpdateResolvedDomainsStates(domain, newPrefixes)
+		d.interceptedDomains[resolvedDomain] = newPrefixes
+		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
+		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes)
 
 		if len(toAdd) > 0 {
-			log.Debugf("added dynamic route(s) for [%s]: %s", domain.SafeString(), toAdd)
+			log.Debugf("added dynamic route(s) for domain=%s (pattern: domain=%s): %s",
+				resolvedDomain.SafeString(),
+				originalDomain.SafeString(),
+				toAdd)
 		}
 		if len(toRemove) > 0 {
-			log.Debugf("removed dynamic route(s) for [%s]: %s", domain.SafeString(), toRemove)
+			log.Debugf("removed dynamic route(s) for domain=%s (pattern: domain=%s): %s",
+				resolvedDomain.SafeString(),
+				originalDomain.SafeString(),
+				toRemove)
 		}
 	}
 

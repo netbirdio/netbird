@@ -288,7 +288,7 @@ func (r *Route) updateDynamicRoutes(ctx context.Context, newDomains domainMap) e
 		updatedPrefixes := combinePrefixes(oldPrefixes, removedPrefixes, addedPrefixes)
 		r.dynamicDomains[domain] = updatedPrefixes
 
-		r.statusRecorder.UpdateResolvedDomainsStates(domain, updatedPrefixes)
+		r.statusRecorder.UpdateResolvedDomainsStates(domain, domain, updatedPrefixes)
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

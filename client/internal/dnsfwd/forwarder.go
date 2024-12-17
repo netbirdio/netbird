@@ -2,6 +2,7 @@ package dnsfwd
 
 import (
 	"context"
+	"errors"
 	"net"
 
 	"github.com/miekg/dns"
@@ -9,6 +10,8 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 )
+
+const errResolveFailed = "failed to resolve query for domain=%s: %v"
 
 type DNSForwarder struct {
 	listenAddress string
@@ -20,15 +23,16 @@ type DNSForwarder struct {
 }
 
 func NewDNSForwarder(listenAddress string, ttl uint32, domains []string) *DNSForwarder {
-	log.Debugf("creating DNS forwarder with listen address: %s, ttl: %d, domains: %v", listenAddress, ttl, domains)
+	log.Debugf("creating DNS forwarder with listen_address=%s ttl=%d domains=%v", listenAddress, ttl, domains)
 	return &DNSForwarder{
 		listenAddress: listenAddress,
 		ttl:           ttl,
 		domains:       domains,
 	}
 }
+
 func (f *DNSForwarder) Listen() error {
-	log.Infof("listen DNS forwarder on: %s", f.listenAddress)
+	log.Infof("listen DNS forwarder on address=%s", f.listenAddress)
 	mux := dns.NewServeMux()
 
 	for _, d := range f.domains {
@@ -67,7 +71,8 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 	if len(query.Question) == 0 {
 		return
 	}
-	log.Tracef("received DNS request for DNS forwarder: %v", query.Question[0].Name)
+	log.Tracef("received DNS request for DNS forwarder: domain=%v type=%v class=%v",
+		query.Question[0].Name, query.Question[0].Qtype, query.Question[0].Qclass)
 
 	question := query.Question[0]
 	domain := question.Name
@@ -76,8 +81,26 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 
 	ips, err := net.LookupIP(domain)
 	if err != nil {
-		log.Warnf("failed to resolve query for domain %s: %v", domain, err)
-		resp.Rcode = dns.RcodeServerFailure
+		var dnsErr *net.DNSError
+
+		switch {
+		case errors.As(err, &dnsErr):
+			resp.Rcode = dns.RcodeServerFailure
+			if dnsErr.IsNotFound {
+				// Pass through NXDOMAIN
+				resp.Rcode = dns.RcodeNameError
+			}
+
+			if dnsErr.Server != "" {
+				log.Warnf("failed to resolve query for domain=%s server=%s: %v", domain, dnsErr.Server, err)
+			} else {
+				log.Warnf(errResolveFailed, domain, err)
+			}
+		default:
+			resp.Rcode = dns.RcodeServerFailure
+			log.Warnf(errResolveFailed, domain, err)
+		}
+
 		if err := w.WriteMsg(resp); err != nil {
 			log.Errorf("failed to write failure DNS response: %v", err)
 		}
@@ -87,7 +110,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 	for _, ip := range ips {
 		var respRecord dns.RR
 		if ip.To4() == nil {
-			log.Tracef("resolved domain %s to IPv6 %s", domain, ip)
+			log.Tracef("resolved domain=%s to IPv6=%s", domain, ip)
 			rr := dns.AAAA{
 				AAAA: ip,
 				Hdr: dns.RR_Header{
@@ -99,7 +122,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 			}
 			respRecord = &rr
 		} else {
-			log.Tracef("resolved domain %s to IPv4 %s", domain, ip)
+			log.Tracef("resolved domain=%s to IPv4=%s", domain, ip)
 			rr := dns.A{
 				A: ip,
 				Hdr: dns.RR_Header{
