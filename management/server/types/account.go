@@ -1374,7 +1374,7 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 			}
 
 			for _, peerId := range resourceRoutingPeers {
-				routes = append(routes, a.getNetworkResourcesRoutes(resources, router, peerId)...)
+				routes = append(routes, a.getNetworkResourcesRoutes(resources, router, resourcePolicies, peerId)...)
 			}
 		}
 	}
@@ -1453,10 +1453,10 @@ func (a *Account) GetPoliciesAppliedInNetwork(networkID string) []string {
 }
 
 // getNetworkResourcesRoutes convert the network resources list to routes list.
-func (a *Account) getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peerId string) []*route.Route {
+func (a *Account) getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, resourcePolicies map[string][]*Policy, peerId string) []*route.Route {
 	routes := make([]*route.Route, 0, len(resources))
 	for _, resource := range resources {
-		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(resource.ID)
+		resourceAppliedPolicies := resourcePolicies[resource.ID]
 
 		// distribute the resource routes only if there is policy applied to it
 		if len(resourceAppliedPolicies) > 0 {
