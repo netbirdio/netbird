@@ -259,7 +259,7 @@ func (a *Account) GetPeerNetworkMap(
 	isRouter, networkResourcesRoutes := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
-		networkResourcesFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networkResourcesRoutes)
+		networkResourcesFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networkResourcesRoutes, resourcePolicies)
 	}
 	peersToConnectIncludingRouters := a.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers)
 
@@ -1242,14 +1242,14 @@ func GetAllRoutePoliciesFromGroups(account *Account, accessControlGroups []strin
 }
 
 // GetPeerNetworkResourceFirewallRules gets the network resources firewall rules associated with a routing peer ID for the account.
-func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}, routes []*route.Route) []*RouteFirewallRule {
+func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}, routes []*route.Route, resourcePolicies map[string][]*Policy) []*RouteFirewallRule {
 	routesFirewallRules := make([]*RouteFirewallRule, 0)
 
 	for _, route := range routes {
 		if route.Peer != peer.Key {
 			continue
 		}
-		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(string(route.ID))
+		resourceAppliedPolicies := resourcePolicies[route.GetResourceID()]
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
@@ -1279,9 +1279,7 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 	resourcePolicies := make(map[string][]*Policy)
 	for _, resource := range a.NetworkResources {
 		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(resource.ID)
-		if len(resourceAppliedPolicies) > 0 {
-			resourcePolicies[resource.ID] = resourceAppliedPolicies
-		}
+		resourcePolicies[resource.ID] = resourceAppliedPolicies
 	}
 	return resourcePolicies
 }
@@ -1299,7 +1297,6 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 	for _, resource := range a.NetworkResources {
 
 		resourceAppliedPolicies := resourcePolicies[resource.ID]
-
 		resourceRouters := routers[resource.NetworkID]
 
 		if len(resourceRouters) == 0 {
@@ -1335,14 +1332,14 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 
 				// peer is part of the policy source which is the distribution group for the resource
 				// peerID should be able to connect with routing peers
-				for _, id := range group.Peers {
-					if id == peerID {
-						resources = append(resources, resource)
-					}
-				}
-				//if slices.Contains(group.Peers, peerID) {
-				//	resources = append(resources, resource)
+				//for _, id := range group.Peers {
+				//	if id == peerID {
+				//		resources = append(resources, resource)
+				//	}
 				//}
+				if slices.Contains(group.Peers, peerID) {
+					resources = append(resources, resource)
+				}
 			}
 		}
 	}
