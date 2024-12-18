@@ -1338,12 +1338,13 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 			resourceRoutingPeers = append(resourceRoutingPeers, routingPeer)
 		}
 
-		router, ok := networkRoutingPeers[peerID]
-		if ok {
-			for _, peerId := range resourceRoutingPeers {
+		for _, peerId := range resourceRoutingPeers {
+			router, ok := networkRoutingPeers[peerId]
+			if ok {
 				routes = append(routes, a.getNetworkResourcesRoutes(resources, router, resourcePolicies, peerId)...)
 			}
 		}
+
 	}
 
 	peerRoutesMembership := make(map[string]*route.Route)
