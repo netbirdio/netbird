@@ -169,6 +169,10 @@ func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, p
 	log.Debugf("registering handler %s with priority %d", handler, priority)
 
 	for _, domain := range domains {
+		if domain == "" {
+			log.Warn("skipping empty domain")
+			continue
+		}
 		s.handlerChain.AddHandler(domain, handler, priority, nil)
 		s.handlerPriorities[domain] = priority
 		s.service.RegisterMux(nbdns.NormalizeZone(domain), s.handlerChain)
@@ -188,6 +192,10 @@ func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
 
 		// Only deregister from service if no handlers remain
 		if !s.handlerChain.HasHandlers(domain) {
+			if domain == "" {
+				log.Warn("skipping empty domain")
+				continue
+			}
 			s.service.DeregisterMux(nbdns.NormalizeZone(domain))
 		}
 	}

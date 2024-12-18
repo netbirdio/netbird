@@ -27,17 +27,13 @@ func NewDNSForwarder(listenAddress string, ttl uint32, domains []string) *DNSFor
 	return &DNSForwarder{
 		listenAddress: listenAddress,
 		ttl:           ttl,
-		domains:       domains,
+		domains:       filterDomains(domains),
 	}
 }
 
 func (f *DNSForwarder) Listen() error {
 	log.Infof("listen DNS forwarder on address=%s", f.listenAddress)
 	mux := dns.NewServeMux()
-
-	for _, d := range f.domains {
-		mux.HandleFunc(nbdns.NormalizeZone(d), f.handleDNSQuery)
-	}
 
 	dnsServer := &dns.Server{
 		Addr:    f.listenAddress,
@@ -54,10 +50,11 @@ func (f *DNSForwarder) UpdateDomains(domains []string) {
 		f.mux.HandleRemove(d)
 	}
 
-	for _, d := range f.domains {
-		f.mux.HandleFunc(nbdns.NormalizeZone(d), f.handleDNSQuery)
+	newDomains := filterDomains(domains)
+	for _, d := range newDomains {
+		f.mux.HandleFunc(d, f.handleDNSQuery)
 	}
-	f.domains = domains
+	f.domains = newDomains
 }
 
 func (f *DNSForwarder) Close(ctx context.Context) error {
@@ -140,4 +137,17 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 	if err := w.WriteMsg(resp); err != nil {
 		log.Errorf("failed to write DNS response: %v", err)
 	}
+}
+
+// filterDomains returns a list of normalized domains
+func filterDomains(domains []string) []string {
+	newDomains := make([]string, 0, len(domains))
+	for _, d := range domains {
+		if d == "" {
+			log.Warn("empty domain in DNS forwarder")
+			continue
+		}
+		newDomains = append(newDomains, nbdns.NormalizeZone(d))
+	}
+	return newDomains
 }
