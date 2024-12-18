@@ -224,7 +224,7 @@ func (a *Account) GetPeerNetworkMap(
 	peersCustomZone nbdns.CustomZone,
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
-	routers map[string][]*routerTypes.NetworkRouter,
+	routers map[string]map[string]*routerTypes.NetworkRouter,
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
@@ -1286,34 +1286,23 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 }
 
 // GetNetworkResourcesRoutesToSync returns network routes for syncing with a specific peer and its ACL peers.
-func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string][]*routerTypes.NetworkRouter) (bool, []*route.Route) {
+func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route) {
 	isRoutingPeer := false
 	resources := make([]*resourceTypes.NetworkResource, 0)
 
 	for _, resource := range a.NetworkResources {
 
 		resourceAppliedPolicies := resourcePolicies[resource.ID]
-		resourceRouters := routers[resource.NetworkID]
 
-		if len(resourceRouters) == 0 {
+		networkRoutingPeers := routers[resource.NetworkID]
+
+		if len(networkRoutingPeers) == 0 {
 			continue
 		}
 
-		for _, router := range resourceRouters {
-			if router.Peer == peerID {
-				isRoutingPeer = true
-				resources = append(resources, resource)
-			}
-
-			for _, peerGroup := range router.PeerGroups {
-				g := a.Groups[peerGroup]
-				if g != nil {
-					if slices.Contains(g.Peers, peerID) {
-						isRoutingPeer = true
-						resources = append(resources, resource)
-					}
-				}
-			}
+		if _, ok := networkRoutingPeers[peerID]; ok {
+			isRoutingPeer = true
+			resources = append(resources, resource)
 		}
 
 		for _, policy := range resourceAppliedPolicies {
@@ -1328,11 +1317,6 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 
 				// peer is part of the policy source which is the distribution group for the resource
 				// peerID should be able to connect with routing peers
-				//for _, id := range group.Peers {
-				//	if id == peerID {
-				//		resources = append(resources, resource)
-				//	}
-				//}
 				if slices.Contains(group.Peers, peerID) {
 					resources = append(resources, resource)
 				}
@@ -1343,29 +1327,19 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 	routes := make([]*route.Route, 0)
 
 	for _, resource := range resources {
-		resourceRouters := routers[resource.NetworkID]
+		networkRoutingPeers := routers[resource.NetworkID]
 
-		if resourceRouters == nil {
+		if networkRoutingPeers == nil {
 			continue
 		}
 
-		for _, router := range resourceRouters {
+		resourceRoutingPeers := make([]string, 0)
+		for _, routingPeer := range maps.Keys(networkRoutingPeers) {
+			resourceRoutingPeers = append(resourceRoutingPeers, routingPeer)
+		}
 
-			resourceRoutingPeers := make([]string, 0)
-			for _, groupID := range router.PeerGroups {
-				group := a.GetGroup(groupID)
-				if group == nil {
-					log.WithContext(ctx).Warnf("router %s has peers group %s that doesn't exist under account %s, will continue map generation without it", router.ID, groupID, a.Id)
-					continue
-				}
-
-				resourceRoutingPeers = append(resourceRoutingPeers, group.Peers...)
-			}
-
-			if router.Peer != "" {
-				resourceRoutingPeers = append(resourceRoutingPeers, router.Peer)
-			}
-
+		router, ok := networkRoutingPeers[peerID]
+		if ok {
 			for _, peerId := range resourceRoutingPeers {
 				routes = append(routes, a.getNetworkResourcesRoutes(resources, router, resourcePolicies, peerId)...)
 			}
@@ -1463,10 +1437,24 @@ func (a *Account) getNetworkResourcesRoutes(resources []*resourceTypes.NetworkRe
 	return routes
 }
 
-func (a *Account) GetResourceRoutersMap() map[string][]*routerTypes.NetworkRouter {
-	routers := make(map[string][]*routerTypes.NetworkRouter)
+func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.NetworkRouter {
+	routers := make(map[string]map[string]*routerTypes.NetworkRouter)
 	for _, router := range a.NetworkRouters {
-		routers[router.NetworkID] = append(routers[router.NetworkID], router)
+		peers := make(map[string]*routerTypes.NetworkRouter)
+		if router.Peer != "" {
+			peers[router.Peer] = router
+			continue
+		}
+
+		for _, peerGroup := range router.PeerGroups {
+			g := a.Groups[peerGroup]
+			if g != nil {
+				for _, peerID := range g.Peers {
+					peers[peerID] = router
+				}
+			}
+		}
+		routers[router.NetworkID] = peers
 	}
 	return routers
 }
