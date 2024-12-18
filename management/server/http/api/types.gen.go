@@ -530,6 +530,9 @@ type Network struct {
 	// Name Network name
 	Name string `json:"name"`
 
+	// Policies List of policy IDs associated with the network
+	Policies []string `json:"policies"`
+
 	// Resources List of network resource IDs associated with the network
 	Resources []string `json:"resources"`
 
@@ -551,7 +554,7 @@ type NetworkRequest struct {
 
 // NetworkResource defines model for NetworkResource.
 type NetworkResource struct {
-	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
 	Address string `json:"address"`
 
 	// Description Network resource description
@@ -572,7 +575,7 @@ type NetworkResource struct {
 
 // NetworkResourceMinimum defines model for NetworkResourceMinimum.
 type NetworkResourceMinimum struct {
-	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
 	Address string `json:"address"`
 
 	// Description Network resource description
@@ -584,7 +587,7 @@ type NetworkResourceMinimum struct {
 
 // NetworkResourceRequest defines model for NetworkResourceRequest.
 type NetworkResourceRequest struct {
-	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or a domain like example.com)
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
 	Address string `json:"address"`
 
 	// Description Network resource description

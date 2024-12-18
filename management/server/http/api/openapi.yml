@@ -1255,11 +1255,18 @@ components:
               items:
                 type: string
                 example: ch8i4ug6lnn4g9hqv7m1
+            policies:
+              description: List of policy IDs associated with the network
+              type: array
+              items:
+                type: string
+                example: ch8i4ug6lnn4g9hqv7m2
           required:
             - id
             - routers
             - resources
             - routing_peers_count
+            - policies
         - $ref: '#/components/schemas/NetworkRequest'
     NetworkResourceMinimum:
       type: object

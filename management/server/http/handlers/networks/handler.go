@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/configs"
@@ -27,17 +28,18 @@ type handler struct {
 	networksManager networks.Manager
 	resourceManager resources.Manager
 	routerManager   routers.Manager
+	accountManager  s.AccountManager
 
 	groupsManager    groups.Manager
 	extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	claimsExtractor  *jwtclaims.ClaimsExtractor
 }
 
-func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
+func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager s.AccountManager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
 	addRouterEndpoints(routerManager, extractFromToken, authCfg, router)
 	addResourceEndpoints(resourceManager, groupsManager, extractFromToken, authCfg, router)
 
-	networksHandler := newHandler(networksManager, resourceManager, routerManager, groupsManager, extractFromToken, authCfg)
+	networksHandler := newHandler(networksManager, resourceManager, routerManager, groupsManager, accountManager, extractFromToken, authCfg)
 	router.HandleFunc("/networks", networksHandler.getAllNetworks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks", networksHandler.createNetwork).Methods("POST", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.getNetwork).Methods("GET", "OPTIONS")
@@ -45,12 +47,13 @@ func AddEndpoints(networksManager networks.Manager, resourceManager resources.Ma
 	router.HandleFunc("/networks/{networkId}", networksHandler.deleteNetwork).Methods("DELETE", "OPTIONS")
 }
 
-func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *handler {
+func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager s.AccountManager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *handler {
 	return &handler{
 		networksManager:  networksManager,
 		resourceManager:  resourceManager,
 		routerManager:    routerManager,
 		groupsManager:    groupsManager,
+		accountManager:   accountManager,
 		extractFromToken: extractFromToken,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -91,7 +94,13 @@ func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, h.generateNetworkResponse(networks, routers, resourceIDs, groups))
+	account, err := h.accountManager.GetAccount(r.Context(), accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, h.generateNetworkResponse(networks, routers, resourceIDs, groups, account))
 }
 
 func (h *handler) createNetwork(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +128,15 @@ func (h *handler) createNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse([]string{}, []string{}, 0))
+	account, err := h.accountManager.GetAccount(r.Context(), accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	policyIDs := account.GetPoliciesAppliedInNetwork(network.ID)
+
+	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse([]string{}, []string{}, 0, policyIDs))
 }
 
 func (h *handler) getNetwork(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +166,15 @@ func (h *handler) getNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse(routerIDs, resourceIDs, peerCount))
+	account, err := h.accountManager.GetAccount(r.Context(), accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	policyIDs := account.GetPoliciesAppliedInNetwork(networkID)
+
+	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse(routerIDs, resourceIDs, peerCount, policyIDs))
 }
 
 func (h *handler) updateNetwork(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +216,15 @@ func (h *handler) updateNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse(routerIDs, resourceIDs, peerCount))
+	account, err := h.accountManager.GetAccount(r.Context(), accountID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	policyIDs := account.GetPoliciesAppliedInNetwork(networkID)
+
+	util.WriteJSONObject(r.Context(), w, network.ToAPIResponse(routerIDs, resourceIDs, peerCount, policyIDs))
 }
 
 func (h *handler) deleteNetwork(w http.ResponseWriter, r *http.Request) {
@@ -256,11 +289,12 @@ func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, ne
 	return routerIDs, resourceIDs, peerCounter, nil
 }
 
-func (h *handler) generateNetworkResponse(networks []*types.Network, routers map[string][]*routerTypes.NetworkRouter, resourceIDs map[string][]string, groups map[string]*nbtypes.Group) []*api.Network {
+func (h *handler) generateNetworkResponse(networks []*types.Network, routers map[string][]*routerTypes.NetworkRouter, resourceIDs map[string][]string, groups map[string]*nbtypes.Group, account *nbtypes.Account) []*api.Network {
 	var networkResponse []*api.Network
 	for _, network := range networks {
 		routerIDs, peerCounter := getRouterIDs(network, routers, groups)
-		networkResponse = append(networkResponse, network.ToAPIResponse(routerIDs, resourceIDs[network.ID], peerCounter))
+		policyIDs := account.GetPoliciesAppliedInNetwork(network.ID)
+		networkResponse = append(networkResponse, network.ToAPIResponse(routerIDs, resourceIDs[network.ID], peerCounter, policyIDs))
 	}
 	return networkResponse
 }
