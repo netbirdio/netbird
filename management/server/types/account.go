@@ -1361,12 +1361,11 @@ func (a *Account) GetPoliciesAppliedInNetwork(networkID string) []string {
 func (a *Account) getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peer *nbpeer.Peer) []*route.Route {
 	routes := make([]*route.Route, 0, len(resources))
 	for _, resource := range resources {
-		resourceRoute := resource.ToRoute(peer, router)
-		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(string(resourceRoute.ID))
+		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(resource.ID)
 
 		// distribute the resource routes only if there is policy applied to it
 		if len(resourceAppliedPolicies) > 0 {
-			routes = append(routes, resourceRoute)
+			routes = append(routes, resource.ToRoute(peer, router))
 		}
 	}
 
