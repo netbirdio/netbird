@@ -2174,6 +2174,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		peerHIp = "100.65.29.55"
 		peerJIp = "100.65.29.65"
 		peerKIp = "100.65.29.66"
+		peerMIp = "100.65.29.67"
 	)
 
 	account := &types.Account{
@@ -2239,6 +2240,20 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 			"peerK": {
 				ID:     "peerK",
 				IP:     net.ParseIP(peerKIp),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerL": {
+				ID:     "peerL",
+				IP:     net.ParseIP("100.65.19.186"),
+				Key:    "peerL",
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS: "linux",
+				},
+			},
+			"peerM": {
+				ID:     "peerM",
+				IP:     net.ParseIP(peerMIp),
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
@@ -2310,6 +2325,11 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:  "Contractors",
 				Peers: []string{},
 			},
+			"pipeline": {
+				ID:    "pipeline",
+				Name:  "Pipeline",
+				Peers: []string{"peerM"},
+			},
 		},
 		Networks: []*networkTypes.Network{
 			{
@@ -2327,6 +2347,10 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 			{
 				ID:   "network4",
 				Name: "QA Network",
+			},
+			{
+				ID:   "network5",
+				Name: "Pipeline Network",
 			},
 		},
 		NetworkRouters: []*routerTypes.NetworkRouter{
@@ -2355,6 +2379,13 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				ID:         "router4",
 				NetworkID:  "network4",
 				PeerGroups: []string{"router1"},
+				Masquerade: false,
+				Metric:     9999,
+			},
+			{
+				ID:         "router5",
+				NetworkID:  "network5",
+				Peer:       "peerL",
 				Masquerade: false,
 				Metric:     9999,
 			},
@@ -2387,6 +2418,13 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:      "Resource 4",
 				Type:      "domain",
 				Domain:    "example.com",
+			},
+			{
+				ID:        "resource5",
+				NetworkID: "network5",
+				Name:      "Resource 5",
+				Type:      "host",
+				Prefix:    netip.MustParsePrefix("10.12.12.1/32"),
 			},
 		},
 		Policies: []*types.Policy{
@@ -2468,6 +2506,24 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 						Action:        types.PolicyTrafficActionAccept,
 						Sources:       []string{"unrestrictedQA"},
 						Destinations:  []string{"unrestrictedQA"},
+					},
+				},
+			},
+			{
+				ID:      "policyResource5",
+				Name:    "policyResource5",
+				Enabled: true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:                  "ruleResource5",
+						Name:                "ruleResource5",
+						Bidirectional:       true,
+						Enabled:             true,
+						Protocol:            types.PolicyRuleProtocolTCP,
+						Action:              types.PolicyTrafficActionAccept,
+						Ports:               []string{"8080"},
+						Sources:             []string{"pipeline"},
+						DestinationResource: types.Resource{ID: "resource5"},
 					},
 				},
 			},
@@ -2577,5 +2633,32 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		// peerC is part of distribution groups for resource2 but should not receive the firewall rules
 		firewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers)
 		assert.Len(t, firewallRules, 0)
+
+		// peerL is the single routing peer for resource5
+		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), "peerL", validatedPeers)
+		assert.Len(t, firewallRules, 1)
+
+		expectedFirewallRules = []*types.RouteFirewallRule{
+			{
+				SourceRanges: []string{"100.65.29.67/32"},
+				Action:       "accept",
+				Destination:  "10.12.12.1/32",
+				Protocol:     "tcp",
+				Port:         8080,
+			},
+		}
+		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
+	})
+
+	t.Run("validate routes for network resources", func(t *testing.T) {
+		routesToSync := account.GetNetworkResourcesRoutesToSync(context.Background(), "peerL", []*nbpeer.Peer{})
+		assert.Len(t, routesToSync, 1)
+
+		routesToSync = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerM", []*nbpeer.Peer{})
+		assert.Len(t, routesToSync, 1)
+
+		//routesToSync = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerC", []*nbpeer.Peer{})
+		//assert.Len(t, routesToSync, 1)
+
 	})
 }
