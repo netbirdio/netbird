@@ -13,14 +13,15 @@ import (
 	"testing"
 	"time"
 
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -821,6 +822,29 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 		}
 		account.NetworkResources = append(account.NetworkResources, resource)
 
+		// Create a policy for this network resource
+		nrPolicy := &types.Policy{
+			ID:      fmt.Sprintf("policy-nr-%d", i),
+			Name:    fmt.Sprintf("Policy for network resource %d", i),
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					ID:           fmt.Sprintf("rule-nr-%d", i),
+					Name:         fmt.Sprintf("Rule for network resource %d", i),
+					Enabled:      true,
+					Sources:      []string{groupID},
+					Destinations: []string{},
+					DestinationResource: types.Resource{
+						ID: resource.ID,
+					},
+					Bidirectional: true,
+					Protocol:      types.PolicyRuleProtocolALL,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}
+		account.Policies = append(account.Policies, nrPolicy)
+
 		// Create a policy for this group
 		policy := &types.Policy{
 			ID:      fmt.Sprintf("policy-%d", i),
@@ -828,14 +852,11 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			Enabled: true,
 			Rules: []*types.PolicyRule{
 				{
-					ID:           fmt.Sprintf("rule-%d", i),
-					Name:         fmt.Sprintf("Rule for Group %d", i),
-					Enabled:      true,
-					Sources:      []string{groupID},
-					Destinations: []string{groupID},
-					DestinationResource: types.Resource{
-						ID: resource.ID,
-					},
+					ID:            fmt.Sprintf("rule-%d", i),
+					Name:          fmt.Sprintf("Rule for Group %d", i),
+					Enabled:       true,
+					Sources:       []string{groupID},
+					Destinations:  []string{groupID},
 					Bidirectional: true,
 					Protocol:      types.PolicyRuleProtocolALL,
 					Action:        types.PolicyTrafficActionAccept,
