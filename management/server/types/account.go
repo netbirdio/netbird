@@ -1443,6 +1443,7 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 		peers := make(map[string]*routerTypes.NetworkRouter)
 		if router.Peer != "" {
 			peers[router.Peer] = router
+			routers[router.NetworkID] = peers
 			continue
 		}
 
