@@ -224,6 +224,7 @@ func (a *Account) GetPeerNetworkMap(
 	peersCustomZone nbdns.CustomZone,
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
+	routers map[string][]*routerTypes.NetworkRouter,
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
@@ -256,7 +257,7 @@ func (a *Account) GetPeerNetworkMap(
 
 	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect)
 	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
-	isRouter, networkResourcesRoutes := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies)
+	isRouter, networkResourcesRoutes := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
 		networkResourcesFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networkResourcesRoutes, resourcePolicies)
@@ -1285,14 +1286,9 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 }
 
 // GetNetworkResourcesRoutesToSync returns network routes for syncing with a specific peer and its ACL peers.
-func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy) (bool, []*route.Route) {
+func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string][]*routerTypes.NetworkRouter) (bool, []*route.Route) {
 	isRoutingPeer := false
 	resources := make([]*resourceTypes.NetworkResource, 0)
-
-	routers := make(map[string][]*routerTypes.NetworkRouter)
-	for _, router := range a.NetworkRouters {
-		routers[router.NetworkID] = append(routers[router.NetworkID], router)
-	}
 
 	for _, resource := range a.NetworkResources {
 
@@ -1465,6 +1461,14 @@ func (a *Account) getNetworkResourcesRoutes(resources []*resourceTypes.NetworkRe
 	}
 
 	return routes
+}
+
+func (a *Account) GetResourceRoutersMap() map[string][]*routerTypes.NetworkRouter {
+	routers := make(map[string][]*routerTypes.NetworkRouter)
+	for _, router := range a.NetworkRouters {
+		routers[router.NetworkID] = append(routers[router.NetworkID], router)
+	}
+	return routers
 }
 
 // getPoliciesSourcePeers collects all unique peers from the source groups defined in the given policies.
