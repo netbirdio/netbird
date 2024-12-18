@@ -41,9 +41,9 @@ func (m *Manager) Start(domains []string) error {
 		return err
 	}
 
-	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, domains)
+	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL)
 	go func() {
-		if err := m.dnsForwarder.Listen(); err != nil {
+		if err := m.dnsForwarder.Listen(domains); err != nil {
 			// todo handle close error if it is exists
 			log.Errorf("failed to start DNS forwarder, err: %v", err)
 		}

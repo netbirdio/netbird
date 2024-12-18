@@ -22,16 +22,15 @@ type DNSForwarder struct {
 	mux       *dns.ServeMux
 }
 
-func NewDNSForwarder(listenAddress string, ttl uint32, domains []string) *DNSForwarder {
-	log.Debugf("creating DNS forwarder with listen_address=%s ttl=%d domains=%v", listenAddress, ttl, domains)
+func NewDNSForwarder(listenAddress string, ttl uint32) *DNSForwarder {
+	log.Debugf("creating DNS forwarder with listen_address=%s ttl=%d", listenAddress, ttl)
 	return &DNSForwarder{
 		listenAddress: listenAddress,
 		ttl:           ttl,
-		domains:       filterDomains(domains),
 	}
 }
 
-func (f *DNSForwarder) Listen() error {
+func (f *DNSForwarder) Listen(domains []string) error {
 	log.Infof("listen DNS forwarder on address=%s", f.listenAddress)
 	mux := dns.NewServeMux()
 
@@ -42,10 +41,15 @@ func (f *DNSForwarder) Listen() error {
 	}
 	f.dnsServer = dnsServer
 	f.mux = mux
+
+	f.UpdateDomains(domains)
+
 	return dnsServer.ListenAndServe()
 }
 
 func (f *DNSForwarder) UpdateDomains(domains []string) {
+	log.Debugf("Updating domains from %v to %v", f.domains, domains)
+
 	for _, d := range f.domains {
 		f.mux.HandleRemove(d)
 	}
