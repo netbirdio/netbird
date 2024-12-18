@@ -103,7 +103,6 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, fmt.Errorf("failed to create new network resource: %w", err)
 	}
 
-	// var network *networkTypes.Network
 	var eventsToStore []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
