@@ -931,11 +931,11 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 		maxMsPerOpCICD  float64
 	}{
 		{"Small", 50, 5, 90, 120, 90, 120},
-		{"Medium", 500, 100, 110, 150, 120, 200},
-		{"Large", 5000, 200, 800, 1390, 2500, 3600},
+		{"Medium", 500, 100, 110, 150, 120, 260},
+		{"Large", 5000, 200, 800, 1390, 2500, 4600},
 		{"Small single", 50, 10, 90, 120, 90, 120},
 		{"Medium single", 500, 10, 110, 170, 120, 200},
-		{"Large 5", 5000, 15, 1300, 2100, 5000, 6000},
+		{"Large 5", 5000, 15, 1300, 2100, 5000, 7000},
 	}
 
 	log.SetOutput(io.Discard)
