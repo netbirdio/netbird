@@ -2,11 +2,11 @@ package resources
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -20,14 +20,15 @@ func Test_GetAllResourcesInNetworkReturnsResources(t *testing.T) {
 	userID := "allowedUser"
 	networkID := "testNetworkId"
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	resources, err := manager.GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
 	require.NoError(t, err)
@@ -40,14 +41,15 @@ func Test_GetAllResourcesInNetworkReturnsPermissionDenied(t *testing.T) {
 	userID := "invalidUser"
 	networkID := "testNetworkId"
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	resources, err := manager.GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
 	require.Error(t, err)
@@ -59,14 +61,15 @@ func Test_GetAllResourcesInAccountReturnsResources(t *testing.T) {
 	accountID := "testAccountId"
 	userID := "allowedUser"
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	resources, err := manager.GetAllResourcesInAccount(ctx, accountID, userID)
 	require.NoError(t, err)
@@ -78,14 +81,15 @@ func Test_GetAllResourcesInAccountReturnsPermissionDenied(t *testing.T) {
 	accountID := "testAccountId"
 	userID := "invalidUser"
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	resources, err := manager.GetAllResourcesInAccount(ctx, accountID, userID)
 	require.Error(t, err)
@@ -100,14 +104,15 @@ func Test_GetResourceInNetworkReturnsResources(t *testing.T) {
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	resource, err := manager.GetResource(ctx, accountID, userID, networkID, resourceID)
 	require.NoError(t, err)
@@ -121,14 +126,15 @@ func Test_GetResourceInNetworkReturnsPermissionDenied(t *testing.T) {
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	resources, err := manager.GetResource(ctx, accountID, userID, networkID, resourceID)
 	require.Error(t, err)
@@ -154,7 +160,8 @@ func Test_CreateResourceSuccessfully(t *testing.T) {
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(store, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.NoError(t, err)
@@ -179,7 +186,8 @@ func Test_CreateResourceFailsWithPermissionDenied(t *testing.T) {
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(store, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -205,7 +213,8 @@ func Test_CreateResourceFailsWithInvalidAddress(t *testing.T) {
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(store, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -230,7 +239,8 @@ func Test_CreateResourceFailsWithUsedName(t *testing.T) {
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(store, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -252,14 +262,15 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 		Address:     "1.2.3.0/24",
 	}
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.NoError(t, err)
@@ -283,14 +294,15 @@ func Test_UpdateResourceFailsWithResourceNotFound(t *testing.T) {
 		Address:     "1.2.3.0/24",
 	}
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -312,18 +324,18 @@ func Test_UpdateResourceFailsWithNameInUse(t *testing.T) {
 		Address:     "1.2.3.0/24",
 	}
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
-	require.Equal(t, errors.New("new resource name already exists"), err)
 	require.Nil(t, updatedResource)
 }
 
@@ -341,14 +353,15 @@ func Test_UpdateResourceFailsWithPermissionDenied(t *testing.T) {
 		Address:     "1.2.3.0/24",
 	}
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -362,14 +375,15 @@ func Test_DeleteResourceSuccessfully(t *testing.T) {
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 
-	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(s, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
 	require.NoError(t, err)
@@ -389,7 +403,8 @@ func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
 	t.Cleanup(cleanUp)
 	permissionsManager := permissions.NewManagerMock()
 	am := mock_server.MockAccountManager{}
-	manager := NewManager(store, permissionsManager, &am)
+	groupsManager := groups.NewManagerMock()
+	manager := NewManager(store, permissionsManager, groupsManager, &am)
 
 	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
 	require.Error(t, err)

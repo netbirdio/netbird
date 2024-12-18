@@ -276,10 +276,10 @@ var (
 			userManager := users.NewManager(store)
 			settingsManager := settings.NewManager(store)
 			permissionsManager := permissions.NewManager(userManager, settingsManager)
-			resourcesManager := resources.NewManager(store, permissionsManager, accountManager)
+			groupsManager := groups.NewManager(store, permissionsManager)
+			resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, accountManager)
 			routersManager := routers.NewManager(store, permissionsManager, accountManager)
 			networksManager := networks.NewManager(store, permissionsManager, resourcesManager)
-			groupsManager := groups.NewManager(store, permissionsManager)
 
 			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg, integratedPeerValidator)
 			if err != nil {

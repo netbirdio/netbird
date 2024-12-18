@@ -6,10 +6,13 @@ import (
 	"fmt"
 
 	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 type Manager interface {
@@ -26,13 +29,15 @@ type Manager interface {
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
+	groupsManager      groups.Manager
 	accountManager     s.AccountManager
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager s.AccountManager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager s.AccountManager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
+		groupsManager:      groupsManager,
 		accountManager:     accountManager,
 	}
 }
@@ -92,17 +97,35 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resource, err = types.NewNetworkResource(resource.AccountID, resource.NetworkID, resource.Name, resource.Description, resource.Address)
+	resource, err = types.NewNetworkResource(resource.AccountID, resource.NetworkID, resource.Name, resource.Description, resource.Address, resource.GroupIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new network resource: %w", err)
 	}
 
-  _, err = m.store.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
-	if err == nil {
-		return nil, errors.New("resource already exists")
-	}
-  
-  err = m.store.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
+		if err == nil {
+			return errors.New("resource already exists")
+		}
+
+		err = transaction.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+		if err != nil {
+			return fmt.Errorf("failed to save network resource: %w", err)
+		}
+
+		res := nbtypes.Resource{
+			ID:   resource.ID,
+			Type: resource.Type.String(),
+		}
+		for _, groupID := range resource.GroupIDs {
+			err = m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, groupID, &res)
+			if err != nil {
+				return fmt.Errorf("failed to add resource to group: %w", err)
+			}
+		}
+
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network resource: %w", err)
 	}
@@ -151,17 +174,29 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	resource.Domain = domain
 	resource.Prefix = prefix
 
-	_, err = m.store.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get network resource: %w", err)
-	}
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		_, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get network resource: %w", err)
+		}
 
-	oldResource, err := m.store.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
-	if err == nil && oldResource.ID != resource.ID {
-		return nil, errors.New("new resource name already exists")
-	}
+		oldResource, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
+		if err == nil && oldResource.ID != resource.ID {
+			return errors.New("new resource name already exists")
+		}
 
-	err = m.store.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+		oldResource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get network resource: %w", err)
+		}
+
+		err = transaction.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+		if err != nil {
+			return fmt.Errorf("failed to save network resource: %w", err)
+		}
+
+		return m.updateResourceGroups(ctx, transaction, resource, oldResource)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to update network resource: %w", err)
 	}
@@ -169,6 +204,41 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
 
 	return resource, nil
+}
+
+func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction store.Store, newResource, oldResource *types.NetworkResource) error {
+	res := nbtypes.Resource{
+		ID:   newResource.ID,
+		Type: newResource.Type.String(),
+	}
+
+	oldResourceGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, oldResource.AccountID, oldResource.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get resource groups: %w", err)
+	}
+
+	oldGroupsIds := make([]string, 0)
+	for _, group := range oldResourceGroups {
+		oldGroupsIds = append(oldGroupsIds, group.ID)
+	}
+
+	groupsToAdd := util.Difference(newResource.GroupIDs, oldGroupsIds)
+	for _, groupID := range groupsToAdd {
+		err = m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, newResource.AccountID, groupID, &res)
+		if err != nil {
+			return fmt.Errorf("failed to add resource to group: %w", err)
+		}
+	}
+
+	groupsToRemove := util.Difference(oldGroupsIds, newResource.GroupIDs)
+	for _, groupID := range groupsToRemove {
+		err = m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, newResource.AccountID, groupID, res.ID)
+		if err != nil {
+			return fmt.Errorf("failed to add resource to group: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
@@ -186,13 +256,13 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		return m.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resourceID)
 	})
-  if err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to delete network resource: %w", err)
 	}
-  
-  go m.accountManager.UpdateAccountPeers(ctx, accountID)
-  
-  return nil
+
+	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
 }
 
 func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, networkID, resourceID string) error {
@@ -205,15 +275,16 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 		return errors.New("resource not part of network")
 	}
 
-	account, err := transaction.GetAccount(ctx, accountID)
+	groups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, accountID, resourceID)
 	if err != nil {
-		return fmt.Errorf("failed to get account: %w", err)
+		return fmt.Errorf("failed to get resource groups: %w", err)
 	}
-	account.DeleteResource(resource.ID)
 
-	err = transaction.SaveAccount(ctx, account)
-	if err != nil {
-		return fmt.Errorf("failed to save account: %w", err)
+	for _, group := range groups {
+		err = m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, accountID, group.ID, resourceID)
+		if err != nil {
+			return fmt.Errorf("failed to remove resource from group: %w", err)
+		}
 	}
 
 	err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)

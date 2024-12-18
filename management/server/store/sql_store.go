@@ -588,6 +588,25 @@ func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStr
 	return groups, nil
 }
 
+func (s *SqlStore) GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error) {
+	var groups []*types.Group
+
+	likePattern := `%"ID":"` + resourceID + `"%`
+
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Where("resources LIKE ?", likePattern).
+		Find(&groups)
+
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, result.Error
+	}
+
+	return groups, nil
+}
+
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	var accounts []types.Account
 	result := s.db.Find(&accounts)
@@ -1019,6 +1038,7 @@ func (s *SqlStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string
 	return nil
 }
 
+// AddPeerToAllGroup adds a peer to the 'All' group. Method always needs to run in a transaction
 func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error {
 	var group types.Group
 	result := s.db.Where("account_id = ? AND name = ?", accountID, "All").First(&group)
@@ -1044,6 +1064,7 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 	return nil
 }
 
+// AddPeerToGroup adds a peer to a group. Method always needs to run in a transaction
 func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error {
 	var group types.Group
 	result := s.db.Where(accountAndIDQueryCondition, accountId, groupID).First(&group)
@@ -1070,6 +1091,7 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountId string, peerId 
 	return nil
 }
 
+// AddResourceToGroup adds a resource to a group. Method always needs to run n a transaction
 func (s *SqlStore) AddResourceToGroup(ctx context.Context, accountId string, groupID string, resource *types.Resource) error {
 	var group types.Group
 	result := s.db.Where(accountAndIDQueryCondition, accountId, groupID).First(&group)
@@ -1088,6 +1110,32 @@ func (s *SqlStore) AddResourceToGroup(ctx context.Context, accountId string, gro
 	}
 
 	group.Resources = append(group.Resources, *resource)
+
+	if err := s.db.Save(&group).Error; err != nil {
+		return status.Errorf(status.Internal, "issue updating group: %s", err)
+	}
+
+	return nil
+}
+
+// RemoveResourceFromGroup removes a resource from a group. Method always needs to run in a transaction
+func (s *SqlStore) RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error {
+	var group types.Group
+	result := s.db.Where(accountAndIDQueryCondition, accountId, groupID).First(&group)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return status.NewGroupNotFoundError(groupID)
+		}
+
+		return status.Errorf(status.Internal, "issue finding group: %s", result.Error)
+	}
+
+	for i, res := range group.Resources {
+		if res.ID == resourceID {
+			group.Resources = append(group.Resources[:i], group.Resources[i+1:]...)
+			break
+		}
+	}
 
 	if err := s.db.Save(&group).Error; err != nil {
 		return status.Errorf(status.Internal, "issue updating group: %s", err)
