@@ -2494,7 +2494,7 @@ func TestSqlStore_SaveNetworkResource(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	networkID := "ct286bi7qv930dsrrug0"
 
-	netResource, err := resourceTypes.NewNetworkResource(accountID, networkID, "resource-name", "", "example.com")
+	netResource, err := resourceTypes.NewNetworkResource(accountID, networkID, "resource-name", "", "example.com", []string{})
 	require.NoError(t, err)
 
 	err = store.SaveNetworkResource(context.Background(), LockingStrengthUpdate, netResource)
@@ -2528,4 +2528,36 @@ func TestSqlStore_DeleteNetworkResource(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, status.NotFound, sErr.Type())
 	require.Nil(t, netResource)
+}
+
+func TestSqlStore_AddAndRemoveResourceFromGroup(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	resourceId := "ctc4nci7qv9061u6ilfg"
+	groupID := "cs1tnh0hhcjnqoiuebeg"
+
+	res := &types.Resource{
+		ID:   resourceId,
+		Type: "host",
+	}
+	err = store.AddResourceToGroup(context.Background(), accountID, groupID, res)
+	require.NoError(t, err)
+
+	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	require.NoError(t, err)
+	require.Contains(t, group.Resources, *res)
+
+	groups, err := store.GetResourceGroups(context.Background(), LockingStrengthShare, accountID, resourceId)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+
+	err = store.RemoveResourceFromGroup(context.Background(), accountID, groupID, res.ID)
+	require.NoError(t, err)
+
+	group, err = store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	require.NoError(t, err)
+	require.NotContains(t, group.Resources, *res)
 }

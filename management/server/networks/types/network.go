@@ -22,7 +22,7 @@ func NewNetwork(accountId, name, description string) *Network {
 	}
 }
 
-func (n *Network) ToAPIResponse(routerIDs []string, resourceIDs []string, routingPeersCount int) *api.Network {
+func (n *Network) ToAPIResponse(routerIDs []string, resourceIDs []string, routingPeersCount int, policyIDs []string) *api.Network {
 	return &api.Network{
 		Id:                n.ID,
 		Name:              n.Name,
@@ -30,6 +30,7 @@ func (n *Network) ToAPIResponse(routerIDs []string, resourceIDs []string, routin
 		Routers:           routerIDs,
 		Resources:         resourceIDs,
 		RoutingPeersCount: routingPeersCount,
+		Policies:          policyIDs,
 	}
 }
 
@@ -48,4 +49,8 @@ func (n *Network) Copy() *Network {
 		Name:        n.Name,
 		Description: n.Description,
 	}
+}
+
+func (n *Network) EventMeta() map[string]any {
+	return map[string]any{"name": n.Name}
 }

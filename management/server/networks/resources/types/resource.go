@@ -6,11 +6,12 @@ import (
 	"net/netip"
 	"regexp"
 
+	"github.com/rs/xid"
+
 	nbDomain "github.com/netbirdio/netbird/management/domain"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
-	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
 )
@@ -34,12 +35,13 @@ type NetworkResource struct {
 	Name        string
 	Description string
 	Type        NetworkResourceType
-	Address     string `gorm:"-"`
+	Address     string   `gorm:"-"`
+	GroupIDs    []string `gorm:"-"`
 	Domain      string
 	Prefix      netip.Prefix `gorm:"serializer:json"`
 }
 
-func NewNetworkResource(accountID, networkID, name, description, address string) (*NetworkResource, error) {
+func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string) (*NetworkResource, error) {
 	resourceType, domain, prefix, err := GetResourceType(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
@@ -55,6 +57,7 @@ func NewNetworkResource(accountID, networkID, name, description, address string)
 		Address:     address,
 		Domain:      domain,
 		Prefix:      prefix,
+		GroupIDs:    groupIDs,
 	}, nil
 }
 
@@ -81,6 +84,7 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 		n.Description = *req.Description
 	}
 	n.Address = req.Address
+	n.GroupIDs = req.Groups
 }
 
 func (n *NetworkResource) Copy() *NetworkResource {
@@ -94,6 +98,7 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		Address:     n.Address,
 		Domain:      n.Domain,
 		Prefix:      n.Prefix,
+		GroupIDs:    n.GroupIDs,
 	}
 }
 
@@ -135,6 +140,10 @@ func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.Network
 	}
 
 	return r
+}
+
+func (n *NetworkResource) EventMeta(networkName string) map[string]any {
+	return map[string]any{"name": n.Name, "type": n.Type, "network_name": networkName}
 }
 
 // GetResourceType returns the type of the resource based on the address

@@ -1251,7 +1251,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 	routes := a.getRoutingPeerNetworkResourcesRoutes(ctx, peerID)
 
 	for _, route := range routes {
-		resourceAppliedPolicies := a.GetPoliciesForNetworkResourceRoute(route)
+		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(string(route.ID))
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		rules := a.getRouteFirewallRules(ctx, peerID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
@@ -1261,13 +1261,13 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peerI
 	return routesFirewallRules
 }
 
-// getNetworkResourceGroups retrieves all groups associated with the given network resource route.
-func (a *Account) getNetworkResourceGroups(route *route.Route) []*Group {
+// getNetworkResourceGroups retrieves all groups associated with the given network resource.
+func (a *Account) getNetworkResourceGroups(resourceID string) []*Group {
 	var networkResourceGroups []*Group
 
 	for _, group := range a.Groups {
 		for _, resource := range group.Resources {
-			if resource.ID == string(route.ID) {
+			if resource.ID == resourceID {
 				networkResourceGroups = append(networkResourceGroups, group)
 			}
 		}
@@ -1304,13 +1304,13 @@ func (a *Account) getNetworkResources(networkID string) []*resourceTypes.Network
 	return resources
 }
 
-// GetPoliciesForNetworkResourceRoute retrieves the list of policies that apply to a specific network resource route.
+// GetPoliciesForNetworkResource retrieves the list of policies that apply to a specific network resource.
 // A policy is deemed applicable if its destination groups include any of the given network resource groups
-// or if its destination resource explicitly matches the provided route.
-func (a *Account) GetPoliciesForNetworkResourceRoute(route *route.Route) []*Policy {
+// or if its destination resource explicitly matches the provided resource.
+func (a *Account) GetPoliciesForNetworkResource(resourceId string) []*Policy {
 	var resourceAppliedPolicies []*Policy
 
-	networkResourceGroups := a.getNetworkResourceGroups(route)
+	networkResourceGroups := a.getNetworkResourceGroups(resourceId)
 
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
@@ -1329,7 +1329,7 @@ func (a *Account) GetPoliciesForNetworkResourceRoute(route *route.Route) []*Poli
 				}
 			}
 
-			if rule.DestinationResource.ID == string(route.ID) {
+			if rule.DestinationResource.ID == resourceId {
 				resourceAppliedPolicies = append(resourceAppliedPolicies, policy)
 			}
 		}
@@ -1338,12 +1338,31 @@ func (a *Account) GetPoliciesForNetworkResourceRoute(route *route.Route) []*Poli
 	return resourceAppliedPolicies
 }
 
+func (a *Account) GetPoliciesAppliedInNetwork(networkID string) []string {
+	networkResources := a.getNetworkResources(networkID)
+
+	policieIDs := map[string]struct{}{}
+	for _, resource := range networkResources {
+		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(resource.ID)
+		for _, policy := range resourceAppliedPolicies {
+			policieIDs[policy.ID] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(policieIDs))
+	for id := range policieIDs {
+		result = append(result, id)
+	}
+
+	return result
+}
+
 // getNetworkResourcesRoutes convert the network resources list to routes list.
 func (a *Account) getNetworkResourcesRoutes(resources []*resourceTypes.NetworkResource, router *routerTypes.NetworkRouter, peer *nbpeer.Peer) []*route.Route {
 	routes := make([]*route.Route, 0, len(resources))
 	for _, resource := range resources {
 		resourceRoute := resource.ToRoute(peer, router)
-		resourceAppliedPolicies := a.GetPoliciesForNetworkResourceRoute(resourceRoute)
+		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(string(resourceRoute.ID))
 
 		// distribute the resource routes only if there is policy applied to it
 		if len(resourceAppliedPolicies) > 0 {

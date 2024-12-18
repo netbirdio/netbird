@@ -6,7 +6,10 @@ import (
 
 	"github.com/rs/xid"
 
+	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -23,15 +26,19 @@ type Manager interface {
 
 type managerImpl struct {
 	store              store.Store
+	accountManager     s.AccountManager
 	permissionsManager permissions.Manager
 	resourcesManager   resources.Manager
+	routersManager     routers.Manager
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, manager resources.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, resourceManager resources.Manager, routersManager routers.Manager, accountManager s.AccountManager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
-		resourcesManager:   manager,
+		resourcesManager:   resourceManager,
+		routersManager:     routersManager,
+		accountManager:     accountManager,
 	}
 }
 
@@ -58,7 +65,14 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 
 	network.ID = xid.New().String()
 
-	return network, m.store.SaveNetwork(ctx, store.LockingStrengthUpdate, network)
+	err = m.store.SaveNetwork(ctx, store.LockingStrengthUpdate, network)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save network: %w", err)
+	}
+
+	m.accountManager.StoreEvent(ctx, userID, network.ID, network.AccountID, activity.NetworkCreated, network.EventMeta())
+
+	return network, nil
 }
 
 func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error) {
@@ -82,6 +96,13 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	_, err = m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network: %w", err)
+	}
+
+	m.accountManager.StoreEvent(ctx, userID, network.ID, network.AccountID, activity.NetworkUpdated, network.EventMeta())
+
 	return network, m.store.SaveNetwork(ctx, store.LockingStrengthUpdate, network)
 }
 
@@ -94,20 +115,24 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		return status.NewPermissionDeniedError()
 	}
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
+	network, err := m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+	if err != nil {
+		return fmt.Errorf("failed to get network: %w", err)
+	}
 
-	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	var eventsToStore []func()
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
 		if err != nil {
 			return fmt.Errorf("failed to get resources in network: %w", err)
 		}
 
 		for _, resource := range resources {
-			err = m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resource.ID)
+			event, err := m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resource.ID)
 			if err != nil {
 				return fmt.Errorf("failed to delete resource: %w", err)
 			}
+			eventsToStore = append(eventsToStore, event...)
 		}
 
 		routers, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
@@ -116,12 +141,33 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		}
 
 		for _, router := range routers {
-			err = transaction.DeleteNetworkRouter(ctx, store.LockingStrengthUpdate, accountID, router.ID)
+			event, err := m.routersManager.DeleteRouterInTransaction(ctx, transaction, accountID, networkID, router.ID)
 			if err != nil {
 				return fmt.Errorf("failed to delete router: %w", err)
 			}
+			eventsToStore = append(eventsToStore, event)
 		}
 
-		return transaction.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		err = transaction.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		if err != nil {
+			return fmt.Errorf("failed to delete network: %w", err)
+		}
+
+		eventsToStore = append(eventsToStore, func() {
+			m.accountManager.StoreEvent(ctx, userID, networkID, accountID, activity.NetworkDeleted, network.EventMeta())
+		})
+
+		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("failed to delete network: %w", err)
+	}
+
+	for _, event := range eventsToStore {
+		event()
+	}
+
+	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
 }

@@ -808,11 +808,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 	routedDomains, routes := toRoutes(networkMap.GetRoutes())
 
+	e.updateDNSForwarder(dnsRouteFeatureFlag, routedDomains)
+
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
-
-	e.updateDNSForwarder(dnsRouteFeatureFlag, routedDomains)
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
