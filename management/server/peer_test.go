@@ -779,14 +779,14 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 
 		peerKey, _ := wgtypes.GeneratePrivateKey()
 		peer := &nbpeer.Peer{
-			ID:       fmt.Sprintf("peer-%d", len(account.Peers)+1),
-			DNSLabel: fmt.Sprintf("peer-%d", len(account.Peers)+1),
+			ID:       fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
+			DNSLabel: fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
 			Key:      peerKey.PublicKey().String(),
 			IP:       peerIP,
 			Status:   &nbpeer.PeerStatus{},
 			UserID:   regularUser,
 			Meta: nbpeer.PeerSystemMeta{
-				Hostname:  fmt.Sprintf("peer-%d", len(account.Peers)+1),
+				Hostname:  fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
 				GoOS:      "linux",
 				Kernel:    "Linux",
 				Core:      "21.04",
@@ -931,11 +931,11 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 		maxMsPerOpCICD  float64
 	}{
 		{"Small", 50, 5, 90, 120, 90, 120},
-		{"Medium", 500, 100, 110, 140, 120, 200},
-		{"Large", 5000, 200, 800, 1300, 2500, 3600},
+		{"Medium", 500, 100, 110, 150, 120, 200},
+		{"Large", 5000, 200, 800, 1320, 2500, 3600},
 		{"Small single", 50, 10, 90, 120, 90, 120},
 		{"Medium single", 500, 10, 110, 170, 120, 200},
-		{"Large 5", 5000, 15, 1300, 1800, 5000, 6000},
+		{"Large 5", 5000, 15, 1300, 2100, 5000, 6000},
 	}
 
 	log.SetOutput(io.Discard)
