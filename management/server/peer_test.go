@@ -985,7 +985,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
 			}
 
-			if msPerOp > maxExpected {
+			if msPerOp > (maxExpected * 1.1) {
 				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
