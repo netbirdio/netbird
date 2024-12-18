@@ -234,9 +234,12 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to update network resource: %w", err)
+	}
+
+	for _, event := range eventsToStore {
+		event()
 	}
 
 	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
