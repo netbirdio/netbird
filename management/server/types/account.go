@@ -1274,6 +1274,7 @@ func (a *Account) getNetworkResourceGroups(resourceID string) []*Group {
 	return networkResourceGroups
 }
 
+// GetResourcePoliciesMap returns a map of networks resource IDs and their associated policies.
 func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 	resourcePolicies := make(map[string][]*Policy)
 	for _, resource := range a.NetworkResources {
