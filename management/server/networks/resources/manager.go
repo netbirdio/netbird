@@ -376,7 +376,7 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 	}
 
 	eventsToStore = append(eventsToStore, func() {
-		m.accountManager.StoreEvent(ctx, accountID, resourceID, accountID, activity.NetworkResourceDeleted, resource.EventMeta(network))
+		m.accountManager.StoreEvent(ctx, userID, resourceID, accountID, activity.NetworkResourceDeleted, resource.EventMeta(network))
 	})
 
 	return eventsToStore, nil
