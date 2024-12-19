@@ -108,8 +108,19 @@ func (m *managerImpl) RemoveResourceFromGroupInTransaction(ctx context.Context, 
 		return nil, fmt.Errorf("error removing resource from group: %w", err)
 	}
 
+	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthShare, accountID, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting group: %w", err)
+	}
+
+	// TODO: at some point, this will need to become a switch statement
+	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resourceID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting network resource: %w", err)
+	}
+
 	event := func() {
-		m.accountManager.StoreEvent(ctx, userID, groupID, accountID, activity.ResourceRemovedFromGroup, nil)
+		m.accountManager.StoreEvent(ctx, userID, groupID, accountID, activity.ResourceRemovedFromGroup, group.EventMetaResource(networkResource))
 	}
 
 	return event, nil

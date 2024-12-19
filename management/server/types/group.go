@@ -40,7 +40,7 @@ func (g *Group) EventMeta() map[string]any {
 }
 
 func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]any {
-	return map[string]any{"name": g.Name, "id": g.ID, "resource_name": resource.Name, "resource_id": resource.ID, "resource_type": resource.Type, "resource_address": resource.Address}
+	return map[string]any{"name": g.Name, "id": g.ID, "resource_name": resource.Name, "resource_id": resource.ID, "resource_type": resource.Type}
 }
 
 func (g *Group) Copy() *Group {
