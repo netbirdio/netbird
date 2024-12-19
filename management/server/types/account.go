@@ -310,20 +310,35 @@ func (a *Account) addNetworksRoutingPeers(networkResourcesRoutes []*route.Route,
 			continue
 		}
 
+		missing := true
 		for _, p := range slices.Concat(peersToConnect, expiredPeers) {
 			if r.Peer == p.Key {
-				missingPeers[r.Peer] = struct{}{}
+				missing = false
 				break
 			}
+		}
+		if missing {
+			missingPeers[r.Peer] = struct{}{}
 		}
 	}
 
 	if isRouter {
 		for _, s := range sourcePeers {
+			if s == peer.ID {
+				continue
+			}
+
+			missing := true
 			for _, p := range slices.Concat(peersToConnect, expiredPeers) {
 				if s == p.ID {
-					missingPeers[p.Key] = struct{}{}
+					missing = false
 					break
+				}
+			}
+			if missing {
+				p, ok := a.Peers[s]
+				if ok {
+					missingPeers[p.Key] = struct{}{}
 				}
 			}
 		}

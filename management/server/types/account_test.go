@@ -322,7 +322,7 @@ func Test_AddNetworksRoutingPeersAddsMissingPeers(t *testing.T) {
 		{Key: "peer4Key"},
 	}
 
-	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers)
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, []string{})
 	require.Len(t, result, 2)
 	require.Equal(t, "peer2Key", result[0].Key)
 	require.Equal(t, "peer3Key", result[1].Key)
@@ -339,7 +339,7 @@ func Test_AddNetworksRoutingPeersIgnoresExistingPeers(t *testing.T) {
 	}
 	expiredPeers := []*nbpeer.Peer{}
 
-	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers)
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, []string{})
 	require.Len(t, result, 1)
 	require.Equal(t, "peer2Key", result[0].Key)
 }
@@ -358,7 +358,7 @@ func Test_AddNetworksRoutingPeersAddsExpiredPeers(t *testing.T) {
 		{Key: "peer3Key"},
 	}
 
-	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers)
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, []string{})
 	require.Len(t, result, 1)
 	require.Equal(t, "peer2Key", result[0].Key)
 }
@@ -370,6 +370,6 @@ func Test_AddNetworksRoutingPeersHandlesNoMissingPeers(t *testing.T) {
 	peersToConnect := []*nbpeer.Peer{}
 	expiredPeers := []*nbpeer.Peer{}
 
-	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers)
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, []string{})
 	require.Len(t, result, 0)
 }
