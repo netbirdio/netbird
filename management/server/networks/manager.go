@@ -65,6 +65,9 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 
 	network.ID = xid.New().String()
 
+	unlock := m.store.AcquireWriteLockByUID(ctx, network.AccountID)
+	defer unlock()
+
 	err = m.store.SaveNetwork(ctx, store.LockingStrengthUpdate, network)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save network: %w", err)
@@ -96,6 +99,9 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	unlock := m.store.AcquireWriteLockByUID(ctx, network.AccountID)
+	defer unlock()
+
 	_, err = m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network: %w", err)
@@ -119,6 +125,9 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 	if err != nil {
 		return fmt.Errorf("failed to get network: %w", err)
 	}
+
+	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
 
 	var eventsToStore []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {

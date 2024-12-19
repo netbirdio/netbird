@@ -485,20 +485,10 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
-	settings, err := s.settingsManager.GetSettings(ctx, accountID, userID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get settings for account %s and user %s: %v", accountID, userID, err)
-	}
-
-	routingPeerDNSResolutionEnabled := false
-	if settings != nil {
-		routingPeerDNSResolutionEnabled = settings.RoutingPeerDNSResolutionEnabled
-	}
-
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil, relayToken),
-		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), routingPeerDNSResolutionEnabled),
+		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
 		Checks:            toProtocolChecks(ctx, postureChecks),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
