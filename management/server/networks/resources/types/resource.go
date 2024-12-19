@@ -10,6 +10,7 @@ import (
 
 	nbDomain "github.com/netbirdio/netbird/management/domain"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 
@@ -142,8 +143,8 @@ func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.Network
 	return r
 }
 
-func (n *NetworkResource) EventMeta(networkName string) map[string]any {
-	return map[string]any{"name": n.Name, "type": n.Type, "network_name": networkName}
+func (n *NetworkResource) EventMeta(network *networkTypes.Network) map[string]any {
+	return map[string]any{"name": n.Name, "type": n.Type, "network_name": network.Name, "network_id": network.ID}
 }
 
 // GetResourceType returns the type of the resource based on the address
