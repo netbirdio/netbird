@@ -697,12 +697,12 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		}
 	}
 
-	// _, err = s.settingsManager.GetSettings(ctx, peer.AccountID, peer.UserID)
-	// if err != nil {
-	// 	return status.Errorf(codes.Internal, "error handling request")
-	// }
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, peer.UserID)
+	if err != nil {
+		return status.Errorf(codes.Internal, "error handling request")
+	}
 
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, false)
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
