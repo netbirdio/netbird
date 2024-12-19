@@ -485,11 +485,11 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
-	// settings, err := s.settingsManager.GetSettings(ctx, accountID, userID)
-	// if err != nil {
-	// 	log.WithContext(ctx).Errorf("failed to get settings for account %s and user %s: %v", accountID, userID, err)
-	// }
-	//
+	_, err = s.settingsManager.GetSettings(ctx, accountID, userID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get settings for account %s and user %s: %v", accountID, userID, err)
+	}
+
 	// routingPeerDNSResolutionEnabled := false
 	// if settings != nil {
 	// 	routingPeerDNSResolutionEnabled = settings.RoutingPeerDNSResolutionEnabled
@@ -696,10 +696,10 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		}
 	}
 
-	// settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, peer.UserID)
-	// if err != nil {
-	// 	return status.Errorf(codes.Internal, "error handling request")
-	// }
+	_, err = s.settingsManager.GetSettings(ctx, peer.AccountID, peer.UserID)
+	if err != nil {
+		return status.Errorf(codes.Internal, "error handling request")
+	}
 
 	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, false)
 
