@@ -2556,8 +2556,10 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 	})
 
 	t.Run("validate routing peer firewall rules for network resources", func(t *testing.T) {
-		routes := account.GetNetworkResourcesRoutesToSync(context.Background(), "peerA")
-		firewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerA"], validatedPeers, routes)
+		resourcePoliciesMap := account.GetResourcePoliciesMap()
+		resourceRoutersMap := account.GetResourceRoutersMap()
+		_, routes := account.GetNetworkResourcesRoutesToSync(context.Background(), "peerA", resourcePoliciesMap, resourceRoutersMap)
+		firewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerA"], validatedPeers, routes, resourcePoliciesMap)
 		assert.Len(t, firewallRules, 4)
 
 		expectedFirewallRules := []*types.RouteFirewallRule{
@@ -2611,15 +2613,15 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(append(expectedFirewallRules, additionalFirewallRules...)))
 
 		// peerD is also the routing peer for resource2
-		routes = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerD")
-		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerD"], validatedPeers, routes)
+		_, routes = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerD", resourcePoliciesMap, resourceRoutersMap)
+		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerD"], validatedPeers, routes, resourcePoliciesMap)
 		assert.Len(t, firewallRules, 2)
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
 
 		// peerE is a single routing peer for resource1 and resource3
 		// PeerE should only receive rules for resource1 since resource3 has no applied policy
-		routes = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerE")
-		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerE"], validatedPeers, routes)
+		_, routes = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerE", resourcePoliciesMap, resourceRoutersMap)
+		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerE"], validatedPeers, routes, resourcePoliciesMap)
 		assert.Len(t, firewallRules, 1)
 
 		expectedFirewallRules = []*types.RouteFirewallRule{
@@ -2638,9 +2640,9 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		assert.Len(t, firewallRules, 0)
 
 		// peerL is the single routing peer for resource5
-		routes = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerL")
+		_, routes = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerL", resourcePoliciesMap, resourceRoutersMap)
 		assert.Len(t, routes, 1)
-		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerL"], validatedPeers, routes)
+		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerL"], validatedPeers, routes, resourcePoliciesMap)
 		assert.Len(t, firewallRules, 1)
 
 		expectedFirewallRules = []*types.RouteFirewallRule{
@@ -2654,7 +2656,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
 
-		routes = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerM")
+		_, routes = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerM", resourcePoliciesMap, resourceRoutersMap)
 		assert.Len(t, routes, 1)
 	})
 }

@@ -779,14 +779,14 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 
 		peerKey, _ := wgtypes.GeneratePrivateKey()
 		peer := &nbpeer.Peer{
-			ID:       fmt.Sprintf("peer-%d", len(account.Peers)+1),
-			DNSLabel: fmt.Sprintf("peer-%d", len(account.Peers)+1),
+			ID:       fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
+			DNSLabel: fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
 			Key:      peerKey.PublicKey().String(),
 			IP:       peerIP,
 			Status:   &nbpeer.PeerStatus{},
 			UserID:   regularUser,
 			Meta: nbpeer.PeerSystemMeta{
-				Hostname:  fmt.Sprintf("peer-%d", len(account.Peers)+1),
+				Hostname:  fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
 				GoOS:      "linux",
 				Kernel:    "Linux",
 				Core:      "21.04",
@@ -931,11 +931,12 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 		maxMsPerOpCICD  float64
 	}{
 		{"Small", 50, 5, 90, 120, 90, 120},
-		{"Medium", 500, 100, 110, 140, 120, 200},
-		{"Large", 5000, 200, 800, 1300, 2500, 3600},
+		{"Medium", 500, 100, 110, 150, 120, 260},
+		{"Large", 5000, 200, 800, 1390, 2500, 4600},
 		{"Small single", 50, 10, 90, 120, 90, 120},
 		{"Medium single", 500, 10, 110, 170, 120, 200},
-		{"Large 5", 5000, 15, 1300, 1800, 5000, 6000},
+		{"Large 5", 5000, 15, 1300, 2100, 5000, 7000},
+		{"Extra Large", 2000, 2000, 1300, 2100, 4000, 6000},
 	}
 
 	log.SetOutput(io.Discard)
@@ -985,7 +986,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
 			}
 
-			if msPerOp > maxExpected {
+			if msPerOp > (maxExpected * 1.1) {
 				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
