@@ -104,7 +104,7 @@ func (n *NetworkResource) Copy() *NetworkResource {
 
 func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {
 	r := &route.Route{
-		ID:                  route.ID(n.ID),
+		ID:                  route.ID(fmt.Sprintf("%s:%s", n.ID, peer.ID)),
 		AccountID:           n.AccountID,
 		KeepRoute:           true,
 		NetID:               route.NetID(n.Name),

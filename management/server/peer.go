@@ -381,7 +381,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		return nil, err
 	}
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, nil), nil
+	return account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -625,7 +625,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
+	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
 	return newPeer, networkMap, postureChecks, nil
 }
 
@@ -709,7 +709,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics()), postureChecks, nil
 }
 
 func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, login PeerLogin, err error) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
@@ -895,7 +895,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics()), postureChecks, nil
 }
 
 func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, user *types.User, peer *nbpeer.Peer) error {
@@ -1033,6 +1033,8 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 	dnsCache := &DNSConfigCache{}
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
 
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
@@ -1052,7 +1054,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 				return
 			}
 
-			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
+			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
 			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 		}(peer)

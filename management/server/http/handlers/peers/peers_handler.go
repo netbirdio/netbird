@@ -291,7 +291,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	customZone := account.GetPeersCustomZone(r.Context(), h.accountManager.GetDNSDomain())
-	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, nil)
+	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
 
 	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
 }
