@@ -752,7 +752,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
 	var peer nbpeer.Peer
 	var accountID string
-	result := s.db.Model(&peer).Select("account_id").Where(keyQueryCondition, peerKey).First(&accountID)
+	result := s.db.Clauses(clause.Locking{Strength: "SHARE"}).Model(&peer).Select("account_id").Where(keyQueryCondition, peerKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
