@@ -1220,7 +1220,6 @@ func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Con
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, account *Account, oldSettings, newSettings *Settings, userID, accountID string) error {
-
 	if newSettings.PeerInactivityExpirationEnabled {
 		if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
 			oldSettings.PeerInactivityExpiration = newSettings.PeerInactivityExpiration
