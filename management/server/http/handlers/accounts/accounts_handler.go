@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // handler is a handler that handles the server.Account HTTP endpoints
@@ -82,7 +83,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	settings := &server.Settings{
+	settings := &types.Settings{
 		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
 		RegularUsersViewBlocked:    req.Settings.RegularUsersViewBlocked,
@@ -106,6 +107,9 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Settings.JwtAllowGroups != nil {
 		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
+	}
+	if req.Settings.RoutingPeerDnsResolutionEnabled != nil {
+		settings.RoutingPeerDNSResolutionEnabled = *req.Settings.RoutingPeerDnsResolutionEnabled
 	}
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
@@ -138,7 +142,7 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func toAccountResponse(accountID string, settings *server.Settings) *api.Account {
+func toAccountResponse(accountID string, settings *types.Settings) *api.Account {
 	jwtAllowGroups := settings.JWTAllowGroups
 	if jwtAllowGroups == nil {
 		jwtAllowGroups = []string{}
@@ -154,6 +158,7 @@ func toAccountResponse(accountID string, settings *server.Settings) *api.Account
 		JwtGroupsClaimName:              &settings.JWTGroupsClaimName,
 		JwtAllowGroups:                  &jwtAllowGroups,
 		RegularUsersViewBlocked:         settings.RegularUsersViewBlocked,
+		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
 	}
 
 	if settings.Extra != nil {

@@ -12,6 +12,9 @@ CREATE TABLE `installations` (`id` integer,`installation_id_value` text,PRIMARY 
 CREATE TABLE `extra_settings` (`peer_approval_enabled` numeric,`integrated_validator_groups` text);
 CREATE TABLE `posture_checks` (`id` text,`name` text,`description` text,`account_id` text,`checks` text,PRIMARY KEY (`id`),CONSTRAINT `fk_accounts_posture_checks` FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`));
 CREATE TABLE `network_addresses` (`net_ip` text,`mac` text);
+CREATE TABLE `network_routers` (`id` text,`network_id` text,`account_id` text,`peer` text,`peer_groups` text,`masquerade` numeric,`metric` integer,PRIMARY KEY (`id`));
+CREATE TABLE `network_resources` (`id` text,`network_id` text,`account_id` text,`type` text,`address` text,PRIMARY KEY (`id`));
+CREATE TABLE  `networks` (`id` text,`account_id` text,`name` text,`description` text,PRIMARY KEY (`id`),CONSTRAINT `fk_accounts_networks` FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`));
 CREATE INDEX `idx_accounts_domain` ON `accounts`(`domain`);
 CREATE INDEX `idx_setup_keys_account_id` ON `setup_keys`(`account_id`);
 CREATE INDEX `idx_peers_key` ON `peers`(`key`);
@@ -24,6 +27,14 @@ CREATE INDEX `idx_policy_rules_policy_id` ON `policy_rules`(`policy_id`);
 CREATE INDEX `idx_routes_account_id` ON `routes`(`account_id`);
 CREATE INDEX `idx_name_server_groups_account_id` ON `name_server_groups`(`account_id`);
 CREATE INDEX `idx_posture_checks_account_id` ON `posture_checks`(`account_id`);
+CREATE INDEX `idx_network_routers_id` ON `network_routers`(`id`);
+CREATE INDEX `idx_network_routers_account_id` ON `network_routers`(`account_id`);
+CREATE INDEX `idx_network_routers_network_id` ON `network_routers`(`network_id`);
+CREATE INDEX `idx_network_resources_account_id` ON `network_resources`(`account_id`);
+CREATE INDEX `idx_network_resources_network_id` ON `network_resources`(`network_id`);
+CREATE INDEX `idx_network_resources_id` ON `network_resources`(`id`);
+CREATE INDEX `idx_networks_id` ON `networks`(`id`);
+CREATE INDEX `idx_networks_account_id` ON `networks`(`account_id`);
 
 INSERT INTO accounts VALUES('bf1c8084-ba50-4ce7-9439-34653001fc3b','','2024-10-02 16:03:06.778746+02:00','test.com','private',1,'af1c8024-ha40-4ce2-9418-34653101fc3c','{"IP":"100.64.0.0","Mask":"//8AAA=="}','',0,'[]',0,86400000000000,0,0,0,'',NULL,NULL,NULL);
 INSERT INTO "groups" VALUES('cs1tnh0hhcjnqoiuebeg','bf1c8084-ba50-4ce7-9439-34653001fc3b','All','api','[]',0,'');
@@ -34,3 +45,6 @@ INSERT INTO personal_access_tokens VALUES('9dj38s35-63fb-11ec-90d6-0242ac120003'
 INSERT INTO installations VALUES(1,'');
 INSERT INTO policies VALUES('cs1tnh0hhcjnqoiuebf0','bf1c8084-ba50-4ce7-9439-34653001fc3b','Default','This is a default rule that allows connections between all the resources',1,'[]');
 INSERT INTO policy_rules VALUES('cs387mkv2d4bgq41b6n0','cs1tnh0hhcjnqoiuebf0','Default','This is a default rule that allows connections between all the resources',1,'accept','["cs1tnh0hhcjnqoiuebeg"]','["cs1tnh0hhcjnqoiuebeg"]',1,'all',NULL,NULL);
+INSERT INTO network_routers VALUES('ctc20ji7qv9ck2sebc80','ct286bi7qv930dsrrug0','bf1c8084-ba50-4ce7-9439-34653001fc3b','cs1tnh0hhcjnqoiuebeg',NULL,0,0);
+INSERT INTO network_resources VALUES ('ctc4nci7qv9061u6ilfg','ct286bi7qv930dsrrug0','bf1c8084-ba50-4ce7-9439-34653001fc3b','Host','192.168.1.1');
+INSERT INTO networks VALUES('ct286bi7qv930dsrrug0','bf1c8084-ba50-4ce7-9439-34653001fc3b','Test Network','Test Network');

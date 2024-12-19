@@ -16,13 +16,13 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 
 	"github.com/gorilla/mux"
 	"github.com/magiconair/properties/assert"
 
 	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -61,7 +61,7 @@ var baseExistingRoute = &route.Route{
 	Groups:      []string{existingGroupID},
 }
 
-var testingAccount = &server.Account{
+var testingAccount = &types.Account{
 	Id:     testAccountID,
 	Domain: "hotmail.com",
 	Peers: map[string]*nbpeer.Peer{
@@ -82,8 +82,8 @@ var testingAccount = &server.Account{
 			},
 		},
 	},
-	Users: map[string]*server.User{
-		"test_user": server.NewAdminUser("test_user"),
+	Users: map[string]*types.User{
+		"test_user": types.NewAdminUser("test_user"),
 	},
 }
 
@@ -328,6 +328,14 @@ func TestRoutesHandlers(t *testing.T) {
 			requestPath:    "/api/routes",
 			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"Description":"Post","domains":["-example.com"],"network_id":"awesomeNet","Peer":"%s","groups":["%s"]}`, existingPeerID, existingGroupID)),
 			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:           "POST Wildcard Domain",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/routes",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"Description":"Post","domains":["*.example.com"],"network_id":"awesomeNet","Peer":"%s","groups":["%s"]}`, existingPeerID, existingGroupID)),
+			expectedStatus: http.StatusOK,
 			expectedBody:   false,
 		},
 		{
@@ -607,6 +615,30 @@ func TestValidateDomains(t *testing.T) {
 			name:     "Multiple domains valid and invalid",
 			domains:  []string{"google.com", "invalid,nbdomain.com", "münchen.de"},
 			expected: domain.List{"google.com"},
+			wantErr:  true,
+		},
+		{
+			name:     "Valid wildcard domain",
+			domains:  []string{"*.example.com"},
+			expected: domain.List{"*.example.com"},
+			wantErr:  false,
+		},
+		{
+			name:     "Wildcard with dot domain",
+			domains:  []string{".*.example.com"},
+			expected: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "Wildcard with dot domain",
+			domains:  []string{".*.example.com"},
+			expected: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "Invalid wildcard domain",
+			domains:  []string{"a.*.example.com"},
+			expected: nil,
 			wantErr:  true,
 		},
 	}

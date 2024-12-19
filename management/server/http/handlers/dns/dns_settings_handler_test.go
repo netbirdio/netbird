@@ -13,10 +13,10 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -27,15 +27,15 @@ const (
 	testDNSSettingsUserID        = "test_user"
 )
 
-var baseExistingDNSSettings = server.DNSSettings{
+var baseExistingDNSSettings = types.DNSSettings{
 	DisabledManagementGroups: []string{testDNSSettingsExistingGroup},
 }
 
-var testingDNSSettingsAccount = &server.Account{
+var testingDNSSettingsAccount = &types.Account{
 	Id:     testDNSSettingsAccountID,
 	Domain: "hotmail.com",
-	Users: map[string]*server.User{
-		testDNSSettingsUserID: server.NewAdminUser("test_user"),
+	Users: map[string]*types.User{
+		testDNSSettingsUserID: types.NewAdminUser("test_user"),
 	},
 	DNSSettings: baseExistingDNSSettings,
 }
@@ -43,10 +43,10 @@ var testingDNSSettingsAccount = &server.Account{
 func initDNSSettingsTestData() *dnsSettingsHandler {
 	return &dnsSettingsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetDNSSettingsFunc: func(ctx context.Context, accountID string, userID string) (*server.DNSSettings, error) {
+			GetDNSSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error) {
 				return &testingDNSSettingsAccount.DNSSettings, nil
 			},
-			SaveDNSSettingsFunc: func(ctx context.Context, accountID string, userID string, dnsSettingsToSave *server.DNSSettings) error {
+			SaveDNSSettingsFunc: func(ctx context.Context, accountID string, userID string, dnsSettingsToSave *types.DNSSettings) error {
 				if dnsSettingsToSave != nil {
 					return nil
 				}

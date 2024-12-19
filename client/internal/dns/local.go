@@ -17,12 +17,24 @@ type localResolver struct {
 	records       sync.Map
 }
 
+func (d *localResolver) MatchSubdomains() bool {
+	return true
+}
+
 func (d *localResolver) stop() {
+}
+
+// String returns a string representation of the local resolver
+func (d *localResolver) String() string {
+	return fmt.Sprintf("local resolver [%d records]", len(d.registeredMap))
 }
 
 // ServeDNS handles a DNS request
 func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	log.Tracef("received question: %#v", r.Question[0])
+	if len(r.Question) > 0 {
+		log.Tracef("received question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+	}
+
 	replyMessage := &dns.Msg{}
 	replyMessage.SetReply(r)
 	replyMessage.RecursionAvailable = true

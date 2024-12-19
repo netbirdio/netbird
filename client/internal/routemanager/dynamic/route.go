@@ -74,11 +74,7 @@ func NewRoute(
 }
 
 func (r *Route) String() string {
-	s, err := r.route.Domains.String()
-	if err != nil {
-		return r.route.Domains.PunycodeString()
-	}
-	return s
+	return r.route.Domains.SafeString()
 }
 
 func (r *Route) AddRoute(ctx context.Context) error {
@@ -292,7 +288,7 @@ func (r *Route) updateDynamicRoutes(ctx context.Context, newDomains domainMap) e
 		updatedPrefixes := combinePrefixes(oldPrefixes, removedPrefixes, addedPrefixes)
 		r.dynamicDomains[domain] = updatedPrefixes
 
-		r.statusRecorder.UpdateResolvedDomainsStates(domain, updatedPrefixes)
+		r.statusRecorder.UpdateResolvedDomainsStates(domain, domain, updatedPrefixes)
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

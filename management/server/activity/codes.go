@@ -151,6 +151,24 @@ const (
 
 	UserGroupPropagationEnabled  Activity = 69
 	UserGroupPropagationDisabled Activity = 70
+
+	AccountRoutingPeerDNSResolutionEnabled  Activity = 71
+	AccountRoutingPeerDNSResolutionDisabled Activity = 72
+
+	NetworkCreated Activity = 73
+	NetworkUpdated Activity = 74
+	NetworkDeleted Activity = 75
+
+	NetworkResourceCreated Activity = 76
+	NetworkResourceUpdated Activity = 77
+	NetworkResourceDeleted Activity = 78
+
+	NetworkRouterCreated Activity = 79
+	NetworkRouterUpdated Activity = 80
+	NetworkRouterDeleted Activity = 81
+
+	ResourceAddedToGroup     Activity = 82
+	ResourceRemovedFromGroup Activity = 83
 )
 
 var activityMap = map[Activity]Code{
@@ -228,6 +246,24 @@ var activityMap = map[Activity]Code{
 
 	UserGroupPropagationEnabled:  {"User group propagation enabled", "account.setting.group.propagation.enable"},
 	UserGroupPropagationDisabled: {"User group propagation disabled", "account.setting.group.propagation.disable"},
+
+	AccountRoutingPeerDNSResolutionEnabled:  {"Account routing peer DNS resolution enabled", "account.setting.routing.peer.dns.resolution.enable"},
+	AccountRoutingPeerDNSResolutionDisabled: {"Account routing peer DNS resolution disabled", "account.setting.routing.peer.dns.resolution.disable"},
+
+	NetworkCreated: {"Network created", "network.create"},
+	NetworkUpdated: {"Network updated", "network.update"},
+	NetworkDeleted: {"Network deleted", "network.delete"},
+
+	NetworkResourceCreated: {"Network resource created", "network.resource.create"},
+	NetworkResourceUpdated: {"Network resource updated", "network.resource.update"},
+	NetworkResourceDeleted: {"Network resource deleted", "network.resource.delete"},
+
+	NetworkRouterCreated: {"Network router created", "network.router.create"},
+	NetworkRouterUpdated: {"Network router updated", "network.router.update"},
+	NetworkRouterDeleted: {"Network router deleted", "network.router.delete"},
+
+	ResourceAddedToGroup:     {"Resource added to group", "resource.group.add"},
+	ResourceRemovedFromGroup: {"Resource removed from group", "resource.group.delete"},
 }
 
 // StringCode returns a string code of the activity

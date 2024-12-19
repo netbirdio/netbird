@@ -14,11 +14,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -31,13 +31,13 @@ const (
 	testDomain        = "hotmail.com"
 )
 
-var testAccount = &server.Account{
+var testAccount = &types.Account{
 	Id:     existingAccountID,
 	Domain: testDomain,
-	Users: map[string]*server.User{
+	Users: map[string]*types.User{
 		existingUserID: {
 			Id: existingUserID,
-			PATs: map[string]*server.PersonalAccessToken{
+			PATs: map[string]*types.PersonalAccessToken{
 				existingTokenID: {
 					ID:             existingTokenID,
 					Name:           "My first token",
@@ -64,16 +64,16 @@ var testAccount = &server.Account{
 func initPATTestData() *patHandler {
 	return &patHandler{
 		accountManager: &mock_server.MockAccountManager{
-			CreatePATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error) {
+			CreatePATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
 				if accountID != existingAccountID {
 					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
 				if targetUserID != existingUserID {
 					return nil, status.Errorf(status.NotFound, "user with ID %s not found", targetUserID)
 				}
-				return &server.PersonalAccessTokenGenerated{
+				return &types.PersonalAccessTokenGenerated{
 					PlainToken:          "nbp_z1pvsg2wP3EzmEou4S679KyTNhov632eyrXe",
-					PersonalAccessToken: server.PersonalAccessToken{},
+					PersonalAccessToken: types.PersonalAccessToken{},
 				}, nil
 			},
 
@@ -92,7 +92,7 @@ func initPATTestData() *patHandler {
 				}
 				return nil
 			},
-			GetPATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*server.PersonalAccessToken, error) {
+			GetPATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error) {
 				if accountID != existingAccountID {
 					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
@@ -104,14 +104,14 @@ func initPATTestData() *patHandler {
 				}
 				return testAccount.Users[existingUserID].PATs[existingTokenID], nil
 			},
-			GetAllPATsFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*server.PersonalAccessToken, error) {
+			GetAllPATsFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error) {
 				if accountID != existingAccountID {
 					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
 				if targetUserID != existingUserID {
 					return nil, status.Errorf(status.NotFound, "user with ID %s not found", targetUserID)
 				}
-				return []*server.PersonalAccessToken{testAccount.Users[existingUserID].PATs[existingTokenID], testAccount.Users[existingUserID].PATs["token2"]}, nil
+				return []*types.PersonalAccessToken{testAccount.Users[existingUserID].PATs[existingTokenID], testAccount.Users[existingUserID].PATs["token2"]}, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -217,7 +217,7 @@ func TestTokenHandlers(t *testing.T) {
 					t.Fatalf("Sent content is not in correct json format; %v", err)
 				}
 				assert.NotEmpty(t, got.PlainToken)
-				assert.Equal(t, server.PATLength, len(got.PlainToken))
+				assert.Equal(t, types.PATLength, len(got.PlainToken))
 			case "Get All Tokens":
 				expectedTokens := []api.PersonalAccessToken{
 					toTokenResponse(*testAccount.Users[existingUserID].PATs[existingTokenID]),
@@ -243,7 +243,7 @@ func TestTokenHandlers(t *testing.T) {
 	}
 }
 
-func toTokenResponse(serverToken server.PersonalAccessToken) api.PersonalAccessToken {
+func toTokenResponse(serverToken types.PersonalAccessToken) api.PersonalAccessToken {
 	return api.PersonalAccessToken{
 		Id:             serverToken.ID,
 		Name:           serverToken.Name,

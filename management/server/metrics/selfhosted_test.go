@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -22,19 +22,19 @@ func (mockDatasource) GetAllConnectedPeers() map[string]struct{} {
 }
 
 // GetAllAccounts returns a list of *server.Account for use in tests with predefined information
-func (mockDatasource) GetAllAccounts(_ context.Context) []*server.Account {
-	return []*server.Account{
+func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
+	return []*types.Account{
 		{
 			Id:       "1",
-			Settings: &server.Settings{PeerLoginExpirationEnabled: true},
-			SetupKeys: map[string]*server.SetupKey{
+			Settings: &types.Settings{PeerLoginExpirationEnabled: true},
+			SetupKeys: map[string]*types.SetupKey{
 				"1": {
 					Id:        "1",
 					Ephemeral: true,
 					UsedTimes: 1,
 				},
 			},
-			Groups: map[string]*group.Group{
+			Groups: map[string]*types.Group{
 				"1": {},
 				"2": {},
 			},
@@ -49,20 +49,20 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*server.Account {
 					Meta:       nbpeer.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1"},
 				},
 			},
-			Policies: []*server.Policy{
+			Policies: []*types.Policy{
 				{
-					Rules: []*server.PolicyRule{
+					Rules: []*types.PolicyRule{
 						{
 							Bidirectional: true,
-							Protocol:      server.PolicyRuleProtocolTCP,
+							Protocol:      types.PolicyRuleProtocolTCP,
 						},
 					},
 				},
 				{
-					Rules: []*server.PolicyRule{
+					Rules: []*types.PolicyRule{
 						{
 							Bidirectional: false,
-							Protocol:      server.PolicyRuleProtocolTCP,
+							Protocol:      types.PolicyRuleProtocolTCP,
 						},
 					},
 					SourcePostureChecks: []string{"1"},
@@ -94,16 +94,16 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*server.Account {
 					},
 				},
 			},
-			Users: map[string]*server.User{
+			Users: map[string]*types.User{
 				"1": {
 					IsServiceUser: true,
-					PATs: map[string]*server.PersonalAccessToken{
+					PATs: map[string]*types.PersonalAccessToken{
 						"1": {},
 					},
 				},
 				"2": {
 					IsServiceUser: false,
-					PATs: map[string]*server.PersonalAccessToken{
+					PATs: map[string]*types.PersonalAccessToken{
 						"1": {},
 					},
 				},
@@ -111,15 +111,15 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*server.Account {
 		},
 		{
 			Id:       "2",
-			Settings: &server.Settings{PeerLoginExpirationEnabled: true},
-			SetupKeys: map[string]*server.SetupKey{
+			Settings: &types.Settings{PeerLoginExpirationEnabled: true},
+			SetupKeys: map[string]*types.SetupKey{
 				"1": {
 					Id:        "1",
 					Ephemeral: true,
 					UsedTimes: 1,
 				},
 			},
-			Groups: map[string]*group.Group{
+			Groups: map[string]*types.Group{
 				"1": {},
 				"2": {},
 			},
@@ -134,20 +134,20 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*server.Account {
 					Meta:       nbpeer.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1"},
 				},
 			},
-			Policies: []*server.Policy{
+			Policies: []*types.Policy{
 				{
-					Rules: []*server.PolicyRule{
+					Rules: []*types.PolicyRule{
 						{
 							Bidirectional: true,
-							Protocol:      server.PolicyRuleProtocolTCP,
+							Protocol:      types.PolicyRuleProtocolTCP,
 						},
 					},
 				},
 				{
-					Rules: []*server.PolicyRule{
+					Rules: []*types.PolicyRule{
 						{
 							Bidirectional: false,
-							Protocol:      server.PolicyRuleProtocolTCP,
+							Protocol:      types.PolicyRuleProtocolTCP,
 						},
 					},
 				},
@@ -158,16 +158,16 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*server.Account {
 					PeerGroups: make([]string, 1),
 				},
 			},
-			Users: map[string]*server.User{
+			Users: map[string]*types.User{
 				"1": {
 					IsServiceUser: true,
-					PATs: map[string]*server.PersonalAccessToken{
+					PATs: map[string]*types.PersonalAccessToken{
 						"1": {},
 					},
 				},
 				"2": {
 					IsServiceUser: false,
-					PATs: map[string]*server.PersonalAccessToken{
+					PATs: map[string]*types.PersonalAccessToken{
 						"1": {},
 					},
 				},
@@ -177,8 +177,8 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*server.Account {
 }
 
 // GetStoreEngine returns FileStoreEngine
-func (mockDatasource) GetStoreEngine() server.StoreEngine {
-	return server.FileStoreEngine
+func (mockDatasource) GetStoreEngine() store.Engine {
+	return store.FileStoreEngine
 }
 
 // TestGenerateProperties tests and validate the properties generation by using the mockDatasource for the Worker.generateProperties
@@ -267,7 +267,7 @@ func TestGenerateProperties(t *testing.T) {
 		t.Errorf("expected 2 user_peers, got %d", properties["user_peers"])
 	}
 
-	if properties["store_engine"] != server.FileStoreEngine {
+	if properties["store_engine"] != store.FileStoreEngine {
 		t.Errorf("expected JsonFile, got %s", properties["store_engine"])
 	}
 
