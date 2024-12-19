@@ -187,6 +187,8 @@ func (s *DefaultServer) DeregisterHandler(domains []string, priority int) {
 }
 
 func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
+	log.Debugf("deregistering handler %v with priority %d", domains, priority)
+
 	for _, domain := range domains {
 		s.handlerChain.RemoveHandler(domain, priority)
 
