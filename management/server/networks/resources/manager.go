@@ -291,9 +291,6 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		return status.NewPermissionDeniedError()
 	}
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	var events []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resourceID)
