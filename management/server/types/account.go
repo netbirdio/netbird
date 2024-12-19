@@ -13,7 +13,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -1328,12 +1327,7 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 		}
 	}
 
-	peerRoutesMembership := make(map[string]*route.Route)
-	for _, r := range routes {
-		peerRoutesMembership[string(r.GetHAUniqueID())] = r
-	}
-
-	return isRoutingPeer, maps.Values(peerRoutesMembership)
+	return isRoutingPeer, routes
 }
 
 // getNetworkResources filters and returns a list of network resources associated with the given network ID.
