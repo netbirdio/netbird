@@ -154,6 +154,10 @@ func (p *ConnProfiler) checkHandshakes() {
 		if stat.LastHandshake.IsZero() {
 			continue
 		}
+
+		if stat.LastHandshake.Before(time.Now().Add(-100 * time.Hour)) {
+			continue
+		}
 		profile.WireGuardConnected = stat.LastHandshake
 	}
 	p.profilesMu.Unlock()
