@@ -332,7 +332,12 @@ func (a *Account) addNetworksRoutingPeers(networkResourcesRoutes []*route.Route,
 	}
 
 	for p := range missingPeers {
-		peersToConnect = append(peersToConnect, a.Peers[p])
+		for _, p2 := range a.Peers {
+			if p2.Key == p {
+				peersToConnect = append(peersToConnect, p2)
+				break
+			}
+		}
 	}
 	return peersToConnect
 }
