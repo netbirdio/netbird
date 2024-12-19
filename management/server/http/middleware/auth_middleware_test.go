@@ -10,9 +10,9 @@ import (
 
 	"github.com/golang-jwt/jwt"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -28,13 +28,13 @@ const (
 	wrongToken     = "wrongToken"
 )
 
-var testAccount = &server.Account{
+var testAccount = &types.Account{
 	Id:     accountID,
 	Domain: domain,
-	Users: map[string]*server.User{
+	Users: map[string]*types.User{
 		userID: {
 			Id: userID,
-			PATs: map[string]*server.PersonalAccessToken{
+			PATs: map[string]*types.PersonalAccessToken{
 				tokenID: {
 					ID:             tokenID,
 					Name:           "My first token",
@@ -49,7 +49,7 @@ var testAccount = &server.Account{
 	},
 }
 
-func mockGetAccountFromPAT(_ context.Context, token string) (*server.Account, *server.User, *server.PersonalAccessToken, error) {
+func mockGetAccountFromPAT(_ context.Context, token string) (*types.Account, *types.User, *types.PersonalAccessToken, error) {
 	if token == PAT {
 		return testAccount, testAccount.Users[userID], testAccount.Users[userID].PATs[tokenID], nil
 	}

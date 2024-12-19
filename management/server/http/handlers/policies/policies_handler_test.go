@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/gorilla/mux"
 
@@ -20,50 +20,49 @@ import (
 
 	"github.com/magiconair/properties/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initPoliciesTestData(policies ...*server.Policy) *handler {
-	testPolicies := make(map[string]*server.Policy, len(policies))
+func initPoliciesTestData(policies ...*types.Policy) *handler {
+	testPolicies := make(map[string]*types.Policy, len(policies))
 	for _, policy := range policies {
 		testPolicies[policy.ID] = policy
 	}
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
-			GetPolicyFunc: func(_ context.Context, _, policyID, _ string) (*server.Policy, error) {
+			GetPolicyFunc: func(_ context.Context, _, policyID, _ string) (*types.Policy, error) {
 				policy, ok := testPolicies[policyID]
 				if !ok {
 					return nil, status.Errorf(status.NotFound, "policy not found")
 				}
 				return policy, nil
 			},
-			SavePolicyFunc: func(_ context.Context, _, _ string, policy *server.Policy) (*server.Policy, error) {
+			SavePolicyFunc: func(_ context.Context, _, _ string, policy *types.Policy) (*types.Policy, error) {
 				if !strings.HasPrefix(policy.ID, "id-") {
 					policy.ID = "id-was-set"
 					policy.Rules[0].ID = "id-was-set"
 				}
 				return policy, nil
 			},
-			GetAllGroupsFunc: func(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error) {
-				return []*nbgroup.Group{{ID: "F"}, {ID: "G"}}, nil
+			GetAllGroupsFunc: func(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
+				return []*types.Group{{ID: "F"}, {ID: "G"}}, nil
 			},
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
-			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*server.Account, error) {
-				user := server.NewAdminUser(userID)
-				return &server.Account{
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+				user := types.NewAdminUser(userID)
+				return &types.Account{
 					Id:     accountID,
 					Domain: "hotmail.com",
-					Policies: []*server.Policy{
+					Policies: []*types.Policy{
 						{ID: "id-existed"},
 					},
-					Groups: map[string]*nbgroup.Group{
+					Groups: map[string]*types.Group{
 						"F": {ID: "F"},
 						"G": {ID: "G"},
 					},
-					Users: map[string]*server.User{
+					Users: map[string]*types.User{
 						"test_user": user,
 					},
 				}, nil
@@ -105,10 +104,10 @@ func TestPoliciesGetPolicy(t *testing.T) {
 		},
 	}
 
-	policy := &server.Policy{
+	policy := &types.Policy{
 		ID:   "idofthepolicy",
 		Name: "Rule",
-		Rules: []*server.PolicyRule{
+		Rules: []*types.PolicyRule{
 			{ID: "idoftherule", Name: "Rule"},
 		},
 	}
@@ -177,7 +176,9 @@ func TestPoliciesWritePolicy(t *testing.T) {
                             "Description": "Description",
                             "Protocol": "tcp",
                             "Action": "accept",
-                            "Bidirectional":true
+                            "Bidirectional":true,
+							"Sources": ["F"],
+							"Destinations": ["G"]
                         }
                 ]}`)),
 			expectedStatus: http.StatusOK,
@@ -193,6 +194,8 @@ func TestPoliciesWritePolicy(t *testing.T) {
 						Protocol:      "tcp",
 						Action:        "accept",
 						Bidirectional: true,
+						Sources:       &[]api.GroupMinimum{{Id: "F"}},
+						Destinations:  &[]api.GroupMinimum{{Id: "G"}},
 					},
 				},
 			},
@@ -221,7 +224,9 @@ func TestPoliciesWritePolicy(t *testing.T) {
                             "Description": "Description",
                             "Protocol": "tcp",
                             "Action": "accept",
-                            "Bidirectional":true
+                            "Bidirectional":true,
+							"Sources": ["F"],
+							"Destinations": ["F"]
                         }
                 ]}`)),
 			expectedStatus: http.StatusOK,
@@ -237,6 +242,8 @@ func TestPoliciesWritePolicy(t *testing.T) {
 						Protocol:      "tcp",
 						Action:        "accept",
 						Bidirectional: true,
+						Sources:       &[]api.GroupMinimum{{Id: "F"}},
+						Destinations:  &[]api.GroupMinimum{{Id: "F"}},
 					},
 				},
 			},
@@ -251,10 +258,10 @@ func TestPoliciesWritePolicy(t *testing.T) {
 		},
 	}
 
-	p := initPoliciesTestData(&server.Policy{
+	p := initPoliciesTestData(&types.Policy{
 		ID:   "id-existed",
 		Name: "Default POSTed Rule",
-		Rules: []*server.PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				ID:            "id-existed",
 				Name:          "Default POSTed Rule",

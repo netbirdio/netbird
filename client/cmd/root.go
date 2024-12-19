@@ -142,14 +142,14 @@ func init() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
-	rootCmd.AddCommand(routesCmd)
+	rootCmd.AddCommand(networksCMD)
 	rootCmd.AddCommand(debugCmd)
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
 
-	routesCmd.AddCommand(routesListCmd)
-	routesCmd.AddCommand(routesSelectCmd, routesDeselectCmd)
+	networksCMD.AddCommand(routesListCmd)
+	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
 
 	debugCmd.AddCommand(debugBundleCmd)
 	debugCmd.AddCommand(logCmd)

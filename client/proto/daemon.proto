@@ -28,14 +28,14 @@ service DaemonService {
   // GetConfig of the daemon.
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
 
-  // List available network routes
-  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse) {}
+  // List available networks
+  rpc ListNetworks(ListNetworksRequest) returns (ListNetworksResponse) {}
 
   // Select specific routes
-  rpc SelectRoutes(SelectRoutesRequest) returns (SelectRoutesResponse) {}
+  rpc SelectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
 
   // Deselect specific routes
-  rpc DeselectRoutes(SelectRoutesRequest) returns (SelectRoutesResponse) {}
+  rpc DeselectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
 
   // DebugBundle creates a debug bundle
   rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
@@ -190,7 +190,7 @@ message PeerState {
   int64 bytesRx = 13;
   int64 bytesTx = 14;
   bool rosenpassEnabled = 15;
-  repeated string routes = 16;
+  repeated string networks = 16;
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
 }
@@ -203,7 +203,7 @@ message LocalPeerState {
   string fqdn = 4;
   bool rosenpassEnabled = 5;
   bool rosenpassPermissive = 6;
-  repeated string routes = 7;
+  repeated string networks = 7;
 }
 
 // SignalState contains the latest state of a signal connection
@@ -244,20 +244,20 @@ message FullStatus {
   repeated NSGroupState dns_servers = 6;
 }
 
-message ListRoutesRequest {
+message ListNetworksRequest {
 }
 
-message ListRoutesResponse {
-  repeated Route routes = 1;
+message ListNetworksResponse {
+  repeated Network routes = 1;
 }
 
-message SelectRoutesRequest {
-  repeated string routeIDs = 1;
+message SelectNetworksRequest {
+  repeated string networkIDs = 1;
   bool append = 2;
   bool all = 3;
 }
 
-message SelectRoutesResponse {
+message SelectNetworksResponse {
 }
 
 message IPList {
@@ -265,9 +265,9 @@ message IPList {
 }
 
 
-message Route {
+message Network {
   string ID = 1;
-  string network = 2;
+  string range = 2;
   bool selected = 3;
   repeated string domains = 4;
   map<string, IPList> resolvedIPs = 5;

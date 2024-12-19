@@ -12,10 +12,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +30,7 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 		return nil, status.NewAdminPermissionError()
 	}
 
-	return am.Store.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
+	return am.Store.GetPostureChecksByID(ctx, store.LockingStrengthShare, accountID, postureChecksID)
 }
 
 // SavePostureChecks saves a posture check.
@@ -36,7 +38,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +55,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	var isUpdate = postureChecks.ID != ""
 	var action = activity.PostureCheckCreated
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validatePostureChecks(ctx, transaction, accountID, postureChecks); err != nil {
 			return err
 		}
@@ -64,7 +66,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 				return err
 			}
 
-			if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
 				return err
 			}
 
@@ -72,7 +74,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		postureChecks.AccountID = accountID
-		return transaction.SavePostureChecks(ctx, LockingStrengthUpdate, postureChecks)
+		return transaction.SavePostureChecks(ctx, store.LockingStrengthUpdate, postureChecks)
 	})
 	if err != nil {
 		return nil, err
@@ -81,7 +83,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return postureChecks, nil
@@ -92,7 +94,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return err
 	}
@@ -107,8 +109,8 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 
 	var postureChecks *posture.Checks
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		postureChecks, err = transaction.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecksID)
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		postureChecks, err = transaction.GetPostureChecksByID(ctx, store.LockingStrengthShare, accountID, postureChecksID)
 		if err != nil {
 			return err
 		}
@@ -117,11 +119,11 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
 			return err
 		}
 
-		return transaction.DeletePostureChecks(ctx, LockingStrengthUpdate, accountID, postureChecksID)
+		return transaction.DeletePostureChecks(ctx, store.LockingStrengthUpdate, accountID, postureChecksID)
 	})
 	if err != nil {
 		return err
@@ -134,7 +136,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 
 // ListPostureChecks returns a list of posture checks.
 func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -147,11 +149,11 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 		return nil, status.NewAdminPermissionError()
 	}
 
-	return am.Store.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
+	return am.Store.GetAccountPostureChecks(ctx, store.LockingStrengthShare, accountID)
 }
 
 // getPeerPostureChecks returns the posture checks applied for a given peer.
-func (am *DefaultAccountManager) getPeerPostureChecks(account *Account, peerID string) ([]*posture.Checks, error) {
+func (am *DefaultAccountManager) getPeerPostureChecks(account *types.Account, peerID string) ([]*posture.Checks, error) {
 	peerPostureChecks := make(map[string]*posture.Checks)
 
 	if len(account.PostureChecks) == 0 {
@@ -172,15 +174,15 @@ func (am *DefaultAccountManager) getPeerPostureChecks(account *Account, peerID s
 }
 
 // arePostureCheckChangesAffectPeers checks if the changes in posture checks are affecting peers.
-func arePostureCheckChangesAffectPeers(ctx context.Context, transaction Store, accountID, postureCheckID string) (bool, error) {
-	policies, err := transaction.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
+func arePostureCheckChangesAffectPeers(ctx context.Context, transaction store.Store, accountID, postureCheckID string) (bool, error) {
+	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return false, err
 	}
 
 	for _, policy := range policies {
 		if slices.Contains(policy.SourcePostureChecks, postureCheckID) {
-			hasPeers, err := anyGroupHasPeers(ctx, transaction, accountID, policy.ruleGroups())
+			hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, accountID, policy.RuleGroups())
 			if err != nil {
 				return false, err
 			}
@@ -195,21 +197,21 @@ func arePostureCheckChangesAffectPeers(ctx context.Context, transaction Store, a
 }
 
 // validatePostureChecks validates the posture checks.
-func validatePostureChecks(ctx context.Context, transaction Store, accountID string, postureChecks *posture.Checks) error {
+func validatePostureChecks(ctx context.Context, transaction store.Store, accountID string, postureChecks *posture.Checks) error {
 	if err := postureChecks.Validate(); err != nil {
 		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
 	}
 
 	// If the posture check already has an ID, verify its existence in the store.
 	if postureChecks.ID != "" {
-		if _, err := transaction.GetPostureChecksByID(ctx, LockingStrengthShare, accountID, postureChecks.ID); err != nil {
+		if _, err := transaction.GetPostureChecksByID(ctx, store.LockingStrengthShare, accountID, postureChecks.ID); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	// For new posture checks, ensure no duplicates by name.
-	checks, err := transaction.GetAccountPostureChecks(ctx, LockingStrengthShare, accountID)
+	checks, err := transaction.GetAccountPostureChecks(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}
@@ -226,7 +228,7 @@ func validatePostureChecks(ctx context.Context, transaction Store, accountID str
 }
 
 // addPolicyPostureChecks adds posture checks from a policy to the peer posture checks map if the peer is in the policy's source groups.
-func addPolicyPostureChecks(account *Account, peerID string, policy *Policy, peerPostureChecks map[string]*posture.Checks) error {
+func addPolicyPostureChecks(account *types.Account, peerID string, policy *types.Policy, peerPostureChecks map[string]*posture.Checks) error {
 	isInGroup, err := isPeerInPolicySourceGroups(account, peerID, policy)
 	if err != nil {
 		return err
@@ -237,7 +239,7 @@ func addPolicyPostureChecks(account *Account, peerID string, policy *Policy, pee
 	}
 
 	for _, sourcePostureCheckID := range policy.SourcePostureChecks {
-		postureCheck := account.getPostureChecks(sourcePostureCheckID)
+		postureCheck := account.GetPostureChecks(sourcePostureCheckID)
 		if postureCheck == nil {
 			return errors.New("failed to add policy posture checks: posture checks not found")
 		}
@@ -248,7 +250,7 @@ func addPolicyPostureChecks(account *Account, peerID string, policy *Policy, pee
 }
 
 // isPeerInPolicySourceGroups checks if a peer is present in any of the policy rule source groups.
-func isPeerInPolicySourceGroups(account *Account, peerID string, policy *Policy) (bool, error) {
+func isPeerInPolicySourceGroups(account *types.Account, peerID string, policy *types.Policy) (bool, error) {
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
 			continue
@@ -270,8 +272,8 @@ func isPeerInPolicySourceGroups(account *Account, peerID string, policy *Policy)
 }
 
 // isPostureCheckLinkedToPolicy checks whether the posture check is linked to any account policy.
-func isPostureCheckLinkedToPolicy(ctx context.Context, transaction Store, postureChecksID, accountID string) error {
-	policies, err := transaction.GetAccountPolicies(ctx, LockingStrengthShare, accountID)
+func isPostureCheckLinkedToPolicy(ctx context.Context, transaction store.Store, postureChecksID, accountID string) error {
+	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}

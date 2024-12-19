@@ -13,217 +13,17 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 )
-
-const (
-	UserRoleOwner        UserRole = "owner"
-	UserRoleAdmin        UserRole = "admin"
-	UserRoleUser         UserRole = "user"
-	UserRoleUnknown      UserRole = "unknown"
-	UserRoleBillingAdmin UserRole = "billing_admin"
-
-	UserStatusActive   UserStatus = "active"
-	UserStatusDisabled UserStatus = "disabled"
-	UserStatusInvited  UserStatus = "invited"
-
-	UserIssuedAPI         = "api"
-	UserIssuedIntegration = "integration"
-)
-
-// StrRoleToUserRole returns UserRole for a given strRole or UserRoleUnknown if the specified role is unknown
-func StrRoleToUserRole(strRole string) UserRole {
-	switch strings.ToLower(strRole) {
-	case "owner":
-		return UserRoleOwner
-	case "admin":
-		return UserRoleAdmin
-	case "user":
-		return UserRoleUser
-	case "billing_admin":
-		return UserRoleBillingAdmin
-	default:
-		return UserRoleUnknown
-	}
-}
-
-// UserStatus is the status of a User
-type UserStatus string
-
-// UserRole is the role of a User
-type UserRole string
-
-// User represents a user of the system
-type User struct {
-	Id string `gorm:"primaryKey"`
-	// AccountID is a reference to Account that this object belongs
-	AccountID     string `json:"-" gorm:"index"`
-	Role          UserRole
-	IsServiceUser bool
-	// NonDeletable indicates whether the service user can be deleted
-	NonDeletable bool
-	// ServiceUserName is only set if IsServiceUser is true
-	ServiceUserName string
-	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string                        `gorm:"serializer:json"`
-	PATs       map[string]*PersonalAccessToken `gorm:"-"`
-	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id"`
-	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
-	Blocked bool
-	// LastLogin is the last time the user logged in to IdP
-	LastLogin time.Time
-	// CreatedAt records the time the user was created
-	CreatedAt time.Time
-
-	// Issued of the user
-	Issued string `gorm:"default:api"`
-
-	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
-}
-
-// IsBlocked returns true if the user is blocked, false otherwise
-func (u *User) IsBlocked() bool {
-	return u.Blocked
-}
-
-func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
-	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
-}
-
-// HasAdminPower returns true if the user has admin or owner roles, false otherwise
-func (u *User) HasAdminPower() bool {
-	return u.Role == UserRoleAdmin || u.Role == UserRoleOwner
-}
-
-// IsAdminOrServiceUser checks if the user has admin power or is a service user.
-func (u *User) IsAdminOrServiceUser() bool {
-	return u.HasAdminPower() || u.IsServiceUser
-}
-
-// IsRegularUser checks if the user is a regular user.
-func (u *User) IsRegularUser() bool {
-	return !u.HasAdminPower() && !u.IsServiceUser
-}
-
-// ToUserInfo converts a User object to a UserInfo object.
-func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo, error) {
-	autoGroups := u.AutoGroups
-	if autoGroups == nil {
-		autoGroups = []string{}
-	}
-
-	dashboardViewPermissions := "full"
-	if !u.HasAdminPower() {
-		dashboardViewPermissions = "limited"
-		if settings.RegularUsersViewBlocked {
-			dashboardViewPermissions = "blocked"
-		}
-	}
-
-	if userData == nil {
-		return &UserInfo{
-			ID:            u.Id,
-			Email:         "",
-			Name:          u.ServiceUserName,
-			Role:          string(u.Role),
-			AutoGroups:    u.AutoGroups,
-			Status:        string(UserStatusActive),
-			IsServiceUser: u.IsServiceUser,
-			IsBlocked:     u.Blocked,
-			LastLogin:     u.LastLogin,
-			Issued:        u.Issued,
-			Permissions: UserPermissions{
-				DashboardView: dashboardViewPermissions,
-			},
-		}, nil
-	}
-	if userData.ID != u.Id {
-		return nil, fmt.Errorf("wrong UserData provided for user %s", u.Id)
-	}
-
-	userStatus := UserStatusActive
-	if userData.AppMetadata.WTPendingInvite != nil && *userData.AppMetadata.WTPendingInvite {
-		userStatus = UserStatusInvited
-	}
-
-	return &UserInfo{
-		ID:            u.Id,
-		Email:         userData.Email,
-		Name:          userData.Name,
-		Role:          string(u.Role),
-		AutoGroups:    autoGroups,
-		Status:        string(userStatus),
-		IsServiceUser: u.IsServiceUser,
-		IsBlocked:     u.Blocked,
-		LastLogin:     u.LastLogin,
-		Issued:        u.Issued,
-		Permissions: UserPermissions{
-			DashboardView: dashboardViewPermissions,
-		},
-	}, nil
-}
-
-// Copy the user
-func (u *User) Copy() *User {
-	autoGroups := make([]string, len(u.AutoGroups))
-	copy(autoGroups, u.AutoGroups)
-	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
-	for k, v := range u.PATs {
-		pats[k] = v.Copy()
-	}
-	return &User{
-		Id:                   u.Id,
-		AccountID:            u.AccountID,
-		Role:                 u.Role,
-		AutoGroups:           autoGroups,
-		IsServiceUser:        u.IsServiceUser,
-		NonDeletable:         u.NonDeletable,
-		ServiceUserName:      u.ServiceUserName,
-		PATs:                 pats,
-		Blocked:              u.Blocked,
-		LastLogin:            u.LastLogin,
-		CreatedAt:            u.CreatedAt,
-		Issued:               u.Issued,
-		IntegrationReference: u.IntegrationReference,
-	}
-}
-
-// NewUser creates a new user
-func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string) *User {
-	return &User{
-		Id:              id,
-		Role:            role,
-		IsServiceUser:   isServiceUser,
-		NonDeletable:    nonDeletable,
-		ServiceUserName: serviceUserName,
-		AutoGroups:      autoGroups,
-		Issued:          issued,
-		CreatedAt:       time.Now().UTC(),
-	}
-}
-
-// NewRegularUser creates a new user with role UserRoleUser
-func NewRegularUser(id string) *User {
-	return NewUser(id, UserRoleUser, false, false, "", []string{}, UserIssuedAPI)
-}
-
-// NewAdminUser creates a new user with role UserRoleAdmin
-func NewAdminUser(id string) *User {
-	return NewUser(id, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI)
-}
-
-// NewOwnerUser creates a new user with role UserRoleOwner
-func NewOwnerUser(id string) *User {
-	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI)
-}
 
 // createServiceUser creates a new service user under the given account.
-func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountID string, initiatorUserID string, role UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
+func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountID string, initiatorUserID string, role types.UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*types.UserInfo, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -240,12 +40,12 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can create service users")
 	}
 
-	if role == UserRoleOwner {
+	if role == types.UserRoleOwner {
 		return nil, status.Errorf(status.InvalidArgument, "can't create a service user with owner role")
 	}
 
 	newUserID := uuid.New().String()
-	newUser := NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, UserIssuedAPI)
+	newUser := types.NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, types.UserIssuedAPI)
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
 	account.Users[newUserID] = newUser
 
@@ -257,29 +57,29 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	meta := map[string]any{"name": newUser.ServiceUserName}
 	am.StoreEvent(ctx, initiatorUserID, newUser.Id, accountID, activity.ServiceUserCreated, meta)
 
-	return &UserInfo{
+	return &types.UserInfo{
 		ID:            newUser.Id,
 		Email:         "",
 		Name:          newUser.ServiceUserName,
 		Role:          string(newUser.Role),
 		AutoGroups:    newUser.AutoGroups,
-		Status:        string(UserStatusActive),
+		Status:        string(types.UserStatusActive),
 		IsServiceUser: true,
 		LastLogin:     time.Time{},
-		Issued:        UserIssuedAPI,
+		Issued:        types.UserIssuedAPI,
 	}, nil
 }
 
 // CreateUser creates a new user under the given account. Effectively this is a user invite.
-func (am *DefaultAccountManager) CreateUser(ctx context.Context, accountID, userID string, user *UserInfo) (*UserInfo, error) {
+func (am *DefaultAccountManager) CreateUser(ctx context.Context, accountID, userID string, user *types.UserInfo) (*types.UserInfo, error) {
 	if user.IsServiceUser {
-		return am.createServiceUser(ctx, accountID, userID, StrRoleToUserRole(user.Role), user.Name, user.NonDeletable, user.AutoGroups)
+		return am.createServiceUser(ctx, accountID, userID, types.StrRoleToUserRole(user.Role), user.Name, user.NonDeletable, user.AutoGroups)
 	}
 	return am.inviteNewUser(ctx, accountID, userID, user)
 }
 
 // inviteNewUser Invites a USer to a given account and creates reference in datastore
-func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, userID string, invite *UserInfo) (*UserInfo, error) {
+func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, userID string, invite *types.UserInfo) (*types.UserInfo, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -291,14 +91,14 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		return nil, fmt.Errorf("provided user update is nil")
 	}
 
-	invitedRole := StrRoleToUserRole(invite.Role)
+	invitedRole := types.StrRoleToUserRole(invite.Role)
 
 	switch {
 	case invite.Name == "":
 		return nil, status.Errorf(status.InvalidArgument, "name can't be empty")
 	case invite.Email == "":
 		return nil, status.Errorf(status.InvalidArgument, "email can't be empty")
-	case invitedRole == UserRoleOwner:
+	case invitedRole == types.UserRoleOwner:
 		return nil, status.Errorf(status.InvalidArgument, "can't invite a user with owner role")
 	default:
 	}
@@ -348,7 +148,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		return nil, err
 	}
 
-	newUser := &User{
+	newUser := &types.User{
 		Id:                   idpUser.ID,
 		Role:                 invitedRole,
 		AutoGroups:           invite.AutoGroups,
@@ -373,19 +173,19 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	return newUser.ToUserInfo(idpUser, account.Settings)
 }
 
-func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*User, error) {
-	return am.Store.GetUserByUserID(ctx, LockingStrengthShare, id)
+func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
+	return am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, id)
 }
 
 // GetUser looks up a user by provided authorization claims.
 // It will also create an account if didn't exist for this user before.
-func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error) {
+func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error) {
 	accountID, userID, err := am.GetAccountIDFromToken(ctx, claims)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account with token claims %v", err)
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -409,7 +209,7 @@ func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.A
 
 // ListUsers returns lists of all users under the account.
 // It doesn't populate user information such as email or name.
-func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string) ([]*User, error) {
+func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string) ([]*types.User, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -418,7 +218,7 @@ func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string
 		return nil, err
 	}
 
-	users := make([]*User, 0, len(account.Users))
+	users := make([]*types.User, 0, len(account.Users))
 	for _, item := range account.Users {
 		users = append(users, item)
 	}
@@ -426,7 +226,7 @@ func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string
 	return users, nil
 }
 
-func (am *DefaultAccountManager) deleteServiceUser(ctx context.Context, account *Account, initiatorUserID string, targetUser *User) {
+func (am *DefaultAccountManager) deleteServiceUser(ctx context.Context, account *types.Account, initiatorUserID string, targetUser *types.User) {
 	meta := map[string]any{"name": targetUser.ServiceUserName, "created_at": targetUser.CreatedAt}
 	am.StoreEvent(ctx, initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
 	delete(account.Users, targetUser.Id)
@@ -458,12 +258,12 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return status.Errorf(status.NotFound, "target user not found")
 	}
 
-	if targetUser.Role == UserRoleOwner {
+	if targetUser.Role == types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "unable to delete a user with owner role")
 	}
 
 	// disable deleting integration user if the initiator is not admin service user
-	if targetUser.Issued == UserIssuedIntegration && !executingUser.IsServiceUser {
+	if targetUser.Issued == types.UserIssuedIntegration && !executingUser.IsServiceUser {
 		return status.Errorf(status.PermissionDenied, "only integration service user can delete this user")
 	}
 
@@ -480,7 +280,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 	return am.deleteRegularUser(ctx, account, initiatorUserID, targetUserID)
 }
 
-func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account *Account, initiatorUserID, targetUserID string) error {
+func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account *types.Account, initiatorUserID, targetUserID string) error {
 	meta, updateAccountPeers, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
 	if err != nil {
 		return err
@@ -494,13 +294,13 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, account.Id)
+		am.UpdateAccountPeers(ctx, account.Id)
 	}
 
 	return nil
 }
 
-func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *Account) (bool, error) {
+func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *types.Account) (bool, error) {
 	peers, err := account.FindUserPeers(targetUserID)
 	if err != nil {
 		return false, status.Errorf(status.Internal, "failed to find user peers")
@@ -560,7 +360,7 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 }
 
 // CreatePAT creates a new PAT for the given user
-func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
+func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -591,7 +391,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.PermissionDenied, "no permission to create PAT for this user")
 	}
 
-	pat, err := CreateNewPAT(tokenName, expiresIn, executingUser.Id)
+	pat, err := types.CreateNewPAT(tokenName, expiresIn, executingUser.Id)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed to create PAT: %v", err)
 	}
@@ -660,13 +460,13 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 }
 
 // GetPAT returns a specific PAT from a user
-func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error) {
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
+func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error) {
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
+	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -685,13 +485,13 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 }
 
 // GetAllPATs returns all PATs for a user
-func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error) {
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, initiatorUserID)
+func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error) {
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, targetUserID)
+	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -700,7 +500,7 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
 	}
 
-	pats := make([]*PersonalAccessToken, 0, len(targetUser.PATsG))
+	pats := make([]*types.PersonalAccessToken, 0, len(targetUser.PATsG))
 	for _, pat := range targetUser.PATsG {
 		pats = append(pats, pat.Copy())
 	}
@@ -709,13 +509,13 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 }
 
 // SaveUser saves updates to the given user. If the user doesn't exist, it will throw status.NotFound error.
-func (am *DefaultAccountManager) SaveUser(ctx context.Context, accountID, initiatorUserID string, update *User) (*UserInfo, error) {
+func (am *DefaultAccountManager) SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error) {
 	return am.SaveOrAddUser(ctx, accountID, initiatorUserID, update, false) // false means do not create user and throw status.NotFound
 }
 
 // SaveOrAddUser updates the given user. If addIfNotExists is set to true it will add user when no exist
 // Only User.AutoGroups, User.Role, and User.Blocked fields are allowed to be updated for now.
-func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error) {
+func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *types.User, addIfNotExists bool) (*types.UserInfo, error) {
 	if update == nil {
 		return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
@@ -723,7 +523,7 @@ func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, i
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	updatedUsers, err := am.SaveOrAddUsers(ctx, accountID, initiatorUserID, []*User{update}, addIfNotExists)
+	updatedUsers, err := am.SaveOrAddUsers(ctx, accountID, initiatorUserID, []*types.User{update}, addIfNotExists)
 	if err != nil {
 		return nil, err
 	}
@@ -738,7 +538,7 @@ func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, i
 // SaveOrAddUsers updates existing users or adds new users to the account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
-func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error) {
+func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*types.User, addIfNotExists bool) ([]*types.UserInfo, error) {
 	if len(updates) == 0 {
 		return nil, nil //nolint:nilnil
 	}
@@ -757,7 +557,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are authorized to perform user update operations")
 	}
 
-	updatedUsers := make([]*UserInfo, 0, len(updates))
+	updatedUsers := make([]*types.UserInfo, 0, len(updates))
 	var (
 		expiredPeers  []*nbpeer.Peer
 		userIDs       []string
@@ -808,7 +608,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		peerGroupsAdded := make(map[string][]string)
 		peerGroupsRemoved := make(map[string][]string)
 		if update.AutoGroups != nil && account.Settings.GroupsPropagationEnabled {
-			removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
+			removedGroups := util.Difference(oldUser.AutoGroups, update.AutoGroups)
 			// need force update all auto groups in any case they will not be duplicated
 			peerGroupsAdded = account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
 			peerGroupsRemoved = account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
@@ -840,7 +640,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if account.Settings.GroupsPropagationEnabled && areUsersLinkedToPeers(account, userIDs) {
-		am.updateAccountPeers(ctx, account.Id)
+		am.UpdateAccountPeers(ctx, account.Id)
 	}
 
 	for _, storeEvent := range eventsToStore {
@@ -851,7 +651,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 }
 
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
-func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, transferredOwnerRole bool) []func() {
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *types.User, account *types.Account, transferredOwnerRole bool) []func() {
 	var eventsToStore []func()
 
 	if oldUser.IsBlocked() != newUser.IsBlocked() {
@@ -880,11 +680,11 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, in
 	return eventsToStore
 }
 
-func (am *DefaultAccountManager) prepareUserGroupsEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, peerGroupsAdded, peerGroupsRemoved map[string][]string) []func() {
+func (am *DefaultAccountManager) prepareUserGroupsEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *types.User, account *types.Account, peerGroupsAdded, peerGroupsRemoved map[string][]string) []func() {
 	var eventsToStore []func()
 	if newUser.AutoGroups != nil {
-		removedGroups := difference(oldUser.AutoGroups, newUser.AutoGroups)
-		addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
+		removedGroups := util.Difference(oldUser.AutoGroups, newUser.AutoGroups)
+		addedGroups := util.Difference(newUser.AutoGroups, oldUser.AutoGroups)
 
 		removedEvents := am.handleGroupRemovedFromUser(ctx, initiatorUserID, oldUser, newUser, account, removedGroups, peerGroupsRemoved)
 		eventsToStore = append(eventsToStore, removedEvents...)
@@ -895,7 +695,7 @@ func (am *DefaultAccountManager) prepareUserGroupsEvents(ctx context.Context, in
 	return eventsToStore
 }
 
-func (am *DefaultAccountManager) handleGroupAddedToUser(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, addedGroups []string, peerGroupsAdded map[string][]string) []func() {
+func (am *DefaultAccountManager) handleGroupAddedToUser(ctx context.Context, initiatorUserID string, oldUser, newUser *types.User, account *types.Account, addedGroups []string, peerGroupsAdded map[string][]string) []func() {
 	var eventsToStore []func()
 	for _, g := range addedGroups {
 		group := account.GetGroup(g)
@@ -922,7 +722,7 @@ func (am *DefaultAccountManager) handleGroupAddedToUser(ctx context.Context, ini
 	return eventsToStore
 }
 
-func (am *DefaultAccountManager) handleGroupRemovedFromUser(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, removedGroups []string, peerGroupsRemoved map[string][]string) []func() {
+func (am *DefaultAccountManager) handleGroupRemovedFromUser(ctx context.Context, initiatorUserID string, oldUser, newUser *types.User, account *types.Account, removedGroups []string, peerGroupsRemoved map[string][]string) []func() {
 	var eventsToStore []func()
 	for _, g := range removedGroups {
 		group := account.GetGroup(g)
@@ -952,10 +752,10 @@ func (am *DefaultAccountManager) handleGroupRemovedFromUser(ctx context.Context,
 	return eventsToStore
 }
 
-func handleOwnerRoleTransfer(account *Account, initiatorUser, update *User) bool {
-	if initiatorUser.Role == UserRoleOwner && initiatorUser.Id != update.Id && update.Role == UserRoleOwner {
+func handleOwnerRoleTransfer(account *types.Account, initiatorUser, update *types.User) bool {
+	if initiatorUser.Role == types.UserRoleOwner && initiatorUser.Id != update.Id && update.Role == types.UserRoleOwner {
 		newInitiatorUser := initiatorUser.Copy()
-		newInitiatorUser.Role = UserRoleAdmin
+		newInitiatorUser.Role = types.UserRoleAdmin
 		account.Users[initiatorUser.Id] = newInitiatorUser
 		return true
 	}
@@ -965,7 +765,7 @@ func handleOwnerRoleTransfer(account *Account, initiatorUser, update *User) bool
 // getUserInfo retrieves the UserInfo for a given User and Account.
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
-func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, account *Account) (*UserInfo, error) {
+func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *types.User, account *types.Account) (*types.UserInfo, error) {
 	if !isNil(am.idpManager) && !user.IsServiceUser {
 		userData, err := am.lookupUserInCache(ctx, user.Id, account)
 		if err != nil {
@@ -977,23 +777,23 @@ func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, acc
 }
 
 // validateUserUpdate validates the update operation for a user.
-func validateUserUpdate(account *Account, initiatorUser, oldUser, update *User) error {
+func validateUserUpdate(account *types.Account, initiatorUser, oldUser, update *types.User) error {
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && update.Role != initiatorUser.Role {
 		return status.Errorf(status.PermissionDenied, "admins can't change their role")
 	}
-	if initiatorUser.Role == UserRoleAdmin && oldUser.Role == UserRoleOwner && update.Role != oldUser.Role {
+	if initiatorUser.Role == types.UserRoleAdmin && oldUser.Role == types.UserRoleOwner && update.Role != oldUser.Role {
 		return status.Errorf(status.PermissionDenied, "only owners can remove owner role from their user")
 	}
-	if initiatorUser.Role == UserRoleAdmin && oldUser.Role == UserRoleOwner && update.IsBlocked() && !oldUser.IsBlocked() {
+	if initiatorUser.Role == types.UserRoleAdmin && oldUser.Role == types.UserRoleOwner && update.IsBlocked() && !oldUser.IsBlocked() {
 		return status.Errorf(status.PermissionDenied, "unable to block owner user")
 	}
-	if initiatorUser.Role == UserRoleAdmin && update.Role == UserRoleOwner && update.Role != oldUser.Role {
+	if initiatorUser.Role == types.UserRoleAdmin && update.Role == types.UserRoleOwner && update.Role != oldUser.Role {
 		return status.Errorf(status.PermissionDenied, "only owners can add owner role to other users")
 	}
-	if oldUser.IsServiceUser && update.Role == UserRoleOwner {
+	if oldUser.IsServiceUser && update.Role == types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "can't update a service user with owner role")
 	}
 
@@ -1012,7 +812,7 @@ func validateUserUpdate(account *Account, initiatorUser, oldUser, update *User) 
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
-func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userID, domain string) (*Account, error) {
+func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userID, domain string) (*types.Account, error) {
 	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock(ctx)
 	defer unlock()
@@ -1039,7 +839,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 
 	userObj := account.Users[userID]
 
-	if lowerDomain != "" && account.Domain != lowerDomain && userObj.Role == UserRoleOwner {
+	if lowerDomain != "" && account.Domain != lowerDomain && userObj.Role == types.UserRoleOwner {
 		account.Domain = lowerDomain
 		err = am.Store.SaveAccount(ctx, account)
 		if err != nil {
@@ -1052,7 +852,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
 // based on provided user role.
-func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*UserInfo, error) {
+func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*types.UserInfo, error) {
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -1068,7 +868,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		users := make(map[string]userLoggedInOnce, len(account.Users))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range account.Users {
-			if user.Issued == UserIssuedIntegration {
+			if user.Issued == types.UserIssuedIntegration {
 				key := user.IntegrationReference.CacheKey(accountID, user.Id)
 				info, err := am.externalCacheManager.Get(am.ctx, key)
 				if err != nil {
@@ -1092,7 +892,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		queriedUsers = append(queriedUsers, usersFromIntegration...)
 	}
 
-	userInfos := make([]*UserInfo, 0)
+	userInfos := make([]*types.UserInfo, 0)
 
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
@@ -1116,7 +916,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 			continue
 		}
 
-		var info *UserInfo
+		var info *types.UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
 			info, err = localUser.ToUserInfo(queriedUser, account.Settings)
 			if err != nil {
@@ -1136,16 +936,16 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 				}
 			}
 
-			info = &UserInfo{
+			info = &types.UserInfo{
 				ID:            localUser.Id,
 				Email:         "",
 				Name:          name,
 				Role:          string(localUser.Role),
 				AutoGroups:    localUser.AutoGroups,
-				Status:        string(UserStatusActive),
+				Status:        string(types.UserStatusActive),
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
-				Permissions:   UserPermissions{DashboardView: dashboardViewPermissions},
+				Permissions:   types.UserPermissions{DashboardView: dashboardViewPermissions},
 			}
 		}
 		userInfos = append(userInfos, info)
@@ -1155,7 +955,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 }
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
-func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, account *Account, peers []*nbpeer.Peer) error {
+func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, account *types.Account, peers []*nbpeer.Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
@@ -1183,7 +983,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.updateAccountPeers(ctx, account.Id)
+		am.UpdateAccountPeers(ctx, account.Id)
 	}
 	return nil
 }
@@ -1260,13 +1060,13 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 			continue
 		}
 
-		if targetUser.Role == UserRoleOwner {
+		if targetUser.Role == types.UserRoleOwner {
 			allErrors = errors.Join(allErrors, fmt.Errorf("unable to delete a user: %s with owner role", targetUserID))
 			continue
 		}
 
 		// disable deleting integration user if the initiator is not admin service user
-		if targetUser.Issued == UserIssuedIntegration && !executingUser.IsServiceUser {
+		if targetUser.Issued == types.UserIssuedIntegration && !executingUser.IsServiceUser {
 			allErrors = errors.Join(allErrors, errors.New("only integration service user can delete this user"))
 			continue
 		}
@@ -1291,7 +1091,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	}
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	for targetUserID, meta := range deletedUsersMeta {
@@ -1301,7 +1101,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	return allErrors
 }
 
-func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, account *Account, initiatorUserID, targetUserID string) (map[string]any, bool, error) {
+func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, account *types.Account, initiatorUserID, targetUserID string) (map[string]any, bool, error) {
 	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(ctx, account.Id, initiatorUserID, targetUserID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to resolve email address: %s", err)
@@ -1342,8 +1142,8 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 }
 
 // updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
-func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[string]*nbgroup.Group, peers []*nbpeer.Peer, groupsToAdd,
-	groupsToRemove []string) (groupsToUpdate []*nbgroup.Group, err error) {
+func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbpeer.Peer, groupsToAdd,
+	groupsToRemove []string) (groupsToUpdate []*types.Group, err error) {
 
 	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
 		return
@@ -1376,7 +1176,7 @@ func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[strin
 }
 
 // addUserPeersToGroup adds the user's peers to the group.
-func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) {
+func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *types.Group) {
 	groupPeers := make(map[string]struct{}, len(group.Peers))
 	for _, pid := range group.Peers {
 		groupPeers[pid] = struct{}{}
@@ -1393,7 +1193,7 @@ func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) 
 }
 
 // removeUserPeersFromGroup removes user's peers from the group.
-func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *nbgroup.Group) {
+func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *types.Group) {
 	// skip removing peers from group All
 	if group.Name == "All" {
 		return
@@ -1419,7 +1219,7 @@ func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserDa
 }
 
 // areUsersLinkedToPeers checks if any of the given userIDs are linked to any of the peers in the account.
-func areUsersLinkedToPeers(account *Account, userIDs []string) bool {
+func areUsersLinkedToPeers(account *types.Account, userIDs []string) bool {
 	for _, peer := range account.Peers {
 		if slices.Contains(userIDs, peer.UserID) {
 			return true

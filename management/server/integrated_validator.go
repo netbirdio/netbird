@@ -7,6 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // UpdateIntegratedValidatorGroups updates the integrated validator groups for a specified account.
@@ -57,9 +59,9 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 		return true, nil
 	}
 
-	err := am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		for _, groupID := range groupIDs {
-			_, err := transaction.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+			_, err := transaction.GetGroupByID(context.Background(), store.LockingStrengthShare, accountID, groupID)
 			if err != nil {
 				return err
 			}
@@ -73,6 +75,6 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 	return true, nil
 }
 
-func (am *DefaultAccountManager) GetValidatedPeers(account *Account) (map[string]struct{}, error) {
+func (am *DefaultAccountManager) GetValidatedPeers(account *types.Account) (map[string]struct{}, error) {
 	return am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
 }

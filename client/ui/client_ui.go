@@ -58,7 +58,7 @@ func main() {
 	var showSettings bool
 	flag.BoolVar(&showSettings, "settings", false, "run settings windows")
 	var showRoutes bool
-	flag.BoolVar(&showRoutes, "routes", false, "run routes windows")
+	flag.BoolVar(&showRoutes, "networks", false, "run networks windows")
 	var errorMSG string
 	flag.StringVar(&errorMSG, "error-msg", "", "displays a error message window")
 
@@ -233,7 +233,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 		s.showSettingsUI()
 		return s
 	} else if showRoutes {
-		s.showRoutesUI()
+		s.showNetworksUI()
 	}
 
 	return s
@@ -549,7 +549,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
 	s.loadSettings()
 
-	s.mRoutes = systray.AddMenuItem("Network Routes", "Open the routes management window")
+	s.mRoutes = systray.AddMenuItem("Networks", "Open the networks management window")
 	s.mRoutes.Disable()
 	systray.AddSeparator()
 
@@ -657,7 +657,7 @@ func (s *serviceClient) onTrayReady() {
 				s.mRoutes.Disable()
 				go func() {
 					defer s.mRoutes.Enable()
-					s.runSelfCommand("routes", "true")
+					s.runSelfCommand("networks", "true")
 				}()
 			}
 			if err != nil {

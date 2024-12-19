@@ -2,7 +2,6 @@ package routemanager
 
 import (
 	"context"
-	"fmt"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
@@ -15,10 +14,12 @@ import (
 
 // MockManager is the mock instance of a route manager
 type MockManager struct {
-	UpdateRoutesFunc     func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
-	TriggerSelectionFunc func(haMap route.HAMap)
-	GetRouteSelectorFunc func() *routeselector.RouteSelector
-	StopFunc             func(manager *statemanager.Manager)
+	UpdateRoutesFunc             func(updateSerial uint64, newRoutes []*route.Route) error
+	TriggerSelectionFunc         func(haMap route.HAMap)
+	GetRouteSelectorFunc         func() *routeselector.RouteSelector
+	GetClientRoutesFunc          func() route.HAMap
+	GetClientRoutesWithNetIDFunc func() map[route.NetID][]*route.Route
+	StopFunc                     func(manager *statemanager.Manager)
 }
 
 func (m *MockManager) Init() (net.AddHookFunc, net.RemoveHookFunc, error) {
@@ -31,11 +32,11 @@ func (m *MockManager) InitialRouteRange() []string {
 }
 
 // UpdateRoutes mock implementation of UpdateRoutes from Manager interface
-func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
+func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, b bool) error {
 	if m.UpdateRoutesFunc != nil {
 		return m.UpdateRoutesFunc(updateSerial, newRoutes)
 	}
-	return nil, nil, fmt.Errorf("method UpdateRoutes is not implemented")
+	return nil
 }
 
 func (m *MockManager) TriggerSelection(networks route.HAMap) {
@@ -48,6 +49,22 @@ func (m *MockManager) TriggerSelection(networks route.HAMap) {
 func (m *MockManager) GetRouteSelector() *routeselector.RouteSelector {
 	if m.GetRouteSelectorFunc != nil {
 		return m.GetRouteSelectorFunc()
+	}
+	return nil
+}
+
+// GetClientRoutes mock implementation of GetClientRoutes from Manager interface
+func (m *MockManager) GetClientRoutes() route.HAMap {
+	if m.GetClientRoutesFunc != nil {
+		return m.GetClientRoutesFunc()
+	}
+	return nil
+}
+
+// GetClientRoutesWithNetID mock implementation of GetClientRoutesWithNetID from Manager interface
+func (m *MockManager) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	if m.GetClientRoutesWithNetIDFunc != nil {
+		return m.GetClientRoutesWithNetIDFunc()
 	}
 	return nil
 }

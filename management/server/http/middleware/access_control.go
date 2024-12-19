@@ -7,16 +7,16 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 // GetUser function defines a function to fetch user from Account by jwtclaims.AuthorizationClaims
-type GetUser func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.User, error)
+type GetUser func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error)
 
 // AccessControl middleware to restrict to make POST/PUT/DELETE requests by admin only
 type AccessControl struct {

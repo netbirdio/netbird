@@ -31,12 +31,12 @@ type DaemonServiceClient interface {
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
 	// GetConfig of the daemon.
 	GetConfig(ctx context.Context, in *GetConfigRequest, opts ...grpc.CallOption) (*GetConfigResponse, error)
-	// List available network routes
-	ListRoutes(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error)
+	// List available networks
+	ListNetworks(ctx context.Context, in *ListNetworksRequest, opts ...grpc.CallOption) (*ListNetworksResponse, error)
 	// Select specific routes
-	SelectRoutes(ctx context.Context, in *SelectRoutesRequest, opts ...grpc.CallOption) (*SelectRoutesResponse, error)
+	SelectNetworks(ctx context.Context, in *SelectNetworksRequest, opts ...grpc.CallOption) (*SelectNetworksResponse, error)
 	// Deselect specific routes
-	DeselectRoutes(ctx context.Context, in *SelectRoutesRequest, opts ...grpc.CallOption) (*SelectRoutesResponse, error)
+	DeselectNetworks(ctx context.Context, in *SelectNetworksRequest, opts ...grpc.CallOption) (*SelectNetworksResponse, error)
 	// DebugBundle creates a debug bundle
 	DebugBundle(ctx context.Context, in *DebugBundleRequest, opts ...grpc.CallOption) (*DebugBundleResponse, error)
 	// GetLogLevel gets the log level of the daemon
@@ -115,27 +115,27 @@ func (c *daemonServiceClient) GetConfig(ctx context.Context, in *GetConfigReques
 	return out, nil
 }
 
-func (c *daemonServiceClient) ListRoutes(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error) {
-	out := new(ListRoutesResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/ListRoutes", in, out, opts...)
+func (c *daemonServiceClient) ListNetworks(ctx context.Context, in *ListNetworksRequest, opts ...grpc.CallOption) (*ListNetworksResponse, error) {
+	out := new(ListNetworksResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/ListNetworks", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *daemonServiceClient) SelectRoutes(ctx context.Context, in *SelectRoutesRequest, opts ...grpc.CallOption) (*SelectRoutesResponse, error) {
-	out := new(SelectRoutesResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SelectRoutes", in, out, opts...)
+func (c *daemonServiceClient) SelectNetworks(ctx context.Context, in *SelectNetworksRequest, opts ...grpc.CallOption) (*SelectNetworksResponse, error) {
+	out := new(SelectNetworksResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SelectNetworks", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *daemonServiceClient) DeselectRoutes(ctx context.Context, in *SelectRoutesRequest, opts ...grpc.CallOption) (*SelectRoutesResponse, error) {
-	out := new(SelectRoutesResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/DeselectRoutes", in, out, opts...)
+func (c *daemonServiceClient) DeselectNetworks(ctx context.Context, in *SelectNetworksRequest, opts ...grpc.CallOption) (*SelectNetworksResponse, error) {
+	out := new(SelectNetworksResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/DeselectNetworks", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -222,12 +222,12 @@ type DaemonServiceServer interface {
 	Down(context.Context, *DownRequest) (*DownResponse, error)
 	// GetConfig of the daemon.
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error)
-	// List available network routes
-	ListRoutes(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error)
+	// List available networks
+	ListNetworks(context.Context, *ListNetworksRequest) (*ListNetworksResponse, error)
 	// Select specific routes
-	SelectRoutes(context.Context, *SelectRoutesRequest) (*SelectRoutesResponse, error)
+	SelectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error)
 	// Deselect specific routes
-	DeselectRoutes(context.Context, *SelectRoutesRequest) (*SelectRoutesResponse, error)
+	DeselectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error)
 	// DebugBundle creates a debug bundle
 	DebugBundle(context.Context, *DebugBundleRequest) (*DebugBundleResponse, error)
 	// GetLogLevel gets the log level of the daemon
@@ -267,14 +267,14 @@ func (UnimplementedDaemonServiceServer) Down(context.Context, *DownRequest) (*Do
 func (UnimplementedDaemonServiceServer) GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConfig not implemented")
 }
-func (UnimplementedDaemonServiceServer) ListRoutes(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes not implemented")
+func (UnimplementedDaemonServiceServer) ListNetworks(context.Context, *ListNetworksRequest) (*ListNetworksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNetworks not implemented")
 }
-func (UnimplementedDaemonServiceServer) SelectRoutes(context.Context, *SelectRoutesRequest) (*SelectRoutesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SelectRoutes not implemented")
+func (UnimplementedDaemonServiceServer) SelectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SelectNetworks not implemented")
 }
-func (UnimplementedDaemonServiceServer) DeselectRoutes(context.Context, *SelectRoutesRequest) (*SelectRoutesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeselectRoutes not implemented")
+func (UnimplementedDaemonServiceServer) DeselectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeselectNetworks not implemented")
 }
 func (UnimplementedDaemonServiceServer) DebugBundle(context.Context, *DebugBundleRequest) (*DebugBundleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DebugBundle not implemented")
@@ -418,56 +418,56 @@ func _DaemonService_GetConfig_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DaemonService_ListRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListRoutesRequest)
+func _DaemonService_ListNetworks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNetworksRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DaemonServiceServer).ListRoutes(ctx, in)
+		return srv.(DaemonServiceServer).ListNetworks(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/daemon.DaemonService/ListRoutes",
+		FullMethod: "/daemon.DaemonService/ListNetworks",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).ListRoutes(ctx, req.(*ListRoutesRequest))
+		return srv.(DaemonServiceServer).ListNetworks(ctx, req.(*ListNetworksRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DaemonService_SelectRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SelectRoutesRequest)
+func _DaemonService_SelectNetworks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SelectNetworksRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DaemonServiceServer).SelectRoutes(ctx, in)
+		return srv.(DaemonServiceServer).SelectNetworks(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/daemon.DaemonService/SelectRoutes",
+		FullMethod: "/daemon.DaemonService/SelectNetworks",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).SelectRoutes(ctx, req.(*SelectRoutesRequest))
+		return srv.(DaemonServiceServer).SelectNetworks(ctx, req.(*SelectNetworksRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DaemonService_DeselectRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SelectRoutesRequest)
+func _DaemonService_DeselectNetworks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SelectNetworksRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DaemonServiceServer).DeselectRoutes(ctx, in)
+		return srv.(DaemonServiceServer).DeselectNetworks(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/daemon.DaemonService/DeselectRoutes",
+		FullMethod: "/daemon.DaemonService/DeselectNetworks",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).DeselectRoutes(ctx, req.(*SelectRoutesRequest))
+		return srv.(DaemonServiceServer).DeselectNetworks(ctx, req.(*SelectNetworksRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -630,16 +630,16 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_GetConfig_Handler,
 		},
 		{
-			MethodName: "ListRoutes",
-			Handler:    _DaemonService_ListRoutes_Handler,
+			MethodName: "ListNetworks",
+			Handler:    _DaemonService_ListNetworks_Handler,
 		},
 		{
-			MethodName: "SelectRoutes",
-			Handler:    _DaemonService_SelectRoutes_Handler,
+			MethodName: "SelectNetworks",
+			Handler:    _DaemonService_SelectNetworks_Handler,
 		},
 		{
-			MethodName: "DeselectRoutes",
-			Handler:    _DaemonService_DeselectRoutes_Handler,
+			MethodName: "DeselectNetworks",
+			Handler:    _DaemonService_DeselectNetworks_Handler,
 		},
 		{
 			MethodName: "DebugBundle",

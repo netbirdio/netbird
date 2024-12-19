@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // patHandler is the nameserver group handler of the account
@@ -164,7 +165,7 @@ func (h *patHandler) deleteToken(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func toPATResponse(pat *server.PersonalAccessToken) *api.PersonalAccessToken {
+func toPATResponse(pat *types.PersonalAccessToken) *api.PersonalAccessToken {
 	var lastUsed *time.Time
 	if !pat.LastUsed.IsZero() {
 		lastUsed = &pat.LastUsed
@@ -179,7 +180,7 @@ func toPATResponse(pat *server.PersonalAccessToken) *api.PersonalAccessToken {
 	}
 }
 
-func toPATGeneratedResponse(pat *server.PersonalAccessTokenGenerated) *api.PersonalAccessTokenGenerated {
+func toPATGeneratedResponse(pat *types.PersonalAccessTokenGenerated) *api.PersonalAccessTokenGenerated {
 	return &api.PersonalAccessTokenGenerated{
 		PlainToken:          pat.PlainToken,
 		PersonalAccessToken: *toPATResponse(&pat.PersonalAccessToken),
