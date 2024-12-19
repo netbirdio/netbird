@@ -1299,9 +1299,7 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 		}
 
 		for _, policy := range resourcePolicies[resource.ID] {
-			sourceGroups := policy.SourceGroups()
-
-			for _, sourceGroup := range sourceGroups {
+			for _, sourceGroup := range policy.SourceGroups() {
 				group := a.GetGroup(sourceGroup)
 				if group == nil {
 					log.WithContext(ctx).Warnf("policy %s has source group %s that doesn't exist under account %s, will continue map generation without it", policy.ID, sourceGroup, a.Id)
