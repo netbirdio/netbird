@@ -485,15 +485,16 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
-	_, err = s.settingsManager.GetSettings(ctx, accountID, userID)
+	settings, err := s.settingsManager.GetSettings(ctx, accountID, userID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get settings for account %s and user %s: %v", accountID, userID, err)
 	}
 
-	// routingPeerDNSResolutionEnabled := false
-	// if settings != nil {
-	// 	routingPeerDNSResolutionEnabled = settings.RoutingPeerDNSResolutionEnabled
-	// }
+	routingPeerDNSResolutionEnabled := false
+	if settings != nil {
+		routingPeerDNSResolutionEnabled = settings.RoutingPeerDNSResolutionEnabled
+	}
+	log.WithContext(ctx).Debugf("dns resolution on routing peer is enabled: %v", routingPeerDNSResolutionEnabled)
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
