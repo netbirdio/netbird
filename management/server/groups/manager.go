@@ -16,8 +16,8 @@ type Manager interface {
 	GetAllGroups(ctx context.Context, accountID, userID string) (map[string]*types.Group, error)
 	GetResourceGroupsInTransaction(ctx context.Context, transaction store.Store, lockingStrength store.LockingStrength, accountID, resourceID string) ([]*types.Group, error)
 	AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error
-	AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID string, resourceID *types.Resource) (func(), error)
-	RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID, resourceID string) (func(), error)
+	AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID string, resourceID *types.Resource) (func(), error)
+	RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID, resourceID string) (func(), error)
 }
 
 type managerImpl struct {
@@ -68,7 +68,7 @@ func (m *managerImpl) AddResourceToGroup(ctx context.Context, accountID, userID,
 		return err
 	}
 
-	event, err := m.AddResourceToGroupInTransaction(ctx, m.store, accountID, groupID, resource)
+	event, err := m.AddResourceToGroupInTransaction(ctx, m.store, accountID, userID, groupID, resource)
 	if err != nil {
 		return fmt.Errorf("error adding resource to group: %w", err)
 	}
@@ -78,27 +78,38 @@ func (m *managerImpl) AddResourceToGroup(ctx context.Context, accountID, userID,
 	return nil
 }
 
-func (m *managerImpl) AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID string, resource *types.Resource) (func(), error) {
+func (m *managerImpl) AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID string, resource *types.Resource) (func(), error) {
 	err := transaction.AddResourceToGroup(ctx, accountID, groupID, resource)
 	if err != nil {
 		return nil, fmt.Errorf("error adding resource to group: %w", err)
 	}
 
+	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthShare, accountID, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting group: %w", err)
+	}
+
+	// TODO: at some point, this will need to become a switch statement
+	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resource.ID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting network resource: %w", err)
+	}
+
 	event := func() {
-		m.accountManager.StoreEvent(ctx, accountID, groupID, accountID, activity.ResourceAddedToGroup, nil)
+		m.accountManager.StoreEvent(ctx, userID, groupID, accountID, activity.ResourceAddedToGroup, group.EventMetaResource(networkResource))
 	}
 
 	return event, nil
 }
 
-func (m *managerImpl) RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID, resourceID string) (func(), error) {
+func (m *managerImpl) RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID, resourceID string) (func(), error) {
 	err := transaction.RemoveResourceFromGroup(ctx, accountID, groupID, resourceID)
 	if err != nil {
 		return nil, fmt.Errorf("error removing resource from group: %w", err)
 	}
 
 	event := func() {
-		m.accountManager.StoreEvent(ctx, accountID, groupID, accountID, activity.ResourceRemovedFromGroup, nil)
+		m.accountManager.StoreEvent(ctx, userID, groupID, accountID, activity.ResourceRemovedFromGroup, nil)
 	}
 
 	return event, nil
@@ -157,13 +168,13 @@ func (m *mockManager) AddResourceToGroup(ctx context.Context, accountID, userID,
 	return nil
 }
 
-func (m *mockManager) AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID string, resourceID *types.Resource) (func(), error) {
+func (m *mockManager) AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID string, resourceID *types.Resource) (func(), error) {
 	return func() {
 		// noop
 	}, nil
 }
 
-func (m *mockManager) RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, groupID, resourceID string) (func(), error) {
+func (m *mockManager) RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID, resourceID string) (func(), error) {
 	return func() {
 		// noop
 	}, nil

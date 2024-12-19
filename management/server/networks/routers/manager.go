@@ -118,7 +118,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 		return nil, err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network.Name))
+	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network))
 
 	go m.accountManager.UpdateAccountPeers(ctx, router.AccountID)
 
@@ -185,7 +185,7 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		return nil, err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network.Name))
+	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
 	go m.accountManager.UpdateAccountPeers(ctx, router.AccountID)
 
@@ -250,7 +250,7 @@ func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction
 	}
 
 	event := func() {
-		m.accountManager.StoreEvent(ctx, "", routerID, accountID, activity.NetworkRouterDeleted, router.EventMeta(network.Name))
+		m.accountManager.StoreEvent(ctx, "", routerID, accountID, activity.NetworkRouterDeleted, router.EventMeta(network))
 	}
 
 	return event, nil

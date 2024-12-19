@@ -24,7 +24,7 @@ type Manager interface {
 	GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error)
 	UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error)
 	DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error
-	DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, networkID, resourceID string) ([]func(), error)
+	DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error)
 }
 
 type managerImpl struct {
@@ -124,7 +124,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		}
 
 		event := func() {
-			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceCreated, resource.EventMeta(network.Name))
+			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceCreated, resource.EventMeta(network))
 		}
 		eventsToStore = append(eventsToStore, event)
 
@@ -133,7 +133,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 			Type: resource.Type.String(),
 		}
 		for _, groupID := range resource.GroupIDs {
-			event, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, groupID, &res)
+			event, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, userID, groupID, &res)
 			if err != nil {
 				return fmt.Errorf("failed to add resource to group: %w", err)
 			}
@@ -233,14 +233,14 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			return fmt.Errorf("failed to save network resource: %w", err)
 		}
 
-		events, err := m.updateResourceGroups(ctx, transaction, resource, oldResource)
+		events, err := m.updateResourceGroups(ctx, transaction, userID, resource, oldResource)
 		if err != nil {
 			return fmt.Errorf("failed to update resource groups: %w", err)
 		}
 
 		eventsToStore = append(eventsToStore, events...)
 		eventsToStore = append(eventsToStore, func() {
-			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network.Name))
+			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
 		})
 
 		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, resource.AccountID)
@@ -263,7 +263,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	return resource, nil
 }
 
-func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction store.Store, newResource, oldResource *types.NetworkResource) ([]func(), error) {
+func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction store.Store, userID string, newResource, oldResource *types.NetworkResource) ([]func(), error) {
 	res := nbtypes.Resource{
 		ID:   newResource.ID,
 		Type: newResource.Type.String(),
@@ -282,7 +282,7 @@ func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction stor
 	var eventsToStore []func()
 	groupsToAdd := util.Difference(newResource.GroupIDs, oldGroupsIds)
 	for _, groupID := range groupsToAdd {
-		events, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, newResource.AccountID, groupID, &res)
+		events, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, newResource.AccountID, userID, groupID, &res)
 		if err != nil {
 			return nil, fmt.Errorf("failed to add resource to group: %w", err)
 		}
@@ -291,7 +291,7 @@ func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction stor
 
 	groupsToRemove := util.Difference(oldGroupsIds, newResource.GroupIDs)
 	for _, groupID := range groupsToRemove {
-		events, err := m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, newResource.AccountID, groupID, res.ID)
+		events, err := m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, newResource.AccountID, userID, groupID, res.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to add resource to group: %w", err)
 		}
@@ -315,7 +315,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 
 	var events []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resourceID)
+		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)
 		if err != nil {
 			return fmt.Errorf("failed to delete resource: %w", err)
 		}
@@ -340,7 +340,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	return nil
 }
 
-func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, networkID, resourceID string) ([]func(), error) {
+func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error) {
 	resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthUpdate, accountID, resourceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network resource: %w", err)
@@ -363,7 +363,7 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 	var eventsToStore []func()
 
 	for _, group := range groups {
-		event, err := m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, accountID, group.ID, resourceID)
+		event, err := m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, accountID, userID, group.ID, resourceID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to remove resource from group: %w", err)
 		}
@@ -376,7 +376,7 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 	}
 
 	eventsToStore = append(eventsToStore, func() {
-		m.accountManager.StoreEvent(ctx, accountID, resourceID, accountID, activity.NetworkResourceDeleted, resource.EventMeta(network.Name))
+		m.accountManager.StoreEvent(ctx, accountID, resourceID, accountID, activity.NetworkResourceDeleted, resource.EventMeta(network))
 	})
 
 	return eventsToStore, nil
