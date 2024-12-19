@@ -1408,11 +1408,14 @@ func (a *Account) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResou
 
 func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.NetworkRouter {
 	routers := make(map[string]map[string]*routerTypes.NetworkRouter)
+
 	for _, router := range a.NetworkRouters {
-		peers := make(map[string]*routerTypes.NetworkRouter)
+		if routers[router.NetworkID] == nil {
+			routers[router.NetworkID] = make(map[string]*routerTypes.NetworkRouter)
+		}
+
 		if router.Peer != "" {
-			peers[router.Peer] = router
-			routers[router.NetworkID] = peers
+			routers[router.NetworkID][router.Peer] = router
 			continue
 		}
 
@@ -1420,12 +1423,12 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 			g := a.Groups[peerGroup]
 			if g != nil {
 				for _, peerID := range g.Peers {
-					peers[peerID] = router
+					routers[router.NetworkID][peerID] = router
 				}
 			}
 		}
-		routers[router.NetworkID] = peers
 	}
+
 	return routers
 }
 
