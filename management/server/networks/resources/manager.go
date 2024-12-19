@@ -137,6 +137,11 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 			eventsToStore = append(eventsToStore, event)
 		}
 
+		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, resource.AccountID)
+		if err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -232,11 +237,19 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network.Name))
 		})
 
+		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, resource.AccountID)
+		if err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
 		return nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to update network resource: %w", err)
+	}
+
+	for _, event := range eventsToStore {
+		event()
 	}
 
 	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
@@ -297,8 +310,16 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	var events []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resourceID)
-		return err
+		if err != nil {
+			return fmt.Errorf("failed to delete resource: %w", err)
+		}
 
+		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete network resource: %w", err)
@@ -341,11 +362,6 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 			return nil, fmt.Errorf("failed to remove resource from group: %w", err)
 		}
 		eventsToStore = append(eventsToStore, event)
-	}
-
-	err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to increment network serial: %w", err)
 	}
 
 	err = transaction.DeleteNetworkResource(ctx, store.LockingStrengthUpdate, accountID, resourceID)

@@ -104,6 +104,11 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 			return fmt.Errorf("failed to create network router: %w", err)
 		}
 
+		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, router.AccountID)
+		if err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -163,6 +168,11 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 			return fmt.Errorf("failed to update network router: %w", err)
 		}
 
+		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, router.AccountID)
+		if err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -188,7 +198,16 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 	var event func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		event, err = m.DeleteRouterInTransaction(ctx, transaction, accountID, networkID, routerID)
-		return err
+		if err != nil {
+			return fmt.Errorf("failed to delete network router: %w", err)
+		}
+
+		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return err
