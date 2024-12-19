@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -33,6 +34,19 @@ protocol_version=1
 errno=0
 
 `
+
+func Test_parsePeerInto(t *testing.T) {
+	r, err := parsePeerInfo(ipcFixture, []string{
+		"last_handshake_time_sec",
+		"last_handshake_time_nsec",
+		"tx_bytes",
+		"rx_bytes",
+	})
+	if err != nil {
+		t.Errorf("parsePeerInfo() error = %v", err)
+	}
+	log.Infof("r: %v", r)
+}
 
 func Test_findPeerInfo(t *testing.T) {
 	tests := []struct {

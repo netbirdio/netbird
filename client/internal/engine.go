@@ -39,6 +39,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/connprofile"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -420,6 +421,8 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
+	connprofile.Profiler.WGInterfaceUP(e.wgInterface)
+
 	if e.firewall != nil {
 		e.acl = acl.NewDefaultManager(e.firewall)
 	}
@@ -786,7 +789,6 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
-
 	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
 	if networkMap.GetPeerConfig() != nil {
 		err := e.updateConfig(networkMap.GetPeerConfig())
@@ -821,6 +823,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	e.clientRoutesMu.Unlock()
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+	connprofile.Profiler.NetworkMapUpdate(networkMap.GetRemotePeers())
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
@@ -1105,6 +1108,7 @@ func (e *Engine) receiveSignalEvents() {
 					RosenpassAddr:   rosenpassAddr,
 					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 				})
+				connprofile.Profiler.OfferAnswerReceived(msg.Key)
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
 				if err != nil {
@@ -1128,6 +1132,7 @@ func (e *Engine) receiveSignalEvents() {
 					RosenpassAddr:   rosenpassAddr,
 					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 				})
+				connprofile.Profiler.OfferAnswerReceived(msg.Key)
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
 				if err != nil {

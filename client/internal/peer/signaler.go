@@ -4,6 +4,7 @@ import (
 	"github.com/pion/ice/v3"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/connprofile"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 )
@@ -66,5 +67,6 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 		return err
 	}
 
+	connprofile.Profiler.OfferSent(remoteKey)
 	return nil
 }

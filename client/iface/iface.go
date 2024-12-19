@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/connprofile"
 )
 
 const (
@@ -114,7 +115,13 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	defer w.mu.Unlock()
 
 	log.Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
-	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+	err := w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+	if err != nil {
+		return err
+	}
+
+	connprofile.Profiler.WireGuardConfigured(peerKey)
+	return nil
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface
@@ -206,6 +213,10 @@ func (w *WGIface) GetDevice() *device.FilteredDevice {
 // GetStats returns the last handshake time, rx and tx bytes for the given peer
 func (w *WGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 	return w.configurer.GetStats(peerKey)
+}
+
+func (w *WGIface) GetAllStat() (map[string]configurer.WGStats, error) {
+	return w.configurer.GetAllStat()
 }
 
 func (w *WGIface) waitUntilRemoved() error {

@@ -263,6 +263,52 @@ func (t *WGUSPConfigurer) GetStats(peerKey string) (WGStats, error) {
 	}, nil
 }
 
+func (t *WGUSPConfigurer) GetAllStat() (map[string]WGStats, error) {
+	ipc, err := t.device.IpcGet()
+	if err != nil {
+		return nil, fmt.Errorf("ipc get: %w", err)
+	}
+
+	stats, err := parsePeerInfo(ipc, []string{
+		"last_handshake_time_sec",
+		"last_handshake_time_nsec",
+		"tx_bytes",
+		"rx_bytes",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("find peer info: %w", err)
+	}
+
+	wgStats := make(map[string]WGStats)
+
+	for k, v := range stats {
+		sec, err := strconv.ParseInt(v["last_handshake_time_sec"], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse handshake sec: %w", err)
+		}
+		nsec, err := strconv.ParseInt(v["last_handshake_time_nsec"], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse handshake nsec: %w", err)
+		}
+		txBytes, err := strconv.ParseInt(v["tx_bytes"], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse tx_bytes: %w", err)
+		}
+		rxBytes, err := strconv.ParseInt(v["rx_bytes"], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse rx_bytes: %w", err)
+		}
+
+		wgStats[k] = WGStats{
+			LastHandshake: time.Unix(sec, nsec),
+			TxBytes:       txBytes,
+			RxBytes:       rxBytes,
+		}
+	}
+
+	return wgStats, nil
+}
+
 func findPeerInfo(ipcInput string, peerKey string, searchConfigKeys []string) (map[string]string, error) {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -308,6 +354,44 @@ func findPeerInfo(ipcInput string, peerKey string, searchConfigKeys []string) (m
 	}
 
 	return configFound, nil
+}
+
+func parsePeerInfo(ipcInput string, searchConfigKeys []string) (map[string]map[string]string, error) {
+	lines := strings.Split(ipcInput, "\n")
+
+	allPeers := map[string]map[string]string{}
+	var currentPeerKey string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Detect new peer section by public key
+		if strings.HasPrefix(line, "public_key=") {
+			hexKey := strings.TrimPrefix(line, "public_key=")
+
+			keyBytes, _ := hex.DecodeString(hexKey)
+			wgKey, _ := wgtypes.NewKey(keyBytes)
+			currentPeerKey = wgKey.String()
+			if _, exists := allPeers[currentPeerKey]; !exists {
+				allPeers[currentPeerKey] = map[string]string{}
+			}
+			continue
+		}
+
+		// Parse configuration keys for the current peer
+		if currentPeerKey != "" {
+			for _, key := range searchConfigKeys {
+				if strings.HasPrefix(line, key+"=") {
+					v := strings.SplitN(line, "=", 2)
+					if len(v) == 2 {
+						allPeers[currentPeerKey][v[0]] = v[1]
+					}
+				}
+			}
+		}
+	}
+
+	return allPeers, nil
 }
 
 func toWgUserspaceString(wgCfg wgtypes.Config) string {

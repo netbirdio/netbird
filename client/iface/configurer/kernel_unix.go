@@ -218,3 +218,31 @@ func (c *KernelConfigurer) GetStats(peerKey string) (WGStats, error) {
 		RxBytes:       peer.ReceiveBytes,
 	}, nil
 }
+
+func (c *KernelConfigurer) GetAllStat() (map[string]WGStats, error) {
+	wg, err := wgctrl.New()
+	if err != nil {
+		return nil, fmt.Errorf("wgctl: %w", err)
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("Got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(c.deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
+	}
+
+	stats := make(map[string]WGStats)
+	for _, peer := range wgDevice.Peers {
+		stats[peer.PublicKey.String()] = WGStats{
+			LastHandshake: peer.LastHandshakeTime,
+			TxBytes:       peer.TransmitBytes,
+			RxBytes:       peer.ReceiveBytes,
+		}
+	}
+	return stats, nil
+}

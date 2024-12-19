@@ -33,4 +33,5 @@ type IWGIface interface {
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
 	GetStats(peerKey string) (configurer.WGStats, error)
+	GetAllStat() (map[string]configurer.WGStats, error)
 }
