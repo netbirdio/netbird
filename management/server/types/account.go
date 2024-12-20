@@ -1309,11 +1309,11 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 	var allSourcePeers []string
 
 	for _, resource := range a.NetworkResources {
-
-		if networkRoutingPeers, exists := routers[resource.NetworkID]; exists {
-			if _, ok := networkRoutingPeers[peerID]; ok {
+		networkRoutingPeers, exists := routers[resource.NetworkID]
+		if exists {
+			if router, ok := networkRoutingPeers[peerID]; ok {
 				isRoutingPeer = true
-				routes = append(routes, a.getNetworkResourcesRoutes(resource, peerID, networkRoutingPeers[peerID], resourcePolicies)...)
+				routes = append(routes, a.getNetworkResourcesRoutes(resource, peerID, router, resourcePolicies)...)
 			}
 		}
 
@@ -1326,10 +1326,8 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 				}
 
 				// routing peer should be able to connect with all source peers
-				if networkRoutingPeers, exists := routers[resource.NetworkID]; exists {
-					if _, ok := networkRoutingPeers[peerID]; ok {
-						allSourcePeers = append(allSourcePeers, group.Peers...)
-					}
+				if _, ok := networkRoutingPeers[peerID]; ok {
+					allSourcePeers = append(allSourcePeers, group.Peers...)
 				}
 
 				// add routes for the resource if the peer is in the distribution group
