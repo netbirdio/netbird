@@ -45,27 +45,8 @@ func newDeviceFilter(device tun.Device) *FilteredDevice {
 
 // Read wraps read method with filtering feature
 func (d *FilteredDevice) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
-	if n, err = d.Device.Read(bufs, sizes, offset); err != nil {
-		return 0, err
-	}
-	d.mutex.RLock()
-	filter := d.filter
-	d.mutex.RUnlock()
-
-	if filter == nil {
-		return
-	}
-
-	for i := 0; i < n; i++ {
-		if filter.DropOutgoing(bufs[i][offset : offset+sizes[i]]) {
-			bufs = append(bufs[:i], bufs[i+1:]...)
-			sizes = append(sizes[:i], sizes[i+1:]...)
-			n--
-			i--
-		}
-	}
-
-	return n, nil
+	// outgoing traffic is not filtered
+	return d.Device.Read(bufs, sizes, offset)
 }
 
 // Write wraps write method with filtering feature
