@@ -526,11 +526,18 @@ func (conn *Conn) listenGuardEvent(ctx context.Context) {
 }
 
 func (conn *Conn) configureWGEndpoint(addr *net.UDPAddr) error {
+	var endpoint *net.UDPAddr
+
+	// Force to only one side send handshake request to avoid the handshake congestion in WireGuard connection.
+	// Configure up the WireGuard endpoint only on the initiator side.
+	if isWireGuardInitiator(conn.config) {
+		endpoint = addr
+	}
 	return conn.config.WgConfig.WgInterface.UpdatePeer(
 		conn.config.WgConfig.RemoteKey,
 		conn.config.WgConfig.AllowedIps,
 		defaultWgKeepAlive,
-		addr,
+		endpoint,
 		conn.config.WgConfig.PreSharedKey,
 	)
 }
@@ -754,6 +761,11 @@ func (conn *Conn) AllowedIP() net.IP {
 
 func isController(config ConnConfig) bool {
 	return config.LocalKey > config.Key
+}
+
+// isWireGuardInitiator returns true if the local peer is the initiator of the WireGuard connection
+func isWireGuardInitiator(config ConnConfig) bool {
+	return isController(config)
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
