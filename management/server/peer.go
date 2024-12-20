@@ -591,9 +591,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	unlock()
-	unlock = nil
-
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, status.NewGetAccountError(err)
@@ -609,6 +606,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	unlock()
+	unlock = nil
 
 	if newGroupsAffectsPeers {
 		am.UpdateAccountPeers(ctx, accountID)
@@ -1007,6 +1007,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers: %v", err)
