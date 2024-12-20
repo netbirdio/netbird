@@ -249,16 +249,55 @@ func (m *Manager) Flush() error { return nil }
 
 // DropOutgoing filter outgoing packets
 func (m *Manager) DropOutgoing(packetData []byte) bool {
-	return m.dropFilter(packetData, m.outgoingRules, false)
+	return m.processOutgoingHooks(packetData)
 }
 
 // DropIncoming filter incoming packets
 func (m *Manager) DropIncoming(packetData []byte) bool {
-	return m.dropFilter(packetData, m.incomingRules, true)
+	return m.dropFilter(packetData, m.incomingRules)
+}
+
+// processOutgoingHooks processes only UDP hooks for outgoing packets
+func (m *Manager) processOutgoingHooks(packetData []byte) bool {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	d := m.decoders.Get().(*decoder)
+	defer m.decoders.Put(d)
+
+	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+		return false
+	}
+
+	if len(d.decoded) < 2 || d.decoded[1] != layers.LayerTypeUDP {
+		return false
+	}
+
+	var ip net.IP
+	switch d.decoded[0] {
+	case layers.LayerTypeIPv4:
+		ip = d.ip4.DstIP
+	case layers.LayerTypeIPv6:
+		ip = d.ip6.DstIP
+	default:
+		return false
+	}
+
+	// Check specific IP rules first, then any-IP rules
+	for _, ipKey := range []string{ip.String(), "0.0.0.0", "::"} {
+		if rules, exists := m.outgoingRules[ipKey]; exists {
+			for _, rule := range rules {
+				if rule.udpHook != nil && (rule.dPort == 0 || rule.dPort == uint16(d.udp.DstPort)) {
+					return rule.udpHook(packetData)
+				}
+			}
+		}
+	}
+	return false
 }
 
 // dropFilter implements same logic for booth direction of the traffic
-func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isIncomingPacket bool) bool {
+func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -294,17 +333,9 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isInco
 	var ip net.IP
 	switch ipLayer {
 	case layers.LayerTypeIPv4:
-		if isIncomingPacket {
-			ip = d.ip4.SrcIP
-		} else {
-			ip = d.ip4.DstIP
-		}
+		ip = d.ip4.SrcIP
 	case layers.LayerTypeIPv6:
-		if isIncomingPacket {
-			ip = d.ip6.SrcIP
-		} else {
-			ip = d.ip6.DstIP
-		}
+		ip = d.ip6.SrcIP
 	}
 
 	filter, ok := validateRule(ip, packetData, rules[ip.String()], d)

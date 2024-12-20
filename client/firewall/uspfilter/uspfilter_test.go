@@ -325,7 +325,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if m.dropFilter(buf.Bytes(), m.outgoingRules, false) {
+	if m.dropFilter(buf.Bytes(), m.outgoingRules) {
 		t.Errorf("expected packet to be accepted")
 		return
 	}
