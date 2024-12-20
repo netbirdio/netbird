@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/netip"
 	"sync"
-	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -20,8 +19,6 @@ import (
 )
 
 const layerTypeAll = 0
-
-const udpTimeout = 30 * time.Second
 
 var (
 	errRouteNotSupported = fmt.Errorf("route not supported with userspace firewall")
