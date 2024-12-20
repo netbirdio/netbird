@@ -130,7 +130,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 	}
 
 	if updateAccountPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -296,7 +296,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	}
 
 	if updateAccountPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -337,7 +337,7 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 	}
 
 	if updateAccountPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -378,7 +378,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	}
 
 	if updateAccountPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -419,7 +419,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 	}
 
 	if updateAccountPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil

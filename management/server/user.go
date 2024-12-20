@@ -1091,7 +1091,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	}
 
 	if updateAccountPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	for targetUserID, meta := range deletedUsersMeta {

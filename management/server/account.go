@@ -418,7 +418,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	if updateAccountPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return updatedAccount, nil
@@ -1395,7 +1395,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			go am.UpdateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID)
 		}
 	}
 
@@ -1662,7 +1662,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context,
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	go am.UpdateAccountPeers(ctx, accountID)
+	am.UpdateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
