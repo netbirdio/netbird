@@ -273,7 +273,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	if peerLabelUpdated || requiresPeerUpdates {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return peer, nil
@@ -353,7 +353,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -611,7 +611,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	if newGroupsAffectsPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
@@ -839,7 +839,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	}
 
 	if updateRemotePeers || isStatusChanged || (updated && len(postureChecks) > 0) {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, account, peer)

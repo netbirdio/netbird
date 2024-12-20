@@ -211,7 +211,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	}
 
 	if am.isRouteChangeAffectPeers(account, &newRoute) {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
@@ -297,7 +297,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	}
 
 	if am.isRouteChangeAffectPeers(account, oldRoute) || am.isRouteChangeAffectPeers(account, routeToSave) {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
@@ -329,7 +329,7 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	am.StoreEvent(ctx, userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
 
 	if am.isRouteChangeAffectPeers(account, routy) {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil

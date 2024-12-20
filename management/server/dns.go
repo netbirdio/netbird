@@ -136,7 +136,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil

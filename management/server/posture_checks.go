@@ -83,7 +83,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return postureChecks, nil
