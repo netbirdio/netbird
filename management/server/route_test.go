@@ -2175,6 +2175,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		peerJIp = "100.65.29.65"
 		peerKIp = "100.65.29.66"
 		peerMIp = "100.65.29.67"
+		peerOIp = "100.65.29.68"
 	)
 
 	account := &types.Account{
@@ -2256,6 +2257,20 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				IP:     net.ParseIP(peerMIp),
 				Status: &nbpeer.PeerStatus{},
 			},
+			"peerN": {
+				ID:     "peerN",
+				IP:     net.ParseIP("100.65.20.18"),
+				Key:    "peerN",
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS: "linux",
+				},
+			},
+			"peerO": {
+				ID:     "peerO",
+				IP:     net.ParseIP(peerOIp),
+				Status: &nbpeer.PeerStatus{},
+			},
 		},
 		Groups: map[string]*types.Group{
 			"router1": {
@@ -2330,6 +2345,14 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:  "Pipeline",
 				Peers: []string{"peerM"},
 			},
+			"metrics": {
+				ID:    "metrics",
+				Name:  "Metrics",
+				Peers: []string{"peerN", "peerO"},
+				Resources: []types.Resource{
+					{ID: "resource6"},
+				},
+			},
 		},
 		Networks: []*networkTypes.Network{
 			{
@@ -2351,6 +2374,10 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 			{
 				ID:   "network5",
 				Name: "Pipeline Network",
+			},
+			{
+				ID:   "network6",
+				Name: "Metrics Network",
 			},
 		},
 		NetworkRouters: []*routerTypes.NetworkRouter{
@@ -2386,6 +2413,13 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				ID:         "router5",
 				NetworkID:  "network5",
 				Peer:       "peerL",
+				Masquerade: false,
+				Metric:     9999,
+			},
+			{
+				ID:         "router6",
+				NetworkID:  "network6",
+				Peer:       "peerN",
 				Masquerade: false,
 				Metric:     9999,
 			},
@@ -2425,6 +2459,13 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:      "Resource 5",
 				Type:      "host",
 				Prefix:    netip.MustParsePrefix("10.12.12.1/32"),
+			},
+			{
+				ID:        "resource6",
+				NetworkID: "network6",
+				Name:      "Resource 6",
+				Type:      "domain",
+				Domain:    "*.google.com",
 			},
 		},
 		Policies: []*types.Policy{
@@ -2527,6 +2568,24 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 					},
 				},
 			},
+			{
+				ID:      "policyResource6",
+				Name:    "policyResource6",
+				Enabled: true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "ruleResource6",
+						Name:          "ruleResource6",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
+						Ports:         []string{"9090"},
+						Sources:       []string{"metrics"},
+						Destinations:  []string{"metrics"},
+					},
+				},
+			},
 		},
 	}
 
@@ -2553,6 +2612,10 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		// which is part of the destination in the policies (policyResource3 and policyResource4)
 		policies = account.GetPoliciesForNetworkResource("resource4")
 		assert.Len(t, policies, 2, "resource4 should have exactly 2 policy applied via access control groups")
+
+		// Test case: Resource6 is applied to the access control groups (metrics),
+		policies = account.GetPoliciesForNetworkResource("resource6")
+		assert.Len(t, policies, 1, "resource6 should have exactly 1 policy applied via access control groups")
 	})
 
 	t.Run("validate routing peer firewall rules for network resources", func(t *testing.T) {
@@ -2663,5 +2726,9 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		_, routes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerM", resourcePoliciesMap, resourceRoutersMap)
 		assert.Len(t, routes, 1)
 		assert.Len(t, sourcePeers, 0)
+
+		_, routes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerN", resourcePoliciesMap, resourceRoutersMap)
+		assert.Len(t, routes, 1)
+		assert.Len(t, sourcePeers, 2)
 	})
 }
