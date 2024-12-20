@@ -51,7 +51,8 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort)
 
 	// Verify connection was tracked
-	conn, exists := tracker.connections[srcPort]
+	key := makeKey(srcIP, srcPort, dstIP, dstPort)
+	conn, exists := tracker.connections[key]
 	require.True(t, exists)
 	assert.True(t, conn.SourceIP.Equal(srcIP))
 	assert.True(t, conn.DestIP.Equal(dstIP))
@@ -156,7 +157,7 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 
 	// Create tracker with custom cleanup interval
 	tracker := &UDPTracker{
-		connections:   make(map[uint16]*UDPConnTrack),
+		connections:   make(map[ConnKey]*UDPConnTrack),
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(cleanupInterval),
 		done:          make(chan struct{}),
