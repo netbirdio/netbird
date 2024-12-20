@@ -137,7 +137,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		}
 
 		for _, resource := range resources {
-			event, err := m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, networkID, resource.ID)
+			event, err := m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resource.ID)
 			if err != nil {
 				return fmt.Errorf("failed to delete resource: %w", err)
 			}
@@ -150,7 +150,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		}
 
 		for _, router := range routers {
-			event, err := m.routersManager.DeleteRouterInTransaction(ctx, transaction, accountID, networkID, router.ID)
+			event, err := m.routersManager.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, router.ID)
 			if err != nil {
 				return fmt.Errorf("failed to delete router: %w", err)
 			}

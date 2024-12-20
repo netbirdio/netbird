@@ -6,6 +6,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/networks/types"
 )
 
 type NetworkRouter struct {
@@ -69,6 +70,6 @@ func (n *NetworkRouter) Copy() *NetworkRouter {
 	}
 }
 
-func (n *NetworkRouter) EventMeta(networkName string) map[string]any {
-	return map[string]any{"network_name": networkName}
+func (n *NetworkRouter) EventMeta(network *types.Network) map[string]any {
+	return map[string]any{"network_name": network.Name, "network_id": network.ID, "peer": n.Peer, "peer_groups": n.PeerGroups}
 }

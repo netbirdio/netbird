@@ -2,6 +2,7 @@ package types
 
 import (
 	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 )
 
 const (
@@ -36,6 +37,10 @@ type Group struct {
 // EventMeta returns activity event meta related to the group
 func (g *Group) EventMeta() map[string]any {
 	return map[string]any{"name": g.Name}
+}
+
+func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]any {
+	return map[string]any{"name": g.Name, "id": g.ID, "resource_name": resource.Name, "resource_id": resource.ID, "resource_type": resource.Type}
 }
 
 func (g *Group) Copy() *Group {
