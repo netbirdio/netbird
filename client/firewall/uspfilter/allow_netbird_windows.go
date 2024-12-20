@@ -37,6 +37,11 @@ func (m *Manager) Reset(*statemanager.Manager) error {
 		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout)
 	}
 
+	if m.tcpTracker != nil {
+		m.tcpTracker.Close()
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
+	}
+
 	if !isWindowsFirewallReachable() {
 		return nil
 	}
