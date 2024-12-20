@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 )
@@ -405,6 +406,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 				return d
 			},
 		},
+		udpTracker: conntrack.NewUDPTracker(100 * time.Millisecond),
 	}
 
 	hookCalled := false
@@ -490,6 +492,210 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 				require.NoError(t, err, "failed to add rule")
 			}
 			t.Logf("execution avg per rule: %s", time.Since(start)/time.Duration(testMax))
+		})
+	}
+}
+
+func TestStatefulFirewall_UDPTracking(t *testing.T) {
+	manager := &Manager{
+		outgoingRules: map[string]RuleSet{},
+		incomingRules: map[string]RuleSet{},
+		wgNetwork: &net.IPNet{
+			IP:   net.ParseIP("100.10.0.0"),
+			Mask: net.CIDRMask(16, 32),
+		},
+		decoders: sync.Pool{
+			New: func() any {
+				d := &decoder{
+					decoded: []gopacket.LayerType{},
+				}
+				d.parser = gopacket.NewDecodingLayerParser(
+					layers.LayerTypeIPv4,
+					&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+				)
+				d.parser.IgnoreUnsupported = true
+				return d
+			},
+		},
+		udpTracker: conntrack.NewUDPTracker(200 * time.Millisecond),
+	}
+	defer manager.udpTracker.Close()
+
+	// Set up packet parameters
+	srcIP := net.ParseIP("100.10.0.1")
+	dstIP := net.ParseIP("100.10.0.100")
+	srcPort := uint16(51334)
+	dstPort := uint16(53)
+
+	// Create outbound packet
+	outboundIPv4 := &layers.IPv4{
+		TTL:      64,
+		Version:  4,
+		SrcIP:    srcIP,
+		DstIP:    dstIP,
+		Protocol: layers.IPProtocolUDP,
+	}
+	outboundUDP := &layers.UDP{
+		SrcPort: layers.UDPPort(srcPort),
+		DstPort: layers.UDPPort(dstPort),
+	}
+
+	err := outboundUDP.SetNetworkLayerForChecksum(outboundIPv4)
+	require.NoError(t, err)
+
+	outboundBuf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{
+		ComputeChecksums: true,
+		FixLengths:       true,
+	}
+
+	err = gopacket.SerializeLayers(outboundBuf, opts,
+		outboundIPv4,
+		outboundUDP,
+		gopacket.Payload([]byte("test")),
+	)
+	require.NoError(t, err)
+
+	// Process outbound packet and verify connection tracking
+	drop := manager.processOutgoingHooks(outboundBuf.Bytes())
+	require.False(t, drop, "Initial outbound packet should not be dropped")
+
+	// Verify connection was tracked
+	conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+	require.True(t, exists, "Connection should be tracked after outbound packet")
+	require.True(t, conn.SourceIP.Equal(srcIP), "Source IP should match")
+	require.True(t, conn.DestIP.Equal(dstIP), "Destination IP should match")
+	require.Equal(t, srcPort, conn.SourcePort, "Source port should match")
+	require.Equal(t, dstPort, conn.DestPort, "Destination port should match")
+
+	// Create valid inbound response packet
+	inboundIPv4 := &layers.IPv4{
+		TTL:      64,
+		Version:  4,
+		SrcIP:    dstIP, // Original destination is now source
+		DstIP:    srcIP, // Original source is now destination
+		Protocol: layers.IPProtocolUDP,
+	}
+	inboundUDP := &layers.UDP{
+		SrcPort: layers.UDPPort(dstPort), // Original destination port is now source
+		DstPort: layers.UDPPort(srcPort), // Original source port is now destination
+	}
+
+	err = inboundUDP.SetNetworkLayerForChecksum(inboundIPv4)
+	require.NoError(t, err)
+
+	inboundBuf := gopacket.NewSerializeBuffer()
+	err = gopacket.SerializeLayers(inboundBuf, opts,
+		inboundIPv4,
+		inboundUDP,
+		gopacket.Payload([]byte("response")),
+	)
+	require.NoError(t, err)
+	// Test roundtrip response handling over time
+	checkPoints := []struct {
+		sleep       time.Duration
+		shouldAllow bool
+		description string
+	}{
+		{
+			sleep:       0,
+			shouldAllow: true,
+			description: "Immediate response should be allowed",
+		},
+		{
+			sleep:       50 * time.Millisecond,
+			shouldAllow: true,
+			description: "Response within timeout should be allowed",
+		},
+		{
+			sleep:       100 * time.Millisecond,
+			shouldAllow: true,
+			description: "Response at half timeout should be allowed",
+		},
+		{
+			// tracker hasn't updated conn for 250ms -> greater than 200ms timeout
+			sleep:       250 * time.Millisecond,
+			shouldAllow: false,
+			description: "Response after timeout should be dropped",
+		},
+	}
+
+	for _, cp := range checkPoints {
+		time.Sleep(cp.sleep)
+
+		drop = manager.dropFilter(inboundBuf.Bytes(), manager.incomingRules)
+		require.Equal(t, cp.shouldAllow, !drop, cp.description)
+
+		// If the connection should still be valid, verify it exists
+		if cp.shouldAllow {
+			conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+			require.True(t, exists, "Connection should still exist during valid window")
+			require.True(t, time.Since(conn.LastSeen) < manager.udpTracker.Timeout(),
+				"LastSeen should be updated for valid responses")
+		}
+	}
+
+	// Test invalid response packets (while connection is expired)
+	invalidCases := []struct {
+		name        string
+		modifyFunc  func(*layers.IPv4, *layers.UDP)
+		description string
+	}{
+		{
+			name: "wrong source IP",
+			modifyFunc: func(ip *layers.IPv4, udp *layers.UDP) {
+				ip.SrcIP = net.ParseIP("100.10.0.101")
+			},
+			description: "Response from wrong IP should be dropped",
+		},
+		{
+			name: "wrong destination IP",
+			modifyFunc: func(ip *layers.IPv4, udp *layers.UDP) {
+				ip.DstIP = net.ParseIP("100.10.0.2")
+			},
+			description: "Response to wrong IP should be dropped",
+		},
+		{
+			name: "wrong source port",
+			modifyFunc: func(ip *layers.IPv4, udp *layers.UDP) {
+				udp.SrcPort = 54
+			},
+			description: "Response from wrong port should be dropped",
+		},
+		{
+			name: "wrong destination port",
+			modifyFunc: func(ip *layers.IPv4, udp *layers.UDP) {
+				udp.DstPort = 51335
+			},
+			description: "Response to wrong port should be dropped",
+		},
+	}
+
+	// Create a new outbound connection for invalid tests
+	drop = manager.processOutgoingHooks(outboundBuf.Bytes())
+	require.False(t, drop, "Second outbound packet should not be dropped")
+
+	for _, tc := range invalidCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testIPv4 := *inboundIPv4
+			testUDP := *inboundUDP
+
+			tc.modifyFunc(&testIPv4, &testUDP)
+
+			err = testUDP.SetNetworkLayerForChecksum(&testIPv4)
+			require.NoError(t, err)
+
+			testBuf := gopacket.NewSerializeBuffer()
+			err = gopacket.SerializeLayers(testBuf, opts,
+				&testIPv4,
+				&testUDP,
+				gopacket.Payload([]byte("response")),
+			)
+			require.NoError(t, err)
+
+			// Verify the invalid packet is dropped
+			drop = manager.dropFilter(testBuf.Bytes(), manager.incomingRules)
+			require.True(t, drop, tc.description)
 		})
 	}
 }

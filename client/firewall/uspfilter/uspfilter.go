@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -12,12 +13,15 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const layerTypeAll = 0
+
+const udpTimeout = 30 * time.Second
 
 var (
 	errRouteNotSupported = fmt.Errorf("route not supported with userspace firewall")
@@ -41,7 +45,8 @@ type Manager struct {
 	wgIface        IFaceMapper
 	nativeFirewall firewall.Manager
 
-	mutex sync.RWMutex
+	mutex      sync.RWMutex
+	udpTracker *conntrack.UDPTracker
 }
 
 // decoder for packages
@@ -90,6 +95,7 @@ func create(iface IFaceMapper) (*Manager, error) {
 		outgoingRules: make(map[string]RuleSet),
 		incomingRules: make(map[string]RuleSet),
 		wgIface:       iface,
+		udpTracker:    conntrack.NewUDPTracker(udpTimeout),
 	}
 
 	if err := iface.SetFilter(m); err != nil {
@@ -273,18 +279,27 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 		return false
 	}
 
-	var ip net.IP
+	var srcIP, dstIP net.IP
 	switch d.decoded[0] {
 	case layers.LayerTypeIPv4:
-		ip = d.ip4.DstIP
+		srcIP = d.ip4.SrcIP
+		dstIP = d.ip4.DstIP
 	case layers.LayerTypeIPv6:
-		ip = d.ip6.DstIP
+		srcIP = d.ip6.SrcIP
+		dstIP = d.ip6.DstIP
 	default:
 		return false
 	}
 
-	// Check specific IP rules first, then any-IP rules
-	for _, ipKey := range []string{ip.String(), "0.0.0.0", "::"} {
+	// Track outbound UDP connection
+	m.udpTracker.TrackOutbound(
+		srcIP,
+		dstIP,
+		uint16(d.udp.SrcPort),
+		uint16(d.udp.DstPort),
+	)
+
+	for _, ipKey := range []string{dstIP.String(), "0.0.0.0", "::"} {
 		if rules, exists := m.outgoingRules[ipKey]; exists {
 			for _, rule := range rules {
 				if rule.udpHook != nil && (rule.dPort == 0 || rule.dPort == uint16(d.udp.DstPort)) {
@@ -296,7 +311,7 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 	return false
 }
 
-// dropFilter implements same logic for booth direction of the traffic
+// dropFilter implements filtering logic for incoming packets
 func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -312,6 +327,28 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	if len(d.decoded) < 2 {
 		log.Tracef("not enough levels in network packet")
 		return true
+	}
+
+	// For UDP inbound packets, check if they match tracked connections
+	if d.decoded[1] == layers.LayerTypeUDP {
+		var srcIP, dstIP net.IP
+		switch d.decoded[0] {
+		case layers.LayerTypeIPv4:
+			srcIP = d.ip4.SrcIP
+			dstIP = d.ip4.DstIP
+		case layers.LayerTypeIPv6:
+			srcIP = d.ip6.SrcIP
+			dstIP = d.ip6.DstIP
+		}
+
+		if m.udpTracker.IsValidInbound(
+			srcIP,
+			dstIP,
+			uint16(d.udp.SrcPort),
+			uint16(d.udp.DstPort),
+		) {
+			return false
+		}
 	}
 
 	ipLayer := d.decoded[0]

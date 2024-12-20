@@ -2,7 +2,10 @@
 
 package uspfilter
 
-import "github.com/netbirdio/netbird/client/internal/statemanager"
+import (
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
+)
 
 // Reset firewall to the default state
 func (m *Manager) Reset(stateManager *statemanager.Manager) error {
@@ -11,6 +14,11 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 
 	m.outgoingRules = make(map[string]RuleSet)
 	m.incomingRules = make(map[string]RuleSet)
+
+	if m.udpTracker != nil {
+		m.udpTracker.Close()
+		m.udpTracker = conntrack.NewUDPTracker(udpTimeout)
+	}
 
 	if m.nativeFirewall != nil {
 		return m.nativeFirewall.Reset(stateManager)
