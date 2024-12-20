@@ -13,11 +13,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 func initEventsTestData(account string, events ...*activity.Event) *handler {
@@ -32,8 +32,8 @@ func initEventsTestData(account string, events ...*activity.Event) *handler {
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
-			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*server.UserInfo, error) {
-				return make([]*server.UserInfo, 0), nil
+			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*types.UserInfo, error) {
+				return make([]*types.UserInfo, 0), nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -191,7 +191,7 @@ func TestEvents_GetEvents(t *testing.T) {
 		},
 	}
 	accountID := "test_account"
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := types.NewAdminUser("test_user")
 	events := generateEvents(accountID, adminUser.Id)
 	handler := initEventsTestData(accountID, events...)
 

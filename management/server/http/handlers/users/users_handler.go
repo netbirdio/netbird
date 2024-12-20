@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -83,13 +84,13 @@ func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userRole := server.StrRoleToUserRole(req.Role)
-	if userRole == server.UserRoleUnknown {
+	userRole := types.StrRoleToUserRole(req.Role)
+	if userRole == types.UserRoleUnknown {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user role"), w)
 		return
 	}
 
-	newUser, err := h.accountManager.SaveUser(r.Context(), accountID, userID, &server.User{
+	newUser, err := h.accountManager.SaveUser(r.Context(), accountID, userID, &types.User{
 		Id:                   targetUserID,
 		Role:                 userRole,
 		AutoGroups:           req.AutoGroups,
@@ -156,7 +157,7 @@ func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if server.StrRoleToUserRole(req.Role) == server.UserRoleUnknown {
+	if types.StrRoleToUserRole(req.Role) == types.UserRoleUnknown {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown user role %s", req.Role), w)
 		return
 	}
@@ -171,13 +172,13 @@ func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
 		name = *req.Name
 	}
 
-	newUser, err := h.accountManager.CreateUser(r.Context(), accountID, userID, &server.UserInfo{
+	newUser, err := h.accountManager.CreateUser(r.Context(), accountID, userID, &types.UserInfo{
 		Email:         email,
 		Name:          name,
 		Role:          req.Role,
 		AutoGroups:    req.AutoGroups,
 		IsServiceUser: req.IsServiceUser,
-		Issued:        server.UserIssuedAPI,
+		Issued:        types.UserIssuedAPI,
 	})
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -264,7 +265,7 @@ func (h *handler) inviteUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
+func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 	autoGroups := user.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}

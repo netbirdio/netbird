@@ -12,9 +12,9 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -31,64 +31,64 @@ func setupDatabase(t *testing.T) *gorm.DB {
 
 func TestMigrateFieldFromGobToJSON_EmptyDB(t *testing.T) {
 	db := setupDatabase(t)
-	err := migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](context.Background(), db, "network_net")
+	err := migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](context.Background(), db, "network_net")
 	require.NoError(t, err, "Migration should not fail for an empty database")
 }
 
 func TestMigrateFieldFromGobToJSON_WithGobData(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&server.Account{}, &route.Route{})
+	err := db.AutoMigrate(&types.Account{}, &route.Route{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	_, ipnet, err := net.ParseCIDR("10.0.0.0/24")
 	require.NoError(t, err, "Failed to parse CIDR")
 
 	type network struct {
-		server.Network
+		types.Network
 		Net net.IPNet `gorm:"serializer:gob"`
 	}
 
 	type account struct {
-		server.Account
+		types.Account
 		Network *network `gorm:"embedded;embeddedPrefix:network_"`
 	}
 
-	err = db.Save(&account{Account: server.Account{Id: "123"}, Network: &network{Net: *ipnet}}).Error
+	err = db.Save(&account{Account: types.Account{Id: "123"}, Network: &network{Net: *ipnet}}).Error
 	require.NoError(t, err, "Failed to insert Gob data")
 
 	var gobStr string
-	err = db.Model(&server.Account{}).Select("network_net").First(&gobStr).Error
+	err = db.Model(&types.Account{}).Select("network_net").First(&gobStr).Error
 	assert.NoError(t, err, "Failed to fetch Gob data")
 
 	err = gob.NewDecoder(strings.NewReader(gobStr)).Decode(&ipnet)
 	require.NoError(t, err, "Failed to decode Gob data")
 
-	err = migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](context.Background(), db, "network_net")
+	err = migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](context.Background(), db, "network_net")
 	require.NoError(t, err, "Migration should not fail with Gob data")
 
 	var jsonStr string
-	db.Model(&server.Account{}).Select("network_net").First(&jsonStr)
+	db.Model(&types.Account{}).Select("network_net").First(&jsonStr)
 	assert.JSONEq(t, `{"IP":"10.0.0.0","Mask":"////AA=="}`, jsonStr, "Data should be migrated")
 }
 
 func TestMigrateFieldFromGobToJSON_WithJSONData(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&server.Account{}, &route.Route{})
+	err := db.AutoMigrate(&types.Account{}, &route.Route{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	_, ipnet, err := net.ParseCIDR("10.0.0.0/24")
 	require.NoError(t, err, "Failed to parse CIDR")
 
-	err = db.Save(&server.Account{Network: &server.Network{Net: *ipnet}}).Error
+	err = db.Save(&types.Account{Network: &types.Network{Net: *ipnet}}).Error
 	require.NoError(t, err, "Failed to insert JSON data")
 
-	err = migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](context.Background(), db, "network_net")
+	err = migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](context.Background(), db, "network_net")
 	require.NoError(t, err, "Migration should not fail with JSON data")
 
 	var jsonStr string
-	db.Model(&server.Account{}).Select("network_net").First(&jsonStr)
+	db.Model(&types.Account{}).Select("network_net").First(&jsonStr)
 	assert.JSONEq(t, `{"IP":"10.0.0.0","Mask":"////AA=="}`, jsonStr, "Data should be unchanged")
 }
 
@@ -101,7 +101,7 @@ func TestMigrateNetIPFieldFromBlobToJSON_EmptyDB(t *testing.T) {
 func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&server.Account{}, &nbpeer.Peer{})
+	err := db.AutoMigrate(&types.Account{}, &nbpeer.Peer{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	type location struct {
@@ -115,12 +115,12 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
 	}
 
 	type account struct {
-		server.Account
+		types.Account
 		Peers []peer `gorm:"foreignKey:AccountID;references:id"`
 	}
 
 	err = db.Save(&account{
-		Account: server.Account{Id: "123"},
+		Account: types.Account{Id: "123"},
 		Peers: []peer{
 			{Location: location{ConnectionIP: net.IP{10, 0, 0, 1}}},
 		}},
@@ -142,10 +142,10 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
 func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&server.Account{}, &nbpeer.Peer{})
+	err := db.AutoMigrate(&types.Account{}, &nbpeer.Peer{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
-	err = db.Save(&server.Account{
+	err = db.Save(&types.Account{
 		Id: "1234",
 		PeersG: []nbpeer.Peer{
 			{Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
@@ -164,20 +164,20 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 func TestMigrateSetupKeyToHashedSetupKey_ForPlainKey(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&server.SetupKey{})
+	err := db.AutoMigrate(&types.SetupKey{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
-	err = db.Save(&server.SetupKey{
+	err = db.Save(&types.SetupKey{
 		Id:  "1",
 		Key: "EEFDAB47-C1A5-4472-8C05-71DE9A1E8382",
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
 
-	err = migration.MigrateSetupKeyToHashedSetupKey[server.SetupKey](context.Background(), db)
+	err = migration.MigrateSetupKeyToHashedSetupKey[types.SetupKey](context.Background(), db)
 	require.NoError(t, err, "Migration should not fail to migrate setup key")
 
-	var key server.SetupKey
-	err = db.Model(&server.SetupKey{}).First(&key).Error
+	var key types.SetupKey
+	err = db.Model(&types.SetupKey{}).First(&key).Error
 	assert.NoError(t, err, "Failed to fetch setup key")
 
 	assert.Equal(t, "EEFDA****", key.KeySecret, "Key should be secret")
@@ -187,21 +187,21 @@ func TestMigrateSetupKeyToHashedSetupKey_ForPlainKey(t *testing.T) {
 func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case1(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&server.SetupKey{})
+	err := db.AutoMigrate(&types.SetupKey{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
-	err = db.Save(&server.SetupKey{
+	err = db.Save(&types.SetupKey{
 		Id:        "1",
 		Key:       "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
 		KeySecret: "EEFDA****",
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
 
-	err = migration.MigrateSetupKeyToHashedSetupKey[server.SetupKey](context.Background(), db)
+	err = migration.MigrateSetupKeyToHashedSetupKey[types.SetupKey](context.Background(), db)
 	require.NoError(t, err, "Migration should not fail to migrate setup key")
 
-	var key server.SetupKey
-	err = db.Model(&server.SetupKey{}).First(&key).Error
+	var key types.SetupKey
+	err = db.Model(&types.SetupKey{}).First(&key).Error
 	assert.NoError(t, err, "Failed to fetch setup key")
 
 	assert.Equal(t, "EEFDA****", key.KeySecret, "Key should be secret")
@@ -211,20 +211,20 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case1(t *testing.
 func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case2(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&server.SetupKey{})
+	err := db.AutoMigrate(&types.SetupKey{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
-	err = db.Save(&server.SetupKey{
+	err = db.Save(&types.SetupKey{
 		Id:  "1",
 		Key: "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
 
-	err = migration.MigrateSetupKeyToHashedSetupKey[server.SetupKey](context.Background(), db)
+	err = migration.MigrateSetupKeyToHashedSetupKey[types.SetupKey](context.Background(), db)
 	require.NoError(t, err, "Migration should not fail to migrate setup key")
 
-	var key server.SetupKey
-	err = db.Model(&server.SetupKey{}).First(&key).Error
+	var key types.SetupKey
+	err = db.Model(&types.SetupKey{}).First(&key).Error
 	assert.NoError(t, err, "Failed to fetch setup key")
 
 	assert.Equal(t, "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=", key.Key, "Key should be hashed")

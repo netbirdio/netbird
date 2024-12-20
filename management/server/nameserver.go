@@ -11,15 +11,16 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +33,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 		return nil, status.NewAdminPermissionError()
 	}
 
-	return am.Store.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupID)
+	return am.Store.GetNameServerGroupByID(ctx, store.LockingStrengthShare, accountID, nsGroupID)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
@@ -40,7 +41,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -64,21 +65,21 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 	var updateAccountPeers bool
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNameServerGroup(ctx, transaction, accountID, newNSGroup); err != nil {
 			return err
 		}
 
-		updateAccountPeers, err = anyGroupHasPeers(ctx, transaction, accountID, newNSGroup.Groups)
+		updateAccountPeers, err = anyGroupHasPeersOrResources(ctx, transaction, accountID, newNSGroup.Groups)
 		if err != nil {
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
 			return err
 		}
 
-		return transaction.SaveNameServerGroup(ctx, LockingStrengthUpdate, newNSGroup)
+		return transaction.SaveNameServerGroup(ctx, store.LockingStrengthUpdate, newNSGroup)
 	})
 	if err != nil {
 		return nil, err
@@ -87,7 +88,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return newNSGroup.Copy(), nil
@@ -102,7 +103,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return status.Errorf(status.InvalidArgument, "nameserver group provided is nil")
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return err
 	}
@@ -113,8 +114,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 	var updateAccountPeers bool
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		oldNSGroup, err := transaction.GetNameServerGroupByID(ctx, LockingStrengthShare, accountID, nsGroupToSave.ID)
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		oldNSGroup, err := transaction.GetNameServerGroupByID(ctx, store.LockingStrengthShare, accountID, nsGroupToSave.ID)
 		if err != nil {
 			return err
 		}
@@ -129,11 +130,11 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
 			return err
 		}
 
-		return transaction.SaveNameServerGroup(ctx, LockingStrengthUpdate, nsGroupToSave)
+		return transaction.SaveNameServerGroup(ctx, store.LockingStrengthUpdate, nsGroupToSave)
 	})
 	if err != nil {
 		return err
@@ -142,7 +143,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -153,7 +154,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return err
 	}
@@ -165,22 +166,22 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	var nsGroup *nbdns.NameServerGroup
 	var updateAccountPeers bool
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		nsGroup, err = transaction.GetNameServerGroupByID(ctx, LockingStrengthUpdate, accountID, nsGroupID)
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		nsGroup, err = transaction.GetNameServerGroupByID(ctx, store.LockingStrengthUpdate, accountID, nsGroupID)
 		if err != nil {
 			return err
 		}
 
-		updateAccountPeers, err = anyGroupHasPeers(ctx, transaction, accountID, nsGroup.Groups)
+		updateAccountPeers, err = anyGroupHasPeersOrResources(ctx, transaction, accountID, nsGroup.Groups)
 		if err != nil {
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
 			return err
 		}
 
-		return transaction.DeleteNameServerGroup(ctx, LockingStrengthUpdate, accountID, nsGroupID)
+		return transaction.DeleteNameServerGroup(ctx, store.LockingStrengthUpdate, accountID, nsGroupID)
 	})
 	if err != nil {
 		return err
@@ -189,7 +190,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
 	if updateAccountPeers {
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -197,7 +198,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 // ListNameServerGroups returns a list of nameserver groups from account
 func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error) {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -210,10 +211,10 @@ func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accou
 		return nil, status.NewAdminPermissionError()
 	}
 
-	return am.Store.GetAccountNameServerGroups(ctx, LockingStrengthShare, accountID)
+	return am.Store.GetAccountNameServerGroups(ctx, store.LockingStrengthShare, accountID)
 }
 
-func validateNameServerGroup(ctx context.Context, transaction Store, accountID string, nameserverGroup *nbdns.NameServerGroup) error {
+func validateNameServerGroup(ctx context.Context, transaction store.Store, accountID string, nameserverGroup *nbdns.NameServerGroup) error {
 	err := validateDomainInput(nameserverGroup.Primary, nameserverGroup.Domains, nameserverGroup.SearchDomainsEnabled)
 	if err != nil {
 		return err
@@ -224,7 +225,7 @@ func validateNameServerGroup(ctx context.Context, transaction Store, accountID s
 		return err
 	}
 
-	nsServerGroups, err := transaction.GetAccountNameServerGroups(ctx, LockingStrengthShare, accountID)
+	nsServerGroups, err := transaction.GetAccountNameServerGroups(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}
@@ -234,7 +235,7 @@ func validateNameServerGroup(ctx context.Context, transaction Store, accountID s
 		return err
 	}
 
-	groups, err := transaction.GetGroupsByIDs(ctx, LockingStrengthShare, accountID, nameserverGroup.Groups)
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, nameserverGroup.Groups)
 	if err != nil {
 		return err
 	}
@@ -243,12 +244,12 @@ func validateNameServerGroup(ctx context.Context, transaction Store, accountID s
 }
 
 // areNameServerGroupChangesAffectPeers checks if the changes in the nameserver group affect the peers.
-func areNameServerGroupChangesAffectPeers(ctx context.Context, transaction Store, newNSGroup, oldNSGroup *nbdns.NameServerGroup) (bool, error) {
+func areNameServerGroupChangesAffectPeers(ctx context.Context, transaction store.Store, newNSGroup, oldNSGroup *nbdns.NameServerGroup) (bool, error) {
 	if !newNSGroup.Enabled && !oldNSGroup.Enabled {
 		return false, nil
 	}
 
-	hasPeers, err := anyGroupHasPeers(ctx, transaction, newNSGroup.AccountID, newNSGroup.Groups)
+	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, newNSGroup.AccountID, newNSGroup.Groups)
 	if err != nil {
 		return false, err
 	}
@@ -257,7 +258,7 @@ func areNameServerGroupChangesAffectPeers(ctx context.Context, transaction Store
 		return true, nil
 	}
 
-	return anyGroupHasPeers(ctx, transaction, oldNSGroup.AccountID, oldNSGroup.Groups)
+	return anyGroupHasPeersOrResources(ctx, transaction, oldNSGroup.AccountID, oldNSGroup.Groups)
 }
 
 func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bool) error {
@@ -305,7 +306,7 @@ func validateNSList(list []nbdns.NameServer) error {
 	return nil
 }
 
-func validateGroups(list []string, groups map[string]*nbgroup.Group) error {
+func validateGroups(list []string, groups map[string]*types.Group) error {
 	if len(list) == 0 {
 		return status.Errorf(status.InvalidArgument, "the list of group IDs should not be empty")
 	}

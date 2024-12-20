@@ -11,16 +11,16 @@ import (
 	"github.com/golang-jwt/jwt"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // GetAccountFromPATFunc function
-type GetAccountFromPATFunc func(ctx context.Context, token string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
+type GetAccountFromPATFunc func(ctx context.Context, token string) (*types.Account, *types.User, *types.PersonalAccessToken, error)
 
 // ValidateAndParseTokenFunc function
 type ValidateAndParseTokenFunc func(ctx context.Context, token string) (*jwt.Token, error)
