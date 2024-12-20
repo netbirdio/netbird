@@ -256,12 +256,12 @@ func (a *Account) GetPeerNetworkMap(
 
 	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect)
 	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
-	isRouter, networkResourcesRoutes := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
+	isRouter, networkResourcesRoutes, sourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
 		networkResourcesFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networkResourcesRoutes, resourcePolicies)
 	}
-	peersToConnectIncludingRouters := a.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers)
+	peersToConnectIncludingRouters := a.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, isRouter, sourcePeers)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -303,7 +303,7 @@ func (a *Account) GetPeerNetworkMap(
 	return nm
 }
 
-func (a *Account) addNetworksRoutingPeers(networkResourcesRoutes []*route.Route, peer *nbpeer.Peer, peersToConnect []*nbpeer.Peer, expiredPeers []*nbpeer.Peer) []*nbpeer.Peer {
+func (a *Account) addNetworksRoutingPeers(networkResourcesRoutes []*route.Route, peer *nbpeer.Peer, peersToConnect []*nbpeer.Peer, expiredPeers []*nbpeer.Peer, isRouter bool, sourcePeers []string) []*nbpeer.Peer {
 	missingPeers := map[string]struct{}{}
 	for _, r := range networkResourcesRoutes {
 		if r.Peer == peer.Key {
@@ -311,23 +311,36 @@ func (a *Account) addNetworksRoutingPeers(networkResourcesRoutes []*route.Route,
 		}
 
 		missing := true
-		for _, p := range peersToConnect {
+		for _, p := range slices.Concat(peersToConnect, expiredPeers) {
 			if r.Peer == p.Key {
 				missing = false
 				break
 			}
 		}
 		if missing {
-			for _, p := range expiredPeers {
-				if r.Peer == p.Key {
+			missingPeers[r.Peer] = struct{}{}
+		}
+	}
+
+	if isRouter {
+		for _, s := range sourcePeers {
+			if s == peer.ID {
+				continue
+			}
+
+			missing := true
+			for _, p := range slices.Concat(peersToConnect, expiredPeers) {
+				if s == p.ID {
 					missing = false
 					break
 				}
 			}
-		}
-
-		if missing {
-			missingPeers[r.Peer] = struct{}{}
+			if missing {
+				p, ok := a.Peers[s]
+				if ok {
+					missingPeers[p.Key] = struct{}{}
+				}
+			}
 		}
 	}
 
@@ -1290,16 +1303,19 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 }
 
 // GetNetworkResourcesRoutesToSync returns network routes for syncing with a specific peer and its ACL peers.
-func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route) {
-	isRoutingPeer := false
-	routes := make([]*route.Route, 0)
+func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route, []string) {
+	var isRoutingPeer bool
+	var routes []*route.Route
+	var allSourcePeers []string
 
 	for _, resource := range a.NetworkResources {
+		var addSourcePeers bool
 
-		if networkRoutingPeers, exists := routers[resource.NetworkID]; exists {
-			if _, ok := networkRoutingPeers[peerID]; ok {
-				isRoutingPeer = true
-				routes = append(routes, a.getNetworkResourcesRoutes(resource, routers[resource.NetworkID], resourcePolicies)...)
+		networkRoutingPeers, exists := routers[resource.NetworkID]
+		if exists {
+			if router, ok := networkRoutingPeers[peerID]; ok {
+				isRoutingPeer, addSourcePeers = true, true
+				routes = append(routes, a.getNetworkResourcesRoutes(resource, peerID, router, resourcePolicies)...)
 			}
 		}
 
@@ -1311,16 +1327,22 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 					continue
 				}
 
-				// peer is part of the policy source which is the distribution group for the resource
-				// peerID should be able to connect with routing peers
+				// routing peer should be able to connect with all source peers
+				if addSourcePeers {
+					allSourcePeers = append(allSourcePeers, group.Peers...)
+				}
+
+				// add routes for the resource if the peer is in the distribution group
 				if slices.Contains(group.Peers, peerID) {
-					routes = append(routes, a.getNetworkResourcesRoutes(resource, routers[resource.NetworkID], resourcePolicies)...)
+					for peerId, router := range networkRoutingPeers {
+						routes = append(routes, a.getNetworkResourcesRoutes(resource, peerId, router, resourcePolicies)...)
+					}
 				}
 			}
 		}
 	}
 
-	return isRoutingPeer, routes
+	return isRoutingPeer, routes, allSourcePeers
 }
 
 // getNetworkResources filters and returns a list of network resources associated with the given network ID.
@@ -1389,17 +1411,15 @@ func (a *Account) GetPoliciesAppliedInNetwork(networkID string) []string {
 }
 
 // getNetworkResourcesRoutes convert the network resources list to routes list.
-func (a *Account) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, routers map[string]*routerTypes.NetworkRouter, resourcePolicies map[string][]*Policy) []*route.Route {
+func (a *Account) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, peerId string, router *routerTypes.NetworkRouter, resourcePolicies map[string][]*Policy) []*route.Route {
 	resourceAppliedPolicies := resourcePolicies[resource.ID]
 
 	var routes []*route.Route
 	// distribute the resource routes only if there is policy applied to it
 	if len(resourceAppliedPolicies) > 0 {
-		for peerId, router := range routers {
-			peer := a.GetPeer(peerId)
-			if peer != nil {
-				routes = append(routes, resource.ToRoute(peer, router))
-			}
+		peer := a.GetPeer(peerId)
+		if peer != nil {
+			routes = append(routes, resource.ToRoute(peer, router))
 		}
 	}
 
