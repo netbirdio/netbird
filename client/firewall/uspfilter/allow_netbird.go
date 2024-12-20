@@ -17,7 +17,12 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
-		m.udpTracker = conntrack.NewUDPTracker(udpTimeout)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout)
+	}
+
+	if m.icmpTracker != nil {
+		m.icmpTracker.Close()
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout)
 	}
 
 	if m.nativeFirewall != nil {
