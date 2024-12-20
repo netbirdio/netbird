@@ -146,10 +146,9 @@ func (t *UDPTracker) GetConnection(srcIP net.IP, srcPort uint16, dstIP net.IP, d
 		return nil, false
 	}
 
-	// Return a copy to prevent potential race conditions
 	connCopy := &UDPConnTrack{
-		SourceIP:    append(net.IP{}, conn.SourceIP...),
-		DestIP:      append(net.IP{}, conn.DestIP...),
+		SourceIP:    slices.Clone(conn.SourceIP),
+		DestIP:      slices.Clone(conn.DestIP),
 		SourcePort:  conn.SourcePort,
 		DestPort:    conn.DestPort,
 		LastSeen:    conn.LastSeen,
