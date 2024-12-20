@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/mock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
@@ -512,7 +514,7 @@ func TestDNSServerStartStop(t *testing.T) {
 				t.Error(err)
 			}
 
-			dnsServer.service.RegisterMux("netbird.cloud", dnsServer.localResolver)
+			dnsServer.registerHandler([]string{"netbird.cloud"}, dnsServer.localResolver, 1)
 
 			resolver := &net.Resolver{
 				PreferGo: true,
@@ -560,7 +562,9 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
-		hostManager: hostManager,
+		handlerChain:      NewHandlerChain(),
+		handlerPriorities: make(map[string]int),
+		hostManager:       hostManager,
 		currentConfig: HostDNSConfig{
 			Domains: []DomainConfig{
 				{false, "domain0", false},
@@ -870,5 +874,88 @@ func newDnsResolver(ip string, port int) *net.Resolver {
 			addr := fmt.Sprintf("%s:%d", ip, port)
 			return d.DialContext(ctx, network, addr)
 		},
+	}
+}
+
+// MockHandler implements dns.Handler interface for testing
+type MockHandler struct {
+	mock.Mock
+}
+
+func (m *MockHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	m.Called(w, r)
+}
+
+type MockSubdomainHandler struct {
+	MockHandler
+	Subdomains bool
+}
+
+func (m *MockSubdomainHandler) MatchSubdomains() bool {
+	return m.Subdomains
+}
+
+func TestHandlerChain_DomainPriorities(t *testing.T) {
+	chain := NewHandlerChain()
+
+	dnsRouteHandler := &MockHandler{}
+	upstreamHandler := &MockSubdomainHandler{
+		Subdomains: true,
+	}
+
+	chain.AddHandler("example.com.", dnsRouteHandler, PriorityDNSRoute, nil)
+	chain.AddHandler("example.com.", upstreamHandler, PriorityMatchDomain, nil)
+
+	testCases := []struct {
+		name            string
+		query           string
+		expectedHandler dns.Handler
+	}{
+		{
+			name:            "exact domain with dns route handler",
+			query:           "example.com.",
+			expectedHandler: dnsRouteHandler,
+		},
+		{
+			name:            "subdomain should use upstream handler",
+			query:           "sub.example.com.",
+			expectedHandler: upstreamHandler,
+		},
+		{
+			name:            "deep subdomain should use upstream handler",
+			query:           "deep.sub.example.com.",
+			expectedHandler: upstreamHandler,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := new(dns.Msg)
+			r.SetQuestion(tc.query, dns.TypeA)
+			w := &ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+
+			if mh, ok := tc.expectedHandler.(*MockHandler); ok {
+				mh.On("ServeDNS", mock.Anything, r).Once()
+			} else if mh, ok := tc.expectedHandler.(*MockSubdomainHandler); ok {
+				mh.On("ServeDNS", mock.Anything, r).Once()
+			}
+
+			chain.ServeDNS(w, r)
+
+			if mh, ok := tc.expectedHandler.(*MockHandler); ok {
+				mh.AssertExpectations(t)
+			} else if mh, ok := tc.expectedHandler.(*MockSubdomainHandler); ok {
+				mh.AssertExpectations(t)
+			}
+
+			// Reset mocks
+			if mh, ok := tc.expectedHandler.(*MockHandler); ok {
+				mh.ExpectedCalls = nil
+				mh.Calls = nil
+			} else if mh, ok := tc.expectedHandler.(*MockSubdomainHandler); ok {
+				mh.ExpectedCalls = nil
+				mh.Calls = nil
+			}
+		})
 	}
 }

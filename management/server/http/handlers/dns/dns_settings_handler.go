@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // dnsSettingsHandler is a handler that returns the DNS settings of the account
@@ -81,7 +82,7 @@ func (h *dnsSettingsHandler) updateDNSSettings(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	updateDNSSettings := &server.DNSSettings{
+	updateDNSSettings := &types.DNSSettings{
 		DisabledManagementGroups: req.DisabledManagementGroups,
 	}
 
