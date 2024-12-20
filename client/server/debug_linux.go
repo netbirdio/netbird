@@ -362,9 +362,7 @@ func formatRule(rule *nftables.Rule) string {
 }
 
 func formatPayloadWithCmp(p *expr.Payload, cmp *expr.Cmp) string {
-	switch p.Base {
-	case expr.PayloadBaseNetworkHeader:
-		// IP header payload
+	if p.Base == expr.PayloadBaseNetworkHeader {
 		switch p.Offset {
 		case 12: // Source IP
 			if p.Len == 4 {
