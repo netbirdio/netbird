@@ -23,7 +23,7 @@ func TestNewUDPTracker(t *testing.T) {
 		{
 			name:        "with zero timeout uses default",
 			timeout:     0,
-			wantTimeout: DefaultTimeout,
+			wantTimeout: DefaultUDPTimeout,
 		},
 	}
 
@@ -40,7 +40,7 @@ func TestNewUDPTracker(t *testing.T) {
 }
 
 func TestUDPTracker_TrackOutbound(t *testing.T) {
-	tracker := NewUDPTracker(DefaultTimeout)
+	tracker := NewUDPTracker(DefaultUDPTimeout)
 	defer tracker.Close()
 
 	srcIP := net.ParseIP("192.168.1.2")
@@ -215,7 +215,7 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 }
 
 func TestUDPTracker_Close(t *testing.T) {
-	tracker := NewUDPTracker(DefaultTimeout)
+	tracker := NewUDPTracker(DefaultUDPTimeout)
 
 	// Add a connection
 	tracker.TrackOutbound(

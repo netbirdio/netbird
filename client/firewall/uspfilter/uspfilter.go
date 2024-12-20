@@ -45,8 +45,9 @@ type Manager struct {
 	wgIface        IFaceMapper
 	nativeFirewall firewall.Manager
 
-	mutex      sync.RWMutex
-	udpTracker *conntrack.UDPTracker
+	mutex       sync.RWMutex
+	udpTracker  *conntrack.UDPTracker
+	icmpTracker *conntrack.ICMPTracker
 }
 
 // decoder for packages
@@ -95,7 +96,8 @@ func create(iface IFaceMapper) (*Manager, error) {
 		outgoingRules: make(map[string]RuleSet),
 		incomingRules: make(map[string]RuleSet),
 		wgIface:       iface,
-		udpTracker:    conntrack.NewUDPTracker(udpTimeout),
+		udpTracker:    conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout),
+		icmpTracker:   conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout),
 	}
 
 	if err := iface.SetFilter(m); err != nil {
@@ -264,6 +266,7 @@ func (m *Manager) DropIncoming(packetData []byte) bool {
 }
 
 // processOutgoingHooks processes only UDP hooks for outgoing packets
+// processOutgoingHooks processes UDP and ICMP hooks for outgoing packets
 func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -275,7 +278,7 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 		return false
 	}
 
-	if len(d.decoded) < 2 || d.decoded[1] != layers.LayerTypeUDP {
+	if len(d.decoded) < 2 {
 		return false
 	}
 
@@ -291,23 +294,38 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 		return false
 	}
 
-	// Track outbound UDP connection
-	m.udpTracker.TrackOutbound(
-		srcIP,
-		dstIP,
-		uint16(d.udp.SrcPort),
-		uint16(d.udp.DstPort),
-	)
+	switch d.decoded[1] {
+	case layers.LayerTypeUDP:
+		// Track outbound UDP connection
+		m.udpTracker.TrackOutbound(
+			srcIP,
+			dstIP,
+			uint16(d.udp.SrcPort),
+			uint16(d.udp.DstPort),
+		)
 
-	for _, ipKey := range []string{dstIP.String(), "0.0.0.0", "::"} {
-		if rules, exists := m.outgoingRules[ipKey]; exists {
-			for _, rule := range rules {
-				if rule.udpHook != nil && (rule.dPort == 0 || rule.dPort == uint16(d.udp.DstPort)) {
-					return rule.udpHook(packetData)
+		for _, ipKey := range []string{dstIP.String(), "0.0.0.0", "::"} {
+			if rules, exists := m.outgoingRules[ipKey]; exists {
+				for _, rule := range rules {
+					if rule.udpHook != nil && (rule.dPort == 0 || rule.dPort == uint16(d.udp.DstPort)) {
+						return rule.udpHook(packetData)
+					}
 				}
 			}
 		}
+
+	case layers.LayerTypeICMPv4:
+		// Track outbound ICMP Echo Request
+		if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
+			m.icmpTracker.TrackOutbound(
+				srcIP,
+				dstIP,
+				d.icmp4.Id,
+				d.icmp4.Seq,
+			)
+		}
 	}
+
 	return false
 }
 
@@ -329,18 +347,26 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 		return true
 	}
 
-	// For UDP inbound packets, check if they match tracked connections
-	if d.decoded[1] == layers.LayerTypeUDP {
-		var srcIP, dstIP net.IP
-		switch d.decoded[0] {
-		case layers.LayerTypeIPv4:
-			srcIP = d.ip4.SrcIP
-			dstIP = d.ip4.DstIP
-		case layers.LayerTypeIPv6:
-			srcIP = d.ip6.SrcIP
-			dstIP = d.ip6.DstIP
-		}
+	var srcIP, dstIP net.IP
+	switch d.decoded[0] {
+	case layers.LayerTypeIPv4:
+		srcIP = d.ip4.SrcIP
+		dstIP = d.ip4.DstIP
+	case layers.LayerTypeIPv6:
+		srcIP = d.ip6.SrcIP
+		dstIP = d.ip6.DstIP
+	default:
+		log.Errorf("unknown layer: %v", d.decoded[0])
+		return true
+	}
 
+	if !m.wgNetwork.Contains(srcIP) || !m.wgNetwork.Contains(dstIP) {
+		return false
+	}
+
+	switch d.decoded[1] {
+	case layers.LayerTypeUDP:
+		// Check if inbound UDP packet matches a tracked connection
 		if m.udpTracker.IsValidInbound(
 			srcIP,
 			dstIP,
@@ -349,41 +375,33 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 		) {
 			return false
 		}
-	}
 
-	ipLayer := d.decoded[0]
-
-	switch ipLayer {
-	case layers.LayerTypeIPv4:
-		if !m.wgNetwork.Contains(d.ip4.SrcIP) || !m.wgNetwork.Contains(d.ip4.DstIP) {
+	case layers.LayerTypeICMPv4:
+		// Check if inbound ICMP packet is valid
+		if m.icmpTracker.IsValidInbound(
+			srcIP,
+			dstIP,
+			uint16(d.icmp4.Id),
+			uint16(d.icmp4.Seq),
+			uint8(d.icmp4.TypeCode.Type()),
+		) {
 			return false
 		}
-	case layers.LayerTypeIPv6:
-		if !m.wgNetwork.Contains(d.ip6.SrcIP) || !m.wgNetwork.Contains(d.ip6.DstIP) {
-			return false
-		}
-	default:
-		log.Errorf("unknown layer: %v", d.decoded[0])
-		return true
+
+		// TODO: Handle icmpv6
+		// TODO: Handle icmp destination unreachable and others
+
 	}
 
-	var ip net.IP
-	switch ipLayer {
-	case layers.LayerTypeIPv4:
-		ip = d.ip4.SrcIP
-	case layers.LayerTypeIPv6:
-		ip = d.ip6.SrcIP
-	}
-
-	filter, ok := validateRule(ip, packetData, rules[ip.String()], d)
+	filter, ok := validateRule(srcIP, packetData, rules[srcIP.String()], d)
 	if ok {
 		return filter
 	}
-	filter, ok = validateRule(ip, packetData, rules["0.0.0.0"], d)
+	filter, ok = validateRule(srcIP, packetData, rules["0.0.0.0"], d)
 	if ok {
 		return filter
 	}
-	filter, ok = validateRule(ip, packetData, rules["::"], d)
+	filter, ok = validateRule(srcIP, packetData, rules["::"], d)
 	if ok {
 		return filter
 	}

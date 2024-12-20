@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	// DefaultTimeout is the default timeout for UDP connections
-	DefaultTimeout = 30 * time.Second
-	// CleanupInterval is how often we check for stale connections
-	CleanupInterval = 15 * time.Second
+	// DefaultUDPTimeout is the default timeout for UDP connections
+	DefaultUDPTimeout = 30 * time.Second
+	// UDPCleanupInterval is how often we check for stale connections
+	UDPCleanupInterval = 15 * time.Second
 )
 
 type ConnKey struct {
@@ -44,13 +44,13 @@ type UDPTracker struct {
 // NewUDPTracker creates a new UDP connection tracker
 func NewUDPTracker(timeout time.Duration) *UDPTracker {
 	if timeout == 0 {
-		timeout = DefaultTimeout
+		timeout = DefaultUDPTimeout
 	}
 
 	tracker := &UDPTracker{
 		connections:   make(map[ConnKey]*UDPConnTrack),
 		timeout:       timeout,
-		cleanupTicker: time.NewTicker(CleanupInterval),
+		cleanupTicker: time.NewTicker(UDPCleanupInterval),
 		done:          make(chan struct{}),
 	}
 
