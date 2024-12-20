@@ -2,6 +2,7 @@ package conntrack
 
 import (
 	"net"
+	"slices"
 	"sync"
 	"time"
 )
@@ -65,8 +66,8 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 	key := makeKey(srcIP, srcPort, dstIP, dstPort)
 
 	t.connections[key] = &UDPConnTrack{
-		SourceIP:    srcIP,
-		DestIP:      dstIP,
+		SourceIP:    slices.Clone(srcIP),
+		DestIP:      slices.Clone(dstIP),
 		SourcePort:  srcPort,
 		DestPort:    dstPort,
 		LastSeen:    time.Now(),
