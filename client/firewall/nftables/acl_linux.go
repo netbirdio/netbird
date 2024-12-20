@@ -441,18 +441,6 @@ func (m *AclManager) createDefaultChains() (err error) {
 		return err
 	}
 
-	// netbird-acl-output-filter
-	// type filter hook output priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput)
-	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
-	m.addJumpRule(chain, m.chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
-	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
-		return err
-	}
-
 	// netbird-acl-forward-filter
 	chainFwFilter := m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
 	m.addJumpRulesToRtForward(chainFwFilter) // to netbird-rt-fwd
