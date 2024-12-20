@@ -84,7 +84,7 @@ func (p *Peer) Work() {
 			return
 		}
 
-		msgType, err := messages.DetermineClientMessageType(msg[messages.SizeOfVersionByte:])
+		msgType, err := messages.DetermineClientMessageType(msg)
 		if err != nil {
 			p.log.Errorf("failed to determine message type: %s", err)
 			return
@@ -191,7 +191,7 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 }
 
 func (p *Peer) handleTransportMsg(msg []byte) {
-	peerID, err := messages.UnmarshalTransportID(msg[messages.SizeOfProtoHeader:])
+	peerID, err := messages.UnmarshalTransportID(msg)
 	if err != nil {
 		p.log.Errorf("failed to unmarshal transport message: %s", err)
 		return
@@ -204,7 +204,7 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 
-	err = messages.UpdateTransportMsg(msg[messages.SizeOfProtoHeader:], p.idB)
+	err = messages.UpdateTransportMsg(msg, p.idB)
 	if err != nil {
 		p.log.Errorf("failed to update transport message: %s", err)
 		return

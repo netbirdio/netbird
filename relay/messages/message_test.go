@@ -6,12 +6,21 @@ import (
 
 func TestMarshalHelloMsg(t *testing.T) {
 	peerID := []byte("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
-	bHello, err := MarshalHelloMsg(peerID, nil)
+	msg, err := MarshalHelloMsg(peerID, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 
-	receivedPeerID, _, err := UnmarshalHelloMsg(bHello[SizeOfProtoHeader:])
+	msgType, err := DetermineClientMessageType(msg)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	if msgType != MsgTypeHello {
+		t.Errorf("expected %d, got %d", MsgTypeHello, msgType)
+	}
+
+	receivedPeerID, _, err := UnmarshalHelloMsg(msg)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -22,17 +31,51 @@ func TestMarshalHelloMsg(t *testing.T) {
 
 func TestMarshalAuthMsg(t *testing.T) {
 	peerID := []byte("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
-	bHello, err := MarshalAuthMsg(peerID, []byte{})
+	msg, err := MarshalAuthMsg(peerID, []byte{})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 
-	receivedPeerID, _, err := UnmarshalAuthMsg(bHello[SizeOfProtoHeader:])
+	msgType, err := DetermineClientMessageType(msg)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	if msgType != MsgTypeAuth {
+		t.Errorf("expected %d, got %d", MsgTypeAuth, msgType)
+	}
+
+	receivedPeerID, _, err := UnmarshalAuthMsg(msg)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	if string(receivedPeerID) != string(peerID) {
 		t.Errorf("expected %s, got %s", peerID, receivedPeerID)
+	}
+}
+
+func TestMarshalAuthResponse(t *testing.T) {
+	address := "myaddress"
+	msg, err := MarshalAuthResponse(address)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	msgType, err := DetermineServerMessageType(msg)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	if msgType != MsgTypeAuthResponse {
+		t.Errorf("expected %d, got %d", MsgTypeAuthResponse, msgType)
+	}
+
+	respAddr, err := UnmarshalAuthResponse(msg)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if respAddr != address {
+		t.Errorf("expected %s, got %s", address, respAddr)
 	}
 }
 
@@ -44,7 +87,25 @@ func TestMarshalTransportMsg(t *testing.T) {
 		t.Fatalf("error: %v", err)
 	}
 
-	id, respPayload, err := UnmarshalTransportMsg(msg[SizeOfProtoHeader:])
+	msgType, err := DetermineClientMessageType(msg)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	if msgType != MsgTypeTransport {
+		t.Errorf("expected %d, got %d", MsgTypeTransport, msgType)
+	}
+
+	uPeerID, err := UnmarshalTransportID(msg)
+	if err != nil {
+		t.Fatalf("failed to unmarshal transport id: %v", err)
+	}
+
+	if string(uPeerID) != string(peerID) {
+		t.Errorf("expected %s, got %s", peerID, uPeerID)
+	}
+
+	id, respPayload, err := UnmarshalTransportMsg(msg)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -55,5 +116,23 @@ func TestMarshalTransportMsg(t *testing.T) {
 
 	if string(respPayload) != string(payload) {
 		t.Errorf("expected %s, got %s", payload, respPayload)
+	}
+}
+
+func TestMarshalHealthcheck(t *testing.T) {
+	msg := MarshalHealthcheck()
+
+	_, err := ValidateVersion(msg)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	msgType, err := DetermineServerMessageType(msg)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	if msgType != MsgTypeHealthCheck {
+		t.Errorf("expected %d, got %d", MsgTypeHealthCheck, msgType)
 	}
 }
