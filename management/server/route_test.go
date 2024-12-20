@@ -2625,6 +2625,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		_, routes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerE", resourcePoliciesMap, resourceRoutersMap)
 		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerE"], validatedPeers, routes, resourcePoliciesMap)
 		assert.Len(t, firewallRules, 1)
+		assert.Len(t, sourcePeers, 2)
 
 		expectedFirewallRules = []*types.RouteFirewallRule{
 			{
