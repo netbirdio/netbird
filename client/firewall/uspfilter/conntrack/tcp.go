@@ -209,12 +209,13 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 		}
 
 	case TCPStateFinWait1:
-		if flags&TCPFin != 0 && flags&TCPAck != 0 {
+		switch {
+		case flags&TCPFin != 0 && flags&TCPAck != 0:
 			// Simultaneous close
 			conn.State = TCPStateClosing
-		} else if flags&TCPFin != 0 {
+		case flags&TCPFin != 0:
 			conn.State = TCPStateFinWait2
-		} else if flags&TCPAck != 0 {
+		case flags&TCPAck != 0:
 			conn.State = TCPStateFinWait2
 		}
 
