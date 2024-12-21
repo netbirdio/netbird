@@ -60,10 +60,10 @@ func NewUDPTracker(timeout time.Duration) *UDPTracker {
 
 // TrackOutbound records an outbound UDP connection
 func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+	key := makeKey(srcIP, srcPort, dstIP, dstPort)
+
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
-
-	key := makeKey(srcIP, srcPort, dstIP, dstPort)
 
 	t.connections[key] = &UDPConnTrack{
 		SourceIP:    slices.Clone(srcIP),

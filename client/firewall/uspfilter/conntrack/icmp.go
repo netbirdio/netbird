@@ -63,10 +63,10 @@ func NewICMPTracker(timeout time.Duration) *ICMPTracker {
 
 // TrackOutbound records an outbound ICMP Echo Request
 func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) {
+	key := makeICMPKey(srcIP, dstIP, id, seq)
+
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
-
-	key := makeICMPKey(srcIP, dstIP, id, seq)
 
 	t.connections[key] = &ICMPConnTrack{
 		SourceIP:    slices.Clone(srcIP),

@@ -94,11 +94,12 @@ func NewTCPTracker(timeout time.Duration) *TCPTracker {
 
 // TrackOutbound processes an outbound TCP packet and updates connection state
 func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
 
 	key := makeTCPKey(srcIP, dstIP, srcPort, dstPort)
 	now := time.Now()
+
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
 
 	conn, exists := t.connections[key]
 	if !exists {
