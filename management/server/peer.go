@@ -152,21 +152,21 @@ func (am *DefaultAccountManager) updatePeerStatusAndLocation(ctx context.Context
 	}
 	peer.Status = newStatus
 
-	if am.geo != nil && realIP != nil {
-		location, err := am.geo.Lookup(realIP)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
-		} else {
-			peer.Location.ConnectionIP = realIP
-			peer.Location.CountryCode = location.Country.ISOCode
-			peer.Location.CityName = location.City.Names.En
-			peer.Location.GeoNameID = location.City.GeonameID
-			err = am.Store.SavePeerLocation(account.Id, peer)
-			if err != nil {
-				log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
-			}
-		}
-	}
+	// if am.geo != nil && realIP != nil {
+	// 	location, err := am.geo.Lookup(realIP)
+	// 	if err != nil {
+	// 		log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
+	// 	} else {
+	// 		peer.Location.ConnectionIP = realIP
+	// 		peer.Location.CountryCode = location.Country.ISOCode
+	// 		peer.Location.CityName = location.City.Names.En
+	// 		peer.Location.GeoNameID = location.City.GeonameID
+	// 		err = am.Store.SavePeerLocation(account.Id, peer)
+	// 		if err != nil {
+	// 			log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
+	// 		}
+	// 	}
+	// }
 
 	account.UpdatePeer(peer)
 
@@ -520,16 +520,16 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			opEvent.Meta["setup_key_name"] = setupKeyName
 		}
 
-		if am.geo != nil && newPeer.Location.ConnectionIP != nil {
-			location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
-			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", newPeer.Location.ConnectionIP.String(), err)
-			} else {
-				newPeer.Location.CountryCode = location.Country.ISOCode
-				newPeer.Location.CityName = location.City.Names.En
-				newPeer.Location.GeoNameID = location.City.GeonameID
-			}
-		}
+		// if am.geo != nil && newPeer.Location.ConnectionIP != nil {
+		// 	location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
+		// 	if err != nil {
+		// 		log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", newPeer.Location.ConnectionIP.String(), err)
+		// 	} else {
+		// 		newPeer.Location.CountryCode = location.Country.ISOCode
+		// 		newPeer.Location.CityName = location.City.Names.En
+		// 		newPeer.Location.GeoNameID = location.City.GeonameID
+		// 	}
+		// }
 
 		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
