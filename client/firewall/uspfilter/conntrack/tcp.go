@@ -125,19 +125,27 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	// For SYN packets (new connection attempts), always allow
-	if flags&TCPSyn != 0 && flags&TCPAck == 0 {
-		key := makeTCPKey(dstIP, srcIP, dstPort, srcPort)
-		t.connections[key] = &TCPConnTrack{
-			SourceIP:    slices.Clone(dstIP),
-			DestIP:      slices.Clone(srcIP),
-			SourcePort:  dstPort,
-			DestPort:    srcPort,
-			State:       TCPStateSynReceived,
-			LastSeen:    time.Now(),
-			established: false,
+	// Always validate flag combinations first
+	if !isValidFlagCombination(flags) {
+		return false
+	}
+
+	// For SYN packets (new connection attempts), allow only pure SYN
+	if flags&TCPSyn != 0 {
+		if flags&TCPAck == 0 {
+			key := makeTCPKey(dstIP, srcIP, dstPort, srcPort)
+			t.connections[key] = &TCPConnTrack{
+				SourceIP:    slices.Clone(dstIP),
+				DestIP:      slices.Clone(srcIP),
+				SourcePort:  dstPort,
+				DestPort:    srcPort,
+				State:       TCPStateSynReceived,
+				LastSeen:    time.Now(),
+				established: false,
+			}
+			return true
 		}
-		return true
+		// If it's SYN+ACK, let it fall through to normal processing
 	}
 
 	key := makeTCPKey(dstIP, srcIP, dstPort, srcPort)
@@ -146,11 +154,14 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 		return false
 	}
 
-	// Update state and check validity
+	// Handle RST packets - only allow for existing connections
 	if flags&TCPRst != 0 {
-		conn.State = TCPStateClosed
-		conn.established = false
-		return true
+		if conn.established || conn.State == TCPStateSynSent || conn.State == TCPStateSynReceived {
+			conn.State = TCPStateClosed
+			conn.established = false
+			return true
+		}
+		return false
 	}
 
 	// Special handling for FIN state
@@ -212,7 +223,7 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 	case TCPStateFinWait1:
 		switch {
 		case flags&TCPFin != 0 && flags&TCPAck != 0:
-			// Simultaneous close
+			// Simultaneous close - both sides sent FIN
 			conn.State = TCPStateClosing
 		case flags&TCPFin != 0:
 			conn.State = TCPStateFinWait2
@@ -228,6 +239,7 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 	case TCPStateClosing:
 		if flags&TCPAck != 0 {
 			conn.State = TCPStateTimeWait
+			// Keep established = false from previous state
 		}
 
 	case TCPStateCloseWait:
@@ -248,15 +260,36 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 
 // isValidStateForFlags checks if the TCP flags are valid for the current connection state
 func (t *TCPTracker) isValidStateForFlags(state TCPState, flags uint8) bool {
+	if !isValidFlagCombination(flags) {
+		return false
+	}
+
 	switch state {
+	case TCPStateNew:
+		return flags&TCPSyn != 0 && flags&TCPAck == 0
 	case TCPStateSynSent:
 		return flags&TCPSyn != 0 && flags&TCPAck != 0
 	case TCPStateSynReceived:
 		return flags&TCPAck != 0
 	case TCPStateEstablished:
-		return true // Allow all flags in established state
-	case TCPStateFinWait1, TCPStateFinWait2:
+		if flags&TCPRst != 0 {
+			return true
+		}
+		return flags&TCPAck != 0
+	case TCPStateFinWait1:
 		return flags&TCPFin != 0 || flags&TCPAck != 0
+	case TCPStateFinWait2:
+		return flags&TCPFin != 0 || flags&TCPAck != 0
+	case TCPStateClosing:
+		// In CLOSING state, we should accept the final ACK
+		return flags&TCPAck != 0
+	case TCPStateTimeWait:
+		// In TIME_WAIT, we might see retransmissions
+		return flags&TCPAck != 0
+	case TCPStateCloseWait:
+		return flags&TCPFin != 0 || flags&TCPAck != 0
+	case TCPStateLastAck:
+		return flags&TCPAck != 0
 	}
 	return false
 }
@@ -310,4 +343,18 @@ func makeTCPKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) TCPC
 		SrcPort: srcPort,
 		DstPort: dstPort,
 	}
+}
+
+func isValidFlagCombination(flags uint8) bool {
+	// Invalid: SYN+FIN
+	if flags&TCPSyn != 0 && flags&TCPFin != 0 {
+		return false
+	}
+
+	// Invalid: RST with SYN or FIN
+	if flags&TCPRst != 0 && (flags&TCPSyn != 0 || flags&TCPFin != 0) {
+		return false
+	}
+
+	return true
 }
