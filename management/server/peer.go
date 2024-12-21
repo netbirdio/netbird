@@ -424,11 +424,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer func() {
-		if unlock != nil {
-			unlock()
-		}
-	}()
+	defer unlock()
 
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
@@ -606,9 +602,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	unlock()
-	unlock = nil
 
 	if newGroupsAffectsPeers {
 		am.UpdateAccountPeers(ctx, accountID)
