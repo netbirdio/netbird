@@ -736,6 +736,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		if err != nil {
 			return nil, nil, nil, err
 		}
+
 	}
 
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
