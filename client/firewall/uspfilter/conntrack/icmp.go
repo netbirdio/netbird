@@ -80,20 +80,22 @@ func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq u
 
 // IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request
 func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, icmpType uint8) bool {
-	t.mutex.RLock()
-	defer t.mutex.RUnlock()
-
-	// Always allow Echo Request (type 8 for IPv4, 128 for IPv6)
-	if icmpType == uint8(layers.ICMPv4TypeEchoRequest) || icmpType == uint8(layers.ICMPv6TypeEchoRequest) {
+	switch icmpType {
+	// For Destination Unreachable and Time Exceeded, always allow
+	case uint8(layers.ICMPv4TypeDestinationUnreachable), uint8(layers.ICMPv4TypeTimeExceeded):
 		return true
-	}
-
 	// For Echo Reply, check if we have a matching request
-	if icmpType != uint8(layers.ICMPv4TypeEchoReply) && icmpType != uint8(layers.ICMPv6TypeEchoReply) {
+	case uint8(layers.ICMPv4TypeEchoReply):
+		// continue further down
+	default:
 		return false
 	}
 
 	key := makeICMPKey(dstIP, srcIP, id, seq)
+
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
 	conn, exists := t.connections[key]
 	if !exists {
 		return false

@@ -449,6 +449,8 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP) bool
 			d.icmp4.Seq,
 			d.icmp4.TypeCode.Type(),
 		)
+
+		// TODO: ICMPv6
 	}
 
 	return false
