@@ -744,11 +744,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	unlockAccount := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer unlockAccount()
 	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, login.WireGuardPubKey)
-	defer func() {
-		if unlockPeer != nil {
-			unlockPeer()
-		}
-	}()
+	defer unlockPeer()
 
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
 	if err != nil {
@@ -817,9 +813,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 			return nil, nil, nil, err
 		}
 	}
-
-	unlockPeer()
-	unlockPeer = nil
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
