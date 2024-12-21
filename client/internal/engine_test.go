@@ -39,8 +39,6 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
@@ -253,7 +251,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 	}
 	engine.wgInterface = wgIface
-	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, relayMgr, nil, nil, nil, nil)
+	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, relayMgr, nil, nil)
 	_, _, err = engine.routeManager.Init()
 	require.NoError(t, err)
 	engine.dnsServer = &dns.MockServer{
@@ -393,8 +391,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 				return
 			}
 
-			if len(engine.peerStore.PeersPubKey()) != c.expectedLen {
-				t.Errorf("expecting Engine.peerConns to be of size %d, got %d", c.expectedLen, len(engine.peerStore.PeersPubKey()))
+			if len(engine.peerConns) != c.expectedLen {
+				t.Errorf("expecting Engine.peerConns to be of size %d, got %d", c.expectedLen, len(engine.peerConns))
 			}
 
 			if engine.networkSerial != c.expectedSerial {
@@ -402,7 +400,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			}
 
 			for _, p := range c.expectedPeers {
-				conn, ok := engine.peerStore.PeerConn(p.GetWgPubKey())
+				conn, ok := engine.peerConns[p.GetWgPubKey()]
 				if !ok {
 					t.Errorf("expecting Engine.peerConns to contain peer %s", p)
 				}
@@ -627,10 +625,10 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
 					input.inputSerial = updateSerial
 					input.inputRoutes = newRoutes
-					return testCase.inputErr
+					return nil, nil, testCase.inputErr
 				},
 			}
 
@@ -803,8 +801,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
-					return nil
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
+					return nil, nil, nil
 				},
 			}
 
@@ -1198,7 +1196,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), testFile, config.Datadir)
+	store, cleanUp, err := server.NewTestStoreFromSQL(context.Background(), testFile, config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1220,7 +1218,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 
 	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1239,8 +1237,7 @@ func getConnectedPeers(e *Engine) int {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	i := 0
-	for _, id := range e.peerStore.PeersPubKey() {
-		conn, _ := e.peerStore.PeerConn(id)
+	for _, conn := range e.peerConns {
 		if conn.Status() == peer.StatusConnected {
 			i++
 		}
@@ -1252,5 +1249,5 @@ func getPeers(e *Engine) int {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	return len(e.peerStore.PeersPubKey())
+	return len(e.peerConns)
 }

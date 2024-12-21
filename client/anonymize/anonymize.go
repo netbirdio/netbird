@@ -21,8 +21,6 @@ type Anonymizer struct {
 	currentAnonIPv6  netip.Addr
 	startAnonIPv4    netip.Addr
 	startAnonIPv6    netip.Addr
-
-	domainKeyRegex *regexp.Regexp
 }
 
 func DefaultAddresses() (netip.Addr, netip.Addr) {
@@ -38,8 +36,6 @@ func NewAnonymizer(startIPv4, startIPv6 netip.Addr) *Anonymizer {
 		currentAnonIPv6:  startIPv6,
 		startAnonIPv4:    startIPv4,
 		startAnonIPv6:    startIPv6,
-
-		domainKeyRegex: regexp.MustCompile(`\bdomain=([^\s,:"]+)`),
 	}
 }
 
@@ -175,15 +171,20 @@ func (a *Anonymizer) AnonymizeSchemeURI(text string) string {
 	return re.ReplaceAllStringFunc(text, a.AnonymizeURI)
 }
 
+// AnonymizeDNSLogLine anonymizes domain names in DNS log entries by replacing them with a random string.
 func (a *Anonymizer) AnonymizeDNSLogLine(logEntry string) string {
-	return a.domainKeyRegex.ReplaceAllStringFunc(logEntry, func(match string) string {
-		parts := strings.SplitN(match, "=", 2)
+	domainPattern := `dns\.Question{Name:"([^"]+)",`
+	domainRegex := regexp.MustCompile(domainPattern)
+
+	return domainRegex.ReplaceAllStringFunc(logEntry, func(match string) string {
+		parts := strings.Split(match, `"`)
 		if len(parts) >= 2 {
 			domain := parts[1]
 			if strings.HasSuffix(domain, anonTLD) {
 				return match
 			}
-			return "domain=" + a.AnonymizeDomain(domain)
+			randomDomain := generateRandomString(10) + anonTLD
+			return strings.Replace(match, domain, randomDomain, 1)
 		}
 		return match
 	})

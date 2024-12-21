@@ -40,7 +40,6 @@ type peerStateDetailOutput struct {
 	Latency                time.Duration    `json:"latency" yaml:"latency"`
 	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
 	Routes                 []string         `json:"routes" yaml:"routes"`
-	Networks               []string         `json:"networks" yaml:"networks"`
 }
 
 type peersStateOutput struct {
@@ -99,7 +98,6 @@ type statusOutputOverview struct {
 	RosenpassEnabled    bool                       `json:"quantumResistance" yaml:"quantumResistance"`
 	RosenpassPermissive bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
 	Routes              []string                   `json:"routes" yaml:"routes"`
-	Networks            []string                   `json:"networks" yaml:"networks"`
 	NSServerGroups      []nsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
 }
 
@@ -284,8 +282,7 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 		FQDN:                pbFullStatus.GetLocalPeerState().GetFqdn(),
 		RosenpassEnabled:    pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
 		RosenpassPermissive: pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
-		Routes:              pbFullStatus.GetLocalPeerState().GetNetworks(),
-		Networks:            pbFullStatus.GetLocalPeerState().GetNetworks(),
+		Routes:              pbFullStatus.GetLocalPeerState().GetRoutes(),
 		NSServerGroups:      mapNSGroups(pbFullStatus.GetDnsServers()),
 	}
 
@@ -393,8 +390,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			TransferSent:           transferSent,
 			Latency:                pbPeerState.GetLatency().AsDuration(),
 			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
-			Routes:                 pbPeerState.GetNetworks(),
-			Networks:               pbPeerState.GetNetworks(),
+			Routes:                 pbPeerState.GetRoutes(),
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -495,10 +491,10 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 		relaysString = fmt.Sprintf("%d/%d Available", overview.Relays.Available, overview.Relays.Total)
 	}
 
-	networks := "-"
-	if len(overview.Networks) > 0 {
-		sort.Strings(overview.Networks)
-		networks = strings.Join(overview.Networks, ", ")
+	routes := "-"
+	if len(overview.Routes) > 0 {
+		sort.Strings(overview.Routes)
+		routes = strings.Join(overview.Routes, ", ")
 	}
 
 	var dnsServersString string
@@ -560,7 +556,6 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Routes: %s\n"+
-			"Networks: %s\n"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		overview.DaemonVersion,
@@ -573,8 +568,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 		interfaceIP,
 		interfaceTypeString,
 		rosenpassEnabledStatus,
-		networks,
-		networks,
+		routes,
 		peersCountString,
 	)
 	return summary
@@ -637,10 +631,10 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			}
 		}
 
-		networks := "-"
-		if len(peerState.Networks) > 0 {
-			sort.Strings(peerState.Networks)
-			networks = strings.Join(peerState.Networks, ", ")
+		routes := "-"
+		if len(peerState.Routes) > 0 {
+			sort.Strings(peerState.Routes)
+			routes = strings.Join(peerState.Routes, ", ")
 		}
 
 		peerString := fmt.Sprintf(
@@ -658,7 +652,6 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Transfer status (received/sent) %s/%s\n"+
 				"  Quantum resistance: %s\n"+
 				"  Routes: %s\n"+
-				"  Networks: %s\n"+
 				"  Latency: %s\n",
 			peerState.FQDN,
 			peerState.IP,
@@ -675,8 +668,7 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
 			rosenpassEnabledStatus,
-			networks,
-			networks,
+			routes,
 			peerState.Latency.String(),
 		)
 
@@ -818,14 +810,6 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
 
 	peer.RelayAddress = a.AnonymizeURI(peer.RelayAddress)
 
-	for i, route := range peer.Networks {
-		peer.Networks[i] = a.AnonymizeIPString(route)
-	}
-
-	for i, route := range peer.Networks {
-		peer.Networks[i] = a.AnonymizeRoute(route)
-	}
-
 	for i, route := range peer.Routes {
 		peer.Routes[i] = a.AnonymizeIPString(route)
 	}
@@ -864,10 +848,6 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) 
 				overview.NSServerGroups[i].Servers[j] = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
 			}
 		}
-	}
-
-	for i, route := range overview.Networks {
-		overview.Networks[i] = a.AnonymizeRoute(route)
 	}
 
 	for i, route := range overview.Routes {

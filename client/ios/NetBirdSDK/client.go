@@ -272,8 +272,8 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 		return nil, fmt.Errorf("not connected")
 	}
 
+	routesMap := engine.GetClientRoutesWithNetID()
 	routeManager := engine.GetRouteManager()
-	routesMap := routeManager.GetClientRoutesWithNetID()
 	if routeManager == nil {
 		return nil, fmt.Errorf("could not get route manager")
 	}
@@ -317,7 +317,7 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 
 }
 
-func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) *RoutesSelectionDetails {
+func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain][]netip.Prefix) *RoutesSelectionDetails {
 	var routeSelection []RoutesSelectionInfo
 	for _, r := range routes {
 		domainList := make([]DomainInfo, 0)
@@ -325,10 +325,9 @@ func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[dom
 			domainResp := DomainInfo{
 				Domain: d.SafeString(),
 			}
-
-			if info, exists := resolvedDomains[d]; exists {
+			if prefixes, exists := resolvedDomains[d]; exists {
 				var ipStrings []string
-				for _, prefix := range info.Prefixes {
+				for _, prefix := range prefixes {
 					ipStrings = append(ipStrings, prefix.Addr().String())
 				}
 				domainResp.ResolvedIPs = strings.Join(ipStrings, ", ")
@@ -366,12 +365,12 @@ func (c *Client) SelectRoute(id string) error {
 	} else {
 		log.Debugf("select route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
+		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
 			log.Debugf("error when selecting routes: %s", err)
 			return fmt.Errorf("select routes: %w", err)
 		}
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
+	routeManager.TriggerSelection(engine.GetClientRoutes())
 	return nil
 
 }
@@ -393,12 +392,12 @@ func (c *Client) DeselectRoute(id string) error {
 	} else {
 		log.Debugf("deselect route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
+		if err := routeSelector.DeselectRoutes(routes, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
 			log.Debugf("error when deselecting routes: %s", err)
 			return fmt.Errorf("deselect routes: %w", err)
 		}
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
+	routeManager.TriggerSelection(engine.GetClientRoutes())
 	return nil
 }
 

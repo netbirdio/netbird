@@ -3,30 +3,14 @@ package dns
 import (
 	"fmt"
 
-	"github.com/miekg/dns"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 // MockServer is the mock instance of a dns server
 type MockServer struct {
-	InitializeFunc        func() error
-	StopFunc              func()
-	UpdateDNSServerFunc   func(serial uint64, update nbdns.Config) error
-	RegisterHandlerFunc   func([]string, dns.Handler, int)
-	DeregisterHandlerFunc func([]string, int)
-}
-
-func (m *MockServer) RegisterHandler(domains []string, handler dns.Handler, priority int) {
-	if m.RegisterHandlerFunc != nil {
-		m.RegisterHandlerFunc(domains, handler, priority)
-	}
-}
-
-func (m *MockServer) DeregisterHandler(domains []string, priority int) {
-	if m.DeregisterHandlerFunc != nil {
-		m.DeregisterHandlerFunc(domains, priority)
-	}
+	InitializeFunc      func() error
+	StopFunc            func()
+	UpdateDNSServerFunc func(serial uint64, update nbdns.Config) error
 }
 
 // Initialize mock implementation of Initialize from Server interface

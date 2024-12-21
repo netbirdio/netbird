@@ -17,11 +17,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/relay/client"
 )
 
-type ResolvedDomainInfo struct {
-	Prefixes     []netip.Prefix
-	ParentDomain domain.Domain
-}
-
 // State contains the latest state of a peer
 type State struct {
 	Mux                        *sync.RWMutex
@@ -143,7 +138,7 @@ type Status struct {
 	rosenpassEnabled      bool
 	rosenpassPermissive   bool
 	nsGroupStates         []NSGroupState
-	resolvedDomainsStates map[domain.Domain]ResolvedDomainInfo
+	resolvedDomainsStates map[domain.Domain][]netip.Prefix
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -161,7 +156,7 @@ func NewRecorder(mgmAddress string) *Status {
 		offlinePeers:          make([]State, 0),
 		notifier:              newNotifier(),
 		mgmAddress:            mgmAddress,
-		resolvedDomainsStates: map[domain.Domain]ResolvedDomainInfo{},
+		resolvedDomainsStates: make(map[domain.Domain][]netip.Prefix),
 	}
 }
 
@@ -596,27 +591,16 @@ func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
 	d.nsGroupStates = dnsStates
 }
 
-func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resolvedDomain domain.Domain, prefixes []netip.Prefix) {
+func (d *Status) UpdateResolvedDomainsStates(domain domain.Domain, prefixes []netip.Prefix) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-
-	// Store both the original domain pattern and resolved domain
-	d.resolvedDomainsStates[resolvedDomain] = ResolvedDomainInfo{
-		Prefixes:     prefixes,
-		ParentDomain: originalDomain,
-	}
+	d.resolvedDomainsStates[domain] = prefixes
 }
 
 func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-
-	// Remove all entries that have this domain as their parent
-	for k, v := range d.resolvedDomainsStates {
-		if v.ParentDomain == domain {
-			delete(d.resolvedDomainsStates, k)
-		}
-	}
+	delete(d.resolvedDomainsStates, domain)
 }
 
 func (d *Status) GetRosenpassState() RosenpassState {
@@ -718,7 +702,7 @@ func (d *Status) GetDNSStates() []NSGroupState {
 	return d.nsGroupStates
 }
 
-func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo {
+func (d *Status) GetResolvedDomainsStates() map[domain.Domain][]netip.Prefix {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	return maps.Clone(d.resolvedDomainsStates)

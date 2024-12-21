@@ -44,7 +44,7 @@ var resp = &proto.StatusResponse{
 				LastWireguardHandshake:     timestamppb.New(time.Date(2001, time.Month(1), 1, 1, 1, 2, 0, time.UTC)),
 				BytesRx:                    200,
 				BytesTx:                    100,
-				Networks: []string{
+				Routes: []string{
 					"10.1.0.0/24",
 				},
 				Latency: durationpb.New(time.Duration(10000000)),
@@ -93,7 +93,7 @@ var resp = &proto.StatusResponse{
 			PubKey:          "Some-Pub-Key",
 			KernelInterface: true,
 			Fqdn:            "some-localhost.awesome-domain.com",
-			Networks: []string{
+			Routes: []string{
 				"10.10.0.0/24",
 			},
 		},
@@ -147,9 +147,6 @@ var overview = statusOutputOverview{
 				TransferReceived:       200,
 				TransferSent:           100,
 				Routes: []string{
-					"10.1.0.0/24",
-				},
-				Networks: []string{
 					"10.1.0.0/24",
 				},
 				Latency: time.Duration(10000000),
@@ -233,9 +230,6 @@ var overview = statusOutputOverview{
 	Routes: []string{
 		"10.10.0.0/24",
 	},
-	Networks: []string{
-		"10.10.0.0/24",
-	},
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
@@ -301,9 +295,6 @@ func TestParsingToJSON(t *testing.T) {
                 "quantumResistance": false,
                 "routes": [
                   "10.1.0.0/24"
-                ],
-                "networks": [
-                  "10.1.0.0/24"
                 ]
               },
               {
@@ -327,8 +318,7 @@ func TestParsingToJSON(t *testing.T) {
                 "transferSent": 1000,
 				"latency": 10000000,
                 "quantumResistance": false,
-                "routes": null,
-                "networks": null
+                "routes": null
               }
             ]
           },
@@ -367,9 +357,6 @@ func TestParsingToJSON(t *testing.T) {
           "quantumResistance": false,
           "quantumResistancePermissive": false,
           "routes": [
-            "10.10.0.0/24"
-          ],
-          "networks": [
             "10.10.0.0/24"
           ],
           "dnsServers": [
@@ -431,8 +418,6 @@ func TestParsingToYAML(t *testing.T) {
           quantumResistance: false
           routes:
             - 10.1.0.0/24
-          networks:
-            - 10.1.0.0/24
         - fqdn: peer-2.awesome-domain.com
           netbirdIp: 192.168.178.102
           publicKey: Pubkey2
@@ -452,7 +437,6 @@ func TestParsingToYAML(t *testing.T) {
           latency: 10ms
           quantumResistance: false
           routes: []
-          networks: []
 cliVersion: development
 daemonVersion: 0.14.1
 management:
@@ -480,8 +464,6 @@ fqdn: some-localhost.awesome-domain.com
 quantumResistance: false
 quantumResistancePermissive: false
 routes:
-    - 10.10.0.0/24
-networks:
     - 10.10.0.0/24
 dnsServers:
     - servers:
@@ -527,7 +509,6 @@ func TestParsingToDetail(t *testing.T) {
   Transfer status (received/sent) 200 B/100 B
   Quantum resistance: false
   Routes: 10.1.0.0/24
-  Networks: 10.1.0.0/24
   Latency: 10ms
 
  peer-2.awesome-domain.com:
@@ -544,7 +525,6 @@ func TestParsingToDetail(t *testing.T) {
   Transfer status (received/sent) 2.0 KiB/1000 B
   Quantum resistance: false
   Routes: -
-  Networks: -
   Latency: 10ms
 
 OS: %s/%s
@@ -563,7 +543,6 @@ NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
 Routes: 10.10.0.0/24
-Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
@@ -585,7 +564,6 @@ NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
 Routes: 10.10.0.0/24
-Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
 `
 

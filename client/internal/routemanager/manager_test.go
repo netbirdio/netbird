@@ -424,7 +424,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
-			routeManager := NewManager(ctx, localPeerKey, 0, wgInterface, statusRecorder, nil, nil, nil, nil, nil)
+			routeManager := NewManager(ctx, localPeerKey, 0, wgInterface, statusRecorder, nil, nil, nil)
 
 			_, _, err = routeManager.Init()
 
@@ -436,11 +436,11 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			}
 
 			if len(testCase.inputInitRoutes) > 0 {
-				_ = routeManager.UpdateRoutes(testCase.inputSerial, testCase.inputRoutes, false)
+				_, _, err = routeManager.UpdateRoutes(testCase.inputSerial, testCase.inputRoutes)
 				require.NoError(t, err, "should update routes with init routes")
 			}
 
-			_ = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), testCase.inputRoutes, false)
+			_, _, err = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), testCase.inputRoutes)
 			require.NoError(t, err, "should update routes")
 
 			expectedWatchers := testCase.clientNetworkWatchersExpected
