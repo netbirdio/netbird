@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -25,6 +26,21 @@ func (m *Manager) Reset(*statemanager.Manager) error {
 
 	m.outgoingRules = make(map[string]RuleSet)
 	m.incomingRules = make(map[string]RuleSet)
+
+	if m.udpTracker != nil {
+		m.udpTracker.Close()
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout)
+	}
+
+	if m.icmpTracker != nil {
+		m.icmpTracker.Close()
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout)
+	}
+
+	if m.tcpTracker != nil {
+		m.tcpTracker.Close()
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
+	}
 
 	if !isWindowsFirewallReachable() {
 		return nil
