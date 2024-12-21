@@ -152,21 +152,21 @@ func (am *DefaultAccountManager) updatePeerStatusAndLocation(ctx context.Context
 	}
 	peer.Status = newStatus
 
-	if am.geo != nil && realIP != nil {
-		location, err := am.geo.Lookup(realIP)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
-		} else {
-			peer.Location.ConnectionIP = realIP
-			peer.Location.CountryCode = location.Country.ISOCode
-			peer.Location.CityName = location.City.Names.En
-			peer.Location.GeoNameID = location.City.GeonameID
-			err = am.Store.SavePeerLocation(account.Id, peer)
-			if err != nil {
-				log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
-			}
-		}
-	}
+	// if am.geo != nil && realIP != nil {
+	// 	location, err := am.geo.Lookup(realIP)
+	// 	if err != nil {
+	// 		log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
+	// 	} else {
+	// 		peer.Location.ConnectionIP = realIP
+	// 		peer.Location.CountryCode = location.Country.ISOCode
+	// 		peer.Location.CityName = location.City.Names.En
+	// 		peer.Location.GeoNameID = location.City.GeonameID
+	// 		err = am.Store.SavePeerLocation(account.Id, peer)
+	// 		if err != nil {
+	// 			log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
+	// 		}
+	// 	}
+	// }
 
 	account.UpdatePeer(peer)
 
@@ -423,13 +423,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer func() {
-		if unlock != nil {
-			unlock()
-		}
-	}()
-
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
 	// and the peer disconnects with a timeout and tries to register again.
@@ -524,16 +517,16 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			opEvent.Meta["setup_key_name"] = setupKeyName
 		}
 
-		if am.geo != nil && newPeer.Location.ConnectionIP != nil {
-			location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
-			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", newPeer.Location.ConnectionIP.String(), err)
-			} else {
-				newPeer.Location.CountryCode = location.Country.ISOCode
-				newPeer.Location.CityName = location.City.Names.En
-				newPeer.Location.GeoNameID = location.City.GeonameID
-			}
-		}
+		// if am.geo != nil && newPeer.Location.ConnectionIP != nil {
+		// 	location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
+		// 	if err != nil {
+		// 		log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", newPeer.Location.ConnectionIP.String(), err)
+		// 	} else {
+		// 		newPeer.Location.CountryCode = location.Country.ISOCode
+		// 		newPeer.Location.CityName = location.City.Names.En
+		// 		newPeer.Location.GeoNameID = location.City.GeonameID
+		// 	}
+		// }
 
 		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
@@ -590,9 +583,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
-
-	unlock()
-	unlock = nil
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
@@ -748,15 +738,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		}
 	}
 
-	unlockAccount := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer unlockAccount()
-	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, login.WireGuardPubKey)
-	defer func() {
-		if unlockPeer != nil {
-			unlockPeer()
-		}
-	}()
-
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, nil, err
@@ -824,9 +805,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 			return nil, nil, nil, err
 		}
 	}
-
-	unlockPeer()
-	unlockPeer = nil
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
@@ -1007,6 +985,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers: %v", err)
