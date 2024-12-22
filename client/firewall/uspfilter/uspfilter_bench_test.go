@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/stretchr/testify/require"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
@@ -38,7 +39,7 @@ func generateRandomIPs(n int) []net.IP {
 	return ips
 }
 
-func generatePacket(srcIP, dstIP net.IP, srcPort, dstPort uint16, protocol layers.IPProtocol) []byte {
+func generatePacket(b *testing.B, srcIP, dstIP net.IP, srcPort, dstPort uint16, protocol layers.IPProtocol) []byte {
 	ipv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
@@ -55,20 +56,21 @@ func generatePacket(srcIP, dstIP net.IP, srcPort, dstPort uint16, protocol layer
 			DstPort: layers.TCPPort(dstPort),
 			SYN:     true,
 		}
-		tcp.SetNetworkLayerForChecksum(ipv4)
+		require.NoError(b, tcp.SetNetworkLayerForChecksum(ipv4))
 		transportLayer = tcp
 	case layers.IPProtocolUDP:
 		udp := &layers.UDP{
 			SrcPort: layers.UDPPort(srcPort),
 			DstPort: layers.UDPPort(dstPort),
 		}
-		udp.SetNetworkLayerForChecksum(ipv4)
+		require.NoError(b, udp.SetNetworkLayerForChecksum(ipv4))
 		transportLayer = udp
 	}
 
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
-	gopacket.SerializeLayers(buf, opts, ipv4, transportLayer, gopacket.Payload([]byte("test")))
+	err := gopacket.SerializeLayers(buf, opts, ipv4, transportLayer, gopacket.Payload("test"))
+	require.NoError(b, err)
 	return buf.Bytes()
 }
 
@@ -86,8 +88,9 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			stateful: false,
 			setupFunc: func(m *Manager) {
 				// Single rule allowing all traffic
-				m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolALL, nil, nil,
+				_, err := m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolALL, nil, nil,
 					fw.RuleDirectionIN, fw.ActionAccept, "", "allow all")
+				require.NoError(b, err)
 			},
 			desc: "Baseline: Single 'allow all' rule without connection tracking",
 		},
@@ -106,10 +109,11 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Add explicit rules matching return traffic pattern
 				for i := 0; i < 1000; i++ { // Simulate realistic ruleset size
 					ip := generateRandomIPs(1)[0]
-					m.AddPeerFiltering(ip, fw.ProtocolTCP,
+					_, err := m.AddPeerFiltering(ip, fw.ProtocolTCP,
 						&fw.Port{Values: []int{1024 + i}},
 						&fw.Port{Values: []int{80}},
 						fw.RuleDirectionIN, fw.ActionAccept, "", "explicit return")
+					require.NoError(b, err)
 				}
 			},
 			desc: "Explicit rules matching return traffic patterns without state",
@@ -119,8 +123,9 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			stateful: true,
 			setupFunc: func(m *Manager) {
 				// Add some basic rules but rely on state for established connections
-				m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP, nil, nil,
+				_, err := m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP, nil, nil,
 					fw.RuleDirectionIN, fw.ActionDrop, "", "default drop")
+				require.NoError(b, err)
 			},
 			desc: "Connection tracking with established connections",
 		},
@@ -140,16 +145,18 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			b.Run(fmt.Sprintf("%s_%s", sc.name, proto.name), func(b *testing.B) {
 				// Configure stateful/stateless mode
 				if !sc.stateful {
-					os.Setenv("NB_DISABLE_CONNTRACK", "1")
+					require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
 				} else {
-					os.Unsetenv("NB_DISABLE_CONNTRACK")
+					require.NoError(b, os.Setenv("NB_CONNTRACK_TIMEOUT", "1m"))
 				}
 
 				// Create manager and basic setup
 				manager, _ := Create(&IFaceMock{
 					SetFilterFunc: func(device.PacketFilter) error { return nil },
 				})
-				defer manager.Reset(nil)
+				defer b.Cleanup(func() {
+					require.NoError(b, manager.Reset(nil))
+				})
 
 				manager.wgNetwork = &net.IPNet{
 					IP:   net.ParseIP("100.64.0.0"),
@@ -165,8 +172,8 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				srcPort := uint16(1024 + b.N%60000)
 				dstPort := uint16(80)
 
-				outbound := generatePacket(srcIP, dstIP, srcPort, dstPort, proto.proto)
-				inbound := generatePacket(dstIP, srcIP, dstPort, srcPort, proto.proto)
+				outbound := generatePacket(b, srcIP, dstIP, srcPort, dstPort, proto.proto)
+				inbound := generatePacket(b, dstIP, srcIP, dstPort, srcPort, proto.proto)
 
 				// For stateful scenarios, establish the connection
 				if sc.stateful {
@@ -192,7 +199,9 @@ func BenchmarkStateScaling(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			})
-			defer manager.Reset(nil)
+			b.Cleanup(func() {
+				require.NoError(b, manager.Reset(nil))
+			})
 
 			manager.wgNetwork = &net.IPNet{
 				IP:   net.ParseIP("100.64.0.0"),
@@ -203,14 +212,14 @@ func BenchmarkStateScaling(b *testing.B) {
 			srcIPs := generateRandomIPs(count)
 			dstIPs := generateRandomIPs(count)
 			for i := 0; i < count; i++ {
-				outbound := generatePacket(srcIPs[i], dstIPs[i],
+				outbound := generatePacket(b, srcIPs[i], dstIPs[i],
 					uint16(1024+i), 80, layers.IPProtocolTCP)
 				manager.processOutgoingHooks(outbound)
 			}
 
 			// Test packet
-			testOut := generatePacket(srcIPs[0], dstIPs[0], 1024, 80, layers.IPProtocolTCP)
-			testIn := generatePacket(dstIPs[0], srcIPs[0], 80, 1024, layers.IPProtocolTCP)
+			testOut := generatePacket(b, srcIPs[0], dstIPs[0], 1024, 80, layers.IPProtocolTCP)
+			testIn := generatePacket(b, dstIPs[0], srcIPs[0], 80, 1024, layers.IPProtocolTCP)
 
 			// First establish our test connection
 			manager.processOutgoingHooks(testOut)
@@ -238,7 +247,9 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			})
-			defer manager.Reset(nil)
+			b.Cleanup(func() {
+				require.NoError(b, manager.Reset(nil))
+			})
 
 			manager.wgNetwork = &net.IPNet{
 				IP:   net.ParseIP("100.64.0.0"),
@@ -247,8 +258,8 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 
 			srcIP := generateRandomIPs(1)[0]
 			dstIP := generateRandomIPs(1)[0]
-			outbound := generatePacket(srcIP, dstIP, 1024, 80, layers.IPProtocolTCP)
-			inbound := generatePacket(dstIP, srcIP, 80, 1024, layers.IPProtocolTCP)
+			outbound := generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolTCP)
+			inbound := generatePacket(b, dstIP, srcIP, 80, 1024, layers.IPProtocolTCP)
 
 			if sc.established {
 				manager.processOutgoingHooks(outbound)
@@ -281,11 +292,11 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("100.64.0.0"),
 					Mask: net.CIDRMask(10, 32),
 				}
-				os.Setenv("NB_DISABLE_CONNTRACK", "1")
+				require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
-				return generatePacket(srcIP, dstIP, 1024, 80, layers.IPProtocolTCP),
-					generatePacket(dstIP, srcIP, 80, 1024, layers.IPProtocolTCP)
+				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolTCP),
+					generatePacket(b, dstIP, srcIP, 80, 1024, layers.IPProtocolTCP)
 			},
 			desc: "Allow non-WG: TCP new connection",
 		},
@@ -298,12 +309,12 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("100.64.0.0"),
 					Mask: net.CIDRMask(10, 32),
 				}
-				os.Setenv("NB_DISABLE_CONNTRACK", "1")
+				require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
 				// Generate packets with ACK flag for established connection
-				return generateTCPPacketWithFlags(srcIP, dstIP, 1024, 80, uint16(conntrack.TCPAck)),
-					generateTCPPacketWithFlags(dstIP, srcIP, 80, 1024, uint16(conntrack.TCPAck))
+				return generateTCPPacketWithFlags(b, srcIP, dstIP, 1024, 80, uint16(conntrack.TCPAck)),
+					generateTCPPacketWithFlags(b, dstIP, srcIP, 80, 1024, uint16(conntrack.TCPAck))
 			},
 			desc: "Allow non-WG: TCP established connection",
 		},
@@ -316,11 +327,11 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("100.64.0.0"),
 					Mask: net.CIDRMask(10, 32),
 				}
-				os.Setenv("NB_DISABLE_CONNTRACK", "1")
+				require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
-				return generatePacket(srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
-					generatePacket(dstIP, srcIP, 80, 1024, layers.IPProtocolUDP)
+				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
+					generatePacket(b, dstIP, srcIP, 80, 1024, layers.IPProtocolUDP)
 			},
 			desc: "Allow non-WG: UDP new connection",
 		},
@@ -333,11 +344,11 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("100.64.0.0"),
 					Mask: net.CIDRMask(10, 32),
 				}
-				os.Setenv("NB_DISABLE_CONNTRACK", "1")
+				require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
-				return generatePacket(srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
-					generatePacket(dstIP, srcIP, 80, 1024, layers.IPProtocolUDP)
+				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
+					generatePacket(b, dstIP, srcIP, 80, 1024, layers.IPProtocolUDP)
 			},
 			desc: "Allow non-WG: UDP established connection",
 		},
@@ -350,11 +361,11 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("0.0.0.0"),
 					Mask: net.CIDRMask(0, 32),
 				}
-				os.Unsetenv("NB_DISABLE_CONNTRACK")
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
-				return generatePacket(srcIP, dstIP, 1024, 80, layers.IPProtocolTCP),
-					generatePacket(dstIP, srcIP, 80, 1024, layers.IPProtocolTCP)
+				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolTCP),
+					generatePacket(b, dstIP, srcIP, 80, 1024, layers.IPProtocolTCP)
 			},
 			desc: "Stateful: TCP new connection",
 		},
@@ -367,12 +378,12 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("0.0.0.0"),
 					Mask: net.CIDRMask(0, 32),
 				}
-				os.Unsetenv("NB_DISABLE_CONNTRACK")
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
 				// Generate established TCP packets (ACK flag)
-				return generateTCPPacketWithFlags(srcIP, dstIP, 1024, 80, uint16(conntrack.TCPAck)),
-					generateTCPPacketWithFlags(dstIP, srcIP, 80, 1024, uint16(conntrack.TCPAck))
+				return generateTCPPacketWithFlags(b, srcIP, dstIP, 1024, 80, uint16(conntrack.TCPAck)),
+					generateTCPPacketWithFlags(b, dstIP, srcIP, 80, 1024, uint16(conntrack.TCPAck))
 			},
 			desc: "Stateful: TCP established connection",
 		},
@@ -385,12 +396,12 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("0.0.0.0"),
 					Mask: net.CIDRMask(0, 32),
 				}
-				os.Unsetenv("NB_DISABLE_CONNTRACK")
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
 				// Generate packets with PSH+ACK flags for data transfer
-				return generateTCPPacketWithFlags(srcIP, dstIP, 1024, 80, uint16(conntrack.TCPPush|conntrack.TCPAck)),
-					generateTCPPacketWithFlags(dstIP, srcIP, 80, 1024, uint16(conntrack.TCPPush|conntrack.TCPAck))
+				return generateTCPPacketWithFlags(b, srcIP, dstIP, 1024, 80, uint16(conntrack.TCPPush|conntrack.TCPAck)),
+					generateTCPPacketWithFlags(b, dstIP, srcIP, 80, 1024, uint16(conntrack.TCPPush|conntrack.TCPAck))
 			},
 			desc: "Stateful: TCP post-handshake data transfer",
 		},
@@ -403,11 +414,11 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("0.0.0.0"),
 					Mask: net.CIDRMask(0, 32),
 				}
-				os.Unsetenv("NB_DISABLE_CONNTRACK")
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
-				return generatePacket(srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
-					generatePacket(dstIP, srcIP, 80, 1024, layers.IPProtocolUDP)
+				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
+					generatePacket(b, dstIP, srcIP, 80, 1024, layers.IPProtocolUDP)
 			},
 			desc: "Stateful: UDP new connection",
 		},
@@ -420,11 +431,11 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("0.0.0.0"),
 					Mask: net.CIDRMask(0, 32),
 				}
-				os.Unsetenv("NB_DISABLE_CONNTRACK")
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
-				return generatePacket(srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
-					generatePacket(dstIP, srcIP, 80, 1024, layers.IPProtocolUDP)
+				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
+					generatePacket(b, dstIP, srcIP, 80, 1024, layers.IPProtocolUDP)
 			},
 			desc: "Stateful: UDP established connection",
 		},
@@ -435,7 +446,9 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			})
-			defer manager.Reset(nil)
+			b.Cleanup(func() {
+				require.NoError(b, manager.Reset(nil))
+			})
 
 			// Setup scenario
 			sc.setupFunc(manager)
@@ -453,13 +466,13 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 				// For TCP post-handshake, simulate full handshake
 				if sc.state == "post_handshake" {
 					// SYN
-					syn := generateTCPPacketWithFlags(srcIP, dstIP, 1024, 80, uint16(conntrack.TCPSyn))
+					syn := generateTCPPacketWithFlags(b, srcIP, dstIP, 1024, 80, uint16(conntrack.TCPSyn))
 					manager.processOutgoingHooks(syn)
 					// SYN-ACK
-					synack := generateTCPPacketWithFlags(dstIP, srcIP, 80, 1024, uint16(conntrack.TCPSyn|conntrack.TCPAck))
+					synack := generateTCPPacketWithFlags(b, dstIP, srcIP, 80, 1024, uint16(conntrack.TCPSyn|conntrack.TCPAck))
 					manager.dropFilter(synack, manager.incomingRules)
 					// ACK
-					ack := generateTCPPacketWithFlags(srcIP, dstIP, 1024, 80, uint16(conntrack.TCPAck))
+					ack := generateTCPPacketWithFlags(b, srcIP, dstIP, 1024, 80, uint16(conntrack.TCPAck))
 					manager.processOutgoingHooks(ack)
 				}
 			}
@@ -473,7 +486,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 }
 
 // generateTCPPacketWithFlags creates a TCP packet with specific flags
-func generateTCPPacketWithFlags(srcIP, dstIP net.IP, srcPort, dstPort uint16, flags uint16) []byte {
+func generateTCPPacketWithFlags(b *testing.B, srcIP, dstIP net.IP, srcPort, dstPort, flags uint16) []byte {
 	ipv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
@@ -494,10 +507,10 @@ func generateTCPPacketWithFlags(srcIP, dstIP net.IP, srcPort, dstPort uint16, fl
 	tcp.RST = (flags & uint16(conntrack.TCPRst)) != 0
 	tcp.FIN = (flags & uint16(conntrack.TCPFin)) != 0
 
-	tcp.SetNetworkLayerForChecksum(ipv4)
+	require.NoError(b, tcp.SetNetworkLayerForChecksum(ipv4))
 
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
-	gopacket.SerializeLayers(buf, opts, ipv4, tcp, gopacket.Payload([]byte("test")))
+	require.NoError(b, gopacket.SerializeLayers(buf, opts, ipv4, tcp, gopacket.Payload("test")))
 	return buf.Bytes()
 }

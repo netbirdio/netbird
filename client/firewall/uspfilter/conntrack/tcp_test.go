@@ -73,6 +73,8 @@ func TestTCPStateMachine(t *testing.T) {
 			{
 				name: "Normal Handshake",
 				test: func(t *testing.T) {
+					t.Helper()
+
 					// Send initial SYN
 					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn)
 
@@ -91,6 +93,8 @@ func TestTCPStateMachine(t *testing.T) {
 			{
 				name: "Normal Close",
 				test: func(t *testing.T) {
+					t.Helper()
+
 					// First establish connection
 					establishConnection(t, tracker, srcIP, dstIP, srcPort, dstPort)
 
@@ -112,6 +116,8 @@ func TestTCPStateMachine(t *testing.T) {
 			{
 				name: "RST During Connection",
 				test: func(t *testing.T) {
+					t.Helper()
+
 					// First establish connection
 					establishConnection(t, tracker, srcIP, dstIP, srcPort, dstPort)
 
@@ -121,12 +127,16 @@ func TestTCPStateMachine(t *testing.T) {
 
 					// Verify connection is closed
 					valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPPush|TCPAck)
+					t.Helper()
+
 					require.False(t, valid, "Data should be blocked after RST")
 				},
 			},
 			{
 				name: "Simultaneous Close",
 				test: func(t *testing.T) {
+					t.Helper()
+
 					// First establish connection
 					establishConnection(t, tracker, srcIP, dstIP, srcPort, dstPort)
 
@@ -145,6 +155,8 @@ func TestTCPStateMachine(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
+				t.Helper()
+
 				tracker = NewTCPTracker(DefaultTCPTimeout)
 				tt.test(t)
 			})
