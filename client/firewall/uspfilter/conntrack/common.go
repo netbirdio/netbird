@@ -110,7 +110,8 @@ func NewPreallocatedIPs() *PreallocatedIPs {
 	return &PreallocatedIPs{
 		Pool: sync.Pool{
 			New: func() interface{} {
-				return make(net.IP, 16)
+				ip := make(net.IP, 16)
+				return &ip
 			},
 		},
 	}
@@ -118,12 +119,12 @@ func NewPreallocatedIPs() *PreallocatedIPs {
 
 // Get retrieves an IP from the pool
 func (p *PreallocatedIPs) Get() net.IP {
-	return p.Pool.Get().(net.IP)
+	return *p.Pool.Get().(*net.IP)
 }
 
 // Put returns an IP to the pool
 func (p *PreallocatedIPs) Put(ip net.IP) {
-	p.Pool.Put(ip)
+	p.Pool.Put(&ip)
 }
 
 // copyIP copies an IP address efficiently
