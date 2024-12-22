@@ -6,18 +6,18 @@ import (
 )
 
 func BenchmarkIPOperations(b *testing.B) {
-	b.Run("makeIPAddr", func(b *testing.B) {
+	b.Run("MakeIPAddr", func(b *testing.B) {
 		ip := net.ParseIP("192.168.1.1")
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = makeIPAddr(ip)
+			_ = MakeIPAddr(ip)
 		}
 	})
 
 	b.Run("ValidateIPs", func(b *testing.B) {
 		ip1 := net.ParseIP("192.168.1.1")
 		ip2 := net.ParseIP("192.168.1.1")
-		addr := makeIPAddr(ip1)
+		addr := MakeIPAddr(ip1)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_ = ValidateIPs(addr, ip2)

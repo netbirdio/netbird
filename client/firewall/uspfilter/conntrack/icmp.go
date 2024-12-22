@@ -116,8 +116,8 @@ func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq 
 	}
 
 	return conn.IsEstablished() &&
-		ValidateIPs(makeIPAddr(srcIP), conn.DestIP) &&
-		ValidateIPs(makeIPAddr(dstIP), conn.SourceIP) &&
+		ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
+		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
 		conn.ID == id &&
 		conn.Sequence == seq
 }
@@ -162,8 +162,8 @@ func (t *ICMPTracker) Close() {
 // makeICMPKey creates an ICMP connection key
 func makeICMPKey(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) ICMPConnKey {
 	return ICMPConnKey{
-		SrcIP:    makeIPAddr(srcIP),
-		DstIP:    makeIPAddr(dstIP),
+		SrcIP:    MakeIPAddr(srcIP),
+		DstIP:    MakeIPAddr(dstIP),
 		ID:       id,
 		Sequence: seq,
 	}

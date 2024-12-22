@@ -50,8 +50,8 @@ func (b *BaseConnTrack) timeoutExceeded(timeout time.Duration) bool {
 // IPAddr is a fixed-size IP address to avoid allocations
 type IPAddr [16]byte
 
-// makeIPAddr creates an IPAddr from net.IP
-func makeIPAddr(ip net.IP) (addr IPAddr) {
+// MakeIPAddr creates an IPAddr from net.IP
+func MakeIPAddr(ip net.IP) (addr IPAddr) {
 	// Optimization: check for v4 first as it's more common
 	if ip4 := ip.To4(); ip4 != nil {
 		copy(addr[12:], ip4)
@@ -72,8 +72,8 @@ type ConnKey struct {
 // makeConnKey creates a connection key
 func makeConnKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) ConnKey {
 	return ConnKey{
-		SrcIP:   makeIPAddr(srcIP),
-		DstIP:   makeIPAddr(dstIP),
+		SrcIP:   MakeIPAddr(srcIP),
+		DstIP:   MakeIPAddr(dstIP),
 		SrcPort: srcPort,
 		DstPort: dstPort,
 	}

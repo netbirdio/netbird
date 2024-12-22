@@ -93,8 +93,8 @@ func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 	}
 
 	return conn.IsEstablished() &&
-		ValidateIPs(makeIPAddr(srcIP), conn.DestIP) &&
-		ValidateIPs(makeIPAddr(dstIP), conn.SourceIP) &&
+		ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
+		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
 		conn.DestPort == srcPort &&
 		conn.SourcePort == dstPort
 }
@@ -149,39 +149,10 @@ func (t *UDPTracker) GetConnection(srcIP net.IP, srcPort uint16, dstIP net.IP, d
 		return nil, false
 	}
 
-	// Create a copy with new IP allocations
-	srcIPCopy := t.ipPool.Get()
-	dstIPCopy := t.ipPool.Get()
-	copyIP(srcIPCopy, conn.SourceIP)
-	copyIP(dstIPCopy, conn.DestIP)
-
-	connCopy := &UDPConnTrack{
-		BaseConnTrack: BaseConnTrack{
-			SourceIP:   srcIPCopy,
-			DestIP:     dstIPCopy,
-			SourcePort: conn.SourcePort,
-			DestPort:   conn.DestPort,
-		},
-	}
-	connCopy.lastSeen.Store(conn.lastSeen.Load())
-	connCopy.established.Store(conn.IsEstablished())
-
-	return connCopy, true
+	return conn, true
 }
 
 // Timeout returns the configured timeout duration for the tracker
 func (t *UDPTracker) Timeout() time.Duration {
 	return t.timeout
-}
-
-func makeKey(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPort uint16) ConnKey {
-	var srcAddr, dstAddr [16]byte
-	copy(srcAddr[:], srcIP.To16()) // Ensure 16-byte representation
-	copy(dstAddr[:], dstIP.To16())
-	return ConnKey{
-		SrcIP:   srcAddr,
-		SrcPort: srcPort,
-		DstIP:   dstAddr,
-		DstPort: dstPort,
-	}
 }

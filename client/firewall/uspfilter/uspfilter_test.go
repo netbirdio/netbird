@@ -187,10 +187,10 @@ func TestAddUDPPacketHook(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager := &Manager{
-				incomingRules: map[string]RuleSet{},
-				outgoingRules: map[string]RuleSet{},
-			}
+			manager, err := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			})
+			require.NoError(t, err)
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
 
@@ -315,7 +315,7 @@ func TestNotMatchByIP(t *testing.T) {
 		t.Errorf("failed to set network layer for checksum: %v", err)
 		return
 	}
-	payload := gopacket.Payload([]byte("test"))
+	payload := gopacket.Payload("test")
 
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{
@@ -350,6 +350,9 @@ func TestRemovePacketHook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
+	defer func() {
+		require.NoError(t, manager.Reset(nil))
+	}()
 
 	// Add a UDP packet hook
 	hookFunc := func(data []byte) bool { return true }
@@ -387,26 +390,33 @@ func TestRemovePacketHook(t *testing.T) {
 }
 
 func TestProcessOutgoingHooks(t *testing.T) {
-	manager := &Manager{
-		outgoingRules: map[string]RuleSet{},
-		wgNetwork: &net.IPNet{
-			IP:   net.ParseIP("100.10.0.0"),
-			Mask: net.CIDRMask(16, 32),
+	manager, err := Create(&IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	})
+	require.NoError(t, err)
+
+	manager.wgNetwork = &net.IPNet{
+		IP:   net.ParseIP("100.10.0.0"),
+		Mask: net.CIDRMask(16, 32),
+	}
+	manager.udpTracker.Close()
+	manager.udpTracker = conntrack.NewUDPTracker(100 * time.Millisecond)
+	defer func() {
+		require.NoError(t, manager.Reset(nil))
+	}()
+
+	manager.decoders = sync.Pool{
+		New: func() any {
+			d := &decoder{
+				decoded: []gopacket.LayerType{},
+			}
+			d.parser = gopacket.NewDecodingLayerParser(
+				layers.LayerTypeIPv4,
+				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+			)
+			d.parser.IgnoreUnsupported = true
+			return d
 		},
-		decoders: sync.Pool{
-			New: func() any {
-				d := &decoder{
-					decoded: []gopacket.LayerType{},
-				}
-				d.parser = gopacket.NewDecodingLayerParser(
-					layers.LayerTypeIPv4,
-					&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
-				)
-				d.parser.IgnoreUnsupported = true
-				return d
-			},
-		},
-		udpTracker: conntrack.NewUDPTracker(100 * time.Millisecond),
 	}
 
 	hookCalled := false
@@ -434,9 +444,9 @@ func TestProcessOutgoingHooks(t *testing.T) {
 		DstPort: 53,
 	}
 
-	err := udp.SetNetworkLayerForChecksum(ipv4)
+	err = udp.SetNetworkLayerForChecksum(ipv4)
 	require.NoError(t, err)
-	payload := gopacket.Payload([]byte("test"))
+	payload := gopacket.Payload("test")
 
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{
@@ -497,29 +507,34 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 }
 
 func TestStatefulFirewall_UDPTracking(t *testing.T) {
-	manager := &Manager{
-		outgoingRules: map[string]RuleSet{},
-		incomingRules: map[string]RuleSet{},
-		wgNetwork: &net.IPNet{
-			IP:   net.ParseIP("100.10.0.0"),
-			Mask: net.CIDRMask(16, 32),
-		},
-		decoders: sync.Pool{
-			New: func() any {
-				d := &decoder{
-					decoded: []gopacket.LayerType{},
-				}
-				d.parser = gopacket.NewDecodingLayerParser(
-					layers.LayerTypeIPv4,
-					&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
-				)
-				d.parser.IgnoreUnsupported = true
-				return d
-			},
-		},
-		udpTracker: conntrack.NewUDPTracker(200 * time.Millisecond),
+	manager, err := Create(&IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	})
+	require.NoError(t, err)
+
+	manager.wgNetwork = &net.IPNet{
+		IP:   net.ParseIP("100.10.0.0"),
+		Mask: net.CIDRMask(16, 32),
 	}
-	defer manager.udpTracker.Close()
+
+	manager.udpTracker.Close() // Close the existing tracker
+	manager.udpTracker = conntrack.NewUDPTracker(200 * time.Millisecond)
+	manager.decoders = sync.Pool{
+		New: func() any {
+			d := &decoder{
+				decoded: []gopacket.LayerType{},
+			}
+			d.parser = gopacket.NewDecodingLayerParser(
+				layers.LayerTypeIPv4,
+				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+			)
+			d.parser.IgnoreUnsupported = true
+			return d
+		},
+	}
+	defer func() {
+		require.NoError(t, manager.Reset(nil))
+	}()
 
 	// Set up packet parameters
 	srcIP := net.ParseIP("100.10.0.1")
@@ -540,7 +555,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 		DstPort: layers.UDPPort(dstPort),
 	}
 
-	err := outboundUDP.SetNetworkLayerForChecksum(outboundIPv4)
+	err = outboundUDP.SetNetworkLayerForChecksum(outboundIPv4)
 	require.NoError(t, err)
 
 	outboundBuf := gopacket.NewSerializeBuffer()
@@ -552,19 +567,20 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	err = gopacket.SerializeLayers(outboundBuf, opts,
 		outboundIPv4,
 		outboundUDP,
-		gopacket.Payload([]byte("test")),
+		gopacket.Payload("test"),
 	)
 	require.NoError(t, err)
 
 	// Process outbound packet and verify connection tracking
-	drop := manager.processOutgoingHooks(outboundBuf.Bytes())
+	drop := manager.DropOutgoing(outboundBuf.Bytes())
 	require.False(t, drop, "Initial outbound packet should not be dropped")
 
 	// Verify connection was tracked
 	conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+
 	require.True(t, exists, "Connection should be tracked after outbound packet")
-	require.True(t, conn.SourceIP.Equal(srcIP), "Source IP should match")
-	require.True(t, conn.DestIP.Equal(dstIP), "Destination IP should match")
+	require.True(t, conntrack.ValidateIPs(conntrack.MakeIPAddr(srcIP), conn.SourceIP), "Source IP should match")
+	require.True(t, conntrack.ValidateIPs(conntrack.MakeIPAddr(dstIP), conn.DestIP), "Destination IP should match")
 	require.Equal(t, srcPort, conn.SourcePort, "Source port should match")
 	require.Equal(t, dstPort, conn.DestPort, "Destination port should match")
 
@@ -588,7 +604,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	err = gopacket.SerializeLayers(inboundBuf, opts,
 		inboundIPv4,
 		inboundUDP,
-		gopacket.Payload([]byte("response")),
+		gopacket.Payload("response"),
 	)
 	require.NoError(t, err)
 	// Test roundtrip response handling over time
@@ -689,7 +705,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			err = gopacket.SerializeLayers(testBuf, opts,
 				&testIPv4,
 				&testUDP,
-				gopacket.Payload([]byte("response")),
+				gopacket.Payload("response"),
 			)
 			require.NoError(t, err)
 

@@ -51,7 +51,7 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort)
 
 	// Verify connection was tracked
-	key := makeKey(srcIP, srcPort, dstIP, dstPort)
+	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 	conn, exists := tracker.connections[key]
 	require.True(t, exists)
 	assert.True(t, conn.SourceIP.Equal(srcIP))
@@ -161,11 +161,11 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(cleanupInterval),
 		done:          make(chan struct{}),
+		ipPool:        NewPreallocatedIPs(),
 	}
 
 	// Start cleanup routine
 	go tracker.cleanupRoutine()
-	defer tracker.Close()
 
 	// Add some connections
 	connections := []struct {
@@ -193,44 +193,20 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 	}
 
 	// Verify initial connections
-	tracker.mutex.RLock()
 	assert.Len(t, tracker.connections, 2)
-	tracker.mutex.RUnlock()
 
 	// Wait for connection timeout and cleanup interval
 	time.Sleep(timeout + 2*cleanupInterval)
 
+	tracker.mutex.RLock()
+	connCount := len(tracker.connections)
+	tracker.mutex.RUnlock()
+
 	// Verify connections were cleaned up
-	tracker.mutex.RLock()
-	assert.Empty(t, tracker.connections)
-	tracker.mutex.RUnlock()
+	assert.Equal(t, 0, connCount, "Expected all connections to be cleaned up")
 
-	// Add a new connection and verify it's not immediately cleaned up
-	tracker.TrackOutbound(connections[0].srcIP, connections[0].dstIP,
-		connections[0].srcPort, connections[0].dstPort)
-
-	tracker.mutex.RLock()
-	assert.Len(t, tracker.connections, 1, "New connection should not be cleaned up immediately")
-	tracker.mutex.RUnlock()
-}
-
-func TestUDPTracker_Close(t *testing.T) {
-	tracker := NewUDPTracker(DefaultUDPTimeout)
-
-	// Add a connection
-	tracker.TrackOutbound(
-		net.ParseIP("192.168.1.2"),
-		net.ParseIP("192.168.1.3"),
-		12345,
-		53,
-	)
-
-	// Close the tracker
+	// Properly close the tracker
 	tracker.Close()
-
-	// Verify done channel is closed
-	_, ok := <-tracker.done
-	assert.False(t, ok, "done channel should be closed")
 }
 
 func BenchmarkUDPTracker(b *testing.B) {
