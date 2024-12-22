@@ -804,7 +804,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	var dnsRouteFeatureFlag bool
 	if networkMap.PeerConfig != nil {
-		dnsRouteFeatureFlag = networkMap.PeerConfig.RoutingPeerDnsResolutionEnabled
+		dnsRouteFeatureFlag = false
 	}
 	routedDomains, routes := toRoutes(networkMap.GetRoutes())
 
