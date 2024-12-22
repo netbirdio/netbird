@@ -164,6 +164,64 @@ func TestTCPStateMachine(t *testing.T) {
 	})
 }
 
+func TestRSTHandling(t *testing.T) {
+	tracker := NewTCPTracker(DefaultTCPTimeout)
+	defer tracker.Close()
+
+	srcIP := net.ParseIP("100.64.0.1")
+	dstIP := net.ParseIP("100.64.0.2")
+	srcPort := uint16(12345)
+	dstPort := uint16(80)
+
+	tests := []struct {
+		name       string
+		setupState func()
+		sendRST    func()
+		wantValid  bool
+		desc       string
+	}{
+		{
+			name: "RST in established",
+			setupState: func() {
+				// Establish connection first
+				tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn)
+				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPSyn|TCPAck)
+				tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck)
+			},
+			sendRST: func() {
+				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst)
+			},
+			wantValid: true,
+			desc:      "Should accept RST for established connection",
+		},
+		{
+			name:       "RST without connection",
+			setupState: func() {},
+			sendRST: func() {
+				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst)
+			},
+			wantValid: false,
+			desc:      "Should reject RST without connection",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setupState()
+			tt.sendRST()
+
+			// Verify connection state is as expected
+			key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+			conn := tracker.connections[key]
+			if tt.wantValid {
+				require.NotNil(t, conn)
+				require.Equal(t, TCPStateClosed, conn.State)
+				require.False(t, conn.IsEstablished())
+			}
+		})
+	}
+}
+
 // Helper to establish a TCP connection
 func establishConnection(t *testing.T, tracker *TCPTracker, srcIP, dstIP net.IP, srcPort, dstPort uint16) {
 	t.Helper()
