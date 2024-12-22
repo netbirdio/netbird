@@ -535,7 +535,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
-		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthUpdate, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account settings: %w", err)
 		}
