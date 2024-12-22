@@ -166,38 +166,14 @@ func TestTCPStateMachine(t *testing.T) {
 
 // Helper to establish a TCP connection
 func establishConnection(t *testing.T, tracker *TCPTracker, srcIP, dstIP net.IP, srcPort, dstPort uint16) {
+	t.Helper()
+
 	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn)
 
 	valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPSyn|TCPAck)
 	require.True(t, valid, "SYN-ACK should be allowed")
 
 	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck)
-}
-
-// Benchmarks for the optimized implementation
-func (t *TCPTracker) benchmarkTrackOutbound(b *testing.B) {
-	srcIP := net.ParseIP("192.168.1.1")
-	dstIP := net.ParseIP("192.168.1.2")
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		t.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn)
-	}
-}
-
-func (t *TCPTracker) benchmarkIsValidInbound(b *testing.B) {
-	srcIP := net.ParseIP("192.168.1.1")
-	dstIP := net.ParseIP("192.168.1.2")
-
-	// Pre-populate some connections
-	for i := 0; i < 1000; i++ {
-		t.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		t.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000), TCPAck)
-	}
 }
 
 func BenchmarkTCPTracker(b *testing.B) {

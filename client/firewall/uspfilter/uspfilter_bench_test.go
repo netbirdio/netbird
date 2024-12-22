@@ -40,6 +40,8 @@ func generateRandomIPs(n int) []net.IP {
 }
 
 func generatePacket(b *testing.B, srcIP, dstIP net.IP, srcPort, dstPort uint16, protocol layers.IPProtocol) []byte {
+	b.Helper()
+
 	ipv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
@@ -292,7 +294,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("100.64.0.0"),
 					Mask: net.CIDRMask(10, 32),
 				}
-				require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
+				b.Setenv("NB_DISABLE_CONNTRACK", "1")
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
 				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolTCP),
@@ -309,7 +311,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("100.64.0.0"),
 					Mask: net.CIDRMask(10, 32),
 				}
-				require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
+				b.Setenv("NB_DISABLE_CONNTRACK", "1")
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
 				// Generate packets with ACK flag for established connection
@@ -327,7 +329,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("100.64.0.0"),
 					Mask: net.CIDRMask(10, 32),
 				}
-				require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
+				b.Setenv("NB_DISABLE_CONNTRACK", "1")
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
 				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
@@ -344,7 +346,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					IP:   net.ParseIP("100.64.0.0"),
 					Mask: net.CIDRMask(10, 32),
 				}
-				require.NoError(b, os.Setenv("NB_DISABLE_CONNTRACK", "1"))
+				b.Setenv("NB_DISABLE_CONNTRACK", "1")
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
 				return generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolUDP),
@@ -487,6 +489,8 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 
 // generateTCPPacketWithFlags creates a TCP packet with specific flags
 func generateTCPPacketWithFlags(b *testing.B, srcIP, dstIP net.IP, srcPort, dstPort, flags uint16) []byte {
+	b.Helper()
+
 	ipv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
