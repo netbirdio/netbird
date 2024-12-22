@@ -1807,7 +1807,6 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
-			RoutingPeerDNSResolutionEnabled: true,
 		},
 	}
 

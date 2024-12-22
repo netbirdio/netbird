@@ -108,9 +108,9 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Settings.JwtAllowGroups != nil {
 		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
 	}
-	if req.Settings.RoutingPeerDnsResolutionEnabled != nil {
-		settings.RoutingPeerDNSResolutionEnabled = *req.Settings.RoutingPeerDnsResolutionEnabled
-	}
+	// if req.Settings.RoutingPeerDnsResolutionEnabled != nil {
+	// 	settings.RoutingPeerDNSResolutionEnabled = *req.Settings.RoutingPeerDnsResolutionEnabled
+	// }
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
@@ -158,7 +158,6 @@ func toAccountResponse(accountID string, settings *types.Settings) *api.Account 
 		JwtGroupsClaimName:              &settings.JWTGroupsClaimName,
 		JwtAllowGroups:                  &jwtAllowGroups,
 		RegularUsersViewBlocked:         settings.RegularUsersViewBlocked,
-		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
 	}
 
 	if settings.Extra != nil {

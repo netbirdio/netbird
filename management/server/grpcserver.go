@@ -608,10 +608,9 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dns
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 	return &proto.PeerConfig{
-		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
-		SshConfig:                       &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
-		Fqdn:                            fqdn,
-		RoutingPeerDnsResolutionEnabled: dnsResolutionOnRoutingPeerEnabled,
+		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
+		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
+		Fqdn:      fqdn,
 	}
 }
 

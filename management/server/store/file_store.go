@@ -98,8 +98,6 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 
 				PeerInactivityExpirationEnabled: false,
 				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
-
-				RoutingPeerDNSResolutionEnabled: true,
 			}
 		}
 
