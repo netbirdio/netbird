@@ -389,16 +389,16 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.checkAndSchedulePeerLoginExpiration(ctx, account)
 	}
 
-	updateAccountPeers := false
-	if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled {
-		if newSettings.RoutingPeerDNSResolutionEnabled {
-			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionEnabled, nil)
-		} else {
-			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
-		}
-		updateAccountPeers = true
-		account.Network.Serial++
-	}
+	// updateAccountPeers := false
+	// if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled {
+	// 	if newSettings.RoutingPeerDNSResolutionEnabled {
+	// 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionEnabled, nil)
+	// 	} else {
+	// 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
+	// 	}
+	// updateAccountPeers = true
+	// 	account.Network.Serial++
+	// }
 
 	err = am.handleInactivityExpirationSettings(ctx, account, oldSettings, newSettings, userID, accountID)
 	if err != nil {
@@ -417,9 +417,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	// if updateAccountPeers {
+	// 	am.UpdateAccountPeers(ctx, accountID)
+	// }
 
 	return updatedAccount, nil
 }
