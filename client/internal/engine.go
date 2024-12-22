@@ -802,14 +802,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 
-	var dnsRouteFeatureFlag bool
-	if networkMap.PeerConfig != nil {
-		dnsRouteFeatureFlag = networkMap.PeerConfig.RoutingPeerDnsResolutionEnabled
-	}
-	routedDomains, routes := toRoutes(networkMap.GetRoutes())
+	// DNS forwarder
+	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
+	dnsRouteDomains := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), networkMap.GetRoutes())
+	e.updateDNSForwarder(dnsRouteFeatureFlag, dnsRouteDomains)
 
-	e.updateDNSForwarder(dnsRouteFeatureFlag, routedDomains)
-
+	routes := toRoutes(networkMap.GetRoutes())
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
@@ -874,12 +872,18 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	return nil
 }
 
-func toRoutes(protoRoutes []*mgmProto.Route) ([]string, []*route.Route) {
+func toDNSFeatureFlag(networkMap *mgmProto.NetworkMap) bool {
+	if networkMap.PeerConfig != nil {
+		return networkMap.PeerConfig.RoutingPeerDnsResolutionEnabled
+	}
+	return false
+}
+
+func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
 	}
 
-	var dnsRoutes []string
 	routes := make([]*route.Route, 0)
 	for _, protoRoute := range protoRoutes {
 		var prefix netip.Prefix
@@ -890,7 +894,6 @@ func toRoutes(protoRoutes []*mgmProto.Route) ([]string, []*route.Route) {
 				continue
 			}
 		}
-		dnsRoutes = append(dnsRoutes, protoRoute.Domains...)
 
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
@@ -905,7 +908,24 @@ func toRoutes(protoRoutes []*mgmProto.Route) ([]string, []*route.Route) {
 		}
 		routes = append(routes, convertedRoute)
 	}
-	return dnsRoutes, routes
+	return routes
+}
+
+func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) []string {
+	if protoRoutes == nil {
+		protoRoutes = []*mgmProto.Route{}
+	}
+
+	var dnsRoutes []string
+	for _, protoRoute := range protoRoutes {
+		if len(protoRoute.Domains) == 0 {
+			continue
+		}
+		if protoRoute.Peer == myPubKey {
+			dnsRoutes = append(dnsRoutes, protoRoute.Domains...)
+		}
+	}
+	return dnsRoutes
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
@@ -1243,7 +1263,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	_, routes := toRoutes(netMap.GetRoutes())
+	routes := toRoutes(netMap.GetRoutes())
 	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
 	return routes, &dnsCfg, nil
 }
