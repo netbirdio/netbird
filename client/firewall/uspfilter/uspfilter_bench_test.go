@@ -487,6 +487,484 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 	}
 }
 
+var scenarios = []struct {
+	name      string
+	stateful  bool // Whether conntrack is enabled
+	rules     bool // Whether to add return traffic rules
+	routed    bool // Whether to test routed network traffic
+	connCount int  // Number of concurrent connections
+	desc      string
+}{
+	{
+		name:      "stateless_with_rules_100conns",
+		stateful:  false,
+		rules:     true,
+		routed:    false,
+		connCount: 100,
+		desc:      "Pure stateless with return traffic rules, 100 conns",
+	},
+	{
+		name:      "stateless_with_rules_1000conns",
+		stateful:  false,
+		rules:     true,
+		routed:    false,
+		connCount: 1000,
+		desc:      "Pure stateless with return traffic rules, 1000 conns",
+	},
+	{
+		name:      "stateful_no_rules_100conns",
+		stateful:  true,
+		rules:     false,
+		routed:    false,
+		connCount: 100,
+		desc:      "Pure stateful tracking without rules, 100 conns",
+	},
+	{
+		name:      "stateful_no_rules_1000conns",
+		stateful:  true,
+		rules:     false,
+		routed:    false,
+		connCount: 1000,
+		desc:      "Pure stateful tracking without rules, 1000 conns",
+	},
+	{
+		name:      "stateful_with_rules_100conns",
+		stateful:  true,
+		rules:     true,
+		routed:    false,
+		connCount: 100,
+		desc:      "Combined stateful + rules (current implementation), 100 conns",
+	},
+	{
+		name:      "stateful_with_rules_1000conns",
+		stateful:  true,
+		rules:     true,
+		routed:    false,
+		connCount: 1000,
+		desc:      "Combined stateful + rules (current implementation), 1000 conns",
+	},
+	{
+		name:      "routed_network_100conns",
+		stateful:  true,
+		rules:     false,
+		routed:    true,
+		connCount: 100,
+		desc:      "Routed network traffic (non-WG), 100 conns",
+	},
+	{
+		name:      "routed_network_1000conns",
+		stateful:  true,
+		rules:     false,
+		routed:    true,
+		connCount: 1000,
+		desc:      "Routed network traffic (non-WG), 1000 conns",
+	},
+}
+
+// BenchmarkLongLivedConnections tests performance with realistic TCP traffic patterns
+func BenchmarkLongLivedConnections(b *testing.B) {
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			// Configure stateful/stateless mode
+			if !sc.stateful {
+				b.Setenv("NB_DISABLE_CONNTRACK", "1")
+			} else {
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
+			}
+
+			manager, _ := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			})
+			defer b.Cleanup(func() {
+				require.NoError(b, manager.Reset(nil))
+			})
+
+			manager.SetNetwork(&net.IPNet{
+				IP:   net.ParseIP("100.64.0.0"),
+				Mask: net.CIDRMask(10, 32),
+			})
+
+			// Setup initial state based on scenario
+			if sc.rules {
+				// Single rule to allow all return traffic from port 80
+				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
+					&fw.Port{Values: []int{80}},
+					nil,
+					fw.RuleDirectionIN, fw.ActionAccept, "", "return traffic")
+				require.NoError(b, err)
+			}
+
+			// Generate IPs for connections
+			srcIPs := make([]net.IP, sc.connCount)
+			dstIPs := make([]net.IP, sc.connCount)
+
+			for i := 0; i < sc.connCount; i++ {
+				if sc.routed {
+					srcIPs[i] = net.IPv4(192, 168, 1, byte(2+(i%250))).To4()
+					dstIPs[i] = net.IPv4(8, 8, byte((i/250)%255), byte(2+(i%250))).To4()
+				} else {
+					srcIPs[i] = generateRandomIPs(1)[0]
+					dstIPs[i] = generateRandomIPs(1)[0]
+				}
+			}
+
+			// Create established connections
+			for i := 0; i < sc.connCount; i++ {
+				// Initial SYN
+				syn := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+					uint16(1024+i), 80, uint16(conntrack.TCPSyn))
+				manager.processOutgoingHooks(syn)
+
+				// SYN-ACK
+				synack := generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+					80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck))
+				manager.dropFilter(synack, manager.incomingRules)
+
+				// ACK
+				ack := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+					uint16(1024+i), 80, uint16(conntrack.TCPAck))
+				manager.processOutgoingHooks(ack)
+			}
+
+			// Prepare test packets simulating bidirectional traffic
+			inPackets := make([][]byte, sc.connCount)
+			outPackets := make([][]byte, sc.connCount)
+			for i := 0; i < sc.connCount; i++ {
+				// Server -> Client (inbound)
+				inPackets[i] = generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+					80, uint16(1024+i), uint16(conntrack.TCPPush|conntrack.TCPAck))
+				// Client -> Server (outbound)
+				outPackets[i] = generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+					uint16(1024+i), 80, uint16(conntrack.TCPPush|conntrack.TCPAck))
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				connIdx := i % sc.connCount
+
+				// Simulate bidirectional traffic
+				// First outbound data
+				manager.processOutgoingHooks(outPackets[connIdx])
+				// Then inbound response - this is what we're actually measuring
+				manager.dropFilter(inPackets[connIdx], manager.incomingRules)
+			}
+		})
+	}
+}
+
+// BenchmarkShortLivedConnections tests performance with many short-lived connections
+func BenchmarkShortLivedConnections(b *testing.B) {
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			// Configure stateful/stateless mode
+			if !sc.stateful {
+				b.Setenv("NB_DISABLE_CONNTRACK", "1")
+			} else {
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
+			}
+
+			manager, _ := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			})
+			defer b.Cleanup(func() {
+				require.NoError(b, manager.Reset(nil))
+			})
+
+			manager.SetNetwork(&net.IPNet{
+				IP:   net.ParseIP("100.64.0.0"),
+				Mask: net.CIDRMask(10, 32),
+			})
+
+			// Setup initial state based on scenario
+			if sc.rules {
+				// Single rule to allow all return traffic from port 80
+				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
+					&fw.Port{Values: []int{80}},
+					nil,
+					fw.RuleDirectionIN, fw.ActionAccept, "", "return traffic")
+				require.NoError(b, err)
+			}
+
+			// Generate IPs for connections
+			srcIPs := make([]net.IP, sc.connCount)
+			dstIPs := make([]net.IP, sc.connCount)
+
+			for i := 0; i < sc.connCount; i++ {
+				if sc.routed {
+					srcIPs[i] = net.IPv4(192, 168, 1, byte(2+(i%250))).To4()
+					dstIPs[i] = net.IPv4(8, 8, byte((i/250)%255), byte(2+(i%250))).To4()
+				} else {
+					srcIPs[i] = generateRandomIPs(1)[0]
+					dstIPs[i] = generateRandomIPs(1)[0]
+				}
+			}
+
+			// Create packet patterns for a complete HTTP-like short connection:
+			// 1. Initial handshake (SYN, SYN-ACK, ACK)
+			// 2. HTTP Request (PSH+ACK from client)
+			// 3. HTTP Response (PSH+ACK from server)
+			// 4. Connection teardown (FIN+ACK, ACK, FIN+ACK, ACK)
+			type connPackets struct {
+				syn       []byte
+				synAck    []byte
+				ack       []byte
+				request   []byte
+				response  []byte
+				finClient []byte
+				ackServer []byte
+				finServer []byte
+				ackClient []byte
+			}
+
+			// Generate all possible connection patterns
+			patterns := make([]connPackets, sc.connCount)
+			for i := 0; i < sc.connCount; i++ {
+				patterns[i] = connPackets{
+					// Handshake
+					syn: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPSyn)),
+					synAck: generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck)),
+					ack: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPAck)),
+
+					// Data transfer
+					request: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPPush|conntrack.TCPAck)),
+					response: generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPPush|conntrack.TCPAck)),
+
+					// Connection teardown
+					finClient: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPFin|conntrack.TCPAck)),
+					ackServer: generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPAck)),
+					finServer: generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPFin|conntrack.TCPAck)),
+					ackClient: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPAck)),
+				}
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				// Each iteration creates a new short-lived connection
+				connIdx := i % sc.connCount
+				p := patterns[connIdx]
+
+				// Connection establishment
+				manager.processOutgoingHooks(p.syn)
+				manager.dropFilter(p.synAck, manager.incomingRules)
+				manager.processOutgoingHooks(p.ack)
+
+				// Data transfer
+				manager.processOutgoingHooks(p.request)
+				manager.dropFilter(p.response, manager.incomingRules)
+
+				// Connection teardown
+				manager.processOutgoingHooks(p.finClient)
+				manager.dropFilter(p.ackServer, manager.incomingRules)
+				manager.dropFilter(p.finServer, manager.incomingRules)
+				manager.processOutgoingHooks(p.ackClient)
+			}
+		})
+	}
+}
+
+// BenchmarkParallelLongLivedConnections tests performance with realistic TCP traffic patterns in parallel
+func BenchmarkParallelLongLivedConnections(b *testing.B) {
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			// Configure stateful/stateless mode
+			if !sc.stateful {
+				b.Setenv("NB_DISABLE_CONNTRACK", "1")
+			} else {
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
+			}
+
+			manager, _ := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			})
+			defer b.Cleanup(func() {
+				require.NoError(b, manager.Reset(nil))
+			})
+
+			manager.SetNetwork(&net.IPNet{
+				IP:   net.ParseIP("100.64.0.0"),
+				Mask: net.CIDRMask(10, 32),
+			})
+
+			// Setup initial state based on scenario
+			if sc.rules {
+				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
+					&fw.Port{Values: []int{80}},
+					nil,
+					fw.RuleDirectionIN, fw.ActionAccept, "", "return traffic")
+				require.NoError(b, err)
+			}
+
+			// Generate IPs for connections
+			srcIPs := make([]net.IP, sc.connCount)
+			dstIPs := make([]net.IP, sc.connCount)
+
+			for i := 0; i < sc.connCount; i++ {
+				if sc.routed {
+					srcIPs[i] = net.IPv4(192, 168, 1, byte(2+(i%250))).To4()
+					dstIPs[i] = net.IPv4(8, 8, byte((i/250)%255), byte(2+(i%250))).To4()
+				} else {
+					srcIPs[i] = generateRandomIPs(1)[0]
+					dstIPs[i] = generateRandomIPs(1)[0]
+				}
+			}
+
+			// Create established connections
+			for i := 0; i < sc.connCount; i++ {
+				syn := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+					uint16(1024+i), 80, uint16(conntrack.TCPSyn))
+				manager.processOutgoingHooks(syn)
+
+				synack := generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+					80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck))
+				manager.dropFilter(synack, manager.incomingRules)
+
+				ack := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+					uint16(1024+i), 80, uint16(conntrack.TCPAck))
+				manager.processOutgoingHooks(ack)
+			}
+
+			// Pre-generate test packets
+			inPackets := make([][]byte, sc.connCount)
+			outPackets := make([][]byte, sc.connCount)
+			for i := 0; i < sc.connCount; i++ {
+				inPackets[i] = generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+					80, uint16(1024+i), uint16(conntrack.TCPPush|conntrack.TCPAck))
+				outPackets[i] = generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+					uint16(1024+i), 80, uint16(conntrack.TCPPush|conntrack.TCPAck))
+			}
+
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				// Each goroutine gets its own counter to distribute load
+				counter := 0
+				for pb.Next() {
+					connIdx := counter % sc.connCount
+					counter++
+
+					// Simulate bidirectional traffic
+					manager.processOutgoingHooks(outPackets[connIdx])
+					manager.dropFilter(inPackets[connIdx], manager.incomingRules)
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkParallelShortLivedConnections tests performance with many short-lived connections in parallel
+func BenchmarkParallelShortLivedConnections(b *testing.B) {
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			// Configure stateful/stateless mode
+			if !sc.stateful {
+				b.Setenv("NB_DISABLE_CONNTRACK", "1")
+			} else {
+				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
+			}
+
+			manager, _ := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			})
+			defer b.Cleanup(func() {
+				require.NoError(b, manager.Reset(nil))
+			})
+
+			manager.SetNetwork(&net.IPNet{
+				IP:   net.ParseIP("100.64.0.0"),
+				Mask: net.CIDRMask(10, 32),
+			})
+
+			if sc.rules {
+				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
+					&fw.Port{Values: []int{80}},
+					nil,
+					fw.RuleDirectionIN, fw.ActionAccept, "", "return traffic")
+				require.NoError(b, err)
+			}
+
+			// Generate IPs and pre-generate all packet patterns
+			srcIPs := make([]net.IP, sc.connCount)
+			dstIPs := make([]net.IP, sc.connCount)
+			for i := 0; i < sc.connCount; i++ {
+				if sc.routed {
+					srcIPs[i] = net.IPv4(192, 168, 1, byte(2+(i%250))).To4()
+					dstIPs[i] = net.IPv4(8, 8, byte((i/250)%255), byte(2+(i%250))).To4()
+				} else {
+					srcIPs[i] = generateRandomIPs(1)[0]
+					dstIPs[i] = generateRandomIPs(1)[0]
+				}
+			}
+
+			type connPackets struct {
+				syn       []byte
+				synAck    []byte
+				ack       []byte
+				request   []byte
+				response  []byte
+				finClient []byte
+				ackServer []byte
+				finServer []byte
+				ackClient []byte
+			}
+
+			patterns := make([]connPackets, sc.connCount)
+			for i := 0; i < sc.connCount; i++ {
+				patterns[i] = connPackets{
+					syn: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPSyn)),
+					synAck: generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck)),
+					ack: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPAck)),
+					request: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPPush|conntrack.TCPAck)),
+					response: generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPPush|conntrack.TCPAck)),
+					finClient: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPFin|conntrack.TCPAck)),
+					ackServer: generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPAck)),
+					finServer: generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPFin|conntrack.TCPAck)),
+					ackClient: generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPAck)),
+				}
+			}
+
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				counter := 0
+				for pb.Next() {
+					connIdx := counter % sc.connCount
+					counter++
+					p := patterns[connIdx]
+
+					// Full connection lifecycle
+					manager.processOutgoingHooks(p.syn)
+					manager.dropFilter(p.synAck, manager.incomingRules)
+					manager.processOutgoingHooks(p.ack)
+
+					manager.processOutgoingHooks(p.request)
+					manager.dropFilter(p.response, manager.incomingRules)
+
+					manager.processOutgoingHooks(p.finClient)
+					manager.dropFilter(p.ackServer, manager.incomingRules)
+					manager.dropFilter(p.finServer, manager.incomingRules)
+					manager.processOutgoingHooks(p.ackClient)
+				}
+			})
+		})
+	}
+}
+
 // generateTCPPacketWithFlags creates a TCP packet with specific flags
 func generateTCPPacketWithFlags(b *testing.B, srcIP, dstIP net.IP, srcPort, dstPort, flags uint16) []byte {
 	b.Helper()
