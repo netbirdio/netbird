@@ -2,7 +2,6 @@ package conntrack
 
 import (
 	"net"
-	"slices"
 	"sync"
 	"time"
 )
@@ -14,22 +13,9 @@ const (
 	UDPCleanupInterval = 15 * time.Second
 )
 
-type ConnKey struct {
-	// Supports both IPv4 and IPv6
-	SrcIP   [16]byte
-	DstIP   [16]byte
-	SrcPort uint16
-	DstPort uint16
-}
-
 // UDPConnTrack represents a UDP connection state
 type UDPConnTrack struct {
-	SourceIP    net.IP
-	DestIP      net.IP
-	SourcePort  uint16
-	DestPort    uint16
-	LastSeen    time.Time
-	established bool
+	BaseConnTrack
 }
 
 // UDPTracker manages UDP connection states
@@ -39,6 +25,7 @@ type UDPTracker struct {
 	cleanupTicker *time.Ticker
 	mutex         sync.RWMutex
 	done          chan struct{}
+	ipPool        *PreallocatedIPs
 }
 
 // NewUDPTracker creates a new UDP connection tracker
@@ -52,6 +39,7 @@ func NewUDPTracker(timeout time.Duration) *UDPTracker {
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
 		done:          make(chan struct{}),
+		ipPool:        NewPreallocatedIPs(),
 	}
 
 	go tracker.cleanupRoutine()
@@ -60,49 +48,55 @@ func NewUDPTracker(timeout time.Duration) *UDPTracker {
 
 // TrackOutbound records an outbound UDP connection
 func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
-	key := makeKey(srcIP, srcPort, dstIP, dstPort)
+	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+	now := time.Now().UnixNano()
 
 	t.mutex.Lock()
-	defer t.mutex.Unlock()
+	conn, exists := t.connections[key]
+	if !exists {
+		srcIPCopy := t.ipPool.Get()
+		dstIPCopy := t.ipPool.Get()
+		copyIP(srcIPCopy, srcIP)
+		copyIP(dstIPCopy, dstIP)
 
-	t.connections[key] = &UDPConnTrack{
-		SourceIP:    slices.Clone(srcIP),
-		DestIP:      slices.Clone(dstIP),
-		SourcePort:  srcPort,
-		DestPort:    dstPort,
-		LastSeen:    time.Now(),
-		established: true,
+		conn = &UDPConnTrack{
+			BaseConnTrack: BaseConnTrack{
+				SourceIP:   srcIPCopy,
+				DestIP:     dstIPCopy,
+				SourcePort: srcPort,
+				DestPort:   dstPort,
+			},
+		}
+		conn.lastSeen.Store(now)
+		conn.established.Store(true)
+		t.connections[key] = conn
 	}
+	t.mutex.Unlock()
+
+	conn.lastSeen.Store(now)
 }
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
 func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) bool {
-	t.mutex.RLock()
-	defer t.mutex.RUnlock()
+	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
 
-	key := makeKey(dstIP, dstPort, srcIP, srcPort)
+	t.mutex.RLock()
 	conn, exists := t.connections[key]
+	t.mutex.RUnlock()
+
 	if !exists {
 		return false
 	}
 
-	// Check if connection is still valid
-	if time.Since(conn.LastSeen) > t.timeout {
+	if conn.timeoutExceeded(t.timeout) {
 		return false
 	}
 
-	if conn.established &&
-		conn.DestIP.Equal(srcIP) &&
-		conn.SourceIP.Equal(dstIP) &&
+	return conn.IsEstablished() &&
+		ValidateIPs(makeIPAddr(srcIP), conn.DestIP) &&
+		ValidateIPs(makeIPAddr(dstIP), conn.SourceIP) &&
 		conn.DestPort == srcPort &&
-		conn.SourcePort == dstPort {
-
-		conn.LastSeen = time.Now()
-
-		return true
-	}
-
-	return false
+		conn.SourcePort == dstPort
 }
 
 // cleanupRoutine periodically removes stale connections
@@ -121,9 +115,10 @@ func (t *UDPTracker) cleanup() {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	now := time.Now()
 	for key, conn := range t.connections {
-		if now.Sub(conn.LastSeen) > t.timeout {
+		if conn.timeoutExceeded(t.timeout) {
+			t.ipPool.Put(conn.SourceIP)
+			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 		}
 	}
@@ -133,6 +128,14 @@ func (t *UDPTracker) cleanup() {
 func (t *UDPTracker) Close() {
 	t.cleanupTicker.Stop()
 	close(t.done)
+
+	t.mutex.Lock()
+	for _, conn := range t.connections {
+		t.ipPool.Put(conn.SourceIP)
+		t.ipPool.Put(conn.DestIP)
+	}
+	t.connections = nil
+	t.mutex.Unlock()
 }
 
 // GetConnection safely retrieves a connection state
@@ -140,20 +143,28 @@ func (t *UDPTracker) GetConnection(srcIP net.IP, srcPort uint16, dstIP net.IP, d
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 
-	key := makeKey(srcIP, srcPort, dstIP, dstPort)
+	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 	conn, exists := t.connections[key]
 	if !exists {
 		return nil, false
 	}
 
+	// Create a copy with new IP allocations
+	srcIPCopy := t.ipPool.Get()
+	dstIPCopy := t.ipPool.Get()
+	copyIP(srcIPCopy, conn.SourceIP)
+	copyIP(dstIPCopy, conn.DestIP)
+
 	connCopy := &UDPConnTrack{
-		SourceIP:    slices.Clone(conn.SourceIP),
-		DestIP:      slices.Clone(conn.DestIP),
-		SourcePort:  conn.SourcePort,
-		DestPort:    conn.DestPort,
-		LastSeen:    conn.LastSeen,
-		established: conn.established,
+		BaseConnTrack: BaseConnTrack{
+			SourceIP:   srcIPCopy,
+			DestIP:     dstIPCopy,
+			SourcePort: conn.SourcePort,
+			DestPort:   conn.DestPort,
+		},
 	}
+	connCopy.lastSeen.Store(conn.lastSeen.Load())
+	connCopy.established.Store(conn.IsEstablished())
 
 	return connCopy, true
 }

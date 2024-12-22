@@ -58,8 +58,8 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 	assert.True(t, conn.DestIP.Equal(dstIP))
 	assert.Equal(t, srcPort, conn.SourcePort)
 	assert.Equal(t, dstPort, conn.DestPort)
-	assert.True(t, conn.established)
-	assert.WithinDuration(t, time.Now(), conn.LastSeen, 1*time.Second)
+	assert.True(t, conn.IsEstablished())
+	assert.WithinDuration(t, time.Now(), conn.GetLastSeen(), 1*time.Second)
 }
 
 func TestUDPTracker_IsValidInbound(t *testing.T) {
@@ -231,4 +231,37 @@ func TestUDPTracker_Close(t *testing.T) {
 	// Verify done channel is closed
 	_, ok := <-tracker.done
 	assert.False(t, ok, "done channel should be closed")
+}
+
+func BenchmarkUDPTracker(b *testing.B) {
+	b.Run("TrackOutbound", func(b *testing.B) {
+		tracker := NewUDPTracker(DefaultUDPTimeout)
+		defer tracker.Close()
+
+		srcIP := net.ParseIP("192.168.1.1")
+		dstIP := net.ParseIP("192.168.1.2")
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80)
+		}
+	})
+
+	b.Run("IsValidInbound", func(b *testing.B) {
+		tracker := NewUDPTracker(DefaultUDPTimeout)
+		defer tracker.Close()
+
+		srcIP := net.ParseIP("192.168.1.1")
+		dstIP := net.ParseIP("192.168.1.2")
+
+		// Pre-populate some connections
+		for i := 0; i < 1000; i++ {
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80)
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000))
+		}
+	})
 }

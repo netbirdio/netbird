@@ -630,7 +630,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 		if cp.shouldAllow {
 			conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
 			require.True(t, exists, "Connection should still exist during valid window")
-			require.True(t, time.Since(conn.LastSeen) < manager.udpTracker.Timeout(),
+			require.True(t, time.Since(conn.GetLastSeen()) < manager.udpTracker.Timeout(),
 				"LastSeen should be updated for valid responses")
 		}
 	}

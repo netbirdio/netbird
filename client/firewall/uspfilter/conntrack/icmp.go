@@ -2,7 +2,6 @@ package conntrack
 
 import (
 	"net"
-	"slices"
 	"sync"
 	"time"
 
@@ -27,12 +26,9 @@ type ICMPConnKey struct {
 
 // ICMPConnTrack represents an ICMP connection state
 type ICMPConnTrack struct {
-	SourceIP    net.IP
-	DestIP      net.IP
-	Sequence    uint16
-	ID          uint16
-	LastSeen    time.Time
-	established bool
+	BaseConnTrack
+	Sequence uint16
+	ID       uint16
 }
 
 // ICMPTracker manages ICMP connection states
@@ -42,6 +38,7 @@ type ICMPTracker struct {
 	cleanupTicker *time.Ticker
 	mutex         sync.RWMutex
 	done          chan struct{}
+	ipPool        *PreallocatedIPs
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
@@ -55,6 +52,7 @@ func NewICMPTracker(timeout time.Duration) *ICMPTracker {
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(ICMPCleanupInterval),
 		done:          make(chan struct{}),
+		ipPool:        NewPreallocatedIPs(),
 	}
 
 	go tracker.cleanupRoutine()
@@ -64,29 +62,41 @@ func NewICMPTracker(timeout time.Duration) *ICMPTracker {
 // TrackOutbound records an outbound ICMP Echo Request
 func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) {
 	key := makeICMPKey(srcIP, dstIP, id, seq)
+	now := time.Now().UnixNano()
 
 	t.mutex.Lock()
-	defer t.mutex.Unlock()
+	conn, exists := t.connections[key]
+	if !exists {
+		srcIPCopy := t.ipPool.Get()
+		dstIPCopy := t.ipPool.Get()
+		copyIP(srcIPCopy, srcIP)
+		copyIP(dstIPCopy, dstIP)
 
-	t.connections[key] = &ICMPConnTrack{
-		SourceIP:    slices.Clone(srcIP),
-		DestIP:      slices.Clone(dstIP),
-		ID:          id,
-		Sequence:    seq,
-		LastSeen:    time.Now(),
-		established: true,
+		conn = &ICMPConnTrack{
+			BaseConnTrack: BaseConnTrack{
+				SourceIP: srcIPCopy,
+				DestIP:   dstIPCopy,
+			},
+			ID:       id,
+			Sequence: seq,
+		}
+		conn.lastSeen.Store(now)
+		conn.established.Store(true)
+		t.connections[key] = conn
 	}
+	t.mutex.Unlock()
+
+	conn.lastSeen.Store(now)
 }
 
 // IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request
 func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, icmpType uint8) bool {
 	switch icmpType {
-	// For Destination Unreachable and Time Exceeded, always allow
-	case uint8(layers.ICMPv4TypeDestinationUnreachable), uint8(layers.ICMPv4TypeTimeExceeded):
+	case uint8(layers.ICMPv4TypeDestinationUnreachable),
+		uint8(layers.ICMPv4TypeTimeExceeded):
 		return true
-	// For Echo Reply, check if we have a matching request
 	case uint8(layers.ICMPv4TypeEchoReply):
-		// continue further down
+		// continue processing
 	default:
 		return false
 	}
@@ -94,29 +104,22 @@ func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq 
 	key := makeICMPKey(dstIP, srcIP, id, seq)
 
 	t.mutex.RLock()
-	defer t.mutex.RUnlock()
-
 	conn, exists := t.connections[key]
+	t.mutex.RUnlock()
+
 	if !exists {
 		return false
 	}
 
-	// Check if connection is still valid
-	if time.Since(conn.LastSeen) > t.timeout {
+	if conn.timeoutExceeded(t.timeout) {
 		return false
 	}
 
-	if conn.established &&
-		conn.DestIP.Equal(srcIP) &&
-		conn.SourceIP.Equal(dstIP) &&
+	return conn.IsEstablished() &&
+		ValidateIPs(makeIPAddr(srcIP), conn.DestIP) &&
+		ValidateIPs(makeIPAddr(dstIP), conn.SourceIP) &&
 		conn.ID == id &&
-		conn.Sequence == seq {
-
-		conn.LastSeen = time.Now()
-		return true
-	}
-
-	return false
+		conn.Sequence == seq
 }
 
 func (t *ICMPTracker) cleanupRoutine() {
@@ -129,14 +132,14 @@ func (t *ICMPTracker) cleanupRoutine() {
 		}
 	}
 }
-
 func (t *ICMPTracker) cleanup() {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	now := time.Now()
 	for key, conn := range t.connections {
-		if now.Sub(conn.LastSeen) > t.timeout {
+		if conn.timeoutExceeded(t.timeout) {
+			t.ipPool.Put(conn.SourceIP)
+			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 		}
 	}
@@ -146,15 +149,21 @@ func (t *ICMPTracker) cleanup() {
 func (t *ICMPTracker) Close() {
 	t.cleanupTicker.Stop()
 	close(t.done)
+
+	t.mutex.Lock()
+	for _, conn := range t.connections {
+		t.ipPool.Put(conn.SourceIP)
+		t.ipPool.Put(conn.DestIP)
+	}
+	t.connections = nil
+	t.mutex.Unlock()
 }
 
+// makeICMPKey creates an ICMP connection key
 func makeICMPKey(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) ICMPConnKey {
-	var srcAddr, dstAddr [16]byte
-	copy(srcAddr[:], srcIP.To16())
-	copy(dstAddr[:], dstIP.To16())
 	return ICMPConnKey{
-		SrcIP:    srcAddr,
-		DstIP:    dstAddr,
+		SrcIP:    makeIPAddr(srcIP),
+		DstIP:    makeIPAddr(dstIP),
 		ID:       id,
 		Sequence: seq,
 	}

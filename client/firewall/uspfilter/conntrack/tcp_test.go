@@ -3,6 +3,7 @@ package conntrack
 import (
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -159,4 +160,106 @@ func establishConnection(t *testing.T, tracker *TCPTracker, srcIP, dstIP net.IP,
 	require.True(t, valid, "SYN-ACK should be allowed")
 
 	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck)
+}
+
+// Benchmarks for the optimized implementation
+func (t *TCPTracker) benchmarkTrackOutbound(b *testing.B) {
+	srcIP := net.ParseIP("192.168.1.1")
+	dstIP := net.ParseIP("192.168.1.2")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn)
+	}
+}
+
+func (t *TCPTracker) benchmarkIsValidInbound(b *testing.B) {
+	srcIP := net.ParseIP("192.168.1.1")
+	dstIP := net.ParseIP("192.168.1.2")
+
+	// Pre-populate some connections
+	for i := 0; i < 1000; i++ {
+		t.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000), TCPAck)
+	}
+}
+
+func BenchmarkTCPTracker(b *testing.B) {
+	b.Run("TrackOutbound", func(b *testing.B) {
+		tracker := NewTCPTracker(DefaultTCPTimeout)
+		defer tracker.Close()
+
+		srcIP := net.ParseIP("192.168.1.1")
+		dstIP := net.ParseIP("192.168.1.2")
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn)
+		}
+	})
+
+	b.Run("IsValidInbound", func(b *testing.B) {
+		tracker := NewTCPTracker(DefaultTCPTimeout)
+		defer tracker.Close()
+
+		srcIP := net.ParseIP("192.168.1.1")
+		dstIP := net.ParseIP("192.168.1.2")
+
+		// Pre-populate some connections
+		for i := 0; i < 1000; i++ {
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn)
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000), TCPAck)
+		}
+	})
+
+	b.Run("ConcurrentAccess", func(b *testing.B) {
+		tracker := NewTCPTracker(DefaultTCPTimeout)
+		defer tracker.Close()
+
+		srcIP := net.ParseIP("192.168.1.1")
+		dstIP := net.ParseIP("192.168.1.2")
+
+		b.RunParallel(func(pb *testing.PB) {
+			i := 0
+			for pb.Next() {
+				if i%2 == 0 {
+					tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn)
+				} else {
+					tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%65535), TCPAck)
+				}
+				i++
+			}
+		})
+	})
+}
+
+// Benchmark connection cleanup
+func BenchmarkCleanup(b *testing.B) {
+	b.Run("TCPCleanup", func(b *testing.B) {
+		tracker := NewTCPTracker(100 * time.Millisecond) // Short timeout for testing
+		defer tracker.Close()
+
+		// Pre-populate with expired connections
+		srcIP := net.ParseIP("192.168.1.1")
+		dstIP := net.ParseIP("192.168.1.2")
+		for i := 0; i < 10000; i++ {
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn)
+		}
+
+		// Wait for connections to expire
+		time.Sleep(200 * time.Millisecond)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			tracker.cleanup()
+		}
+	})
 }

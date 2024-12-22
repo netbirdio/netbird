@@ -4,7 +4,6 @@ package conntrack
 
 import (
 	"net"
-	"slices"
 	"sync"
 	"time"
 )
@@ -61,31 +60,28 @@ type TCPConnKey struct {
 
 // TCPConnTrack represents a TCP connection state
 type TCPConnTrack struct {
-	SourceIP    net.IP
-	DestIP      net.IP
-	SourcePort  uint16
-	DestPort    uint16
-	State       TCPState
-	LastSeen    time.Time
-	established bool
+	BaseConnTrack
+	State TCPState
 }
 
 // TCPTracker manages TCP connection states
 type TCPTracker struct {
-	connections   map[TCPConnKey]*TCPConnTrack
+	connections   map[ConnKey]*TCPConnTrack
 	mutex         sync.RWMutex
 	cleanupTicker *time.Ticker
 	done          chan struct{}
 	timeout       time.Duration
+	ipPool        *PreallocatedIPs
 }
 
 // NewTCPTracker creates a new TCP connection tracker
 func NewTCPTracker(timeout time.Duration) *TCPTracker {
 	tracker := &TCPTracker{
-		connections:   make(map[TCPConnKey]*TCPConnTrack),
+		connections:   make(map[ConnKey]*TCPConnTrack),
 		cleanupTicker: time.NewTicker(TCPCleanupInterval),
 		done:          make(chan struct{}),
 		timeout:       timeout,
+		ipPool:        NewPreallocatedIPs(),
 	}
 
 	go tracker.cleanupRoutine()
@@ -94,88 +90,108 @@ func NewTCPTracker(timeout time.Duration) *TCPTracker {
 
 // TrackOutbound processes an outbound TCP packet and updates connection state
 func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
-
-	key := makeTCPKey(srcIP, dstIP, srcPort, dstPort)
-	now := time.Now()
+	// Create key before lock
+	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+	now := time.Now().UnixNano()
 
 	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
 	conn, exists := t.connections[key]
 	if !exists {
+		// Use preallocated IPs
+		srcIPCopy := t.ipPool.Get()
+		dstIPCopy := t.ipPool.Get()
+		copyIP(srcIPCopy, srcIP)
+		copyIP(dstIPCopy, dstIP)
+
 		conn = &TCPConnTrack{
-			SourceIP:    slices.Clone(srcIP),
-			DestIP:      slices.Clone(dstIP),
-			SourcePort:  srcPort,
-			DestPort:    dstPort,
-			State:       TCPStateNew,
-			LastSeen:    now,
-			established: false,
+			BaseConnTrack: BaseConnTrack{
+				SourceIP:   srcIPCopy,
+				DestIP:     dstIPCopy,
+				SourcePort: srcPort,
+				DestPort:   dstPort,
+			},
+			State: TCPStateNew,
 		}
+		conn.lastSeen.Store(now)
+		conn.established.Store(false)
 		t.connections[key] = conn
 	}
+	t.mutex.Unlock()
 
-	// Update connection state based on TCP flags
+	// Lock individual connection for state update
+	conn.Lock()
 	t.updateState(conn, flags, true)
-	conn.LastSeen = now
+	conn.Unlock()
+	conn.lastSeen.Store(now)
 }
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection
 func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) bool {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	// Always validate flag combinations first
 	if !isValidFlagCombination(flags) {
 		return false
 	}
 
-	// For SYN packets (new connection attempts), allow only pure SYN
-	if flags&TCPSyn != 0 {
-		if flags&TCPAck == 0 {
-			key := makeTCPKey(dstIP, srcIP, dstPort, srcPort)
-			t.connections[key] = &TCPConnTrack{
-				SourceIP:    slices.Clone(dstIP),
-				DestIP:      slices.Clone(srcIP),
-				SourcePort:  dstPort,
-				DestPort:    srcPort,
-				State:       TCPStateSynReceived,
-				LastSeen:    time.Now(),
-				established: false,
+	// Handle new SYN packets
+	if flags&TCPSyn != 0 && flags&TCPAck == 0 {
+		key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
+		t.mutex.Lock()
+		if _, exists := t.connections[key]; !exists {
+			// Use preallocated IPs
+			srcIPCopy := t.ipPool.Get()
+			dstIPCopy := t.ipPool.Get()
+			copyIP(srcIPCopy, dstIP)
+			copyIP(dstIPCopy, srcIP)
+
+			conn := &TCPConnTrack{
+				BaseConnTrack: BaseConnTrack{
+					SourceIP:   srcIPCopy,
+					DestIP:     dstIPCopy,
+					SourcePort: dstPort,
+					DestPort:   srcPort,
+				},
+				State: TCPStateSynReceived,
 			}
-			return true
+			conn.lastSeen.Store(time.Now().UnixNano())
+			conn.established.Store(false)
+			t.connections[key] = conn
 		}
-		// If it's SYN+ACK, let it fall through to normal processing
+		t.mutex.Unlock()
+		return true
 	}
 
-	key := makeTCPKey(dstIP, srcIP, dstPort, srcPort)
+	// Look up existing connection
+	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
+	t.mutex.RLock()
 	conn, exists := t.connections[key]
+	t.mutex.RUnlock()
+
 	if !exists {
 		return false
 	}
 
-	// Handle RST packets - only allow for existing connections
+	// Handle RST packets
 	if flags&TCPRst != 0 {
-		if conn.established || conn.State == TCPStateSynSent || conn.State == TCPStateSynReceived {
+		conn.Lock()
+		isEstablished := conn.IsEstablished()
+		if isEstablished || conn.State == TCPStateSynSent || conn.State == TCPStateSynReceived {
 			conn.State = TCPStateClosed
-			conn.established = false
+			conn.SetEstablished(false)
+			conn.Unlock()
 			return true
 		}
+		conn.Unlock()
 		return false
 	}
 
-	// Special handling for FIN state
-	if conn.State == TCPStateFinWait1 || conn.State == TCPStateFinWait2 {
-		t.updateState(conn, flags, false)
-		conn.LastSeen = time.Now()
-		return true
-	}
-
+	// Update state
+	conn.Lock()
 	t.updateState(conn, flags, false)
-	conn.LastSeen = time.Now()
+	conn.UpdateLastSeen()
+	isEstablished := conn.IsEstablished()
+	isValidState := t.isValidStateForFlags(conn.State, flags)
+	conn.Unlock()
 
-	// Allow if established or in a valid state for the flags
-	return conn.established || t.isValidStateForFlags(conn.State, flags)
+	return isEstablished || isValidState
 }
 
 // updateState updates the TCP connection state based on flags
@@ -183,7 +199,7 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 	// Handle RST flag specially - it always causes transition to closed
 	if flags&TCPRst != 0 {
 		conn.State = TCPStateClosed
-		conn.established = false
+		conn.SetEstablished(false)
 		return
 	}
 
@@ -200,14 +216,14 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 			} else {
 				// Simultaneous open
 				conn.State = TCPStateEstablished
-				conn.established = true
+				conn.SetEstablished(true)
 			}
 		}
 
 	case TCPStateSynReceived:
 		if flags&TCPAck != 0 && flags&TCPSyn == 0 {
 			conn.State = TCPStateEstablished
-			conn.established = true
+			conn.SetEstablished(true)
 		}
 
 	case TCPStateEstablished:
@@ -217,7 +233,7 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 			} else {
 				conn.State = TCPStateCloseWait
 			}
-			conn.established = false
+			conn.SetEstablished(false)
 		}
 
 	case TCPStateFinWait1:
@@ -309,19 +325,22 @@ func (t *TCPTracker) cleanup() {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	now := time.Now()
 	for key, conn := range t.connections {
 		var timeout time.Duration
 		switch {
 		case conn.State == TCPStateTimeWait:
 			timeout = TimeWaitTimeout
-		case conn.established:
+		case conn.IsEstablished():
 			timeout = t.timeout
 		default:
 			timeout = TCPHandshakeTimeout
 		}
 
-		if now.Sub(conn.LastSeen) > timeout {
+		lastSeen := conn.GetLastSeen()
+		if time.Since(lastSeen) > timeout {
+			// Return IPs to pool
+			t.ipPool.Put(conn.SourceIP)
+			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 		}
 	}
@@ -331,18 +350,15 @@ func (t *TCPTracker) cleanup() {
 func (t *TCPTracker) Close() {
 	t.cleanupTicker.Stop()
 	close(t.done)
-}
 
-func makeTCPKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) TCPConnKey {
-	var srcAddr, dstAddr [16]byte
-	copy(srcAddr[:], srcIP.To16())
-	copy(dstAddr[:], dstIP.To16())
-	return TCPConnKey{
-		SrcIP:   srcAddr,
-		DstIP:   dstAddr,
-		SrcPort: srcPort,
-		DstPort: dstPort,
+	// Clean up all remaining IPs
+	t.mutex.Lock()
+	for _, conn := range t.connections {
+		t.ipPool.Put(conn.SourceIP)
+		t.ipPool.Put(conn.DestIP)
 	}
+	t.connections = nil
+	t.mutex.Unlock()
 }
 
 func isValidFlagCombination(flags uint8) bool {
