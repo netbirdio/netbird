@@ -12,7 +12,6 @@ func TestParseOktaUser(t *testing.T) {
 		name             string
 		inputUser        *okta.User
 		expectedUserData *UserData
-		assertErrFunc    assert.ErrorAssertionFunc
 	}
 
 	testCases := []parseOktaUserTest{
@@ -30,11 +29,7 @@ func TestParseOktaUser(t *testing.T) {
 				Email: "test@example.com",
 				Name:  "John Doe",
 				ID:    "123",
-				AppMetadata: AppMetadata{
-					WTAccountID: "456",
-				},
 			},
-			assertErrFunc: assert.NoError,
 		},
 		{
 			name:             "invalid okta user",
@@ -48,7 +43,5 @@ func TestParseOktaUser(t *testing.T) {
 			userData := parseOktaUser(tt.inputUser)
 			assert.Equal(t, tt.expectedUserData, userData, "user data should match")
 		})
-
 	}
-
 }
