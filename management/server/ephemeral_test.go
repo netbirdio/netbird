@@ -8,18 +8,20 @@ import (
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 type MockStore struct {
-	Store
-	account *Account
+	store.Store
+	account *types.Account
 }
 
-func (s *MockStore) GetAllAccounts(_ context.Context) []*Account {
-	return []*Account{s.account}
+func (s *MockStore) GetAllAccounts(_ context.Context) []*types.Account {
+	return []*types.Account{s.account}
 }
 
-func (s *MockStore) GetAccountByPeerID(_ context.Context, peerId string) (*Account, error) {
+func (s *MockStore) GetAccountByPeerID(_ context.Context, peerId string) (*types.Account, error) {
 	_, ok := s.account.Peers[peerId]
 	if ok {
 		return s.account, nil
