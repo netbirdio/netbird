@@ -139,10 +139,6 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.logFile == "console" {
-		return nil, fmt.Errorf("log file is set to console, cannot create debug bundle")
-	}
-
 	bundlePath, err := os.CreateTemp("", "netbird.debug.*.zip")
 	if err != nil {
 		return nil, fmt.Errorf("create zip file: %w", err)
@@ -206,8 +202,10 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 		log.Errorf("Failed to add state file to debug bundle: %v", err)
 	}
 
-	if err := s.addLogfile(req, anonymizer, archive); err != nil {
-		return fmt.Errorf("add log file: %w", err)
+	if s.logFile != "console" {
+		if err := s.addLogfile(req, anonymizer, archive); err != nil {
+			return fmt.Errorf("add log file: %w", err)
+		}
 	}
 
 	if err := archive.Close(); err != nil {
