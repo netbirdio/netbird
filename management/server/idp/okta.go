@@ -119,10 +119,7 @@ func (om *OktaManager) GetUserDataByID(ctx context.Context, userID string, appMe
 		return nil, fmt.Errorf("unable to get user %s, statusCode %d", userID, resp.StatusCode)
 	}
 
-	userData, err := parseOktaUser(user)
-	if err != nil {
-		return nil, err
-	}
+	userData := parseOktaUser(user)
 	userData.AppMetadata = appMetadata
 
 	return userData, nil
@@ -150,11 +147,7 @@ func (om *OktaManager) GetUserByEmail(_ context.Context, email string) ([]*UserD
 
 	usersData := make([]*UserData, 0, len(users))
 	for _, user := range users {
-		userData, err := parseOktaUser(&user)
-		if err != nil {
-			return nil, err
-		}
-		usersData = append(usersData, userData)
+		usersData = append(usersData, parseOktaUser(&user))
 	}
 
 	return usersData, nil
@@ -230,12 +223,7 @@ func (om *OktaManager) getAllUsers() ([]*UserData, error) {
 
 	users := make([]*UserData, 0, len(userList))
 	for _, user := range userList {
-		userData, err := parseOktaUser(&user)
-		if err != nil {
-			return nil, err
-		}
-
-		users = append(users, userData)
+		users = append(users, parseOktaUser(&user))
 	}
 
 	return users, nil
@@ -280,16 +268,20 @@ type oktaUser interface {
 }
 
 // parseOktaUser parse okta user to UserData.
-func parseOktaUser(user oktaUser) (*UserData, error) {
-	if user == nil {
-		return nil, fmt.Errorf("invalid okta user")
-	}
-
+func parseOktaUser(user oktaUser) *UserData {
 	profile := user.GetProfile()
+
+	var names []string
+	if firstName := profile.GetFirstName(); firstName != "" {
+		names = append(names, firstName)
+	}
+	if lastName := profile.GetLastName(); lastName != "" {
+		names = append(names, lastName)
+	}
 
 	return &UserData{
 		Email: profile.GetEmail(),
-		Name:  strings.Join([]string{profile.GetFirstName(), profile.GetLastName()}, " "),
+		Name:  strings.Join(names, " "),
 		ID:    user.GetId(),
-	}, nil
+	}
 }

@@ -3,63 +3,52 @@ package idp
 import (
 	"testing"
 
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestParseOktaUser(t *testing.T) {
 	type parseOktaUserTest struct {
 		name             string
-		inputProfile     *okta.User
+		inputUser        *okta.User
 		expectedUserData *UserData
 		assertErrFunc    assert.ErrorAssertionFunc
 	}
 
-	parseOktaTestCase1 := parseOktaUserTest{
-		name: "Good Request",
-		inputProfile: &okta.User{
-			Id: "123",
-			Profile: &okta.UserProfile{
-				"email":     "test@example.com",
-				"firstName": "John",
-				"lastName":  "Doe",
+	testCases := []parseOktaUserTest{
+		{
+			name: "valid okta user",
+			inputUser: &okta.User{
+				Id: okta.PtrString("123"),
+				Profile: &okta.UserProfile{
+					Email:     okta.PtrString("test@example.com"),
+					FirstName: *okta.NewNullableString(okta.PtrString("John")),
+					LastName:  *okta.NewNullableString(okta.PtrString("Doe")),
+				},
 			},
-		},
-		expectedUserData: &UserData{
-			Email: "test@example.com",
-			Name:  "John Doe",
-			ID:    "123",
-			AppMetadata: AppMetadata{
-				WTAccountID: "456",
+			expectedUserData: &UserData{
+				Email: "test@example.com",
+				Name:  "John Doe",
+				ID:    "123",
+				AppMetadata: AppMetadata{
+					WTAccountID: "456",
+				},
 			},
+			assertErrFunc: assert.NoError,
 		},
-		assertErrFunc: assert.NoError,
+		{
+			name:             "invalid okta user",
+			inputUser:        nil,
+			expectedUserData: &UserData{},
+		},
 	}
 
-	parseOktaTestCase2 := parseOktaUserTest{
-		name:             "Invalid okta user",
-		inputProfile:     nil,
-		expectedUserData: nil,
-		assertErrFunc:    assert.Error,
-	}
-
-	for _, testCase := range []parseOktaUserTest{parseOktaTestCase1, parseOktaTestCase2} {
-		t.Run(testCase.name, func(t *testing.T) {
-			userData, err := parseOktaUser(testCase.inputProfile)
-			testCase.assertErrFunc(t, err, testCase.assertErrFunc)
-
-			if err == nil {
-				assert.True(t, userDataEqual(testCase.expectedUserData, userData), "user data should match")
-			}
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			userData := parseOktaUser(tt.inputUser)
+			assert.Equal(t, tt.expectedUserData, userData, "user data should match")
 		})
 
 	}
-}
 
-// userDataEqual helper function to compare UserData structs for equality.
-func userDataEqual(a, b *UserData) bool {
-	if a.Email != b.Email || a.Name != b.Name || a.ID != b.ID {
-		return false
-	}
-	return true
 }
