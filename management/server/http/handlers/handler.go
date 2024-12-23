@@ -35,13 +35,6 @@ import (
 
 const apiPrefix = "/api"
 
-type apiHandler struct {
-	Router             *mux.Router
-	AccountManager     s.AccountManager
-	geolocationManager geolocation.Geolocation
-	AuthCfg            configs.AuthCfg
-}
-
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func NewAPIHandler(ctx context.Context, accountManager s.AccountManager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg configs.AuthCfg, integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
