@@ -4,19 +4,17 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
-	"github.com/okta/okta-sdk-golang/v2/okta"
-	"github.com/okta/okta-sdk-golang/v2/okta/query"
+	"github.com/okta/okta-sdk-golang/v5/okta"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // OktaManager okta manager client instance.
 type OktaManager struct {
-	client      *okta.Client
+	client      *okta.APIClient
 	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
 	helper      ManagerHelper
@@ -68,7 +66,7 @@ func NewOktaManager(config OktaClientConfig, appMetrics telemetry.AppMetrics) (*
 		return nil, fmt.Errorf("okta IdP configuration is incomplete, GrantType is missing")
 	}
 
-	_, client, err := okta.NewClient(context.Background(),
+	oktaConfig, err := okta.NewConfiguration(
 		okta.WithOrgUrl(config.Issuer),
 		okta.WithToken(config.APIToken),
 		okta.WithHttpClientPtr(httpClient),
@@ -85,7 +83,7 @@ func NewOktaManager(config OktaClientConfig, appMetrics telemetry.AppMetrics) (*
 	}
 
 	return &OktaManager{
-		client:      client,
+		client:      okta.NewAPIClient(oktaConfig),
 		httpClient:  httpClient,
 		credentials: credentials,
 		helper:      helper,
@@ -103,9 +101,9 @@ func (om *OktaManager) CreateUser(_ context.Context, _, _, _, _ string) (*UserDa
 	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
-// GetUserDataByID requests user data from keycloak via ID.
-func (om *OktaManager) GetUserDataByID(_ context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
-	user, resp, err := om.client.User.GetUser(context.Background(), userID)
+// GetUserDataByID requests user data from Okta via ID.
+func (om *OktaManager) GetUserDataByID(ctx context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
+	user, resp, err := om.client.UserAPI.GetUser(ctx, userID).Execute()
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +131,8 @@ func (om *OktaManager) GetUserDataByID(_ context.Context, userID string, appMeta
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (om *OktaManager) GetUserByEmail(_ context.Context, email string) ([]*UserData, error) {
-	user, resp, err := om.client.User.GetUser(context.Background(), url.QueryEscape(email))
+	filter := fmt.Sprintf("profile.email eq \"%s\"", email)
+	users, resp, err := om.client.UserAPI.ListUsers(context.Background()).Filter(filter).Execute()
 	if err != nil {
 		return nil, err
 	}
@@ -149,14 +148,16 @@ func (om *OktaManager) GetUserByEmail(_ context.Context, email string) ([]*UserD
 		return nil, fmt.Errorf("unable to get user %s, statusCode %d", email, resp.StatusCode)
 	}
 
-	userData, err := parseOktaUser(user)
-	if err != nil {
-		return nil, err
+	usersData := make([]*UserData, 0, len(users))
+	for _, user := range users {
+		userData, err := parseOktaUser(&user)
+		if err != nil {
+			return nil, err
+		}
+		usersData = append(usersData, userData)
 	}
-	users := make([]*UserData, 0)
-	users = append(users, userData)
 
-	return users, nil
+	return usersData, nil
 }
 
 // GetAccount returns all the users for a given profile.
@@ -198,8 +199,7 @@ func (om *OktaManager) GetAllAccounts(_ context.Context) (map[string][]*UserData
 
 // getAllUsers returns all users in an Okta account.
 func (om *OktaManager) getAllUsers() ([]*UserData, error) {
-	qp := query.NewQueryParams(query.WithLimit(200))
-	userList, resp, err := om.client.User.ListUsers(context.Background(), qp)
+	userList, resp, err := om.client.UserAPI.ListUsers(context.Background()).Limit(200).Execute()
 	if err != nil {
 		return nil, err
 	}
@@ -212,8 +212,8 @@ func (om *OktaManager) getAllUsers() ([]*UserData, error) {
 	}
 
 	for resp.HasNextPage() {
-		paginatedUsers := make([]*okta.User, 0)
-		resp, err = resp.Next(context.Background(), &paginatedUsers)
+		paginatedUsers := make([]okta.User, 0)
+		resp, err = resp.Next(&paginatedUsers)
 		if err != nil {
 			return nil, err
 		}
@@ -230,7 +230,7 @@ func (om *OktaManager) getAllUsers() ([]*UserData, error) {
 
 	users := make([]*UserData, 0, len(userList))
 	for _, user := range userList {
-		userData, err := parseOktaUser(user)
+		userData, err := parseOktaUser(&user)
 		if err != nil {
 			return nil, err
 		}
@@ -254,7 +254,7 @@ func (om *OktaManager) InviteUserByID(_ context.Context, _ string) error {
 
 // DeleteUser from Okta
 func (om *OktaManager) DeleteUser(_ context.Context, userID string) error {
-	resp, err := om.client.User.DeactivateOrDeleteUser(context.Background(), userID, nil)
+	resp, err := om.client.UserAPI.DeleteUser(context.Background(), userID).Execute()
 	if err != nil {
 		return err
 	}
@@ -273,34 +273,23 @@ func (om *OktaManager) DeleteUser(_ context.Context, userID string) error {
 	return nil
 }
 
-// parseOktaUser parse okta user to UserData.
-func parseOktaUser(user *okta.User) (*UserData, error) {
-	var oktaUser struct {
-		Email     string `json:"email"`
-		FirstName string `json:"firstName"`
-		LastName  string `json:"lastName"`
-	}
+// oktaUser interface for Okta user.
+type oktaUser interface {
+	GetId() string
+	GetProfile() okta.UserProfile
+}
 
+// parseOktaUser parse okta user to UserData.
+func parseOktaUser(user oktaUser) (*UserData, error) {
 	if user == nil {
 		return nil, fmt.Errorf("invalid okta user")
 	}
 
-	if user.Profile != nil {
-		helper := JsonParser{}
-		buf, err := helper.Marshal(*user.Profile)
-		if err != nil {
-			return nil, err
-		}
-
-		err = helper.Unmarshal(buf, &oktaUser)
-		if err != nil {
-			return nil, err
-		}
-	}
+	profile := user.GetProfile()
 
 	return &UserData{
-		Email: oktaUser.Email,
-		Name:  strings.Join([]string{oktaUser.FirstName, oktaUser.LastName}, " "),
-		ID:    user.Id,
+		Email: profile.GetEmail(),
+		Name:  strings.Join([]string{profile.GetFirstName(), profile.GetLastName()}, " "),
+		ID:    user.GetId(),
 	}, nil
 }
