@@ -6,6 +6,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	fw "github.com/netbirdio/netbird/client/firewall/manager"
 )
 
 const (
@@ -72,16 +74,18 @@ type TCPTracker struct {
 	done          chan struct{}
 	timeout       time.Duration
 	ipPool        *PreallocatedIPs
+	stats         *Stats
 }
 
 // NewTCPTracker creates a new TCP connection tracker
-func NewTCPTracker(timeout time.Duration) *TCPTracker {
+func NewTCPTracker(timeout time.Duration, stats *Stats) *TCPTracker {
 	tracker := &TCPTracker{
 		connections:   make(map[ConnKey]*TCPConnTrack),
 		cleanupTicker: time.NewTicker(TCPCleanupInterval),
 		done:          make(chan struct{}),
 		timeout:       timeout,
 		ipPool:        NewPreallocatedIPs(),
+		stats:         stats,
 	}
 
 	go tracker.cleanupRoutine()
@@ -89,15 +93,13 @@ func NewTCPTracker(timeout time.Duration) *TCPTracker {
 }
 
 // TrackOutbound processes an outbound TCP packet and updates connection state
-func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
-	// Create key before lock
+func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8, packetData []byte) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 	now := time.Now().UnixNano()
 
 	t.mutex.Lock()
 	conn, exists := t.connections[key]
 	if !exists {
-		// Use preallocated IPs
 		srcIPCopy := t.ipPool.Get()
 		dstIPCopy := t.ipPool.Get()
 		copyIP(srcIPCopy, srcIP)
@@ -115,18 +117,30 @@ func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 		conn.lastSeen.Store(now)
 		conn.established.Store(false)
 		t.connections[key] = conn
+
+		if t.stats != nil {
+			t.stats.TrackNewConnection(6, srcIP, dstIP, srcPort, dstPort, fw.DirectionOutbound)
+		}
 	}
 	t.mutex.Unlock()
 
-	// Lock individual connection for state update
 	conn.Lock()
+	oldState := conn.State
 	t.updateState(conn, flags, true)
+	if oldState != conn.State && t.stats != nil {
+		t.stats.TrackTCPState(conn.State)
+	}
 	conn.Unlock()
+
+	if t.stats != nil {
+		t.stats.TrackPacket(6, false, uint64(len(packetData)), false, key)
+	}
 	conn.lastSeen.Store(now)
 }
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection
-func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) bool {
+func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8, packetData []byte) bool {
+
 	if !isValidFlagCombination(flags) {
 		return false
 	}
@@ -156,6 +170,11 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 			t.connections[key] = conn
 		}
 		t.mutex.Unlock()
+
+		if t.stats != nil {
+			t.stats.TrackPacket(6, false, uint64(len(packetData)), true, key)
+		}
+
 		return true
 	}
 
@@ -167,6 +186,10 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 
 	if !exists {
 		return false
+	}
+
+	if t.stats != nil {
+		t.stats.TrackPacket(6, false, uint64(len(packetData)), true, key)
 	}
 
 	// Handle RST packets

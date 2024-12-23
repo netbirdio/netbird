@@ -323,6 +323,11 @@ func (m *Manager) Flush() error {
 	return m.aclManager.Flush()
 }
 
+// CollectStats returns connection tracking statistics
+func (m *Manager) CollectStats() []*firewall.FlowStats {
+	return nil
+}
+
 func (m *Manager) createWorkTable() (*nftables.Table, error) {
 	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {

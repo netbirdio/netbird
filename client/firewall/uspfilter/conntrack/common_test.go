@@ -64,7 +64,7 @@ func BenchmarkAtomicOperations(b *testing.B) {
 // Memory pressure tests
 func BenchmarkMemoryPressure(b *testing.B) {
 	b.Run("TCPHighLoad", func(b *testing.B) {
-		tracker := NewTCPTracker(DefaultTCPTimeout)
+		tracker := NewTCPTracker(DefaultTCPTimeout, nil)
 		defer tracker.Close()
 
 		// Generate different IPs
@@ -79,17 +79,17 @@ func BenchmarkMemoryPressure(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			srcIdx := i % len(srcIPs)
 			dstIdx := (i + 1) % len(dstIPs)
-			tracker.TrackOutbound(srcIPs[srcIdx], dstIPs[dstIdx], uint16(i%65535), 80, TCPSyn)
+			tracker.TrackOutbound(srcIPs[srcIdx], dstIPs[dstIdx], uint16(i%65535), 80, TCPSyn, nil)
 
 			// Simulate some valid inbound packets
 			if i%3 == 0 {
-				tracker.IsValidInbound(dstIPs[dstIdx], srcIPs[srcIdx], 80, uint16(i%65535), TCPAck)
+				tracker.IsValidInbound(dstIPs[dstIdx], srcIPs[srcIdx], 80, uint16(i%65535), TCPAck, nil)
 			}
 		}
 	})
 
 	b.Run("UDPHighLoad", func(b *testing.B) {
-		tracker := NewUDPTracker(DefaultUDPTimeout)
+		tracker := NewUDPTracker(DefaultUDPTimeout, nil)
 		defer tracker.Close()
 
 		// Generate different IPs
@@ -104,11 +104,11 @@ func BenchmarkMemoryPressure(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			srcIdx := i % len(srcIPs)
 			dstIdx := (i + 1) % len(dstIPs)
-			tracker.TrackOutbound(srcIPs[srcIdx], dstIPs[dstIdx], uint16(i%65535), 80)
+			tracker.TrackOutbound(srcIPs[srcIdx], dstIPs[dstIdx], uint16(i%65535), 80, nil)
 
 			// Simulate some valid inbound packets
 			if i%3 == 0 {
-				tracker.IsValidInbound(dstIPs[dstIdx], srcIPs[srcIdx], 80, uint16(i%65535))
+				tracker.IsValidInbound(dstIPs[dstIdx], srcIPs[srcIdx], 80, uint16(i%65535), nil)
 			}
 		}
 	})

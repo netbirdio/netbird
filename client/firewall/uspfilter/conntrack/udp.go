@@ -4,6 +4,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	fw "github.com/netbirdio/netbird/client/firewall/manager"
 )
 
 const (
@@ -26,10 +28,11 @@ type UDPTracker struct {
 	mutex         sync.RWMutex
 	done          chan struct{}
 	ipPool        *PreallocatedIPs
+	stats         *Stats
 }
 
 // NewUDPTracker creates a new UDP connection tracker
-func NewUDPTracker(timeout time.Duration) *UDPTracker {
+func NewUDPTracker(timeout time.Duration, stats *Stats) *UDPTracker {
 	if timeout == 0 {
 		timeout = DefaultUDPTimeout
 	}
@@ -40,6 +43,7 @@ func NewUDPTracker(timeout time.Duration) *UDPTracker {
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
 		done:          make(chan struct{}),
 		ipPool:        NewPreallocatedIPs(),
+		stats:         stats,
 	}
 
 	go tracker.cleanupRoutine()
@@ -47,7 +51,7 @@ func NewUDPTracker(timeout time.Duration) *UDPTracker {
 }
 
 // TrackOutbound records an outbound UDP connection
-func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, packetData []byte) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 	now := time.Now().UnixNano()
 
@@ -70,14 +74,21 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 		conn.lastSeen.Store(now)
 		conn.established.Store(true)
 		t.connections[key] = conn
+
+		if t.stats != nil {
+			t.stats.TrackNewConnection(17, srcIP, dstIP, srcPort, dstPort, fw.DirectionOutbound)
+		}
 	}
 	t.mutex.Unlock()
 
+	if t.stats != nil {
+		t.stats.TrackPacket(17, false, uint64(len(packetData)), false, key)
+	}
 	conn.lastSeen.Store(now)
 }
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
-func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) bool {
+func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, packetData []byte) bool {
 	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
 
 	t.mutex.RLock()
@@ -90,6 +101,10 @@ func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 
 	if conn.timeoutExceeded(t.timeout) {
 		return false
+	}
+
+	if t.stats != nil {
+		t.stats.TrackPacket(17, false, uint64(len(packetData)), true, key)
 	}
 
 	return conn.IsEstablished() &&

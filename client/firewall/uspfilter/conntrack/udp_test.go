@@ -29,7 +29,7 @@ func TestNewUDPTracker(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tracker := NewUDPTracker(tt.timeout)
+			tracker := NewUDPTracker(tt.timeout, nil)
 			assert.NotNil(t, tracker)
 			assert.Equal(t, tt.wantTimeout, tracker.timeout)
 			assert.NotNil(t, tracker.connections)
@@ -40,7 +40,7 @@ func TestNewUDPTracker(t *testing.T) {
 }
 
 func TestUDPTracker_TrackOutbound(t *testing.T) {
-	tracker := NewUDPTracker(DefaultUDPTimeout)
+	tracker := NewUDPTracker(DefaultUDPTimeout, nil)
 	defer tracker.Close()
 
 	srcIP := net.ParseIP("192.168.1.2")
@@ -48,7 +48,7 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 	srcPort := uint16(12345)
 	dstPort := uint16(53)
 
-	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort)
+	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, nil)
 
 	// Verify connection was tracked
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
@@ -63,7 +63,7 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 }
 
 func TestUDPTracker_IsValidInbound(t *testing.T) {
-	tracker := NewUDPTracker(1 * time.Second)
+	tracker := NewUDPTracker(1*time.Second, nil)
 	defer tracker.Close()
 
 	srcIP := net.ParseIP("192.168.1.2")
@@ -72,7 +72,7 @@ func TestUDPTracker_IsValidInbound(t *testing.T) {
 	dstPort := uint16(53)
 
 	// Track outbound connection
-	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort)
+	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, nil)
 
 	tests := []struct {
 		name    string
@@ -144,7 +144,7 @@ func TestUDPTracker_IsValidInbound(t *testing.T) {
 			if tt.sleep > 0 {
 				time.Sleep(tt.sleep)
 			}
-			got := tracker.IsValidInbound(tt.srcIP, tt.dstIP, tt.srcPort, tt.dstPort)
+			got := tracker.IsValidInbound(tt.srcIP, tt.dstIP, tt.srcPort, tt.dstPort, nil)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -189,7 +189,7 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 	}
 
 	for _, conn := range connections {
-		tracker.TrackOutbound(conn.srcIP, conn.dstIP, conn.srcPort, conn.dstPort)
+		tracker.TrackOutbound(conn.srcIP, conn.dstIP, conn.srcPort, conn.dstPort, nil)
 	}
 
 	// Verify initial connections
@@ -211,7 +211,7 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 
 func BenchmarkUDPTracker(b *testing.B) {
 	b.Run("TrackOutbound", func(b *testing.B) {
-		tracker := NewUDPTracker(DefaultUDPTimeout)
+		tracker := NewUDPTracker(DefaultUDPTimeout, nil)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")
@@ -219,12 +219,12 @@ func BenchmarkUDPTracker(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80)
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, nil)
 		}
 	})
 
 	b.Run("IsValidInbound", func(b *testing.B) {
-		tracker := NewUDPTracker(DefaultUDPTimeout)
+		tracker := NewUDPTracker(DefaultUDPTimeout, nil)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")
@@ -232,12 +232,12 @@ func BenchmarkUDPTracker(b *testing.B) {
 
 		// Pre-populate some connections
 		for i := 0; i < 1000; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80)
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80, nil)
 		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000))
+			tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000), nil)
 		}
 	})
 }

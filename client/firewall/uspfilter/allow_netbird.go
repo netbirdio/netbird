@@ -17,17 +17,17 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, nil)
 	}
 
 	if m.icmpTracker != nil {
 		m.icmpTracker.Close()
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, nil)
 	}
 
 	if m.tcpTracker != nil {
 		m.tcpTracker.Close()
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, nil)
 	}
 
 	if m.nativeFirewall != nil {

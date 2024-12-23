@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -961,6 +962,114 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 					manager.processOutgoingHooks(p.ackClient)
 				}
 			})
+		})
+	}
+}
+
+func BenchmarkFirewallStats(b *testing.B) {
+	scenarios := []struct {
+		name      string
+		stats     bool
+		longLived bool
+		conns     int
+	}{
+		{"nostats_short_100", false, false, 100},
+		{"stats_short_100", true, false, 100},
+		{"nostats_long_100", false, true, 100},
+		{"stats_long_100", true, true, 100},
+		{"nostats_short_1000", false, false, 1000},
+		{"stats_short_1000", true, false, 1000},
+		{"nostats_long_1000", false, true, 1000},
+		{"stats_long_1000", true, true, 1000},
+	}
+
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			manager, _ := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			})
+			defer b.Cleanup(func() {
+				require.NoError(b, manager.Reset(nil))
+			})
+
+			b.Setenv(EnvEnableStats, strconv.FormatBool(sc.stats))
+
+			manager.SetNetwork(&net.IPNet{
+				IP:   net.ParseIP("100.64.0.0"),
+				Mask: net.CIDRMask(10, 32),
+			})
+
+			// Generate test IPs
+			srcIPs := make([]net.IP, sc.conns)
+			dstIPs := make([]net.IP, sc.conns)
+			for i := 0; i < sc.conns; i++ {
+				srcIPs[i] = generateRandomIPs(1)[0]
+				dstIPs[i] = generateRandomIPs(1)[0]
+			}
+
+			// Pre-generate packets
+			inPackets := make([][]byte, sc.conns)
+			outPackets := make([][]byte, sc.conns)
+			for i := 0; i < sc.conns; i++ {
+				inPackets[i] = generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+					80, uint16(1024+i), uint16(conntrack.TCPPush|conntrack.TCPAck))
+				outPackets[i] = generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+					uint16(1024+i), 80, uint16(conntrack.TCPPush|conntrack.TCPAck))
+
+				if sc.longLived {
+					// Establish connection
+					syn := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPSyn))
+					synAck := generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
+						80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck))
+					ack := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
+						uint16(1024+i), 80, uint16(conntrack.TCPAck))
+
+					manager.processOutgoingHooks(syn)
+					manager.dropFilter(synAck, manager.incomingRules)
+					manager.processOutgoingHooks(ack)
+				}
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				connIdx := i % sc.conns
+
+				if !sc.longLived {
+					// New connection each time
+					syn := generateTCPPacketWithFlags(b, srcIPs[connIdx], dstIPs[connIdx],
+						uint16(1024+connIdx), 80, uint16(conntrack.TCPSyn))
+					synAck := generateTCPPacketWithFlags(b, dstIPs[connIdx], srcIPs[connIdx],
+						80, uint16(1024+connIdx), uint16(conntrack.TCPSyn|conntrack.TCPAck))
+					ack := generateTCPPacketWithFlags(b, srcIPs[connIdx], dstIPs[connIdx],
+						uint16(1024+connIdx), 80, uint16(conntrack.TCPAck))
+
+					manager.processOutgoingHooks(syn)
+					manager.dropFilter(synAck, manager.incomingRules)
+					manager.processOutgoingHooks(ack)
+				}
+
+				// Data transfer
+				manager.processOutgoingHooks(outPackets[connIdx])
+				manager.dropFilter(inPackets[connIdx], manager.incomingRules)
+
+				if !sc.longLived {
+					// Tear down
+					finClient := generateTCPPacketWithFlags(b, srcIPs[connIdx], dstIPs[connIdx],
+						uint16(1024+connIdx), 80, uint16(conntrack.TCPFin|conntrack.TCPAck))
+					ackServer := generateTCPPacketWithFlags(b, dstIPs[connIdx], srcIPs[connIdx],
+						80, uint16(1024+connIdx), uint16(conntrack.TCPAck))
+					finServer := generateTCPPacketWithFlags(b, dstIPs[connIdx], srcIPs[connIdx],
+						80, uint16(1024+connIdx), uint16(conntrack.TCPFin|conntrack.TCPAck))
+					ackClient := generateTCPPacketWithFlags(b, srcIPs[connIdx], dstIPs[connIdx],
+						uint16(1024+connIdx), 80, uint16(conntrack.TCPAck))
+
+					manager.processOutgoingHooks(finClient)
+					manager.dropFilter(ackServer, manager.incomingRules)
+					manager.dropFilter(finServer, manager.incomingRules)
+					manager.processOutgoingHooks(ackClient)
+				}
+			}
 		})
 	}
 }

@@ -22,7 +22,10 @@ import (
 
 const layerTypeAll = 0
 
-const EnvDisableConntrack = "NB_DISABLE_CONNTRACK"
+const (
+	EnvDisableConntrack = "NB_DISABLE_CONNTRACK"
+	EnvEnableStats      = "NB_ENABLE_CONNTRACK_STATS"
+)
 
 var (
 	errRouteNotSupported = fmt.Errorf("route not supported with userspace firewall")
@@ -52,6 +55,9 @@ type Manager struct {
 	udpTracker  *conntrack.UDPTracker
 	icmpTracker *conntrack.ICMPTracker
 	tcpTracker  *conntrack.TCPTracker
+
+	statsEnabled bool
+	stats        *conntrack.Stats
 }
 
 // decoder for packages
@@ -84,6 +90,7 @@ func CreateWithNativeFirewall(iface IFaceMapper, nativeFirewall firewall.Manager
 
 func create(iface IFaceMapper) (*Manager, error) {
 	disableConntrack, _ := strconv.ParseBool(os.Getenv(EnvDisableConntrack))
+	enableStats, _ := strconv.ParseBool(os.Getenv(EnvEnableStats))
 
 	m := &Manager{
 		decoders: sync.Pool{
@@ -103,15 +110,21 @@ func create(iface IFaceMapper) (*Manager, error) {
 		incomingRules: make(map[string]RuleSet),
 		wgIface:       iface,
 		stateful:      !disableConntrack,
+		statsEnabled:  enableStats,
+	}
+
+	if enableStats {
+		m.stats = conntrack.NewStats()
+		log.Info("connection tracking statistics enabled")
 	}
 
 	// Only initialize trackers if stateful mode is enabled
 	if disableConntrack {
 		log.Info("conntrack is disabled")
 	} else {
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout)
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout)
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.stats)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.stats)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.stats)
 	}
 
 	if err := iface.SetFilter(m); err != nil {
@@ -304,7 +317,10 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 	if d.decoded[1] == layers.LayerTypeUDP {
 		// Track UDP state only if enabled
 		if m.stateful {
-			m.trackUDPOutbound(d, srcIP, dstIP)
+			m.udpTracker.TrackOutbound(srcIP, dstIP,
+				uint16(d.udp.SrcPort),
+				uint16(d.udp.DstPort),
+				packetData)
 		}
 		return m.checkUDPHooks(d, dstIP, packetData)
 	}
@@ -313,9 +329,16 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 	if m.stateful {
 		switch d.decoded[1] {
 		case layers.LayerTypeTCP:
-			m.trackTCPOutbound(d, srcIP, dstIP)
+			m.tcpTracker.TrackOutbound(srcIP, dstIP,
+				uint16(d.tcp.SrcPort),
+				uint16(d.tcp.DstPort),
+				getTCPFlags(&d.tcp),
+				packetData)
 		case layers.LayerTypeICMPv4:
-			m.trackICMPOutbound(d, srcIP, dstIP)
+			m.icmpTracker.TrackOutbound(srcIP, dstIP,
+				d.icmp4.Id,
+				d.icmp4.Seq,
+				packetData)
 		}
 	}
 
@@ -331,17 +354,6 @@ func (m *Manager) extractIPs(d *decoder) (srcIP, dstIP net.IP) {
 	default:
 		return nil, nil
 	}
-}
-
-func (m *Manager) trackTCPOutbound(d *decoder, srcIP, dstIP net.IP) {
-	flags := getTCPFlags(&d.tcp)
-	m.tcpTracker.TrackOutbound(
-		srcIP,
-		dstIP,
-		uint16(d.tcp.SrcPort),
-		uint16(d.tcp.DstPort),
-		flags,
-	)
 }
 
 func getTCPFlags(tcp *layers.TCP) uint8 {
@@ -367,15 +379,6 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 	return flags
 }
 
-func (m *Manager) trackUDPOutbound(d *decoder, srcIP, dstIP net.IP) {
-	m.udpTracker.TrackOutbound(
-		srcIP,
-		dstIP,
-		uint16(d.udp.SrcPort),
-		uint16(d.udp.DstPort),
-	)
-}
-
 func (m *Manager) checkUDPHooks(d *decoder, dstIP net.IP, packetData []byte) bool {
 	for _, ipKey := range []string{dstIP.String(), "0.0.0.0", "::"} {
 		if rules, exists := m.outgoingRules[ipKey]; exists {
@@ -387,17 +390,6 @@ func (m *Manager) checkUDPHooks(d *decoder, dstIP net.IP, packetData []byte) boo
 		}
 	}
 	return false
-}
-
-func (m *Manager) trackICMPOutbound(d *decoder, srcIP, dstIP net.IP) {
-	if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
-		m.icmpTracker.TrackOutbound(
-			srcIP,
-			dstIP,
-			d.icmp4.Id,
-			d.icmp4.Seq,
-		)
-	}
 }
 
 // dropFilter implements filtering logic for incoming packets
@@ -423,7 +415,7 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	}
 
 	// Check connection state only if enabled
-	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP) {
+	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, packetData) {
 		return false
 	}
 
@@ -447,7 +439,7 @@ func (m *Manager) isWireguardTraffic(srcIP, dstIP net.IP) bool {
 	return m.wgNetwork.Contains(srcIP) && m.wgNetwork.Contains(dstIP)
 }
 
-func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP) bool {
+func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
 	switch d.decoded[1] {
 	case layers.LayerTypeTCP:
 		return m.tcpTracker.IsValidInbound(
@@ -456,6 +448,7 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP) bool
 			uint16(d.tcp.SrcPort),
 			uint16(d.tcp.DstPort),
 			getTCPFlags(&d.tcp),
+			packetData,
 		)
 
 	case layers.LayerTypeUDP:
@@ -464,6 +457,7 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP) bool
 			dstIP,
 			uint16(d.udp.SrcPort),
 			uint16(d.udp.DstPort),
+			packetData,
 		)
 
 	case layers.LayerTypeICMPv4:
@@ -473,6 +467,7 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP) bool
 			d.icmp4.Id,
 			d.icmp4.Seq,
 			d.icmp4.TypeCode.Type(),
+			packetData,
 		)
 
 		// TODO: ICMPv6
@@ -611,4 +606,12 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 		}
 	}
 	return fmt.Errorf("hook with given id not found")
+}
+
+// CollectStats returns connection tracking statistics
+func (m *Manager) CollectStats() []*firewall.FlowStats {
+	if m.stats == nil {
+		return nil
+	}
+	return m.stats.GetFlowSnapshot()
 }

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/gopacket/layers"
+
+	fw "github.com/netbirdio/netbird/client/firewall/manager"
 )
 
 const (
@@ -39,10 +41,11 @@ type ICMPTracker struct {
 	mutex         sync.RWMutex
 	done          chan struct{}
 	ipPool        *PreallocatedIPs
+	stats         *Stats
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
-func NewICMPTracker(timeout time.Duration) *ICMPTracker {
+func NewICMPTracker(timeout time.Duration, stats *Stats) *ICMPTracker {
 	if timeout == 0 {
 		timeout = DefaultICMPTimeout
 	}
@@ -53,6 +56,7 @@ func NewICMPTracker(timeout time.Duration) *ICMPTracker {
 		cleanupTicker: time.NewTicker(ICMPCleanupInterval),
 		done:          make(chan struct{}),
 		ipPool:        NewPreallocatedIPs(),
+		stats:         stats,
 	}
 
 	go tracker.cleanupRoutine()
@@ -60,7 +64,7 @@ func NewICMPTracker(timeout time.Duration) *ICMPTracker {
 }
 
 // TrackOutbound records an outbound ICMP Echo Request
-func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) {
+func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, packetData []byte) {
 	key := makeICMPKey(srcIP, dstIP, id, seq)
 	now := time.Now().UnixNano()
 
@@ -83,14 +87,22 @@ func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq u
 		conn.lastSeen.Store(now)
 		conn.established.Store(true)
 		t.connections[key] = conn
+
+		if t.stats != nil {
+			t.stats.TrackNewConnection(1, srcIP, dstIP, 0, 0, fw.DirectionOutbound)
+		}
 	}
 	t.mutex.Unlock()
 
+	if t.stats != nil {
+		key := makeConnKey(srcIP, dstIP, 0, 0)
+		t.stats.TrackPacket(1, false, uint64(len(packetData)), false, key)
+	}
 	conn.lastSeen.Store(now)
 }
 
 // IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request
-func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, icmpType uint8) bool {
+func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, icmpType uint8, packetData []byte) bool {
 	switch icmpType {
 	case uint8(layers.ICMPv4TypeDestinationUnreachable),
 		uint8(layers.ICMPv4TypeTimeExceeded):
@@ -113,6 +125,11 @@ func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq 
 
 	if conn.timeoutExceeded(t.timeout) {
 		return false
+	}
+
+	if t.stats != nil {
+		key := makeConnKey(srcIP, dstIP, 0, 0)
+		t.stats.TrackPacket(1, false, uint64(len(packetData)), true, key)
 	}
 
 	return conn.IsEstablished() &&

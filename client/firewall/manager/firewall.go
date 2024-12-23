@@ -100,6 +100,9 @@ type Manager interface {
 
 	// Flush the changes to firewall controller
 	Flush() error
+
+	// CollectStats returns the statistics of the firewall manager
+	CollectStats() []*FlowStats
 }
 
 func GenKey(format string, pair RouterPair) string {

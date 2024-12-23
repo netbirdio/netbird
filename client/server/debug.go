@@ -44,6 +44,7 @@ iptables.txt: Anonymized iptables rules with packet counters, if --system-info f
 nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized network map containing peer configurations, routes, DNS settings, and firewall rules.
+firewall_stats.json: Anonymized firewall statistics of the NetBird client.
 state.json: Anonymized client state dump containing netbird states.
 
 
@@ -139,10 +140,6 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.logFile == "console" {
-		return nil, fmt.Errorf("log file is set to console, cannot create debug bundle")
-	}
-
 	bundlePath, err := os.CreateTemp("", "netbird.debug.*.zip")
 	if err != nil {
 		return nil, fmt.Errorf("create zip file: %w", err)
@@ -200,6 +197,10 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 
 	if err := s.addNetworkMap(req, anonymizer, archive); err != nil {
 		return fmt.Errorf("add network map: %w", err)
+	}
+
+	if err := s.addFirewallStats(req, anonymizer, archive); err != nil {
+		log.Errorf("Failed to add firewall stats to debug bundle: %v", err)
 	}
 
 	if err := s.addStateFile(req, anonymizer, archive); err != nil {
@@ -351,6 +352,43 @@ func (s *Server) addNetworkMap(req *proto.DebugBundleRequest, anonymizer *anonym
 
 	if err := addFileToZip(archive, bytes.NewReader(jsonBytes), "network_map.json"); err != nil {
 		return fmt.Errorf("add network map to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) addFirewallStats(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	if s.connectClient == nil || s.connectClient.Engine() == nil {
+		return nil
+	}
+
+	stats := s.connectClient.Engine().GetFirewallStats()
+	if stats == nil {
+		return nil
+	}
+
+	if req.GetAnonymize() {
+		for _, stat := range stats {
+			if stat.SourceIP != nil {
+				if ip, ok := netip.AddrFromSlice(stat.SourceIP); ok {
+					stat.SourceIP = anonymizer.AnonymizeIP(ip).AsSlice()
+				}
+			}
+			if stat.DestIP != nil {
+				if ip, ok := netip.AddrFromSlice(stat.DestIP); ok {
+					stat.DestIP = anonymizer.AnonymizeIP(ip).AsSlice()
+				}
+			}
+		}
+	}
+
+	jsonBytes, err := json.MarshalIndent(stats, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal firewall stats: %w", err)
+	}
+
+	if err := addFileToZip(archive, bytes.NewReader(jsonBytes), "firewall_stats.json"); err != nil {
+		return fmt.Errorf("add firewall stats to zip: %w", err)
 	}
 
 	return nil

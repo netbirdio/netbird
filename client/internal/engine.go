@@ -23,7 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/firewall"
-	"github.com/netbirdio/netbird/client/firewall/manager"
+	firewallmanager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -158,7 +158,7 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall      manager.Manager
+	firewall      firewallmanager.Manager
 	routeManager  routemanager.Manager
 	acl           acl.Manager
 	dnsForwardMgr *dnsfwd.Manager
@@ -1574,6 +1574,14 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	}
 
 	return nm, nil
+}
+
+// GetFirewallStats returns the firewall stats
+func (e *Engine) GetFirewallStats() []*firewallmanager.FlowStats {
+	if e.firewall != nil {
+		return e.firewall.CollectStats()
+	}
+	return nil
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
