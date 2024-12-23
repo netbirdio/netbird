@@ -1,4 +1,4 @@
-package tests_benchmark
+package benchmarks
 
 import (
 	"encoding/json"
@@ -15,11 +15,11 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/tests_tools"
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 )
 
 // Map to store peers, groups, users, and setupKeys by name
-var benchCasesSetupKeys = map[string]tests_tools.BenchmarkCase{
+var benchCasesSetupKeys = map[string]testing_tools.BenchmarkCase{
 	"Setup Keys - XS": {Peers: 10000, Groups: 10000, Users: 10000, SetupKeys: 5},
 	"Setup Keys - S":  {Peers: 5, Groups: 5, Users: 5, SetupKeys: 100},
 	"Setup Keys - M":  {Peers: 100, Groups: 20, Users: 20, SetupKeys: 1000},
@@ -31,7 +31,7 @@ var benchCasesSetupKeys = map[string]tests_tools.BenchmarkCase{
 }
 
 func BenchmarkCreateSetupKey(b *testing.B) {
-	var expectedMetrics = map[string]tests_tools.PerformanceMetrics{
+	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
 		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
 		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
 		"Setup Keys - M":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
@@ -49,16 +49,16 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := tests_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
-			tests_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
 				requestBody := api.CreateSetupKeyRequest{
-					AutoGroups: []string{tests_tools.TestGroupId},
-					ExpiresIn:  tests_tools.ExpiresIn,
-					Name:       tests_tools.NewKeyName + strconv.Itoa(i),
+					AutoGroups: []string{testing_tools.TestGroupId},
+					ExpiresIn:  testing_tools.ExpiresIn,
+					Name:       testing_tools.NewKeyName + strconv.Itoa(i),
 					Type:       "reusable",
 					UsageLimit: 0,
 				}
@@ -67,17 +67,17 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 				body, err := json.Marshal(requestBody)
 				assert.NoError(b, err)
 
-				req := tests_tools.BuildRequest(b, body, http.MethodPost, "/api/setup-keys", tests_tools.TestAdminId)
+				req := testing_tools.BuildRequest(b, body, http.MethodPost, "/api/setup-keys", testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			tests_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
 
 func BenchmarkUpdateSetupKey(b *testing.B) {
-	var expectedMetrics = map[string]tests_tools.PerformanceMetrics{
+	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
 		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 19},
 		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 19},
 		"Setup Keys - M":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 19},
@@ -95,15 +95,15 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := tests_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
-			tests_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				groupId := tests_tools.TestGroupId
+				groupId := testing_tools.TestGroupId
 				if i%2 == 0 {
-					groupId = tests_tools.NewGroupId
+					groupId = testing_tools.NewGroupId
 				}
 				requestBody := api.SetupKeyRequest{
 					AutoGroups: []string{groupId},
@@ -114,17 +114,17 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 				body, err := json.Marshal(requestBody)
 				assert.NoError(b, err)
 
-				req := tests_tools.BuildRequest(b, body, http.MethodPut, "/api/setup-keys/"+tests_tools.TestKeyId, tests_tools.TestAdminId)
+				req := testing_tools.BuildRequest(b, body, http.MethodPut, "/api/setup-keys/"+testing_tools.TestKeyId, testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			tests_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
 
 func BenchmarkGetOneSetupKey(b *testing.B) {
-	var expectedMetrics = map[string]tests_tools.PerformanceMetrics{
+	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
 		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
 		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
 		"Setup Keys - M":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
@@ -142,23 +142,23 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := tests_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
-			tests_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				req := tests_tools.BuildRequest(b, nil, http.MethodGet, "/api/setup-keys/"+tests_tools.TestKeyId, tests_tools.TestAdminId)
+				req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/setup-keys/"+testing_tools.TestKeyId, testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			tests_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
 
 func BenchmarkGetAllSetupKeys(b *testing.B) {
-	var expectedMetrics = map[string]tests_tools.PerformanceMetrics{
+	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
 		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 12},
 		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 15},
 		"Setup Keys - M":  {MinMsPerOpLocal: 5, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 40},
@@ -176,23 +176,23 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := tests_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
-			tests_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				req := tests_tools.BuildRequest(b, nil, http.MethodGet, "/api/setup-keys", tests_tools.TestAdminId)
+				req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/setup-keys", testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			tests_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
 
 func BenchmarkDeleteSetupKey(b *testing.B) {
-	var expectedMetrics = map[string]tests_tools.PerformanceMetrics{
+	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
 		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
 		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
 		"Setup Keys - M":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
@@ -210,17 +210,17 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := tests_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
-			tests_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, 1000)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, 1000)
 
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				req := tests_tools.BuildRequest(b, nil, http.MethodDelete, "/api/setup-keys/"+"oldkey-"+strconv.Itoa(i), tests_tools.TestAdminId)
+				req := testing_tools.BuildRequest(b, nil, http.MethodDelete, "/api/setup-keys/"+"oldkey-"+strconv.Itoa(i), testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			tests_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
 		})
 	}
 }
