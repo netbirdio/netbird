@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/dns"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/testutil"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
@@ -27,7 +28,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -148,8 +148,10 @@ const (
 	FileStoreEngine     StoreEngine = "jsonfile"
 	SqliteStoreEngine   StoreEngine = "sqlite"
 	PostgresStoreEngine StoreEngine = "postgres"
+	MysqlStoreEngine    StoreEngine = "mysql"
 
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
+	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
 
 func getStoreEngineFromEnv() StoreEngine {
@@ -160,7 +162,7 @@ func getStoreEngineFromEnv() StoreEngine {
 	}
 
 	value := StoreEngine(strings.ToLower(kind))
-	if value == SqliteStoreEngine || value == PostgresStoreEngine {
+	if value == SqliteStoreEngine || value == MysqlStoreEngine || value == PostgresStoreEngine {
 		return value
 	}
 
@@ -211,6 +213,9 @@ func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics tel
 	case PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
 		return newPostgresStore(ctx, metrics)
+	case MysqlStoreEngine:
+		log.WithContext(ctx).Info("using MySQL store engine")
+		return newMysqlStore(ctx, metrics)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
@@ -294,12 +299,14 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
-	cleanUp := func() {
-		store.Close(ctx)
-	}
+
+	return getSqlStoreEngine(ctx, store, kind)
+}
+
+func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (Store, func(), error) {
 
 	if kind == PostgresStoreEngine {
-		cleanUp, err = testutil.CreatePGDB()
+		cleanUp, err := testutil.CreatePostgresTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -313,9 +320,34 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		if err != nil {
 			return nil, nil, err
 		}
+
+		return store, cleanUp, nil
 	}
 
-	return store, cleanUp, nil
+	if kind == MysqlStoreEngine {
+		cleanUp, err := testutil.CreateMysqlTestContainer()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		dsn, ok := os.LookupEnv(mysqlDsnEnv)
+		if !ok {
+			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
+		}
+
+		store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return store, cleanUp, nil
+	}
+
+	closeConnection := func() {
+		store.Close(ctx)
+	}
+
+	return store, closeConnection, nil
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {
