@@ -183,7 +183,10 @@ func Test_sysInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotSerialNum, gotProdName, gotManufacturer := sysInfo(tt.sysInfo)
+			getSystemInfo = func() SysInfo {
+				return tt.sysInfo
+			}
+			gotSerialNum, gotProdName, gotManufacturer := sysInfo()
 			if gotSerialNum != tt.wantSerialNum {
 				t.Errorf("sysInfo() gotSerialNum = %v, want %v", gotSerialNum, tt.wantSerialNum)
 			}

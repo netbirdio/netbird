@@ -28,14 +28,14 @@ service DaemonService {
   // GetConfig of the daemon.
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
 
-  // List available network routes
-  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse) {}
+  // List available networks
+  rpc ListNetworks(ListNetworksRequest) returns (ListNetworksResponse) {}
 
   // Select specific routes
-  rpc SelectRoutes(SelectRoutesRequest) returns (SelectRoutesResponse) {}
+  rpc SelectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
 
   // Deselect specific routes
-  rpc DeselectRoutes(SelectRoutesRequest) returns (SelectRoutesResponse) {}
+  rpc DeselectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
 
   // DebugBundle creates a debug bundle
   rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
@@ -45,7 +45,20 @@ service DaemonService {
 
   // SetLogLevel sets the log level of the daemon
   rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
-};
+
+  // List all states
+  rpc ListStates(ListStatesRequest) returns (ListStatesResponse) {}
+
+  // Clean specific state or all states
+  rpc CleanState(CleanStateRequest) returns (CleanStateResponse) {}
+
+  // Delete specific state or all states
+  rpc DeleteState(DeleteStateRequest) returns (DeleteStateResponse) {}
+
+  // SetNetworkMapPersistence enables or disables network map persistence
+  rpc SetNetworkMapPersistence(SetNetworkMapPersistenceRequest) returns (SetNetworkMapPersistenceResponse) {}
+}
+
 
 message LoginRequest {
   // setupKey wiretrustee setup key.
@@ -177,7 +190,7 @@ message PeerState {
   int64 bytesRx = 13;
   int64 bytesTx = 14;
   bool rosenpassEnabled = 15;
-  repeated string routes = 16;
+  repeated string networks = 16;
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
 }
@@ -190,7 +203,7 @@ message LocalPeerState {
   string fqdn = 4;
   bool rosenpassEnabled = 5;
   bool rosenpassPermissive = 6;
-  repeated string routes = 7;
+  repeated string networks = 7;
 }
 
 // SignalState contains the latest state of a signal connection
@@ -231,20 +244,20 @@ message FullStatus {
   repeated NSGroupState dns_servers = 6;
 }
 
-message ListRoutesRequest {
+message ListNetworksRequest {
 }
 
-message ListRoutesResponse {
-  repeated Route routes = 1;
+message ListNetworksResponse {
+  repeated Network routes = 1;
 }
 
-message SelectRoutesRequest {
-  repeated string routeIDs = 1;
+message SelectNetworksRequest {
+  repeated string networkIDs = 1;
   bool append = 2;
   bool all = 3;
 }
 
-message SelectRoutesResponse {
+message SelectNetworksResponse {
 }
 
 message IPList {
@@ -252,9 +265,9 @@ message IPList {
 }
 
 
-message Route {
+message Network {
   string ID = 1;
-  string network = 2;
+  string range = 2;
   bool selected = 3;
   repeated string domains = 4;
   map<string, IPList> resolvedIPs = 5;
@@ -294,3 +307,45 @@ message SetLogLevelRequest {
 
 message SetLogLevelResponse {
 }
+
+// State represents a daemon state entry
+message State {
+  string name = 1;
+}
+
+// ListStatesRequest is empty as it requires no parameters
+message ListStatesRequest {}
+
+// ListStatesResponse contains a list of states
+message ListStatesResponse {
+  repeated State states = 1;
+}
+
+// CleanStateRequest for cleaning states
+message CleanStateRequest {
+  string state_name = 1;
+  bool all = 2;
+}
+
+// CleanStateResponse contains the result of the clean operation
+message CleanStateResponse {
+  int32 cleaned_states = 1;
+}
+
+// DeleteStateRequest for deleting states
+message DeleteStateRequest {
+  string state_name = 1;
+  bool all = 2;
+}
+
+// DeleteStateResponse contains the result of the delete operation
+message DeleteStateResponse {
+  int32 deleted_states = 1;
+}
+
+
+message SetNetworkMapPersistenceRequest {
+  bool enabled = 1;
+}
+
+message SetNetworkMapPersistenceResponse {}

@@ -13,10 +13,18 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
 	"github.com/netbirdio/netbird/route"
+)
+
+const (
+	handlerTypeDynamic = iota
+	handlerTypeDomain
+	handlerTypeStatic
 )
 
 type routerPeerStatus struct {
@@ -53,7 +61,18 @@ type clientNetwork struct {
 	updateSerial        uint64
 }
 
-func newClientNetworkWatcher(ctx context.Context, dnsRouteInterval time.Duration, wgInterface iface.IWGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *clientNetwork {
+func newClientNetworkWatcher(
+	ctx context.Context,
+	dnsRouteInterval time.Duration,
+	wgInterface iface.IWGIface,
+	statusRecorder *peer.Status,
+	rt *route.Route,
+	routeRefCounter *refcounter.RouteRefCounter,
+	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
+	dnsServer nbdns.Server,
+	peerStore *peerstore.Store,
+	useNewDNSRoute bool,
+) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 
 	client := &clientNetwork{
@@ -65,7 +84,17 @@ func newClientNetworkWatcher(ctx context.Context, dnsRouteInterval time.Duration
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
-		handler:             handlerFromRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouteInterval, statusRecorder, wgInterface),
+		handler: handlerFromRoute(
+			rt,
+			routeRefCounter,
+			allowedIPsRefCounter,
+			dnsRouteInterval,
+			statusRecorder,
+			wgInterface,
+			dnsServer,
+			peerStore,
+			useNewDNSRoute,
+		),
 	}
 	return client
 }
@@ -368,10 +397,50 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	}
 }
 
-func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, dnsRouterInteval time.Duration, statusRecorder *peer.Status, wgInterface iface.IWGIface) RouteHandler {
-	if rt.IsDynamic() {
+func handlerFromRoute(
+	rt *route.Route,
+	routeRefCounter *refcounter.RouteRefCounter,
+	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
+	dnsRouterInteval time.Duration,
+	statusRecorder *peer.Status,
+	wgInterface iface.IWGIface,
+	dnsServer nbdns.Server,
+	peerStore *peerstore.Store,
+	useNewDNSRoute bool,
+) RouteHandler {
+	switch handlerType(rt, useNewDNSRoute) {
+	case handlerTypeDomain:
+		return dnsinterceptor.New(
+			rt,
+			routeRefCounter,
+			allowedIPsRefCounter,
+			statusRecorder,
+			dnsServer,
+			peerStore,
+		)
+	case handlerTypeDynamic:
 		dns := nbdns.NewServiceViaMemory(wgInterface)
-		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouterInteval, statusRecorder, wgInterface, fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()))
+		return dynamic.NewRoute(
+			rt,
+			routeRefCounter,
+			allowedIPsRefCounter,
+			dnsRouterInteval,
+			statusRecorder,
+			wgInterface,
+			fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()),
+		)
+	default:
+		return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
 	}
-	return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
+}
+
+func handlerType(rt *route.Route, useNewDNSRoute bool) int {
+	if !rt.IsDynamic() {
+		return handlerTypeStatic
+	}
+
+	if useNewDNSRoute {
+		return handlerTypeDomain
+	}
+	return handlerTypeDynamic
 }

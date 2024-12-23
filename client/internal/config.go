@@ -46,6 +46,7 @@ type ConfigInput struct {
 	ManagementURL       string
 	AdminURL            string
 	ConfigPath          string
+	StateFilePath       string
 	PreSharedKey        *string
 	ServerSSHAllowed    *bool
 	NATExternalIPs      []string
@@ -105,10 +106,10 @@ type Config struct {
 
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
-	//Path to a certificate used for mTLS authentication
+	// Path to a certificate used for mTLS authentication
 	ClientCertPath string
 
-	//Path to corresponding private key of ClientCertPath
+	// Path to corresponding private key of ClientCertPath
 	ClientCertKeyPath string
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
@@ -116,7 +117,7 @@ type Config struct {
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
 func ReadConfig(configPath string) (*Config, error) {
-	if configFileIsExists(configPath) {
+	if fileExists(configPath) {
 		err := util.EnforcePermission(configPath)
 		if err != nil {
 			log.Errorf("failed to enforce permission on config dir: %v", err)
@@ -149,7 +150,7 @@ func ReadConfig(configPath string) (*Config, error) {
 
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
-	if !configFileIsExists(input.ConfigPath) {
+	if !fileExists(input.ConfigPath) {
 		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
 	}
 
@@ -158,7 +159,7 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 
 // UpdateOrCreateConfig reads existing config or generates a new one
 func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
-	if !configFileIsExists(input.ConfigPath) {
+	if !fileExists(input.ConfigPath) {
 		log.Infof("generating new config %s", input.ConfigPath)
 		cfg, err := createNewConfig(input)
 		if err != nil {
@@ -472,9 +473,17 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 	return false
 }
 
-func configFileIsExists(path string) bool {
+func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+func createFile(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }
 
 // UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.

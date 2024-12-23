@@ -68,6 +68,8 @@ type Server struct {
 	relayProbe  *internal.Probe
 	wgProbe     *internal.Probe
 	lastProbe   time.Time
+
+	persistNetworkMap bool
 }
 
 type oauthAuthFlow struct {
@@ -196,6 +198,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	runOperation := func() error {
 		log.Tracef("running client connection")
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+		s.connectClient.SetNetworkMapPersistence(s.persistNetworkMap)
 
 		probes := internal.ProbeHolder{
 			MgmProbe:    s.mgmProbe,
@@ -769,7 +772,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
-	pbFullStatus.LocalPeerState.Routes = maps.Keys(fullStatus.LocalPeerState.Routes)
+	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{
@@ -788,7 +791,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			BytesRx:                    peerState.BytesRx,
 			BytesTx:                    peerState.BytesTx,
 			RosenpassEnabled:           peerState.RosenpassEnabled,
-			Routes:                     maps.Keys(peerState.GetRoutes()),
+			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)

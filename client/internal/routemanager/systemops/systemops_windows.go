@@ -230,10 +230,13 @@ func (rm *RouteMonitor) parseUpdate(row *MIB_IPFORWARD_ROW2, notificationType MI
 	if idx != 0 {
 		intf, err := net.InterfaceByIndex(idx)
 		if err != nil {
-			return update, fmt.Errorf("get interface name: %w", err)
+			log.Warnf("failed to get interface name for index %d: %v", idx, err)
+			update.Interface = &net.Interface{
+				Index: idx,
+			}
+		} else {
+			update.Interface = intf
 		}
-
-		update.Interface = intf
 	}
 
 	log.Tracef("Received route update with destination %v, next hop %v, interface %v", row.DestinationPrefix, row.NextHop, update.Interface)

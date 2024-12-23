@@ -9,6 +9,8 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -21,7 +23,7 @@ var (
 
 type ephemeralPeer struct {
 	id       string
-	account  *Account
+	account  *types.Account
 	deadline time.Time
 	next     *ephemeralPeer
 }
@@ -32,7 +34,7 @@ type ephemeralPeer struct {
 // EphemeralManager keep a list of ephemeral peers. After ephemeralLifeTime inactivity the peer will be deleted
 // automatically. Inactivity means the peer disconnected from the Management server.
 type EphemeralManager struct {
-	store          Store
+	store          store.Store
 	accountManager AccountManager
 
 	headPeer  *ephemeralPeer
@@ -42,7 +44,7 @@ type EphemeralManager struct {
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
-func NewEphemeralManager(store Store, accountManager AccountManager) *EphemeralManager {
+func NewEphemeralManager(store store.Store, accountManager AccountManager) *EphemeralManager {
 	return &EphemeralManager{
 		store:          store,
 		accountManager: accountManager,
@@ -177,7 +179,7 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 	}
 }
 
-func (e *EphemeralManager) addPeer(id string, account *Account, deadline time.Time) {
+func (e *EphemeralManager) addPeer(id string, account *types.Account, deadline time.Time) {
 	ep := &ephemeralPeer{
 		id:       id,
 		account:  account,

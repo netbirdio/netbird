@@ -530,7 +530,7 @@ renderCaddyfile() {
 {
   debug
 	servers :80,:443 {
-    protocols h1 h2c
+    protocols h1 h2c h2 h3
   }
 }
 
@@ -788,6 +788,7 @@ services:
     networks: [ netbird ]
     ports:
       - '443:443'
+      - '443:443/udp'
       - '80:80'
       - '8080:8080'
     volumes:
