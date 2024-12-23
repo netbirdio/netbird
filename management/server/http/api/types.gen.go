@@ -88,6 +88,13 @@ const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
 )
 
+// Defines values for NetworkResourceType.
+const (
+	NetworkResourceTypeDomain NetworkResourceType = "domain"
+	NetworkResourceTypeHost   NetworkResourceType = "host"
+	NetworkResourceTypeSubnet NetworkResourceType = "subnet"
+)
+
 // Defines values for PeerNetworkRangeCheckAction.
 const (
 	PeerNetworkRangeCheckActionAllow PeerNetworkRangeCheckAction = "allow"
@@ -134,6 +141,13 @@ const (
 	PolicyRuleUpdateProtocolIcmp PolicyRuleUpdateProtocol = "icmp"
 	PolicyRuleUpdateProtocolTcp  PolicyRuleUpdateProtocol = "tcp"
 	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
+)
+
+// Defines values for ResourceType.
+const (
+	ResourceTypeDomain ResourceType = "domain"
+	ResourceTypeHost   ResourceType = "host"
+	ResourceTypeSubnet ResourceType = "subnet"
 )
 
 // Defines values for UserStatus.
@@ -234,6 +248,9 @@ type AccountSettings struct {
 
 	// RegularUsersViewBlocked Allows blocking regular users from viewing parts of the system.
 	RegularUsersViewBlocked bool `json:"regular_users_view_blocked"`
+
+	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
+	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
 
 // Checks List of objects that perform the actual checks
@@ -365,7 +382,11 @@ type Group struct {
 	Peers []PeerMinimum `json:"peers"`
 
 	// PeersCount Count of peers associated to the group
-	PeersCount int `json:"peers_count"`
+	PeersCount int        `json:"peers_count"`
+	Resources  []Resource `json:"resources"`
+
+	// ResourcesCount Count of resources associated to the group
+	ResourcesCount int `json:"resources_count"`
 }
 
 // GroupIssued How the group was issued (api, integration, jwt)
@@ -384,6 +405,9 @@ type GroupMinimum struct {
 
 	// PeersCount Count of peers associated to the group
 	PeersCount int `json:"peers_count"`
+
+	// ResourcesCount Count of resources associated to the group
+	ResourcesCount int `json:"resources_count"`
 }
 
 // GroupMinimumIssued How the group was issued (api, integration, jwt)
@@ -395,7 +419,8 @@ type GroupRequest struct {
 	Name string `json:"name"`
 
 	// Peers List of peers ids
-	Peers *[]string `json:"peers,omitempty"`
+	Peers     *[]string   `json:"peers,omitempty"`
+	Resources *[]Resource `json:"resources,omitempty"`
 }
 
 // Location Describe geographical location information
@@ -492,6 +517,123 @@ type NameserverGroupRequest struct {
 
 	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
+}
+
+// Network defines model for Network.
+type Network struct {
+	// Description Network description
+	Description *string `json:"description,omitempty"`
+
+	// Id Network ID
+	Id string `json:"id"`
+
+	// Name Network name
+	Name string `json:"name"`
+
+	// Policies List of policy IDs associated with the network
+	Policies []string `json:"policies"`
+
+	// Resources List of network resource IDs associated with the network
+	Resources []string `json:"resources"`
+
+	// Routers List of router IDs associated with the network
+	Routers []string `json:"routers"`
+
+	// RoutingPeersCount Count of routing peers associated with the network
+	RoutingPeersCount int `json:"routing_peers_count"`
+}
+
+// NetworkRequest defines model for NetworkRequest.
+type NetworkRequest struct {
+	// Description Network description
+	Description *string `json:"description,omitempty"`
+
+	// Name Network name
+	Name string `json:"name"`
+}
+
+// NetworkResource defines model for NetworkResource.
+type NetworkResource struct {
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
+	Address string `json:"address"`
+
+	// Description Network resource description
+	Description *string `json:"description,omitempty"`
+
+	// Groups Groups that the resource belongs to
+	Groups []GroupMinimum `json:"groups"`
+
+	// Id Network Resource ID
+	Id string `json:"id"`
+
+	// Name Network resource name
+	Name string `json:"name"`
+
+	// Type Network resource type based of the address
+	Type NetworkResourceType `json:"type"`
+}
+
+// NetworkResourceMinimum defines model for NetworkResourceMinimum.
+type NetworkResourceMinimum struct {
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
+	Address string `json:"address"`
+
+	// Description Network resource description
+	Description *string `json:"description,omitempty"`
+
+	// Name Network resource name
+	Name string `json:"name"`
+}
+
+// NetworkResourceRequest defines model for NetworkResourceRequest.
+type NetworkResourceRequest struct {
+	// Address Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
+	Address string `json:"address"`
+
+	// Description Network resource description
+	Description *string `json:"description,omitempty"`
+
+	// Groups Group IDs containing the resource
+	Groups []string `json:"groups"`
+
+	// Name Network resource name
+	Name string `json:"name"`
+}
+
+// NetworkResourceType Network resource type based of the address
+type NetworkResourceType string
+
+// NetworkRouter defines model for NetworkRouter.
+type NetworkRouter struct {
+	// Id Network Router Id
+	Id string `json:"id"`
+
+	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
+	Masquerade bool `json:"masquerade"`
+
+	// Metric Route metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
+	Peer *string `json:"peer,omitempty"`
+
+	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
+	PeerGroups *[]string `json:"peer_groups,omitempty"`
+}
+
+// NetworkRouterRequest defines model for NetworkRouterRequest.
+type NetworkRouterRequest struct {
+	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
+	Masquerade bool `json:"masquerade"`
+
+	// Metric Route metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
+	Peer *string `json:"peer,omitempty"`
+
+	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
+	PeerGroups *[]string `json:"peer_groups,omitempty"`
 }
 
 // OSVersionCheck Posture check for the version of operating system
@@ -794,10 +936,11 @@ type PolicyRule struct {
 	Bidirectional bool `json:"bidirectional"`
 
 	// Description Policy rule friendly description
-	Description *string `json:"description,omitempty"`
+	Description         *string   `json:"description,omitempty"`
+	DestinationResource *Resource `json:"destinationResource,omitempty"`
 
 	// Destinations Policy rule destination group IDs
-	Destinations []GroupMinimum `json:"destinations"`
+	Destinations *[]GroupMinimum `json:"destinations,omitempty"`
 
 	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
@@ -815,10 +958,11 @@ type PolicyRule struct {
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
-	Protocol PolicyRuleProtocol `json:"protocol"`
+	Protocol       PolicyRuleProtocol `json:"protocol"`
+	SourceResource *Resource          `json:"sourceResource,omitempty"`
 
 	// Sources Policy rule source group IDs
-	Sources []GroupMinimum `json:"sources"`
+	Sources *[]GroupMinimum `json:"sources,omitempty"`
 }
 
 // PolicyRuleAction Policy rule accept or drops packets
@@ -869,10 +1013,11 @@ type PolicyRuleUpdate struct {
 	Bidirectional bool `json:"bidirectional"`
 
 	// Description Policy rule friendly description
-	Description *string `json:"description,omitempty"`
+	Description         *string   `json:"description,omitempty"`
+	DestinationResource *Resource `json:"destinationResource,omitempty"`
 
 	// Destinations Policy rule destination group IDs
-	Destinations []string `json:"destinations"`
+	Destinations *[]string `json:"destinations,omitempty"`
 
 	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
@@ -890,10 +1035,11 @@ type PolicyRuleUpdate struct {
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
-	Protocol PolicyRuleUpdateProtocol `json:"protocol"`
+	Protocol       PolicyRuleUpdateProtocol `json:"protocol"`
+	SourceResource *Resource                `json:"sourceResource,omitempty"`
 
 	// Sources Policy rule source group IDs
-	Sources []string `json:"sources"`
+	Sources *[]string `json:"sources,omitempty"`
 }
 
 // PolicyRuleUpdateAction Policy rule accept or drops packets
@@ -963,6 +1109,16 @@ type Process struct {
 type ProcessCheck struct {
 	Processes []Process `json:"processes"`
 }
+
+// Resource defines model for Resource.
+type Resource struct {
+	// Id ID of the resource
+	Id   string       `json:"id"`
+	Type ResourceType `json:"type"`
+}
+
+// ResourceType defines model for ResourceType.
+type ResourceType string
 
 // Route defines model for Route.
 type Route struct {
@@ -1300,6 +1456,24 @@ type PostApiGroupsJSONRequestBody = GroupRequest
 
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
 type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
+
+// PostApiNetworksJSONRequestBody defines body for PostApiNetworks for application/json ContentType.
+type PostApiNetworksJSONRequestBody = NetworkRequest
+
+// PutApiNetworksNetworkIdJSONRequestBody defines body for PutApiNetworksNetworkId for application/json ContentType.
+type PutApiNetworksNetworkIdJSONRequestBody = NetworkRequest
+
+// PostApiNetworksNetworkIdResourcesJSONRequestBody defines body for PostApiNetworksNetworkIdResources for application/json ContentType.
+type PostApiNetworksNetworkIdResourcesJSONRequestBody = NetworkResourceRequest
+
+// PutApiNetworksNetworkIdResourcesResourceIdJSONRequestBody defines body for PutApiNetworksNetworkIdResourcesResourceId for application/json ContentType.
+type PutApiNetworksNetworkIdResourcesResourceIdJSONRequestBody = NetworkResourceRequest
+
+// PostApiNetworksNetworkIdRoutersJSONRequestBody defines body for PostApiNetworksNetworkIdRouters for application/json ContentType.
+type PostApiNetworksNetworkIdRoutersJSONRequestBody = NetworkRouterRequest
+
+// PutApiNetworksNetworkIdRoutersRouterIdJSONRequestBody defines body for PutApiNetworksNetworkIdRoutersRouterId for application/json ContentType.
+type PutApiNetworksNetworkIdRoutersRouterIdJSONRequestBody = NetworkRouterRequest
 
 // PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
 type PutApiPeersPeerIdJSONRequestBody = PeerRequest

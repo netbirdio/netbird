@@ -154,3 +154,35 @@ func NewPolicyNotFoundError(policyID string) error {
 func NewNameServerGroupNotFoundError(nsGroupID string) error {
 	return Errorf(NotFound, "nameserver group: %s not found", nsGroupID)
 }
+
+// NewNetworkNotFoundError creates a new Error with NotFound type for a missing network.
+func NewNetworkNotFoundError(networkID string) error {
+	return Errorf(NotFound, "network: %s not found", networkID)
+}
+
+// NewNetworkRouterNotFoundError creates a new Error with NotFound type for a missing network router.
+func NewNetworkRouterNotFoundError(routerID string) error {
+	return Errorf(NotFound, "network router: %s not found", routerID)
+}
+
+// NewNetworkResourceNotFoundError creates a new Error with NotFound type for a missing network resource.
+func NewNetworkResourceNotFoundError(resourceID string) error {
+	return Errorf(NotFound, "network resource: %s not found", resourceID)
+}
+
+// NewPermissionDeniedError creates a new Error with PermissionDenied type for a permission denied error.
+func NewPermissionDeniedError() error {
+	return Errorf(PermissionDenied, "permission denied")
+}
+
+func NewPermissionValidationError(err error) error {
+	return Errorf(PermissionDenied, "failed to vlidate user permissions: %s", err)
+}
+
+func NewResourceNotPartOfNetworkError(resourceID, networkID string) error {
+	return Errorf(BadRequest, "resource %s is not part of the network %s", resourceID, networkID)
+}
+
+func NewRouterNotPartOfNetworkError(routerID, networkID string) error {
+	return Errorf(BadRequest, "router %s is not part of the network %s", routerID, networkID)
+}

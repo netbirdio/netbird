@@ -530,7 +530,7 @@ renderCaddyfile() {
 {
   debug
 	servers :80,:443 {
-    protocols h1 h2c h3
+    protocols h1 h2c h2 h3
   }
 }
 

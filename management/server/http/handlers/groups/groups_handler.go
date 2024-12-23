@@ -9,9 +9,9 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -129,10 +129,21 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		peers = *req.Peers
 	}
-	group := nbgroup.Group{
+
+	resources := make([]types.Resource, 0)
+	if req.Resources != nil {
+		for _, res := range *req.Resources {
+			resource := types.Resource{}
+			resource.FromAPIRequest(&res)
+			resources = append(resources, resource)
+		}
+	}
+
+	group := types.Group{
 		ID:                   groupID,
 		Name:                 req.Name,
 		Peers:                peers,
+		Resources:            resources,
 		Issued:               existingGroup.Issued,
 		IntegrationReference: existingGroup.IntegrationReference,
 	}
@@ -179,10 +190,21 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		peers = *req.Peers
 	}
-	group := nbgroup.Group{
-		Name:   req.Name,
-		Peers:  peers,
-		Issued: nbgroup.GroupIssuedAPI,
+
+	resources := make([]types.Resource, 0)
+	if req.Resources != nil {
+		for _, res := range *req.Resources {
+			resource := types.Resource{}
+			resource.FromAPIRequest(&res)
+			resources = append(resources, resource)
+		}
+	}
+
+	group := types.Group{
+		Name:      req.Name,
+		Peers:     peers,
+		Resources: resources,
+		Issued:    types.GroupIssuedAPI,
 	}
 
 	err = h.accountManager.SaveGroup(r.Context(), accountID, userID, &group)
@@ -259,13 +281,13 @@ func (h *handler) getGroup(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func toGroupResponse(peers []*nbpeer.Peer, group *nbgroup.Group) *api.Group {
+func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 	peersMap := make(map[string]*nbpeer.Peer, len(peers))
 	for _, peer := range peers {
 		peersMap[peer.ID] = peer
 	}
 
-	cache := make(map[string]api.PeerMinimum)
+	peerCache := make(map[string]api.PeerMinimum)
 	gr := api.Group{
 		Id:     group.ID,
 		Name:   group.Name,
@@ -273,7 +295,7 @@ func toGroupResponse(peers []*nbpeer.Peer, group *nbgroup.Group) *api.Group {
 	}
 
 	for _, pid := range group.Peers {
-		_, ok := cache[pid]
+		_, ok := peerCache[pid]
 		if !ok {
 			peer, ok := peersMap[pid]
 			if !ok {
@@ -283,12 +305,19 @@ func toGroupResponse(peers []*nbpeer.Peer, group *nbgroup.Group) *api.Group {
 				Id:   peer.ID,
 				Name: peer.Name,
 			}
-			cache[pid] = peerResp
+			peerCache[pid] = peerResp
 			gr.Peers = append(gr.Peers, peerResp)
 		}
 	}
 
 	gr.PeersCount = len(gr.Peers)
+
+	for _, res := range group.Resources {
+		resResp := res.ToAPIResponse()
+		gr.Resources = append(gr.Resources, *resResp)
+	}
+
+	gr.ResourcesCount = len(gr.Resources)
 
 	return &gr
 }

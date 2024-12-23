@@ -13,23 +13,23 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
-func initAccountsTestData(account *server.Account, admin *server.User) *handler {
+func initAccountsTestData(account *types.Account, admin *types.User) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountIDFromTokenFunc: func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return account.Id, admin.Id, nil
 			},
-			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*server.Settings, error) {
+			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 				return account.Settings, nil
 			},
-			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
+			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error) {
 				halfYearLimit := 180 * 24 * time.Hour
 				if newSettings.PeerLoginExpiration > halfYearLimit {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -58,19 +58,19 @@ func initAccountsTestData(account *server.Account, admin *server.User) *handler 
 
 func TestAccounts_AccountsHandler(t *testing.T) {
 	accountID := "test_account"
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := types.NewAdminUser("test_user")
 
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
 
-	handler := initAccountsTestData(&server.Account{
+	handler := initAccountsTestData(&types.Account{
 		Id:      accountID,
 		Domain:  "hotmail.com",
-		Network: server.NewNetwork(),
-		Users: map[string]*server.User{
+		Network: types.NewNetwork(),
+		Users: map[string]*types.User{
 			adminUser.Id: adminUser,
 		},
-		Settings: &server.Settings{
+		Settings: &types.Settings{
 			PeerLoginExpirationEnabled: false,
 			PeerLoginExpiration:        time.Hour,
 			RegularUsersViewBlocked:    true,
@@ -95,13 +95,14 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestPath:    "/api/accounts",
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:        int(time.Hour.Seconds()),
-				PeerLoginExpirationEnabled: false,
-				GroupsPropagationEnabled:   br(false),
-				JwtGroupsClaimName:         sr(""),
-				JwtGroupsEnabled:           br(false),
-				JwtAllowGroups:             &[]string{},
-				RegularUsersViewBlocked:    true,
+				PeerLoginExpiration:             int(time.Hour.Seconds()),
+				PeerLoginExpirationEnabled:      false,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         true,
+				RoutingPeerDnsResolutionEnabled: br(false),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -114,13 +115,14 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:        15552000,
-				PeerLoginExpirationEnabled: true,
-				GroupsPropagationEnabled:   br(false),
-				JwtGroupsClaimName:         sr(""),
-				JwtGroupsEnabled:           br(false),
-				JwtAllowGroups:             &[]string{},
-				RegularUsersViewBlocked:    false,
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         false,
+				RoutingPeerDnsResolutionEnabled: br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -133,13 +135,14 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": false,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"roles\",\"jwt_allow_groups\":[\"test\"],\"regular_users_view_blocked\":true}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:        15552000,
-				PeerLoginExpirationEnabled: false,
-				GroupsPropagationEnabled:   br(false),
-				JwtGroupsClaimName:         sr("roles"),
-				JwtGroupsEnabled:           br(true),
-				JwtAllowGroups:             &[]string{"test"},
-				RegularUsersViewBlocked:    true,
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      false,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr("roles"),
+				JwtGroupsEnabled:                br(true),
+				JwtAllowGroups:                  &[]string{"test"},
+				RegularUsersViewBlocked:         true,
+				RoutingPeerDnsResolutionEnabled: br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -152,13 +155,14 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 554400,\"peer_login_expiration_enabled\": true,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"groups\",\"groups_propagation_enabled\":true,\"regular_users_view_blocked\":true}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:        554400,
-				PeerLoginExpirationEnabled: true,
-				GroupsPropagationEnabled:   br(true),
-				JwtGroupsClaimName:         sr("groups"),
-				JwtGroupsEnabled:           br(true),
-				JwtAllowGroups:             &[]string{},
-				RegularUsersViewBlocked:    true,
+				PeerLoginExpiration:             554400,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(true),
+				JwtGroupsClaimName:              sr("groups"),
+				JwtGroupsEnabled:                br(true),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         true,
+				RoutingPeerDnsResolutionEnabled: br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
