@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -28,7 +27,6 @@ const (
 
 	// filter chains contains the rules that jump to the rules chains
 	chainNameInputFilter   = "netbird-acl-input-filter"
-	chainNameOutputFilter  = "netbird-acl-output-filter"
 	chainNameForwardFilter = "netbird-acl-forward-filter"
 	chainNamePrerouting    = "netbird-rt-prerouting"
 
@@ -441,18 +439,6 @@ func (m *AclManager) createDefaultChains() (err error) {
 		return err
 	}
 
-	// netbird-acl-output-filter
-	// type filter hook output priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput)
-	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
-	m.addJumpRule(chain, m.chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
-	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
-		return err
-	}
-
 	// netbird-acl-forward-filter
 	chainFwFilter := m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
 	m.addJumpRulesToRtForward(chainFwFilter) // to netbird-rt-fwd
@@ -617,45 +603,6 @@ func (m *AclManager) addDropExpressions(chain *nftables.Chain, ifaceKey expr.Met
 		Exprs: expressions,
 	})
 	return nil
-}
-
-func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-	dstOp := expr.CmpOpNeq
-	expressions := []expr.Any{
-		&expr.Meta{Key: iifname, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       dstOp,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
-		&expr.Verdict{
-			Kind: expr.VerdictAccept,
-		},
-	}
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: chain.Table,
-		Chain: chain,
-		Exprs: expressions,
-	})
 }
 
 func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
