@@ -1,4 +1,4 @@
-package handlers
+package http
 
 import (
 	"context"
