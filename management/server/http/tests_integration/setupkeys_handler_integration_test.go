@@ -1,4 +1,4 @@
-package http
+package tests_integration
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
+	"github.com/netbirdio/netbird/management/server/http/tests_tools"
 )
 
 func Test_SetupKeys_Create(t *testing.T) {
@@ -25,42 +27,42 @@ func Test_SetupKeys_Create(t *testing.T) {
 	}{
 		{
 			name:           "Regular user",
-			userId:         testUserId,
+			userId:         tests_tools.TestUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin user",
-			userId:         testAdminId,
+			userId:         tests_tools.TestAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Owner user",
-			userId:         testOwnerId,
+			userId:         tests_tools.TestOwnerId,
 			expectResponse: true,
 		},
 		{
 			name:           "Regular service user",
-			userId:         testServiceUserId,
+			userId:         tests_tools.TestServiceUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin service user",
-			userId:         testServiceAdminId,
+			userId:         tests_tools.TestServiceAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Blocked user",
-			userId:         blockedUserId,
+			userId:         tests_tools.BlockedUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Other user",
-			userId:         otherUserId,
+			userId:         tests_tools.OtherUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Invalid token",
-			userId:         invalidToken,
+			userId:         tests_tools.InvalidToken,
 			expectResponse: false,
 		},
 	}
@@ -80,8 +82,8 @@ func Test_SetupKeys_Create(t *testing.T) {
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
 				AutoGroups: nil,
-				ExpiresIn:  expiresIn,
-				Name:       newKeyName,
+				ExpiresIn:  tests_tools.ExpiresIn,
+				Name:       tests_tools.NewKeyName,
 				Type:       "reusable",
 				UsageLimit: 0,
 			},
@@ -93,7 +95,7 @@ func Test_SetupKeys_Create(t *testing.T) {
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       newKeyName,
+				Name:       tests_tools.NewKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "reusable",
@@ -109,8 +111,8 @@ func Test_SetupKeys_Create(t *testing.T) {
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
 				AutoGroups: nil,
-				ExpiresIn:  expiresIn,
-				Name:       existingKeyName,
+				ExpiresIn:  tests_tools.ExpiresIn,
+				Name:       tests_tools.ExistingKeyName,
 				Type:       "one-off",
 				UsageLimit: 0,
 			},
@@ -122,7 +124,7 @@ func Test_SetupKeys_Create(t *testing.T) {
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "one-off",
@@ -138,8 +140,8 @@ func Test_SetupKeys_Create(t *testing.T) {
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
 				AutoGroups: nil,
-				ExpiresIn:  expiresIn,
-				Name:       newKeyName,
+				ExpiresIn:  tests_tools.ExpiresIn,
+				Name:       tests_tools.NewKeyName,
 				Type:       "one-off",
 				UsageLimit: 3,
 			},
@@ -151,7 +153,7 @@ func Test_SetupKeys_Create(t *testing.T) {
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       newKeyName,
+				Name:       tests_tools.NewKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "one-off",
@@ -167,8 +169,8 @@ func Test_SetupKeys_Create(t *testing.T) {
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
 				AutoGroups: nil,
-				ExpiresIn:  -expiresIn,
-				Name:       newKeyName,
+				ExpiresIn:  -tests_tools.ExpiresIn,
+				Name:       tests_tools.NewKeyName,
 				Type:       "one-off",
 				UsageLimit: 0,
 			},
@@ -180,21 +182,21 @@ func Test_SetupKeys_Create(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
-				AutoGroups: []string{testGroupId},
-				ExpiresIn:  expiresIn,
-				Name:       newKeyName,
+				AutoGroups: []string{tests_tools.TestGroupId},
+				ExpiresIn:  tests_tools.ExpiresIn,
+				Name:       tests_tools.NewKeyName,
 				Type:       "reusable",
 				UsageLimit: 1,
 			},
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       newKeyName,
+				Name:       tests_tools.NewKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "reusable",
@@ -210,8 +212,8 @@ func Test_SetupKeys_Create(t *testing.T) {
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
 				AutoGroups: []string{},
-				ExpiresIn:  expiresIn,
-				Name:       newKeyName,
+				ExpiresIn:  tests_tools.ExpiresIn,
+				Name:       tests_tools.NewKeyName,
 				Type:       "reusable",
 				Ephemeral:  &truePointer,
 				UsageLimit: 1,
@@ -224,7 +226,7 @@ func Test_SetupKeys_Create(t *testing.T) {
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       newKeyName,
+				Name:       tests_tools.NewKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "reusable",
@@ -240,8 +242,8 @@ func Test_SetupKeys_Create(t *testing.T) {
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
 				AutoGroups: []string{"someGroupID"},
-				ExpiresIn:  expiresIn,
-				Name:       newKeyName,
+				ExpiresIn:  tests_tools.ExpiresIn,
+				Name:       tests_tools.NewKeyName,
 				Type:       "reusable",
 				UsageLimit: 0,
 			},
@@ -254,8 +256,8 @@ func Test_SetupKeys_Create(t *testing.T) {
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
 				AutoGroups: nil,
-				ExpiresIn:  expiresIn,
-				Name:       newKeyName,
+				ExpiresIn:  tests_tools.ExpiresIn,
+				Name:       tests_tools.NewKeyName,
 				Type:       "reusable",
 				UsageLimit: 0,
 			},
@@ -267,7 +269,7 @@ func Test_SetupKeys_Create(t *testing.T) {
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       newKeyName,
+				Name:       tests_tools.NewKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "reusable",
@@ -282,19 +284,19 @@ func Test_SetupKeys_Create(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(user.name+" - "+tc.name, func(t *testing.T) {
-				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+				apiHandler, am, done := tests_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
 
 				body, err := json.Marshal(tc.requestBody)
 				if err != nil {
 					t.Fatalf("Failed to marshal request body: %v", err)
 				}
-				req := buildRequest(t, body, tc.requestType, tc.requestPath, user.userId)
+				req := tests_tools.BuildRequest(t, body, tc.requestType, tc.requestPath, user.userId)
 
 				recorder := httptest.NewRecorder()
 
 				apiHandler.ServeHTTP(recorder, req)
 
-				content, expectResponse := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				content, expectResponse := tests_tools.ReadResponse(t, recorder, tc.expectedStatus, user.expectResponse)
 				if !expectResponse {
 					return
 				}
@@ -305,12 +307,12 @@ func Test_SetupKeys_Create(t *testing.T) {
 
 				validateCreatedKey(t, tc.expectedResponse, got)
 
-				key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+				key, err := am.GetSetupKey(context.Background(), tests_tools.TestAccountId, tests_tools.TestUserId, got.Id)
 				if err != nil {
 					return
 				}
 
-				validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+				validateCreatedKey(t, tc.expectedResponse, setup_keys.ToResponseBody(key))
 
 				select {
 				case <-done:
@@ -330,42 +332,42 @@ func Test_SetupKeys_Update(t *testing.T) {
 	}{
 		{
 			name:           "Regular user",
-			userId:         testUserId,
+			userId:         tests_tools.TestUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin user",
-			userId:         testAdminId,
+			userId:         tests_tools.TestAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Owner user",
-			userId:         testOwnerId,
+			userId:         tests_tools.TestOwnerId,
 			expectResponse: true,
 		},
 		{
 			name:           "Regular service user",
-			userId:         testServiceUserId,
+			userId:         tests_tools.TestServiceUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin service user",
-			userId:         testServiceAdminId,
+			userId:         tests_tools.TestServiceAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Blocked user",
-			userId:         blockedUserId,
+			userId:         tests_tools.BlockedUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Other user",
-			userId:         otherUserId,
+			userId:         tests_tools.OtherUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Invalid token",
-			userId:         invalidToken,
+			userId:         tests_tools.InvalidToken,
 			expectResponse: false,
 		},
 	}
@@ -383,20 +385,20 @@ func Test_SetupKeys_Update(t *testing.T) {
 			name:        "Add existing Group to existing Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/{id}",
-			requestId:   testKeyId,
+			requestId:   tests_tools.TestKeyId,
 			requestBody: &api.SetupKeyRequest{
-				AutoGroups: []string{testGroupId, newGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId, tests_tools.NewGroupId},
 				Revoked:    false,
 			},
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId, newGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId, tests_tools.NewGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "one-off",
@@ -410,9 +412,9 @@ func Test_SetupKeys_Update(t *testing.T) {
 			name:        "Add non-existing Group to existing Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/{id}",
-			requestId:   testKeyId,
+			requestId:   tests_tools.TestKeyId,
 			requestBody: &api.SetupKeyRequest{
-				AutoGroups: []string{testGroupId, "someGroupId"},
+				AutoGroups: []string{tests_tools.TestGroupId, "someGroupId"},
 				Revoked:    false,
 			},
 			expectedStatus:   http.StatusUnprocessableEntity,
@@ -424,7 +426,7 @@ func Test_SetupKeys_Update(t *testing.T) {
 			requestPath: "/api/setup-keys/{id}",
 			requestId:   "someId",
 			requestBody: &api.SetupKeyRequest{
-				AutoGroups: []string{testGroupId, newGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId, tests_tools.NewGroupId},
 				Revoked:    false,
 			},
 			expectedStatus:   http.StatusNotFound,
@@ -434,7 +436,7 @@ func Test_SetupKeys_Update(t *testing.T) {
 			name:        "Remove existing Group from existing Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/{id}",
-			requestId:   testKeyId,
+			requestId:   tests_tools.TestKeyId,
 			requestBody: &api.SetupKeyRequest{
 				AutoGroups: []string{},
 				Revoked:    false,
@@ -447,7 +449,7 @@ func Test_SetupKeys_Update(t *testing.T) {
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "one-off",
@@ -473,20 +475,20 @@ func Test_SetupKeys_Update(t *testing.T) {
 			name:        "Revoke existing valid Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/{id}",
-			requestId:   testKeyId,
+			requestId:   tests_tools.TestKeyId,
 			requestBody: &api.SetupKeyRequest{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Revoked:    true,
 			},
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    true,
 				State:      "revoked",
 				Type:       "one-off",
@@ -500,20 +502,20 @@ func Test_SetupKeys_Update(t *testing.T) {
 			name:        "Revoke existing revoked Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/{id}",
-			requestId:   revokedKeyId,
+			requestId:   tests_tools.RevokedKeyId,
 			requestBody: &api.SetupKeyRequest{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Revoked:    true,
 			},
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    true,
 				State:      "revoked",
 				Type:       "reusable",
@@ -527,9 +529,9 @@ func Test_SetupKeys_Update(t *testing.T) {
 			name:        "Un-Revoke existing revoked Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/{id}",
-			requestId:   revokedKeyId,
+			requestId:   tests_tools.RevokedKeyId,
 			requestBody: &api.SetupKeyRequest{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Revoked:    false,
 			},
 			expectedStatus:   http.StatusUnprocessableEntity,
@@ -539,20 +541,20 @@ func Test_SetupKeys_Update(t *testing.T) {
 			name:        "Revoke existing expired Setup Key",
 			requestType: http.MethodPut,
 			requestPath: "/api/setup-keys/{id}",
-			requestId:   expiredKeyId,
+			requestId:   tests_tools.ExpiredKeyId,
 			requestBody: &api.SetupKeyRequest{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Revoked:    true,
 			},
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  true,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    true,
 				State:      "expired",
 				Type:       "reusable",
@@ -567,20 +569,20 @@ func Test_SetupKeys_Update(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(tc.name, func(t *testing.T) {
-				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+				apiHandler, am, done := tests_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
 
 				body, err := json.Marshal(tc.requestBody)
 				if err != nil {
 					t.Fatalf("Failed to marshal request body: %v", err)
 				}
 
-				req := buildRequest(t, body, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
+				req := tests_tools.BuildRequest(t, body, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
 
 				recorder := httptest.NewRecorder()
 
 				apiHandler.ServeHTTP(recorder, req)
 
-				content, expectResponse := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				content, expectResponse := tests_tools.ReadResponse(t, recorder, tc.expectedStatus, user.expectResponse)
 				if !expectResponse {
 					return
 				}
@@ -591,12 +593,12 @@ func Test_SetupKeys_Update(t *testing.T) {
 
 				validateCreatedKey(t, tc.expectedResponse, got)
 
-				key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+				key, err := am.GetSetupKey(context.Background(), tests_tools.TestAccountId, tests_tools.TestUserId, got.Id)
 				if err != nil {
 					return
 				}
 
-				validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+				validateCreatedKey(t, tc.expectedResponse, setup_keys.ToResponseBody(key))
 
 				select {
 				case <-done:
@@ -616,42 +618,42 @@ func Test_SetupKeys_Get(t *testing.T) {
 	}{
 		{
 			name:           "Regular user",
-			userId:         testUserId,
+			userId:         tests_tools.TestUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin user",
-			userId:         testAdminId,
+			userId:         tests_tools.TestAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Owner user",
-			userId:         testOwnerId,
+			userId:         tests_tools.TestOwnerId,
 			expectResponse: true,
 		},
 		{
 			name:           "Regular service user",
-			userId:         testServiceUserId,
+			userId:         tests_tools.TestServiceUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin service user",
-			userId:         testServiceAdminId,
+			userId:         tests_tools.TestServiceAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Blocked user",
-			userId:         blockedUserId,
+			userId:         tests_tools.BlockedUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Other user",
-			userId:         otherUserId,
+			userId:         tests_tools.OtherUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Invalid token",
-			userId:         invalidToken,
+			userId:         tests_tools.InvalidToken,
 			expectResponse: false,
 		},
 	}
@@ -668,16 +670,16 @@ func Test_SetupKeys_Get(t *testing.T) {
 			name:           "Get existing valid Setup Key",
 			requestType:    http.MethodGet,
 			requestPath:    "/api/setup-keys/{id}",
-			requestId:      testKeyId,
+			requestId:      tests_tools.TestKeyId,
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "one-off",
@@ -691,16 +693,16 @@ func Test_SetupKeys_Get(t *testing.T) {
 			name:           "Get existing expired Setup Key",
 			requestType:    http.MethodGet,
 			requestPath:    "/api/setup-keys/{id}",
-			requestId:      expiredKeyId,
+			requestId:      tests_tools.ExpiredKeyId,
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  true,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    false,
 				State:      "expired",
 				Type:       "reusable",
@@ -714,16 +716,16 @@ func Test_SetupKeys_Get(t *testing.T) {
 			name:           "Get existing revoked Setup Key",
 			requestType:    http.MethodGet,
 			requestPath:    "/api/setup-keys/{id}",
-			requestId:      revokedKeyId,
+			requestId:      tests_tools.RevokedKeyId,
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    true,
 				State:      "revoked",
 				Type:       "reusable",
@@ -746,15 +748,15 @@ func Test_SetupKeys_Get(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(tc.name, func(t *testing.T) {
-				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+				apiHandler, am, done := tests_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
 
-				req := buildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
+				req := tests_tools.BuildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
 
 				recorder := httptest.NewRecorder()
 
 				apiHandler.ServeHTTP(recorder, req)
 
-				content, expectRespnose := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				content, expectRespnose := tests_tools.ReadResponse(t, recorder, tc.expectedStatus, user.expectResponse)
 				if !expectRespnose {
 					return
 				}
@@ -765,12 +767,12 @@ func Test_SetupKeys_Get(t *testing.T) {
 
 				validateCreatedKey(t, tc.expectedResponse, got)
 
-				key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+				key, err := am.GetSetupKey(context.Background(), tests_tools.TestAccountId, tests_tools.TestUserId, got.Id)
 				if err != nil {
 					return
 				}
 
-				validateCreatedKey(t, tc.expectedResponse, toResponseBody(key))
+				validateCreatedKey(t, tc.expectedResponse, setup_keys.ToResponseBody(key))
 
 				select {
 				case <-done:
@@ -790,42 +792,42 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 	}{
 		{
 			name:           "Regular user",
-			userId:         testUserId,
+			userId:         tests_tools.TestUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin user",
-			userId:         testAdminId,
+			userId:         tests_tools.TestAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Owner user",
-			userId:         testOwnerId,
+			userId:         tests_tools.TestOwnerId,
 			expectResponse: true,
 		},
 		{
 			name:           "Regular service user",
-			userId:         testServiceUserId,
+			userId:         tests_tools.TestServiceUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin service user",
-			userId:         testServiceAdminId,
+			userId:         tests_tools.TestServiceAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Blocked user",
-			userId:         blockedUserId,
+			userId:         tests_tools.BlockedUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Other user",
-			userId:         otherUserId,
+			userId:         tests_tools.OtherUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Invalid token",
-			userId:         invalidToken,
+			userId:         tests_tools.InvalidToken,
 			expectResponse: false,
 		},
 	}
@@ -844,13 +846,13 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedResponse: []*api.SetupKey{
 				{
-					AutoGroups: []string{testGroupId},
+					AutoGroups: []string{tests_tools.TestGroupId},
 					Ephemeral:  false,
 					Expires:    time.Time{},
 					Id:         "",
 					Key:        "",
 					LastUsed:   time.Time{},
-					Name:       existingKeyName,
+					Name:       tests_tools.ExistingKeyName,
 					Revoked:    false,
 					State:      "valid",
 					Type:       "one-off",
@@ -860,13 +862,13 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 					Valid:      true,
 				},
 				{
-					AutoGroups: []string{testGroupId},
+					AutoGroups: []string{tests_tools.TestGroupId},
 					Ephemeral:  false,
 					Expires:    time.Time{},
 					Id:         "",
 					Key:        "",
 					LastUsed:   time.Time{},
-					Name:       existingKeyName,
+					Name:       tests_tools.ExistingKeyName,
 					Revoked:    true,
 					State:      "revoked",
 					Type:       "reusable",
@@ -876,13 +878,13 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 					Valid:      false,
 				},
 				{
-					AutoGroups: []string{testGroupId},
+					AutoGroups: []string{tests_tools.TestGroupId},
 					Ephemeral:  true,
 					Expires:    time.Time{},
 					Id:         "",
 					Key:        "",
 					LastUsed:   time.Time{},
-					Name:       existingKeyName,
+					Name:       tests_tools.ExistingKeyName,
 					Revoked:    false,
 					State:      "expired",
 					Type:       "reusable",
@@ -898,15 +900,15 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(tc.name, func(t *testing.T) {
-				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+				apiHandler, am, done := tests_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
 
-				req := buildRequest(t, []byte{}, tc.requestType, tc.requestPath, user.userId)
+				req := tests_tools.BuildRequest(t, []byte{}, tc.requestType, tc.requestPath, user.userId)
 
 				recorder := httptest.NewRecorder()
 
 				apiHandler.ServeHTTP(recorder, req)
 
-				content, expectResponse := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				content, expectResponse := tests_tools.ReadResponse(t, recorder, tc.expectedStatus, user.expectResponse)
 				if !expectResponse {
 					return
 				}
@@ -926,12 +928,12 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 				for i, _ := range tc.expectedResponse {
 					validateCreatedKey(t, tc.expectedResponse[i], &got[i])
 
-					key, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got[i].Id)
+					key, err := am.GetSetupKey(context.Background(), tests_tools.TestAccountId, tests_tools.TestUserId, got[i].Id)
 					if err != nil {
 						return
 					}
 
-					validateCreatedKey(t, tc.expectedResponse[i], toResponseBody(key))
+					validateCreatedKey(t, tc.expectedResponse[i], setup_keys.ToResponseBody(key))
 				}
 
 				select {
@@ -952,42 +954,42 @@ func Test_SetupKeys_Delete(t *testing.T) {
 	}{
 		{
 			name:           "Regular user",
-			userId:         testUserId,
+			userId:         tests_tools.TestUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin user",
-			userId:         testAdminId,
+			userId:         tests_tools.TestAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Owner user",
-			userId:         testOwnerId,
+			userId:         tests_tools.TestOwnerId,
 			expectResponse: true,
 		},
 		{
 			name:           "Regular service user",
-			userId:         testServiceUserId,
+			userId:         tests_tools.TestServiceUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Admin service user",
-			userId:         testServiceAdminId,
+			userId:         tests_tools.TestServiceAdminId,
 			expectResponse: true,
 		},
 		{
 			name:           "Blocked user",
-			userId:         blockedUserId,
+			userId:         tests_tools.BlockedUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Other user",
-			userId:         otherUserId,
+			userId:         tests_tools.OtherUserId,
 			expectResponse: false,
 		},
 		{
 			name:           "Invalid token",
-			userId:         invalidToken,
+			userId:         tests_tools.InvalidToken,
 			expectResponse: false,
 		},
 	}
@@ -1004,16 +1006,16 @@ func Test_SetupKeys_Delete(t *testing.T) {
 			name:           "Delete existing valid Setup Key",
 			requestType:    http.MethodDelete,
 			requestPath:    "/api/setup-keys/{id}",
-			requestId:      testKeyId,
+			requestId:      tests_tools.TestKeyId,
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    false,
 				State:      "valid",
 				Type:       "one-off",
@@ -1027,16 +1029,16 @@ func Test_SetupKeys_Delete(t *testing.T) {
 			name:           "Delete existing expired Setup Key",
 			requestType:    http.MethodDelete,
 			requestPath:    "/api/setup-keys/{id}",
-			requestId:      expiredKeyId,
+			requestId:      tests_tools.ExpiredKeyId,
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  true,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    false,
 				State:      "expired",
 				Type:       "reusable",
@@ -1050,16 +1052,16 @@ func Test_SetupKeys_Delete(t *testing.T) {
 			name:           "Delete existing revoked Setup Key",
 			requestType:    http.MethodDelete,
 			requestPath:    "/api/setup-keys/{id}",
-			requestId:      revokedKeyId,
+			requestId:      tests_tools.RevokedKeyId,
 			expectedStatus: http.StatusOK,
 			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{testGroupId},
+				AutoGroups: []string{tests_tools.TestGroupId},
 				Ephemeral:  false,
 				Expires:    time.Time{},
 				Id:         "",
 				Key:        "",
 				LastUsed:   time.Time{},
-				Name:       existingKeyName,
+				Name:       tests_tools.ExistingKeyName,
 				Revoked:    true,
 				State:      "revoked",
 				Type:       "reusable",
@@ -1082,15 +1084,15 @@ func Test_SetupKeys_Delete(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(tc.name, func(t *testing.T) {
-				apiHandler, am, done := buildApiBlackBoxWithDBState(t, "testdata/setup_keys.sql", nil)
+				apiHandler, am, done := tests_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
 
-				req := buildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
+				req := tests_tools.BuildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
 
 				recorder := httptest.NewRecorder()
 
 				apiHandler.ServeHTTP(recorder, req)
 
-				content, expectResponse := readResponse(t, recorder, tc.expectedStatus, user.expectResponse)
+				content, expectResponse := tests_tools.ReadResponse(t, recorder, tc.expectedStatus, user.expectResponse)
 				if !expectResponse {
 					return
 				}
@@ -1099,7 +1101,7 @@ func Test_SetupKeys_Delete(t *testing.T) {
 					t.Fatalf("Sent content is not in correct json format; %v", err)
 				}
 
-				_, err := am.GetSetupKey(context.Background(), testAccountId, testUserId, got.Id)
+				_, err := am.GetSetupKey(context.Background(), tests_tools.TestAccountId, tests_tools.TestUserId, got.Id)
 				assert.Errorf(t, err, "Expected error when trying to get deleted key")
 
 				select {
@@ -1115,7 +1117,7 @@ func Test_SetupKeys_Delete(t *testing.T) {
 func validateCreatedKey(t *testing.T, expectedKey *api.SetupKey, got *api.SetupKey) {
 	t.Helper()
 
-	if got.Expires.After(time.Now().Add(-1*time.Minute)) && got.Expires.Before(time.Now().Add(expiresIn*time.Second)) ||
+	if got.Expires.After(time.Now().Add(-1*time.Minute)) && got.Expires.Before(time.Now().Add(tests_tools.ExpiresIn*time.Second)) ||
 		got.Expires.After(time.Date(2300, 01, 01, 0, 0, 0, 0, time.Local)) ||
 		got.Expires.Before(time.Date(1950, 01, 01, 0, 0, 0, 0, time.Local)) {
 		got.Expires = time.Time{}

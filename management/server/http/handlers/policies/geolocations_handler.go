@@ -26,14 +26,14 @@ type geolocationsHandler struct {
 	claimsExtractor    *jwtclaims.ClaimsExtractor
 }
 
-func addLocationsEndpoint(accountManager server.AccountManager, locationManager *geolocation.Geolocation, authCfg configs.AuthCfg, router *mux.Router) {
+func addLocationsEndpoint(accountManager server.AccountManager, locationManager geolocation.Geolocation, authCfg configs.AuthCfg, router *mux.Router) {
 	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager, authCfg)
 	router.HandleFunc("/locations/countries", locationHandler.getAllCountries).Methods("GET", "OPTIONS")
 	router.HandleFunc("/locations/countries/{country}/cities", locationHandler.getCitiesByCountry).Methods("GET", "OPTIONS")
 }
 
 // newGeolocationsHandlerHandler creates a new Geolocations handler
-func newGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager geolocation.Geolocation, authCfg configs.AuthCfg) *GeolocationsHandler {
+func newGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager geolocation.Geolocation, authCfg configs.AuthCfg) *geolocationsHandler {
 	return &geolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,

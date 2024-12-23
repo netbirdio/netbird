@@ -28,30 +28,6 @@ const (
 	notFoundSetupKeyID  = "notFoundSetupKeyID"
 )
 
-const (
-	testAccountId = "testAccountId"
-	testPeerId    = "testPeerId"
-	testGroupId   = "testGroupId"
-	testKeyId     = "testKeyId"
-
-	testUserId         = "testUserId"
-	testAdminId        = "testAdminId"
-	testOwnerId        = "testOwnerId"
-	testServiceUserId  = "testServiceUserId"
-	testServiceAdminId = "testServiceAdminId"
-	blockedUserId      = "blockedUserId"
-	otherUserId        = "otherUserId"
-	invalidToken       = "invalidToken"
-
-	newKeyName   = "newKey"
-	newGroupId   = "newGroupId"
-	expiresIn    = 3600
-	revokedKeyId = "revokedKeyId"
-	expiredKeyId = "expiredKeyId"
-
-	existingKeyName = "existingKey"
-)
-
 func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKey, updatedSetupKey *types.SetupKey,
 	user *types.User,
 ) *handler {
@@ -104,7 +80,7 @@ func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKe
 				return jwtclaims.AuthorizationClaims{
 					UserId:    user.Id,
 					Domain:    "hotmail.com",
-					AccountId: testAccountID,
+					AccountId: "testAccountId",
 				}
 			}),
 		),
@@ -125,7 +101,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 	updatedDefaultSetupKey.Name = updatedSetupKeyName
 	updatedDefaultSetupKey.Revoked = true
 
-	expectedNewKey := toResponseBody(newSetupKey)
+	expectedNewKey := ToResponseBody(newSetupKey)
 	expectedNewKey.Key = plainKey
 	tt := []struct {
 		name              string
@@ -143,7 +119,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			requestPath:       "/api/setup-keys",
 			expectedStatus:    http.StatusOK,
 			expectedBody:      true,
-			expectedSetupKeys: []*api.SetupKey{toResponseBody(defaultSetupKey)},
+			expectedSetupKeys: []*api.SetupKey{ToResponseBody(defaultSetupKey)},
 		},
 		{
 			name:             "Get Existing Setup Key",
@@ -151,7 +127,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			requestPath:      "/api/setup-keys/" + existingSetupKeyID,
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(defaultSetupKey),
+			expectedSetupKey: ToResponseBody(defaultSetupKey),
 		},
 		{
 			name:           "Get Not Existing Setup Key",
@@ -182,7 +158,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 				))),
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(updatedDefaultSetupKey),
+			expectedSetupKey: ToResponseBody(updatedDefaultSetupKey),
 		},
 		{
 			name:           "Delete Setup Key",

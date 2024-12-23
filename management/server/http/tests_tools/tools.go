@@ -1,4 +1,4 @@
-package http
+package tests_tools
 
 import (
 	"bytes"
@@ -19,11 +19,42 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/http/configs"
+	"github.com/netbirdio/netbird/management/server/http/handlers"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/networks"
+	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/routers"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
+)
+
+const (
+	TestAccountId = "testAccountId"
+	TestPeerId    = "testPeerId"
+	TestGroupId   = "testGroupId"
+	TestKeyId     = "testKeyId"
+
+	TestUserId         = "testUserId"
+	TestAdminId        = "testAdminId"
+	TestOwnerId        = "testOwnerId"
+	TestServiceUserId  = "testServiceUserId"
+	TestServiceAdminId = "testServiceAdminId"
+	BlockedUserId      = "blockedUserId"
+	OtherUserId        = "otherUserId"
+	InvalidToken       = "invalidToken"
+
+	NewKeyName   = "newKey"
+	NewGroupId   = "newGroupId"
+	ExpiresIn    = 3600
+	RevokedKeyId = "revokedKeyId"
+	ExpiredKeyId = "expiredKeyId"
+
+	ExistingKeyName = "existingKey"
 )
 
 type TB interface {
@@ -50,8 +81,8 @@ type PerformanceMetrics struct {
 	MaxMsPerOpCICD  float64
 }
 
-func buildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage) (http.Handler, server.AccountManager, chan struct{}) {
-	store, cleanup, err := server.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
+func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage) (http.Handler, server.AccountManager, chan struct{}) {
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
@@ -63,7 +94,7 @@ func buildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	}
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
-	updMsg := peersUpdateManager.CreateChannel(context.Background(), testPeerId)
+	updMsg := peersUpdateManager.CreateChannel(context.Background(), TestPeerId)
 	done := make(chan struct{})
 	go func() {
 		if expectedPeerUpdate != nil {
@@ -81,7 +112,11 @@ func buildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	apiHandler, err := APIHandler(context.Background(), am, geoMock, &jwtclaims.JwtValidatorMock{}, metrics, AuthCfg{}, validatorMock)
+	networksManagerMock := networks.NewManagerMock()
+	resourcesManagerMock := resources.NewManagerMock()
+	routersManagerMock := routers.NewManagerMock()
+	groupsManagerMock := groups.NewManagerMock()
+	apiHandler, err := handlers.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, &jwtclaims.JwtValidatorMock{}, metrics, configs.AuthCfg{}, validatorMock)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
@@ -113,7 +148,7 @@ func peerShouldReceiveUpdate(t TB, updateMessage <-chan *server.UpdateMessage, e
 	}
 }
 
-func buildRequest(t TB, requestBody []byte, requestType, requestPath, user string) *http.Request {
+func BuildRequest(t TB, requestBody []byte, requestType, requestPath, user string) *http.Request {
 	t.Helper()
 
 	req := httptest.NewRequest(requestType, requestPath, bytes.NewBuffer(requestBody))
@@ -122,7 +157,7 @@ func buildRequest(t TB, requestBody []byte, requestType, requestPath, user strin
 	return req
 }
 
-func readResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedStatus int, expectResponse bool) ([]byte, bool) {
+func ReadResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedStatus int, expectResponse bool) ([]byte, bool) {
 	t.Helper()
 
 	res := recorder.Result()
@@ -145,11 +180,11 @@ func readResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedSta
 	return content, expectedStatus == http.StatusOK
 }
 
-func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, groups, users, setupKeys int) {
+func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, groups, users, setupKeys int) {
 	b.Helper()
 
 	ctx := context.Background()
-	account, err := am.GetAccount(ctx, testAccountId)
+	account, err := am.GetAccount(ctx, TestAccountId)
 	if err != nil {
 		b.Fatalf("Failed to get account: %v", err)
 	}
@@ -163,28 +198,28 @@ func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 			Key:      peerKey.PublicKey().String(),
 			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
 			Status:   &nbpeer.PeerStatus{},
-			UserID:   regularUser,
+			UserID:   TestUserId,
 		}
 		account.Peers[peer.ID] = peer
 	}
 
 	// Create users
 	for i := 0; i < users; i++ {
-		user := &server.User{
+		user := &types.User{
 			Id:        fmt.Sprintf("olduser-%d", i),
 			AccountID: account.Id,
-			Role:      server.UserRoleUser,
+			Role:      types.UserRoleUser,
 		}
 		account.Users[user.Id] = user
 	}
 
 	for i := 0; i < setupKeys; i++ {
-		key := &server.SetupKey{
+		key := &types.SetupKey{
 			Id:         fmt.Sprintf("oldkey-%d", i),
 			AccountID:  account.Id,
 			AutoGroups: []string{"someGroupID"},
-			ExpiresAt:  time.Now().Add(expiresIn * time.Second),
-			Name:       newKeyName + strconv.Itoa(i),
+			ExpiresAt:  time.Now().Add(ExpiresIn * time.Second),
+			Name:       NewKeyName + strconv.Itoa(i),
 			Type:       "reusable",
 			UsageLimit: 0,
 		}
@@ -192,10 +227,10 @@ func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 	}
 
 	// Create groups and policies
-	account.Policies = make([]*server.Policy, 0, groups)
+	account.Policies = make([]*types.Policy, 0, groups)
 	for i := 0; i < groups; i++ {
 		groupID := fmt.Sprintf("group-%d", i)
-		group := &nbgroup.Group{
+		group := &types.Group{
 			ID:   groupID,
 			Name: fmt.Sprintf("Group %d", i),
 		}
@@ -206,11 +241,11 @@ func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 		account.Groups[groupID] = group
 
 		// Create a policy for this group
-		policy := &server.Policy{
+		policy := &types.Policy{
 			ID:      fmt.Sprintf("policy-%d", i),
 			Name:    fmt.Sprintf("Policy for Group %d", i),
 			Enabled: true,
-			Rules: []*server.PolicyRule{
+			Rules: []*types.PolicyRule{
 				{
 					ID:            fmt.Sprintf("rule-%d", i),
 					Name:          fmt.Sprintf("Rule for Group %d", i),
@@ -218,8 +253,8 @@ func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 					Sources:       []string{groupID},
 					Destinations:  []string{groupID},
 					Bidirectional: true,
-					Protocol:      server.PolicyRuleProtocolALL,
-					Action:        server.PolicyTrafficActionAccept,
+					Protocol:      types.PolicyRuleProtocolALL,
+					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
 		}
@@ -245,7 +280,7 @@ func populateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 
 }
 
-func evaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics, recorder *httptest.ResponseRecorder) {
+func EvaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics, recorder *httptest.ResponseRecorder) {
 	b.Helper()
 
 	if recorder.Code != http.StatusOK {
