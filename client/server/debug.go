@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -368,18 +369,7 @@ func (s *Server) addFirewallStats(req *proto.DebugBundleRequest, anonymizer *ano
 	}
 
 	if req.GetAnonymize() {
-		for _, stat := range stats {
-			if stat.SourceIP != nil {
-				if ip, ok := netip.AddrFromSlice(stat.SourceIP); ok {
-					stat.SourceIP = anonymizer.AnonymizeIP(ip).AsSlice()
-				}
-			}
-			if stat.DestIP != nil {
-				if ip, ok := netip.AddrFromSlice(stat.DestIP); ok {
-					stat.DestIP = anonymizer.AnonymizeIP(ip).AsSlice()
-				}
-			}
-		}
+		anonymizeStatIPs(stats, anonymizer)
 	}
 
 	jsonBytes, err := json.MarshalIndent(stats, "", "  ")
@@ -977,4 +967,19 @@ func anonymizeSlice(v []any, anonymizer *anonymize.Anonymizer) []any {
 		v[i] = anonymizeValue(val, anonymizer)
 	}
 	return v
+}
+
+func anonymizeStatIPs(stats []*firewall.FlowStats, anonymizer *anonymize.Anonymizer) {
+	for _, stat := range stats {
+		if stat.SourceIP != nil {
+			if ip, ok := netip.AddrFromSlice(stat.SourceIP); ok {
+				stat.SourceIP = anonymizer.AnonymizeIP(ip).AsSlice()
+			}
+		}
+		if stat.DestIP != nil {
+			if ip, ok := netip.AddrFromSlice(stat.DestIP); ok {
+				stat.DestIP = anonymizer.AnonymizeIP(ip).AsSlice()
+			}
+		}
+	}
 }
