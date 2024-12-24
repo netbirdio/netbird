@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/google/gopacket"
@@ -12,12 +14,15 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const layerTypeAll = 0
+
+const EnvDisableConntrack = "NB_DISABLE_CONNTRACK"
 
 var (
 	errRouteNotSupported = fmt.Errorf("route not supported with userspace firewall")
@@ -42,6 +47,11 @@ type Manager struct {
 	nativeFirewall firewall.Manager
 
 	mutex sync.RWMutex
+
+	stateful    bool
+	udpTracker  *conntrack.UDPTracker
+	icmpTracker *conntrack.ICMPTracker
+	tcpTracker  *conntrack.TCPTracker
 }
 
 // decoder for packages
@@ -73,6 +83,8 @@ func CreateWithNativeFirewall(iface IFaceMapper, nativeFirewall firewall.Manager
 }
 
 func create(iface IFaceMapper) (*Manager, error) {
+	disableConntrack, _ := strconv.ParseBool(os.Getenv(EnvDisableConntrack))
+
 	m := &Manager{
 		decoders: sync.Pool{
 			New: func() any {
@@ -90,6 +102,16 @@ func create(iface IFaceMapper) (*Manager, error) {
 		outgoingRules: make(map[string]RuleSet),
 		incomingRules: make(map[string]RuleSet),
 		wgIface:       iface,
+		stateful:      !disableConntrack,
+	}
+
+	// Only initialize trackers if stateful mode is enabled
+	if disableConntrack {
+		log.Info("conntrack is disabled")
+	} else {
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
 	}
 
 	if err := iface.SetFilter(m); err != nil {
@@ -249,16 +271,16 @@ func (m *Manager) Flush() error { return nil }
 
 // DropOutgoing filter outgoing packets
 func (m *Manager) DropOutgoing(packetData []byte) bool {
-	return m.dropFilter(packetData, m.outgoingRules, false)
+	return m.processOutgoingHooks(packetData)
 }
 
 // DropIncoming filter incoming packets
 func (m *Manager) DropIncoming(packetData []byte) bool {
-	return m.dropFilter(packetData, m.incomingRules, true)
+	return m.dropFilter(packetData, m.incomingRules)
 }
 
-// dropFilter implements same logic for booth direction of the traffic
-func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isIncomingPacket bool) bool {
+// processOutgoingHooks processes UDP hooks for outgoing packets and tracks TCP/UDP/ICMP
+func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -266,61 +288,213 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isInco
 	defer m.decoders.Put(d)
 
 	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-		log.Tracef("couldn't decode layer, err: %s", err)
-		return true
+		return false
 	}
 
 	if len(d.decoded) < 2 {
-		log.Tracef("not enough levels in network packet")
+		return false
+	}
+
+	srcIP, dstIP := m.extractIPs(d)
+	if srcIP == nil {
+		return false
+	}
+
+	// Always process UDP hooks
+	if d.decoded[1] == layers.LayerTypeUDP {
+		// Track UDP state only if enabled
+		if m.stateful {
+			m.trackUDPOutbound(d, srcIP, dstIP)
+		}
+		return m.checkUDPHooks(d, dstIP, packetData)
+	}
+
+	// Track other protocols only if stateful mode is enabled
+	if m.stateful {
+		switch d.decoded[1] {
+		case layers.LayerTypeTCP:
+			m.trackTCPOutbound(d, srcIP, dstIP)
+		case layers.LayerTypeICMPv4:
+			m.trackICMPOutbound(d, srcIP, dstIP)
+		}
+	}
+
+	return false
+}
+
+func (m *Manager) extractIPs(d *decoder) (srcIP, dstIP net.IP) {
+	switch d.decoded[0] {
+	case layers.LayerTypeIPv4:
+		return d.ip4.SrcIP, d.ip4.DstIP
+	case layers.LayerTypeIPv6:
+		return d.ip6.SrcIP, d.ip6.DstIP
+	default:
+		return nil, nil
+	}
+}
+
+func (m *Manager) trackTCPOutbound(d *decoder, srcIP, dstIP net.IP) {
+	flags := getTCPFlags(&d.tcp)
+	m.tcpTracker.TrackOutbound(
+		srcIP,
+		dstIP,
+		uint16(d.tcp.SrcPort),
+		uint16(d.tcp.DstPort),
+		flags,
+	)
+}
+
+func getTCPFlags(tcp *layers.TCP) uint8 {
+	var flags uint8
+	if tcp.SYN {
+		flags |= conntrack.TCPSyn
+	}
+	if tcp.ACK {
+		flags |= conntrack.TCPAck
+	}
+	if tcp.FIN {
+		flags |= conntrack.TCPFin
+	}
+	if tcp.RST {
+		flags |= conntrack.TCPRst
+	}
+	if tcp.PSH {
+		flags |= conntrack.TCPPush
+	}
+	if tcp.URG {
+		flags |= conntrack.TCPUrg
+	}
+	return flags
+}
+
+func (m *Manager) trackUDPOutbound(d *decoder, srcIP, dstIP net.IP) {
+	m.udpTracker.TrackOutbound(
+		srcIP,
+		dstIP,
+		uint16(d.udp.SrcPort),
+		uint16(d.udp.DstPort),
+	)
+}
+
+func (m *Manager) checkUDPHooks(d *decoder, dstIP net.IP, packetData []byte) bool {
+	for _, ipKey := range []string{dstIP.String(), "0.0.0.0", "::"} {
+		if rules, exists := m.outgoingRules[ipKey]; exists {
+			for _, rule := range rules {
+				if rule.udpHook != nil && (rule.dPort == 0 || rule.dPort == uint16(d.udp.DstPort)) {
+					return rule.udpHook(packetData)
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (m *Manager) trackICMPOutbound(d *decoder, srcIP, dstIP net.IP) {
+	if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
+		m.icmpTracker.TrackOutbound(
+			srcIP,
+			dstIP,
+			d.icmp4.Id,
+			d.icmp4.Seq,
+		)
+	}
+}
+
+// dropFilter implements filtering logic for incoming packets
+func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	d := m.decoders.Get().(*decoder)
+	defer m.decoders.Put(d)
+
+	if !m.isValidPacket(d, packetData) {
 		return true
 	}
 
-	ipLayer := d.decoded[0]
-
-	switch ipLayer {
-	case layers.LayerTypeIPv4:
-		if !m.wgNetwork.Contains(d.ip4.SrcIP) || !m.wgNetwork.Contains(d.ip4.DstIP) {
-			return false
-		}
-	case layers.LayerTypeIPv6:
-		if !m.wgNetwork.Contains(d.ip6.SrcIP) || !m.wgNetwork.Contains(d.ip6.DstIP) {
-			return false
-		}
-	default:
+	srcIP, dstIP := m.extractIPs(d)
+	if srcIP == nil {
 		log.Errorf("unknown layer: %v", d.decoded[0])
 		return true
 	}
 
-	var ip net.IP
-	switch ipLayer {
-	case layers.LayerTypeIPv4:
-		if isIncomingPacket {
-			ip = d.ip4.SrcIP
-		} else {
-			ip = d.ip4.DstIP
-		}
-	case layers.LayerTypeIPv6:
-		if isIncomingPacket {
-			ip = d.ip6.SrcIP
-		} else {
-			ip = d.ip6.DstIP
-		}
+	if !m.isWireguardTraffic(srcIP, dstIP) {
+		return false
 	}
 
-	filter, ok := validateRule(ip, packetData, rules[ip.String()], d)
-	if ok {
-		return filter
+	// Check connection state only if enabled
+	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP) {
+		return false
 	}
-	filter, ok = validateRule(ip, packetData, rules["0.0.0.0"], d)
-	if ok {
-		return filter
+
+	return m.applyRules(srcIP, packetData, rules, d)
+}
+
+func (m *Manager) isValidPacket(d *decoder, packetData []byte) bool {
+	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+		log.Tracef("couldn't decode layer, err: %s", err)
+		return false
 	}
-	filter, ok = validateRule(ip, packetData, rules["::"], d)
-	if ok {
+
+	if len(d.decoded) < 2 {
+		log.Tracef("not enough levels in network packet")
+		return false
+	}
+	return true
+}
+
+func (m *Manager) isWireguardTraffic(srcIP, dstIP net.IP) bool {
+	return m.wgNetwork.Contains(srcIP) && m.wgNetwork.Contains(dstIP)
+}
+
+func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP) bool {
+	switch d.decoded[1] {
+	case layers.LayerTypeTCP:
+		return m.tcpTracker.IsValidInbound(
+			srcIP,
+			dstIP,
+			uint16(d.tcp.SrcPort),
+			uint16(d.tcp.DstPort),
+			getTCPFlags(&d.tcp),
+		)
+
+	case layers.LayerTypeUDP:
+		return m.udpTracker.IsValidInbound(
+			srcIP,
+			dstIP,
+			uint16(d.udp.SrcPort),
+			uint16(d.udp.DstPort),
+		)
+
+	case layers.LayerTypeICMPv4:
+		return m.icmpTracker.IsValidInbound(
+			srcIP,
+			dstIP,
+			d.icmp4.Id,
+			d.icmp4.Seq,
+			d.icmp4.TypeCode.Type(),
+		)
+
+		// TODO: ICMPv6
+	}
+
+	return false
+}
+
+func (m *Manager) applyRules(srcIP net.IP, packetData []byte, rules map[string]RuleSet, d *decoder) bool {
+	if filter, ok := validateRule(srcIP, packetData, rules[srcIP.String()], d); ok {
 		return filter
 	}
 
-	// default policy is DROP ALL
+	if filter, ok := validateRule(srcIP, packetData, rules["0.0.0.0"], d); ok {
+		return filter
+	}
+
+	if filter, ok := validateRule(srcIP, packetData, rules["::"], d); ok {
+		return filter
+	}
+
+	// Default policy: DROP ALL
 	return true
 }
 

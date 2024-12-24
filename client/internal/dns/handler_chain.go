@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"slices"
 	"strings"
 	"sync"
 
@@ -161,16 +162,19 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Tracef("handling DNS request for domain=%s", qname)
 
 	c.mu.RLock()
-	defer c.mu.RUnlock()
+	handlers := slices.Clone(c.handlers)
+	c.mu.RUnlock()
 
-	log.Tracef("current handlers (%d):", len(c.handlers))
-	for _, h := range c.handlers {
-		log.Tracef("  - pattern: domain=%s original: domain=%s wildcard=%v priority=%d",
-			h.Pattern, h.OrigPattern, h.IsWildcard, h.Priority)
+	if log.IsLevelEnabled(log.TraceLevel) {
+		log.Tracef("current handlers (%d):", len(handlers))
+		for _, h := range handlers {
+			log.Tracef("  - pattern: domain=%s original: domain=%s wildcard=%v priority=%d",
+				h.Pattern, h.OrigPattern, h.IsWildcard, h.Priority)
+		}
 	}
 
 	// Try handlers in priority order
-	for _, entry := range c.handlers {
+	for _, entry := range handlers {
 		var matched bool
 		switch {
 		case entry.Pattern == ".":
