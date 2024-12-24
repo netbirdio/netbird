@@ -23,7 +23,10 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -413,7 +416,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), testFile, t.TempDir())
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), testFile, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +440,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, ephemeralMgr)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, ephemeralMgr)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
@@ -624,7 +627,7 @@ func testSyncStatusRace(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, peerWithInvalidStatus.PublicKey().String())
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, peerWithInvalidStatus.PublicKey().String())
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -711,7 +714,7 @@ func Test_LoginPerformance(t *testing.T) {
 						return
 					}
 
-					setupKey, err := am.CreateSetupKey(context.Background(), account.Id, fmt.Sprintf("key-%d", j), SetupKeyReusable, time.Hour, nil, 0, fmt.Sprintf("user-%d", j), false)
+					setupKey, err := am.CreateSetupKey(context.Background(), account.Id, fmt.Sprintf("key-%d", j), types.SetupKeyReusable, time.Hour, nil, 0, fmt.Sprintf("user-%d", j), false)
 					if err != nil {
 						t.Logf("error creating setup key: %v", err)
 						return

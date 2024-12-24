@@ -13,11 +13,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -26,37 +26,37 @@ const (
 	regularUserID             = "regularUserID"
 )
 
-var usersTestAccount = &server.Account{
+var usersTestAccount = &types.Account{
 	Id:     existingAccountID,
 	Domain: testDomain,
-	Users: map[string]*server.User{
+	Users: map[string]*types.User{
 		existingUserID: {
 			Id:            existingUserID,
 			Role:          "admin",
 			IsServiceUser: false,
 			AutoGroups:    []string{"group_1"},
-			Issued:        server.UserIssuedAPI,
+			Issued:        types.UserIssuedAPI,
 		},
 		regularUserID: {
 			Id:            regularUserID,
 			Role:          "user",
 			IsServiceUser: false,
 			AutoGroups:    []string{"group_1"},
-			Issued:        server.UserIssuedAPI,
+			Issued:        types.UserIssuedAPI,
 		},
 		serviceUserID: {
 			Id:            serviceUserID,
 			Role:          "user",
 			IsServiceUser: true,
 			AutoGroups:    []string{"group_1"},
-			Issued:        server.UserIssuedAPI,
+			Issued:        types.UserIssuedAPI,
 		},
 		nonDeletableServiceUserID: {
 			Id:            serviceUserID,
 			Role:          "admin",
 			IsServiceUser: true,
 			NonDeletable:  true,
-			Issued:        server.UserIssuedIntegration,
+			Issued:        types.UserIssuedIntegration,
 		},
 	},
 }
@@ -67,13 +67,13 @@ func initUsersTestData() *handler {
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return usersTestAccount.Id, claims.UserId, nil
 			},
-			GetUserByIDFunc: func(ctx context.Context, id string) (*server.User, error) {
+			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
 				return usersTestAccount.Users[id], nil
 			},
-			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*server.UserInfo, error) {
-				users := make([]*server.UserInfo, 0)
+			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*types.UserInfo, error) {
+				users := make([]*types.UserInfo, 0)
 				for _, v := range usersTestAccount.Users {
-					users = append(users, &server.UserInfo{
+					users = append(users, &types.UserInfo{
 						ID:            v.Id,
 						Role:          string(v.Role),
 						Name:          "",
@@ -85,7 +85,7 @@ func initUsersTestData() *handler {
 				}
 				return users, nil
 			},
-			CreateUserFunc: func(_ context.Context, accountID, userID string, key *server.UserInfo) (*server.UserInfo, error) {
+			CreateUserFunc: func(_ context.Context, accountID, userID string, key *types.UserInfo) (*types.UserInfo, error) {
 				if userID != existingUserID {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", userID)
 				}
@@ -100,7 +100,7 @@ func initUsersTestData() *handler {
 				}
 				return nil
 			},
-			SaveUserFunc: func(_ context.Context, accountID, userID string, update *server.User) (*server.UserInfo, error) {
+			SaveUserFunc: func(_ context.Context, accountID, userID string, update *types.User) (*types.UserInfo, error) {
 				if update.Id == notFoundUserID {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", update.Id)
 				}
@@ -109,7 +109,7 @@ func initUsersTestData() *handler {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", userID)
 				}
 
-				info, err := update.Copy().ToUserInfo(nil, &server.Settings{RegularUsersViewBlocked: false})
+				info, err := update.Copy().ToUserInfo(nil, &types.Settings{RegularUsersViewBlocked: false})
 				if err != nil {
 					return nil, err
 				}
@@ -175,7 +175,7 @@ func TestGetUsers(t *testing.T) {
 				return
 			}
 
-			respBody := []*server.UserInfo{}
+			respBody := []*types.UserInfo{}
 			err = json.Unmarshal(content, &respBody)
 			if err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
@@ -342,7 +342,7 @@ func TestCreateUser(t *testing.T) {
 		requestType    string
 		requestPath    string
 		requestBody    io.Reader
-		expectedResult []*server.User
+		expectedResult []*types.User
 	}{
 		{name: "CreateServiceUser", requestType: http.MethodPost, requestPath: "/api/users", expectedStatus: http.StatusOK, requestBody: bytes.NewBuffer(serviceUserString)},
 		// right now creation is blocked in AC middleware, will be refactored in the future

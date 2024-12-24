@@ -40,6 +40,8 @@ netbird.err: Most recent, anonymized stderr log file of the NetBird client.
 netbird.out: Most recent, anonymized stdout log file of the NetBird client.
 routes.txt: Anonymized system routes, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
+iptables.txt: Anonymized iptables rules with packet counters, if --system-info flag was provided.
+nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized network map containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states.
@@ -106,6 +108,24 @@ The config.txt file contains anonymized configuration information of the NetBird
 - CustomDNSAddress
 
 Other non-sensitive configuration options are included without anonymization.
+
+Firewall Rules (Linux only)
+The bundle includes two separate firewall rule files:
+
+iptables.txt:
+- Complete iptables ruleset with packet counters using 'iptables -v -n -L'
+- Includes all tables (filter, nat, mangle, raw, security)
+- Shows packet and byte counters for each rule
+- All IP addresses are anonymized
+- Chain names, table names, and other non-sensitive information remain unchanged
+
+nftables.txt:
+- Complete nftables ruleset obtained via 'nft -a list ruleset'
+- Includes rule handle numbers and packet counters
+- All tables, chains, and rules are included
+- Shows packet and byte counters for each rule
+- All IP addresses are anonymized
+- Chain names, table names, and other non-sensitive information remain unchanged
 `
 
 const (
@@ -171,6 +191,10 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 
 		if err := s.addInterfaces(req, anonymizer, archive); err != nil {
 			log.Errorf("Failed to add interfaces to debug bundle: %v", err)
+		}
+
+		if err := s.addFirewallRules(req, anonymizer, archive); err != nil {
+			log.Errorf("Failed to add firewall rules to debug bundle: %v", err)
 		}
 	}
 

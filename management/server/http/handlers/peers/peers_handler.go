@@ -10,13 +10,14 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // Handler is a handler that returns peers of the account
@@ -57,7 +58,7 @@ func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 	return peerToReturn, nil
 }
 
-func (h *Handler) getPeer(ctx context.Context, account *server.Account, peerID, userID string, w http.ResponseWriter) {
+func (h *Handler) getPeer(ctx context.Context, account *types.Account, peerID, userID string, w http.ResponseWriter) {
 	peer, err := h.accountManager.GetPeer(ctx, account.Id, peerID, userID)
 	if err != nil {
 		util.WriteError(ctx, err, w)
@@ -71,7 +72,7 @@ func (h *Handler) getPeer(ctx context.Context, account *server.Account, peerID, 
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
+	groupsInfo := groups.ToGroupsInfo(account.Groups, peer.ID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
@@ -84,7 +85,7 @@ func (h *Handler) getPeer(ctx context.Context, account *server.Account, peerID, 
 	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, valid))
 }
 
-func (h *Handler) updatePeer(ctx context.Context, account *server.Account, userID, peerID string, w http.ResponseWriter, r *http.Request) {
+func (h *Handler) updatePeer(ctx context.Context, account *types.Account, userID, peerID string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PeerRequest{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -115,7 +116,7 @@ func (h *Handler) updatePeer(ctx context.Context, account *server.Account, userI
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
+	groupMinimumInfo := groups.ToGroupsInfo(account.Groups, peer.ID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
@@ -199,9 +200,9 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groupsMap := map[string]*nbgroup.Group{}
-	groups, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
-	for _, group := range groups {
+	groupsMap := map[string]*types.Group{}
+	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
+	for _, group := range grps {
 		groupsMap[group.ID] = group
 	}
 
@@ -212,7 +213,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
-		groupMinimumInfo := toGroupsInfo(groupsMap, peer.ID)
+		groupMinimumInfo := groups.ToGroupsInfo(groupsMap, peer.ID)
 
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}
@@ -290,12 +291,12 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	customZone := account.GetPeersCustomZone(r.Context(), h.accountManager.GetDNSDomain())
-	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, nil)
+	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
 
 	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
 }
 
-func toAccessiblePeers(netMap *server.NetworkMap, dnsDomain string) []api.AccessiblePeer {
+func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
 	for _, p := range netMap.Peers {
 		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
@@ -322,30 +323,6 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 		Os:          peer.Meta.OS,
 		UserId:      peer.UserID,
 	}
-}
-
-func toGroupsInfo(groups map[string]*nbgroup.Group, peerID string) []api.GroupMinimum {
-	groupsInfo := []api.GroupMinimum{}
-	groupsChecked := make(map[string]struct{})
-	for _, group := range groups {
-		_, ok := groupsChecked[group.ID]
-		if ok {
-			continue
-		}
-		groupsChecked[group.ID] = struct{}{}
-		for _, pk := range group.Peers {
-			if pk == peerID {
-				info := api.GroupMinimum{
-					Id:         group.ID,
-					Name:       group.Name,
-					PeersCount: len(group.Peers),
-				}
-				groupsInfo = append(groupsInfo, info)
-				break
-			}
-		}
-	}
-	return groupsInfo
 }
 
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool) *api.Peer {
