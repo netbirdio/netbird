@@ -18,8 +18,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/testutil"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
@@ -171,7 +171,7 @@ const (
 	FileStoreEngine     Engine = "jsonfile"
 	SqliteStoreEngine   Engine = "sqlite"
 	PostgresStoreEngine Engine = "postgres"
-	MysqlStoreEngine    StoreEngine = "mysql"
+	MysqlStoreEngine    Engine = "mysql"
 
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
@@ -326,8 +326,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	return getSqlStoreEngine(ctx, store, kind)
 }
 
-func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind StoreEngine) (Store, func(), error) {
-
+func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
 	if kind == PostgresStoreEngine {
 		cleanUp, err := testutil.CreatePostgresTestContainer()
 		if err != nil {
