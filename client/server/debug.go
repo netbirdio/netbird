@@ -181,17 +181,7 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 	}
 
 	if req.GetSystemInfo() {
-		if err := s.addRoutes(req, anonymizer, archive); err != nil {
-			log.Errorf("Failed to add routes to debug bundle: %v", err)
-		}
-
-		if err := s.addInterfaces(req, anonymizer, archive); err != nil {
-			log.Errorf("Failed to add interfaces to debug bundle: %v", err)
-		}
-
-		if err := s.addFirewallRules(req, anonymizer, archive); err != nil {
-			log.Errorf("Failed to add firewall rules to debug bundle: %v", err)
-		}
+		s.addSystemInfo(req, anonymizer, archive)
 	}
 
 	if err := s.addNetworkMap(req, anonymizer, archive); err != nil {
@@ -212,6 +202,20 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 		return fmt.Errorf("close archive writer: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) addSystemInfo(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) {
+	if err := s.addRoutes(req, anonymizer, archive); err != nil {
+		log.Errorf("Failed to add routes to debug bundle: %v", err)
+	}
+
+	if err := s.addInterfaces(req, anonymizer, archive); err != nil {
+		log.Errorf("Failed to add interfaces to debug bundle: %v", err)
+	}
+
+	if err := s.addFirewallRules(req, anonymizer, archive); err != nil {
+		log.Errorf("Failed to add firewall rules to debug bundle: %v", err)
+	}
 }
 
 func (s *Server) addReadme(req *proto.DebugBundleRequest, archive *zip.Writer) error {
