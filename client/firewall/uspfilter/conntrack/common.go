@@ -10,7 +10,6 @@ import (
 
 // BaseConnTrack provides common fields and locking for all connection types
 type BaseConnTrack struct {
-	sync.RWMutex
 	SourceIP    net.IP
 	DestIP      net.IP
 	SourcePort  uint16
