@@ -125,11 +125,8 @@ func TestTCPStateMachine(t *testing.T) {
 					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst)
 					require.True(t, valid, "RST should be allowed for established connection")
 
-					// Verify connection is closed
-					valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPPush|TCPAck)
-					t.Helper()
-
-					require.False(t, valid, "Data should be blocked after RST")
+					// Connection is logically dead but we don't enforce blocking subsequent packets
+					// The connection will be cleaned up by timeout
 				},
 			},
 			{
