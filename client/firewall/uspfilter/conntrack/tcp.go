@@ -277,6 +277,11 @@ func (t *TCPTracker) isValidStateForFlags(state TCPState, flags uint8) bool {
 		return flags&TCPFin != 0 || flags&TCPAck != 0
 	case TCPStateLastAck:
 		return flags&TCPAck != 0
+	case TCPStateClosed:
+		// Accept retransmitted ACKs in closed state
+		// This is important because the final ACK might be lost
+		// and the peer will retransmit their FIN-ACK
+		return flags&TCPAck != 0
 	}
 	return false
 }
