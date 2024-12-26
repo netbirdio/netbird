@@ -383,10 +383,10 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]
 		if newRoute.Peer == m.pubKey {
 			ownNetworkIDs[haID] = true
 			// only linux is supported for now
-			if runtime.GOOS != "linux" {
-				log.Warnf("received a route to manage, but agent doesn't support router mode on %s OS", runtime.GOOS)
-				continue
-			}
+			//if runtime.GOOS != "linux" {
+			//	log.Warnf("received a route to manage, but agent doesn't support router mode on %s OS", runtime.GOOS)
+			//	continue
+			//}
 			newServerRoutesMap[newRoute.ID] = newRoute
 		}
 	}

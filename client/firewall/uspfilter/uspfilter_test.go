@@ -194,7 +194,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
 
-			var addedRule Rule
+			var addedRule PeerRule
 			if tt.in {
 				if len(manager.incomingRules[tt.ip.String()]) != 1 {
 					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules))

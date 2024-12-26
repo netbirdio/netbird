@@ -99,6 +99,7 @@ require (
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/driver/sqlite v1.5.3
 	gorm.io/gorm v1.25.7-0.20240204074919-46816ad31dde
+	gvisor.dev/gvisor v0.0.0-20231020174304-b8a429915ff1
 	nhooyr.io/websocket v1.8.11
 )
 
@@ -229,7 +230,6 @@ require (
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637 // indirect
-	gvisor.dev/gvisor v0.0.0-20231020174304-b8a429915ff1 // indirect
 	k8s.io/apimachinery v0.26.2 // indirect
 )
 
