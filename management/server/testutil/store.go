@@ -5,7 +5,10 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -20,9 +23,14 @@ var mysqlContainerConfigPath = "../testdata/mysql.cnf"
 func CreateMysqlTestContainer() (func(), error) {
 	ctx := context.Background()
 
+	_, caller, _, ok := runtime.Caller(0)
+	if !ok {
+		return nil, fmt.Errorf("failed to get caller information")
+	}
+
 	container, err := mysql.Run(ctx,
 		"mysql:8.0.40",
-		mysql.WithConfigFile(mysqlContainerConfigPath),
+		mysql.WithConfigFile(filepath.Join(filepath.Dir(caller), mysqlContainerConfigPath)),
 		mysql.WithDatabase("netbird"),
 		mysql.WithUsername("root"),
 		mysql.WithPassword("netbird"),
