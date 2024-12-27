@@ -28,8 +28,8 @@ func CreateMysqlTestContainer() (func(), error) {
 		return nil, fmt.Errorf("failed to get caller information")
 	}
 
-	container, err := mysql.Run(ctx,
-		"mysql:8.0.40",
+	container, err := mysql.RunContainer(ctx,
+		testcontainers.WithImage("mysql:8.0.40"),
 		mysql.WithConfigFile(filepath.Join(filepath.Dir(caller), mysqlContainerConfigPath)),
 		mysql.WithDatabase("netbird"),
 		mysql.WithUsername("root"),
@@ -57,8 +57,8 @@ func CreateMysqlTestContainer() (func(), error) {
 func CreatePostgresTestContainer() (func(), error) {
 	ctx := context.Background()
 
-	container, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+	container, err := postgres.RunContainer(ctx,
+		testcontainers.WithImage("postgres:16-alpine"),
 		postgres.WithDatabase("netbird"),
 		postgres.WithUsername("root"),
 		postgres.WithPassword("netbird"),
