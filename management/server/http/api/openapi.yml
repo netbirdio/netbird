@@ -725,10 +725,6 @@ components:
     PolicyRuleMinimum:
       type: object
       properties:
-        id:
-          description: Policy rule ID
-          type: string
-          example: ch8i4ug6lnn4g9hqv7mg
         name:
           description: Policy rule name identifier
           type: string
@@ -794,6 +790,31 @@ components:
         - $ref: '#/components/schemas/PolicyRuleMinimum'
         - type: object
           properties:
+            id:
+              description: Policy rule ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7mg
+            sources:
+              description: Policy rule source group IDs
+              type: array
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9hqv797"
+            destinations:
+              description: Policy rule destination group IDs
+              type: array
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9h7v7m0"
+          required:
+            - sources
+            - destinations
+
+    PolicyRuleCreate:
+      allOf:
+        - $ref: '#/components/schemas/PolicyRuleMinimum'
+        - type: object
+          properties:
             sources:
               description: Policy rule source group IDs
               type: array
@@ -817,6 +838,10 @@ components:
         - $ref: '#/components/schemas/PolicyRuleMinimum'
         - type: object
           properties:
+            id:
+              description: Policy rule ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7mg
             sources:
               description: Policy rule source group IDs
               type: array
@@ -836,10 +861,6 @@ components:
     PolicyMinimum:
       type: object
       properties:
-        id:
-          description: Policy ID
-          type: string
-          example: ch8i4ug6lnn4g9hqv7mg
         name:
           description: Policy name identifier
           type: string
@@ -854,9 +875,26 @@ components:
           example: true
       required:
         - name
-        - description
         - enabled
     PolicyUpdate:
+      allOf:
+        - $ref: '#/components/schemas/PolicyMinimum'
+        - type: object
+          properties:
+            source_posture_checks:
+              description: Posture checks ID's applied to policy source groups
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
+            rules:
+              description: Policy rule object for policy UI editor
+              type: array
+              items:
+                $ref: '#/components/schemas/PolicyRuleUpdate'
+          required:
+            - rules
+    PolicyCreate:
       allOf:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
@@ -879,6 +917,10 @@ components:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
+            id:
+              description: Policy ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7mg
             source_posture_checks:
               description: Posture checks ID's applied to policy source groups
               type: array
@@ -2463,7 +2505,7 @@ paths:
         content:
           'application/json':
             schema:
-              $ref: '#/components/schemas/PolicyUpdate'
+              $ref: '#/components/schemas/PolicyCreate'
       responses:
         '200':
           description: A Policy object

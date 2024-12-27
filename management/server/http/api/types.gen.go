@@ -879,7 +879,7 @@ type PersonalAccessTokenRequest struct {
 // Policy defines model for Policy.
 type Policy struct {
 	// Description Policy friendly description
-	Description string `json:"description"`
+	Description *string `json:"description,omitempty"`
 
 	// Enabled Policy status
 	Enabled bool `json:"enabled"`
@@ -897,16 +897,31 @@ type Policy struct {
 	SourcePostureChecks []string `json:"source_posture_checks"`
 }
 
-// PolicyMinimum defines model for PolicyMinimum.
-type PolicyMinimum struct {
+// PolicyCreate defines model for PolicyCreate.
+type PolicyCreate struct {
 	// Description Policy friendly description
-	Description string `json:"description"`
+	Description *string `json:"description,omitempty"`
 
 	// Enabled Policy status
 	Enabled bool `json:"enabled"`
 
-	// Id Policy ID
-	Id *string `json:"id,omitempty"`
+	// Name Policy name identifier
+	Name string `json:"name"`
+
+	// Rules Policy rule object for policy UI editor
+	Rules []PolicyRuleUpdate `json:"rules"`
+
+	// SourcePostureChecks Posture checks ID's applied to policy source groups
+	SourcePostureChecks *[]string `json:"source_posture_checks,omitempty"`
+}
+
+// PolicyMinimum defines model for PolicyMinimum.
+type PolicyMinimum struct {
+	// Description Policy friendly description
+	Description *string `json:"description,omitempty"`
+
+	// Enabled Policy status
+	Enabled bool `json:"enabled"`
 
 	// Name Policy name identifier
 	Name string `json:"name"`
@@ -969,9 +984,6 @@ type PolicyRuleMinimum struct {
 
 	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
-
-	// Id Policy rule ID
-	Id *string `json:"id,omitempty"`
 
 	// Name Policy rule name identifier
 	Name string `json:"name"`
@@ -1039,13 +1051,10 @@ type PolicyRuleUpdateProtocol string
 // PolicyUpdate defines model for PolicyUpdate.
 type PolicyUpdate struct {
 	// Description Policy friendly description
-	Description string `json:"description"`
+	Description *string `json:"description,omitempty"`
 
 	// Enabled Policy status
 	Enabled bool `json:"enabled"`
-
-	// Id Policy ID
-	Id *string `json:"id,omitempty"`
 
 	// Name Policy name identifier
 	Name string `json:"name"`
@@ -1473,7 +1482,7 @@ type PutApiPeersPeerIdJSONRequestBody = PeerRequest
 type PostApiPoliciesJSONRequestBody = PolicyUpdate
 
 // PutApiPoliciesPolicyIdJSONRequestBody defines body for PutApiPoliciesPolicyId for application/json ContentType.
-type PutApiPoliciesPolicyIdJSONRequestBody = PolicyUpdate
+type PutApiPoliciesPolicyIdJSONRequestBody = PolicyCreate
 
 // PostApiPostureChecksJSONRequestBody defines body for PostApiPostureChecks for application/json ContentType.
 type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
