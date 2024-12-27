@@ -40,9 +40,8 @@ func CreateMysqlTestContainer() (func(), error) {
 	}
 
 	cleanup := func() {
-		timeout := 10 * time.Second
-		if err = container.Stop(ctx, &timeout); err != nil {
-			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
+		if err = container.Terminate(ctx); err != nil {
+			log.WithContext(ctx).Warnf("failed to terminate container: %s", err)
 		}
 	}
 
@@ -72,9 +71,8 @@ func CreatePostgresTestContainer() (func(), error) {
 	}
 
 	cleanup := func() {
-		timeout := 10 * time.Second
-		if err = container.Stop(ctx, &timeout); err != nil {
-			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
+		if err = container.Terminate(ctx); err != nil {
+			log.WithContext(ctx).Warnf("failed to terminate container: %s", err)
 		}
 	}
 
