@@ -1319,13 +1319,18 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 			}
 		}
 
+		var peerPostureChecks []string
 		for _, policy := range resourcePolicies[resource.ID] {
-			// validate the peer based on policy posture checks applied
-			isValid := a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID)
-			if !isValid {
-				continue
-			}
+			peerPostureChecks = append(peerPostureChecks, policy.SourcePostureChecks...)
+		}
 
+		// validate the peer based on policy posture checks applied
+		isValid := a.validatePostureChecksOnPeer(ctx, peerPostureChecks, peerID)
+		if !isValid {
+			continue
+		}
+
+		for _, policy := range resourcePolicies[resource.ID] {
 			for _, sourceGroup := range policy.SourceGroups() {
 				group := a.GetGroup(sourceGroup)
 				if group == nil {
