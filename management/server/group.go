@@ -529,7 +529,10 @@ func isGroupLinkedToRoute(ctx context.Context, transaction store.Store, accountI
 	}
 
 	for _, r := range routes {
-		if slices.Contains(r.Groups, groupID) || slices.Contains(r.PeerGroups, groupID) {
+		isLinked := slices.Contains(r.Groups, groupID) ||
+			slices.Contains(r.PeerGroups, groupID) ||
+			slices.Contains(r.AccessControlGroups, groupID)
+		if isLinked {
 			return true, r
 		}
 	}
