@@ -137,6 +137,8 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 			resource.FromAPIRequest(&res)
 			resources = append(resources, resource)
 		}
+	} else {
+		resources = existingGroup.Resources
 	}
 
 	group := types.Group{
