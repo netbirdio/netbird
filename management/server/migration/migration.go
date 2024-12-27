@@ -18,11 +18,9 @@ import (
 )
 
 func GetColumnName(db *gorm.DB, column string) string {
-
 	if db.Name() == "mysql" {
 		return fmt.Sprintf("`%s`", column)
 	}
-
 	return column
 }
 
@@ -220,7 +218,6 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 }
 
 func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) error {
-
 	orgColumnName := "key"
 	oldColumnName := GetColumnName(db, orgColumnName)
 	newColumnName := "key_secret"
