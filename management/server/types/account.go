@@ -1320,6 +1320,12 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 		}
 
 		for _, policy := range resourcePolicies[resource.ID] {
+			// validate the peer based on policy posture checks applied
+			isValid := a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID)
+			if !isValid {
+				continue
+			}
+
 			for _, sourceGroup := range policy.SourceGroups() {
 				group := a.GetGroup(sourceGroup)
 				if group == nil {
