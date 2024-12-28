@@ -1320,6 +1320,10 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 		}
 
 		for _, policy := range resourcePolicies[resource.ID] {
+			isValid := a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID)
+			if !isRoutingPeer && !isValid {
+				continue
+			}
 			for _, sourceGroup := range policy.SourceGroups() {
 				group := a.GetGroup(sourceGroup)
 				if group == nil {
@@ -1329,7 +1333,13 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 
 				// routing peer should be able to connect with all source peers
 				if addSourcePeers {
-					allSourcePeers = append(allSourcePeers, group.Peers...)
+					for _, sPeerId := range group.Peers {
+						isValid = a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, sPeerId)
+						if !isValid {
+							continue
+						}
+						allSourcePeers = append(allSourcePeers, sPeerId)
+					}
 				} else if slices.Contains(group.Peers, peerID) {
 					// add routes for the resource if the peer is in the distribution group
 					for peerId, router := range networkRoutingPeers {
