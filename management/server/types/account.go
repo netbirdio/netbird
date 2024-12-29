@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"github.com/yourbasic/radix"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -1337,7 +1338,8 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 		}
 	}
 
-	return isRoutingPeer, routes, getStringSet(allSourcePeers)
+	radix.Sort(allSourcePeers)
+	return isRoutingPeer, routes, slices.Compact(allSourcePeers)
 }
 
 func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []string) []string {
@@ -1351,7 +1353,7 @@ func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []s
 }
 
 func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) []string {
-	pm := make(map[string]struct{})
+	ids := make([]string, 0)
 	for _, groupID := range groups {
 		group := a.GetGroup(groupID)
 		if group == nil {
@@ -1363,29 +1365,10 @@ func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []st
 			return group.Peers
 		}
 
-		sliceToMapKeys(group.Peers, pm)
+		ids = append(ids, group.Peers...)
 	}
-	var peerIDs []string
-	for peerID := range pm {
-		peerIDs = append(peerIDs, peerID)
-	}
-	return peerIDs
-}
-
-func getStringSet(s []string) []string {
-	m := make(map[string]struct{})
-	sliceToMapKeys(s, m)
-	var set []string
-	for k := range m {
-		set = append(set, k)
-	}
-	return set
-}
-
-func sliceToMapKeys(slice []string, m map[string]struct{}) {
-	for _, s := range slice {
-		m[s] = struct{}{}
-	}
+	radix.Sort(ids)
+	return slices.Compact(ids)
 }
 
 // getNetworkResources filters and returns a list of network resources associated with the given network ID.
