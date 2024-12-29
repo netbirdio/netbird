@@ -2,8 +2,12 @@ package types
 
 import (
 	"context"
+	"net"
+	"net/netip"
+	"slices"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -376,23 +380,54 @@ func Test_AddNetworksRoutingPeersHandlesNoMissingPeers(t *testing.T) {
 	require.Len(t, result, 0)
 }
 
-func Test_PostureCheckValidOnNormalPeer(t *testing.T) {
-	account := &Account{
+const (
+	accNetResourcePeer1ID                = "peer1"
+	accNetResourcePeer2ID                = "peer2"
+	accNetResourceRouter1ID              = "router1"
+	accNetResourceRestrictPostureCheckID = "restrictPostureCheck"
+	accNetResourceRelaxedPostureCheckID  = "relaxedPostureCheck"
+	accNetResourceLockedPostureCheckID   = "lockedPostureCheck"
+	accNetResourceLinuxPostureCheckID    = "linuxPostureCheck"
+)
+
+var (
+	accNetResourcePeer1IP    = net.IP{192, 168, 1, 1}
+	accNetResourcePeer2IP    = net.IP{192, 168, 1, 2}
+	accNetResourceRouter1IP  = net.IP{192, 168, 1, 3}
+	accNetResourceValidPeers = map[string]struct{}{accNetResourcePeer1ID: {}, accNetResourcePeer2ID: {}}
+)
+
+func getBasicAccountsWithResource() *Account {
+	return &Account{
 		Id: "accountID",
 		Peers: map[string]*nbpeer.Peer{
-			"peer1": {
-				ID:        "peer1",
+			accNetResourcePeer1ID: {
+				ID:        accNetResourcePeer1ID,
 				AccountID: "accountID",
 				Key:       "peer1Key",
+				IP:        accNetResourcePeer1IP,
 				Meta: nbpeer.PeerSystemMeta{
+					GoOS:      "linux",
 					WtVersion: "0.35.1",
 				},
 			},
-			"peer2": {
-				ID:        "peer2",
+			accNetResourcePeer2ID: {
+				ID:        accNetResourcePeer2ID,
+				AccountID: "accountID",
+				Key:       "peer1Key",
+				IP:        accNetResourcePeer2IP,
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:      "windows",
+					WtVersion: "0.34.1",
+				},
+			},
+			accNetResourceRouter1ID: {
+				ID:        accNetResourceRouter1ID,
 				AccountID: "accountID",
 				Key:       "peer2Key",
+				IP:        accNetResourceRouter1IP,
 				Meta: nbpeer.PeerSystemMeta{
+					GoOS:      "linux",
 					WtVersion: "0.35.1",
 				},
 			},
@@ -400,7 +435,7 @@ func Test_PostureCheckValidOnNormalPeer(t *testing.T) {
 		Groups: map[string]*Group{
 			"group1": {
 				ID:    "group1",
-				Peers: []string{"peer1"},
+				Peers: []string{accNetResourcePeer1ID, accNetResourcePeer2ID},
 			},
 		},
 		Networks: []*networkTypes.Network{
@@ -415,7 +450,7 @@ func Test_PostureCheckValidOnNormalPeer(t *testing.T) {
 				ID:         "router1ID",
 				NetworkID:  "network1ID",
 				AccountID:  "accountID",
-				Peer:       "peer2",
+				Peer:       "router1",
 				PeerGroups: []string{},
 				Masquerade: false,
 				Metric:     100,
@@ -426,6 +461,9 @@ func Test_PostureCheckValidOnNormalPeer(t *testing.T) {
 				ID:        "resource1ID",
 				AccountID: "accountID",
 				NetworkID: "network1ID",
+				Address:   "10.10.10.0/24",
+				Prefix:    netip.MustParsePrefix("10.10.10.0/24"),
+				Type:      resourceTypes.NetworkResourceType("subnet"),
 			},
 		},
 		Policies: []*Policy{
@@ -442,15 +480,27 @@ func Test_PostureCheckValidOnNormalPeer(t *testing.T) {
 							ID:   "resource1ID",
 							Type: "Host",
 						},
+						Protocol: PolicyRuleProtocolTCP,
+						Ports:    []string{"80"},
+						Action:   PolicyTrafficActionAccept,
 					},
 				},
-				SourcePostureChecks: []string{"PostureChecksValid"},
+				SourcePostureChecks: nil,
 			},
 		},
 		PostureChecks: []*posture.Checks{
 			{
-				ID:   "PostureChecksValid",
-				Name: "PostureChecksValid",
+				ID:   accNetResourceRestrictPostureCheckID,
+				Name: accNetResourceRestrictPostureCheckID,
+				Checks: posture.ChecksDefinition{
+					NBVersionCheck: &posture.NBVersionCheck{
+						MinVersion: "0.35.0",
+					},
+				},
+			},
+			{
+				ID:   accNetResourceRelaxedPostureCheckID,
+				Name: accNetResourceRelaxedPostureCheckID,
 				Checks: posture.ChecksDefinition{
 					NBVersionCheck: &posture.NBVersionCheck{
 						MinVersion: "0.0.1",
@@ -458,840 +508,222 @@ func Test_PostureCheckValidOnNormalPeer(t *testing.T) {
 				},
 			},
 			{
-				ID:   "PostureChecksInValid",
-				Name: "PostureChecksInValid",
+				ID:   accNetResourceLockedPostureCheckID,
+				Name: accNetResourceLockedPostureCheckID,
 				Checks: posture.ChecksDefinition{
 					NBVersionCheck: &posture.NBVersionCheck{
 						MinVersion: "7.7.7",
 					},
 				},
 			},
-		},
-	}
-
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peer1", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
-	require.False(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 0)
-}
-
-func Test_PostureCheckInvalidOnNormalPeer(t *testing.T) {
-	account := &Account{
-		Id: "accountID",
-		Peers: map[string]*nbpeer.Peer{
-			"peer1": {
-				ID:        "peer1",
-				AccountID: "accountID",
-				Key:       "peer1Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-			"peer2": {
-				ID:        "peer2",
-				AccountID: "accountID",
-				Key:       "peer2Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-		},
-		Groups: map[string]*Group{
-			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1"},
-			},
-		},
-		Networks: []*networkTypes.Network{
 			{
-				ID:        "network1ID",
-				AccountID: "accountID",
-				Name:      "network1",
-			},
-		},
-		NetworkRouters: []*routerTypes.NetworkRouter{
-			{
-				ID:         "router1ID",
-				NetworkID:  "network1ID",
-				AccountID:  "accountID",
-				Peer:       "peer2",
-				PeerGroups: []string{},
-				Masquerade: false,
-				Metric:     100,
-			},
-		},
-		NetworkResources: []*resourceTypes.NetworkResource{
-			{
-				ID:        "resource1ID",
-				AccountID: "accountID",
-				NetworkID: "network1ID",
-			},
-		},
-		Policies: []*Policy{
-			{
-				ID:        "policy1ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Host",
-						},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksInValid"},
-			},
-		},
-		PostureChecks: []*posture.Checks{
-			{
-				ID:   "PostureChecksValid",
-				Name: "PostureChecksValid",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "0.0.1",
-					},
-				},
-			},
-			{
-				ID:   "PostureChecksInValid",
-				Name: "PostureChecksInValid",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "7.7.7",
-					},
-				},
-			},
-		},
-	}
-
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peer1", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
-	require.False(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 0)
-	require.Len(t, sourcePeers, 0)
-}
-
-func Test_PostureCheckValidOnRoutingPeer(t *testing.T) {
-	account := &Account{
-		Id: "accountID",
-		Peers: map[string]*nbpeer.Peer{
-			"peer1": {
-				ID:        "peer1",
-				AccountID: "accountID",
-				Key:       "peer1Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-			"peer2": {
-				ID:        "peer2",
-				AccountID: "accountID",
-				Key:       "peer2Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-		},
-		Groups: map[string]*Group{
-			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1"},
-			},
-		},
-		Networks: []*networkTypes.Network{
-			{
-				ID:        "network1ID",
-				AccountID: "accountID",
-				Name:      "network1",
-			},
-		},
-		NetworkRouters: []*routerTypes.NetworkRouter{
-			{
-				ID:         "router1ID",
-				NetworkID:  "network1ID",
-				AccountID:  "accountID",
-				Peer:       "peer2",
-				PeerGroups: []string{},
-				Masquerade: false,
-				Metric:     100,
-			},
-		},
-		NetworkResources: []*resourceTypes.NetworkResource{
-			{
-				ID:        "resource1ID",
-				AccountID: "accountID",
-				NetworkID: "network1ID",
-			},
-		},
-		Policies: []*Policy{
-			{
-				ID:        "policy1ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Host",
-						},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksValid"},
-			},
-		},
-		PostureChecks: []*posture.Checks{
-			{
-				ID:   "PostureChecksValid",
-				Name: "PostureChecksValid",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "0.0.1",
-					},
-				},
-			},
-			{
-				ID:   "PostureChecksInValid",
-				Name: "PostureChecksInValid",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "7.7.7",
-					},
-				},
-			},
-		},
-	}
-
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peer2", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
-	require.True(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 1)
-
-	networkResourcesFirewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peer2"], map[string]struct{}{"peer1Key": {}, "peer2Key": {}}, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	require.Len(t, networkResourcesFirewallRules, 1)
-}
-
-func Test_PostureCheckValidAndInvalidOnNormalPeer(t *testing.T) {
-	account := &Account{
-		Id: "accountID",
-		Peers: map[string]*nbpeer.Peer{
-			"peer1": {
-				ID:        "peer1",
-				AccountID: "accountID",
-				Key:       "peer1Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-			"peer2": {
-				ID:        "peer2",
-				AccountID: "accountID",
-				Key:       "peer2Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-		},
-		Groups: map[string]*Group{
-			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1"},
-			},
-		},
-		Networks: []*networkTypes.Network{
-			{
-				ID:        "network1ID",
-				AccountID: "accountID",
-				Name:      "network1",
-			},
-		},
-		NetworkRouters: []*routerTypes.NetworkRouter{
-			{
-				ID:         "router1ID",
-				NetworkID:  "network1ID",
-				AccountID:  "accountID",
-				Peer:       "peer2",
-				PeerGroups: []string{},
-				Masquerade: false,
-				Metric:     100,
-			},
-		},
-		NetworkResources: []*resourceTypes.NetworkResource{
-			{
-				ID:        "resource1ID",
-				AccountID: "accountID",
-				NetworkID: "network1ID",
-			},
-		},
-		Policies: []*Policy{
-			{
-				ID:        "policy1ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Host",
-						},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksInValid"},
-			},
-			{
-				ID:        "policy1ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Host",
-						},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksValid"},
-			},
-		},
-		PostureChecks: []*posture.Checks{
-			{
-				ID:   "PostureChecksValid",
-				Name: "PostureChecksValid",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "0.0.1",
-					},
-				},
-			},
-			{
-				ID:   "PostureChecksInValid",
-				Name: "PostureChecksInValid",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "7.7.7",
-					},
-				},
-			},
-		},
-	}
-
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peer2", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
-	require.True(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 1)
-
-	networkResourcesFirewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peer2"], map[string]struct{}{"peer1Key": {}, "peer2Key": {}}, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	require.Len(t, networkResourcesFirewallRules, 1)
-}
-
-func Test_PostureCheckInvalidOnRoutingPeer(t *testing.T) {
-	account := &Account{
-		Id: "accountID",
-		Peers: map[string]*nbpeer.Peer{
-			"peer1": {
-				ID:        "peer1",
-				AccountID: "accountID",
-				Key:       "peer1Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-			"peer2": {
-				ID:        "peer2",
-				AccountID: "accountID",
-				Key:       "peer2Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-		},
-		Groups: map[string]*Group{
-			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1"},
-			},
-		},
-		Networks: []*networkTypes.Network{
-			{
-				ID:        "network1ID",
-				AccountID: "accountID",
-				Name:      "network1",
-			},
-		},
-		NetworkRouters: []*routerTypes.NetworkRouter{
-			{
-				ID:         "router1ID",
-				NetworkID:  "network1ID",
-				AccountID:  "accountID",
-				Peer:       "peer2",
-				PeerGroups: []string{},
-				Masquerade: false,
-				Metric:     100,
-			},
-		},
-		NetworkResources: []*resourceTypes.NetworkResource{
-			{
-				ID:        "resource1ID",
-				AccountID: "accountID",
-				NetworkID: "network1ID",
-			},
-		},
-		Policies: []*Policy{
-			{
-				ID:        "policy1ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Host",
-						},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksInValid"},
-			},
-		},
-		PostureChecks: []*posture.Checks{
-			{
-				ID:   "PostureChecksValid",
-				Name: "PostureChecksValid",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "0.0.1",
-					},
-				},
-			},
-			{
-				ID:   "PostureChecksInValid",
-				Name: "PostureChecksInValid",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "7.7.7",
-					},
-				},
-			},
-		},
-	}
-
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peer2", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
-	require.True(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 0)
-
-	networkResourcesFirewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peer2"], map[string]struct{}{"peer1Key": {}, "peer2Key": {}}, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	require.Len(t, networkResourcesFirewallRules, 0)
-}
-
-func Test_FWRuleOnlyForPeerWithValidPostureCheck(t *testing.T) {
-	account := &Account{
-		Id: "accountID",
-		Peers: map[string]*nbpeer.Peer{
-			"peer1": {
-				ID:        "peer1",
-				AccountID: "accountID",
-				Key:       "peer1Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.20.0",
-				},
-			},
-			"peer2": {
-				ID:        "peer2",
-				AccountID: "accountID",
-				Key:       "peer2Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-			"peer3": {
-				ID:        "peer3",
-				AccountID: "accountID",
-				Key:       "peer3Key",
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.35.1",
-				},
-			},
-		},
-		Groups: map[string]*Group{
-			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1", "peer2"},
-			},
-		},
-		Networks: []*networkTypes.Network{
-			{
-				ID:        "network1ID",
-				AccountID: "accountID",
-				Name:      "network1",
-			},
-		},
-		NetworkRouters: []*routerTypes.NetworkRouter{
-			{
-				ID:         "router1ID",
-				NetworkID:  "network1ID",
-				AccountID:  "accountID",
-				Peer:       "peer3",
-				PeerGroups: []string{},
-				Masquerade: false,
-				Metric:     100,
-			},
-		},
-		NetworkResources: []*resourceTypes.NetworkResource{
-			{
-				ID:        "resource1ID",
-				AccountID: "accountID",
-				NetworkID: "network1ID",
-			},
-		},
-		Policies: []*Policy{
-			{
-				ID:        "policy1ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Subnet",
-						},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksVersion"},
-			},
-		},
-		PostureChecks: []*posture.Checks{
-			{
-				ID:   "PostureChecksVersion",
-				Name: "PostureChecksVersion",
-				Checks: posture.ChecksDefinition{
-					NBVersionCheck: &posture.NBVersionCheck{
-						MinVersion: "0.25.0",
-					},
-				},
-			},
-		},
-	}
-
-	// peer1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peer1", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.False(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 0)
-	require.Len(t, sourcePeers, 0)
-
-	// peer2
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peer2", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.False(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 0)
-
-	// peer3
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peer3", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.True(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 1)
-	require.Equal(t, "peer2", sourcePeers[0])
-	networkResourcesFirewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peer3"], map[string]struct{}{"peer1Key": {}, "peer2Key": {}}, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	require.Len(t, networkResourcesFirewallRules, 1)
-	// Todo: check the firewall rule fields
-}
-
-func Test_FWRuleForDifferentPeers(t *testing.T) {
-	account := &Account{
-		Id: "accountID",
-		Peers: map[string]*nbpeer.Peer{
-			"peer1": {
-				ID:        "peer1",
-				AccountID: "accountID",
-				Key:       "peer1Key",
-				Meta: nbpeer.PeerSystemMeta{
-					GoOS:          "linux",
-					KernelVersion: "v1.2.3",
-				},
-			},
-			"peer2": {
-				ID:        "peer2",
-				AccountID: "accountID",
-				Key:       "peer2Key",
-				Meta: nbpeer.PeerSystemMeta{
-					GoOS:          "windows",
-					KernelVersion: "v1.2.3",
-				},
-			},
-			"peer3": {
-				ID:        "peer3",
-				AccountID: "accountID",
-				Key:       "peer3Key",
-			},
-		},
-		Groups: map[string]*Group{
-			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1", "peer2"},
-			},
-		},
-		Networks: []*networkTypes.Network{
-			{
-				ID:        "network1ID",
-				AccountID: "accountID",
-				Name:      "network1",
-			},
-		},
-		NetworkRouters: []*routerTypes.NetworkRouter{
-			{
-				ID:         "router1ID",
-				NetworkID:  "network1ID",
-				AccountID:  "accountID",
-				Peer:       "peer3",
-				PeerGroups: []string{},
-				Masquerade: false,
-				Metric:     100,
-			},
-		},
-		NetworkResources: []*resourceTypes.NetworkResource{
-			{
-				ID:        "resource1ID",
-				AccountID: "accountID",
-				NetworkID: "network1ID",
-			},
-		},
-		Policies: []*Policy{
-			{
-				ID:        "policy1ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Subnet",
-						},
-						Ports: []string{"22"},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksLinux"},
-			},
-			{
-				ID:        "policy2ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule2ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Subnet",
-						},
-						Ports: []string{"80"},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksWindows"},
-			},
-		},
-		PostureChecks: []*posture.Checks{
-			{
-				ID:   "PostureChecksLinux",
-				Name: "PostureChecksLinux",
+				ID:   accNetResourceLinuxPostureCheckID,
+				Name: accNetResourceLinuxPostureCheckID,
 				Checks: posture.ChecksDefinition{
 					OSVersionCheck: &posture.OSVersionCheck{
 						Linux: &posture.MinKernelVersionCheck{
-							MinKernelVersion: "0",
-						},
-					},
-				},
-			},
-			{
-				ID:   "PostureChecksWindows",
-				Name: "PostureChecksWindows",
-				Checks: posture.ChecksDefinition{
-					OSVersionCheck: &posture.OSVersionCheck{
-						Windows: &posture.MinKernelVersionCheck{
-							MinKernelVersion: "0",
-						},
+							MinKernelVersion: "0.0.0"},
 					},
 				},
 			},
 		},
 	}
-
-	// peer1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peer1", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.False(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 0)
-
-	// peer2
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peer2", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.False(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 0)
-
-	// peer3
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peer3", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.True(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 2)
-	networkResourcesFirewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peer3"], map[string]struct{}{"peer1Key": {}, "peer2Key": {}}, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	require.Len(t, networkResourcesFirewallRules, 2)
-	// Todo: check the firewall rule fields
 }
 
-func Test_FWRuleWithDifferentPolicyForSamePeer(t *testing.T) {
-	account := &Account{
-		Id: "accountID",
-		Peers: map[string]*nbpeer.Peer{
-			"peer1": {
-				ID:        "peer1",
-				AccountID: "accountID",
-				Key:       "peer1Key",
-				Meta: nbpeer.PeerSystemMeta{
-					GoOS:          "linux",
-					KernelVersion: "v1.2.3",
+func Test_NetworksNetMapGenWithNoPostureChecks(t *testing.T) {
+	account := getBasicAccountsWithResource()
+
+	// all peers should match the policy
+
+	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["router1"], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
+	assert.True(t, isRouter, "should be router")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
+	assert.Len(t, rules, 1, "expected rules count don't match")
+	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
+	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
+	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
+		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
+	}
+	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
+		t.Errorf("%s should have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
+	}
+}
+
+func Test_NetworksNetMapGenWithPostureChecks(t *testing.T) {
+	account := getBasicAccountsWithResource()
+
+	// should allow peer1 to match the policy
+	policy := account.Policies[0]
+	policy.SourcePostureChecks = []string{accNetResourceRestrictPostureCheckID}
+
+	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["router1"], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
+	assert.True(t, isRouter, "should be router")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 1, "expected source peers don't match")
+	assert.Len(t, rules, 1, "expected rules count don't match")
+	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
+	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
+	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
+		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
+	}
+	if slices.Contains(rules[0].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
+		t.Errorf("%s should not have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
+	}
+}
+
+func Test_NetworksNetMapGenWithNoMatchedPostureChecks(t *testing.T) {
+	account := getBasicAccountsWithResource()
+
+	// should not match any peer
+	policy := account.Policies[0]
+	policy.SourcePostureChecks = []string{accNetResourceLockedPostureCheckID}
+
+	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["router1"], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
+	assert.True(t, isRouter, "should be router")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+	assert.Len(t, rules, 0, "expected rules count don't match")
+}
+
+func Test_NetworksNetMapGenWithTwoPoliciesAndPostureChecks(t *testing.T) {
+	account := getBasicAccountsWithResource()
+
+	// should allow peer1 to match the policy
+	policy := account.Policies[0]
+	policy.SourcePostureChecks = []string{accNetResourceRestrictPostureCheckID}
+
+	// should allow peer1 and peer2 to match the policy
+	newPolicy := &Policy{
+		ID:        "policy2ID",
+		AccountID: "accountID",
+		Enabled:   true,
+		Rules: []*PolicyRule{
+			{
+				ID:      "policy2ID",
+				Enabled: true,
+				Sources: []string{"group1"},
+				DestinationResource: Resource{
+					ID:   "resource1ID",
+					Type: "Host",
 				},
-			},
-			"peer2": {
-				ID:        "peer2",
-				AccountID: "accountID",
-				Key:       "peer2Key",
-				Meta: nbpeer.PeerSystemMeta{
-					GoOS:          "windows",
-					KernelVersion: "v1.2.3",
-				},
-			},
-			"peer3": {
-				ID:        "peer3",
-				AccountID: "accountID",
-				Key:       "peer3Key",
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+				Action:   PolicyTrafficActionAccept,
 			},
 		},
-		Groups: map[string]*Group{
-			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1", "peer2"},
-			},
-		},
-		Networks: []*networkTypes.Network{
-			{
-				ID:        "network1ID",
-				AccountID: "accountID",
-				Name:      "network1",
-			},
-		},
-		NetworkRouters: []*routerTypes.NetworkRouter{
-			{
-				ID:         "router1ID",
-				NetworkID:  "network1ID",
-				AccountID:  "accountID",
-				Peer:       "peer3",
-				PeerGroups: []string{},
-				Masquerade: false,
-				Metric:     100,
-			},
-		},
-		NetworkResources: []*resourceTypes.NetworkResource{
-			{
-				ID:        "resource1ID",
-				AccountID: "accountID",
-				NetworkID: "network1ID",
-			},
-		},
-		Policies: []*Policy{
-			{
-				ID:        "policy1ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule1ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Subnet",
-						},
-						Ports: []string{"22"},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksLinux"},
-			},
-			{
-				ID:        "policy2ID",
-				AccountID: "accountID",
-				Enabled:   true,
-				Rules: []*PolicyRule{
-					{
-						ID:      "rule2ID",
-						Enabled: true,
-						Sources: []string{"group1"},
-						DestinationResource: Resource{
-							ID:   "resource1ID",
-							Type: "Subnet",
-						},
-						Ports: []string{"80"},
-					},
-				},
-				SourcePostureChecks: []string{"PostureChecksLinux"},
-			},
-		},
-		PostureChecks: []*posture.Checks{
-			{
-				ID:   "PostureChecksLinux",
-				Name: "PostureChecksLinux",
-				Checks: posture.ChecksDefinition{
-					OSVersionCheck: &posture.OSVersionCheck{
-						Linux: &posture.MinKernelVersionCheck{
-							MinKernelVersion: "0",
-						},
-					},
-				},
-			},
-		},
+		SourcePostureChecks: []string{accNetResourceRelaxedPostureCheckID},
 	}
 
-	// peer1
-	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peer1", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.False(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 2)
-	require.Len(t, sourcePeers, 0)
+	account.Policies = append(account.Policies, newPolicy)
 
-	// peer2
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peer2", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.False(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 0)
-	require.Len(t, sourcePeers, 0)
+	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
 
-	// peer3
-	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peer3", account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	require.True(t, isRouter)
-	require.Len(t, networkResourcesRoutes, 1)
-	require.Len(t, sourcePeers, 1)
-	networkResourcesFirewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peer3"], map[string]struct{}{"peer1Key": {}, "peer2Key": {}}, networkResourcesRoutes, account.GetResourcePoliciesMap())
-	require.Len(t, networkResourcesFirewallRules, 2)
-	// Todo: check the firewall rule fields
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["router1"], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
+	assert.True(t, isRouter, "should be router")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
+	assert.Len(t, rules, 2, "expected rules count don't match")
+	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
+	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
+	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
+		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
+	}
+	if slices.Contains(rules[0].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
+		t.Errorf("%s should not have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
+	}
+
+	assert.Equal(t, uint16(22), rules[1].Port, "should have port 22")
+	assert.Equal(t, "tcp", rules[1].Protocol, "should have protocol tcp")
+	if !slices.Contains(rules[1].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
+		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
+	}
+	if !slices.Contains(rules[1].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
+		t.Errorf("%s should have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
+	}
+}
+
+func Test_NetworksNetMapGenWithTwoPostureChecks(t *testing.T) {
+	account := getBasicAccountsWithResource()
+
+	// two posture checks should match only the peers that match both checks
+	policy := account.Policies[0]
+	policy.SourcePostureChecks = []string{accNetResourceRelaxedPostureCheckID, accNetResourceLinuxPostureCheckID}
+
+	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+
+	assert.False(t, isRouter, "expected router status")
+	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["router1"], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
+	assert.True(t, isRouter, "should be router")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 1, "expected source peers don't match")
+	assert.Len(t, rules, 1, "expected rules count don't match")
+	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
+	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
+	if !slices.Contains(rules[0].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
+		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
+	}
+	if slices.Contains(rules[0].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
+		t.Errorf("%s should not have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
+	}
 }
