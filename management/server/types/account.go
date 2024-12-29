@@ -1152,7 +1152,7 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 				continue
 			}
 
-			rulePeers := a.getRulePeers(rule, peerID, distributionPeers, validatedPeersMap)
+			rulePeers := a.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers, validatedPeersMap)
 			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN)
 			fwRules = append(fwRules, rules...)
 		}
@@ -1160,8 +1160,8 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 	return fwRules
 }
 
-func (a *Account) getRulePeers(rule *PolicyRule, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
-	distPeersWithPolicy := make(map[string]struct{})
+func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
+	distPeersWithPolicy := make([]string, 0)
 	for _, id := range rule.Sources {
 		group := a.Groups[id]
 		if group == nil {
@@ -1174,14 +1174,17 @@ func (a *Account) getRulePeers(rule *PolicyRule, peerID string, distributionPeer
 			}
 			_, distPeer := distributionPeers[pID]
 			_, valid := validatedPeersMap[pID]
-			if distPeer && valid {
-				distPeersWithPolicy[pID] = struct{}{}
+			if distPeer && valid && a.validatePostureChecksOnPeer(context.Background(), postureChecks, pID) {
+				distPeersWithPolicy = append(distPeersWithPolicy, pID)
 			}
 		}
 	}
 
-	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
-	for pID := range distPeersWithPolicy {
+	radix.Sort(distPeersWithPolicy)
+	uniqueDistributionPeers := slices.Compact(distPeersWithPolicy)
+
+	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(uniqueDistributionPeers))
+	for _, pID := range uniqueDistributionPeers {
 		peer := a.Peers[pID]
 		if peer == nil {
 			continue
@@ -1272,7 +1275,11 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer 
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
-		routesFirewallRules = append(routesFirewallRules, rules...)
+		for _, rule := range rules {
+			if len(rule.SourceRanges) > 0 {
+				routesFirewallRules = append(routesFirewallRules, rule)
+			}
+		}
 	}
 
 	return routesFirewallRules
