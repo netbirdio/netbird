@@ -1306,7 +1306,7 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route, []string) {
 	var isRoutingPeer bool
 	var routes []*route.Route
-	var allSourcePeers []string
+	allSourcePeers := make([]string, 0)
 
 	for _, resource := range a.NetworkResources {
 		var addSourcePeers bool
@@ -1319,28 +1319,73 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 			}
 		}
 
+		addedResourceRoute := false
 		for _, policy := range resourcePolicies[resource.ID] {
-			for _, sourceGroup := range policy.SourceGroups() {
-				group := a.GetGroup(sourceGroup)
-				if group == nil {
-					log.WithContext(ctx).Warnf("policy %s has source group %s that doesn't exist under account %s, will continue map generation without it", policy.ID, sourceGroup, a.Id)
-					continue
+			peers := a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+			if addSourcePeers {
+				allSourcePeers = append(allSourcePeers, a.getPostureValidPeers(peers, policy.SourcePostureChecks)...)
+			} else if slices.Contains(peers, peerID) && a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
+				// add routes for the resource if the peer is in the distribution group
+				for peerId, router := range networkRoutingPeers {
+					routes = append(routes, a.getNetworkResourcesRoutes(resource, peerId, router, resourcePolicies)...)
 				}
-
-				// routing peer should be able to connect with all source peers
-				if addSourcePeers {
-					allSourcePeers = append(allSourcePeers, group.Peers...)
-				} else if slices.Contains(group.Peers, peerID) {
-					// add routes for the resource if the peer is in the distribution group
-					for peerId, router := range networkRoutingPeers {
-						routes = append(routes, a.getNetworkResourcesRoutes(resource, peerId, router, resourcePolicies)...)
-					}
-				}
+				addedResourceRoute = true
+			}
+			if addedResourceRoute {
+				break
 			}
 		}
 	}
 
-	return isRoutingPeer, routes, allSourcePeers
+	return isRoutingPeer, routes, getStringSet(allSourcePeers)
+}
+
+func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []string) []string {
+	var dest []string
+	for _, peerID := range inputPeers {
+		if a.validatePostureChecksOnPeer(context.Background(), postureChecksIDs, peerID) {
+			dest = append(dest, peerID)
+		}
+	}
+	return dest
+}
+
+func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) []string {
+	pm := make(map[string]struct{})
+	for _, groupID := range groups {
+		group := a.GetGroup(groupID)
+		if group == nil {
+			log.WithContext(ctx).Warnf("group %s doesn't exist under account %s, will continue map generation without it", groupID, a.Id)
+			continue
+		}
+
+		if group.IsGroupAll() {
+			return group.Peers
+		}
+
+		sliceToMapKeys(group.Peers, pm)
+	}
+	var peerIDs []string
+	for peerID := range pm {
+		peerIDs = append(peerIDs, peerID)
+	}
+	return peerIDs
+}
+
+func getStringSet(s []string) []string {
+	m := make(map[string]struct{})
+	sliceToMapKeys(s, m)
+	var set []string
+	for k := range m {
+		set = append(set, k)
+	}
+	return set
+}
+
+func sliceToMapKeys(slice []string, m map[string]struct{}) {
+	for _, s := range slice {
+		m[s] = struct{}{}
+	}
 }
 
 // getNetworkResources filters and returns a list of network resources associated with the given network ID.

@@ -407,8 +407,9 @@ func getBasicAccountsWithResource() *Account {
 				Key:       "peer1Key",
 				IP:        accNetResourcePeer1IP,
 				Meta: nbpeer.PeerSystemMeta{
-					GoOS:      "linux",
-					WtVersion: "0.35.1",
+					GoOS:          "linux",
+					WtVersion:     "0.35.1",
+					KernelVersion: "4.4.0",
 				},
 			},
 			accNetResourcePeer2ID: {
@@ -417,8 +418,9 @@ func getBasicAccountsWithResource() *Account {
 				Key:       "peer1Key",
 				IP:        accNetResourcePeer2IP,
 				Meta: nbpeer.PeerSystemMeta{
-					GoOS:      "windows",
-					WtVersion: "0.34.1",
+					GoOS:          "windows",
+					WtVersion:     "0.34.1",
+					KernelVersion: "4.4.0",
 				},
 			},
 			accNetResourceRouter1ID: {
@@ -427,8 +429,9 @@ func getBasicAccountsWithResource() *Account {
 				Key:       "peer2Key",
 				IP:        accNetResourceRouter1IP,
 				Meta: nbpeer.PeerSystemMeta{
-					GoOS:      "linux",
-					WtVersion: "0.35.1",
+					GoOS:          "linux",
+					WtVersion:     "0.35.1",
+					KernelVersion: "4.4.0",
 				},
 			},
 		},
