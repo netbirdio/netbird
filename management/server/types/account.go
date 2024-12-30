@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"github.com/yourbasic/radix"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -1045,37 +1046,32 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
 func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
-	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
-	for _, g := range groups {
-		group, ok := a.Groups[g]
-		if !ok {
+	uniquePeerIDs := a.getUniquePeerIDsFromGroupsIDs(ctx, groups)
+	filteredPeers := make([]*nbpeer.Peer, 0, len(uniquePeerIDs))
+	for _, p := range uniquePeerIDs {
+		peer, ok := a.Peers[p]
+		if !ok || peer == nil {
 			continue
 		}
 
-		for _, p := range group.Peers {
-			peer, ok := a.Peers[p]
-			if !ok || peer == nil {
-				continue
-			}
-
-			// validate the peer based on policy posture checks applied
-			isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
-			if !isValid {
-				continue
-			}
-
-			if _, ok := validatedPeersMap[peer.ID]; !ok {
-				continue
-			}
-
-			if peer.ID == peerID {
-				peerInGroups = true
-				continue
-			}
-
-			filteredPeers = append(filteredPeers, peer)
+		// validate the peer based on policy posture checks applied
+		isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
+		if !isValid {
+			continue
 		}
+
+		if _, ok := validatedPeersMap[peer.ID]; !ok {
+			continue
+		}
+
+		if peer.ID == peerID {
+			peerInGroups = true
+			continue
+		}
+
+		filteredPeers = append(filteredPeers, peer)
 	}
+
 	return filteredPeers, peerInGroups
 }
 
@@ -1151,7 +1147,7 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 				continue
 			}
 
-			rulePeers := a.getRulePeers(rule, peerID, distributionPeers, validatedPeersMap)
+			rulePeers := a.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers, validatedPeersMap)
 			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN)
 			fwRules = append(fwRules, rules...)
 		}
@@ -1159,8 +1155,8 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 	return fwRules
 }
 
-func (a *Account) getRulePeers(rule *PolicyRule, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
-	distPeersWithPolicy := make(map[string]struct{})
+func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
+	distPeersWithPolicy := make([]string, 0)
 	for _, id := range rule.Sources {
 		group := a.Groups[id]
 		if group == nil {
@@ -1173,14 +1169,17 @@ func (a *Account) getRulePeers(rule *PolicyRule, peerID string, distributionPeer
 			}
 			_, distPeer := distributionPeers[pID]
 			_, valid := validatedPeersMap[pID]
-			if distPeer && valid {
-				distPeersWithPolicy[pID] = struct{}{}
+			if distPeer && valid && a.validatePostureChecksOnPeer(context.Background(), postureChecks, pID) {
+				distPeersWithPolicy = append(distPeersWithPolicy, pID)
 			}
 		}
 	}
 
-	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
-	for pID := range distPeersWithPolicy {
+	radix.Sort(distPeersWithPolicy)
+	uniqueDistributionPeers := slices.Compact(distPeersWithPolicy)
+
+	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(uniqueDistributionPeers))
+	for _, pID := range uniqueDistributionPeers {
 		peer := a.Peers[pID]
 		if peer == nil {
 			continue
@@ -1271,7 +1270,11 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer 
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
-		routesFirewallRules = append(routesFirewallRules, rules...)
+		for _, rule := range rules {
+			if len(rule.SourceRanges) > 0 {
+				routesFirewallRules = append(routesFirewallRules, rule)
+			}
+		}
 	}
 
 	return routesFirewallRules
@@ -1306,7 +1309,7 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route, []string) {
 	var isRoutingPeer bool
 	var routes []*route.Route
-	var allSourcePeers []string
+	allSourcePeers := make([]string, 0)
 
 	for _, resource := range a.NetworkResources {
 		var addSourcePeers bool
@@ -1319,28 +1322,63 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 			}
 		}
 
+		addedResourceRoute := false
 		for _, policy := range resourcePolicies[resource.ID] {
-			for _, sourceGroup := range policy.SourceGroups() {
-				group := a.GetGroup(sourceGroup)
-				if group == nil {
-					log.WithContext(ctx).Warnf("policy %s has source group %s that doesn't exist under account %s, will continue map generation without it", policy.ID, sourceGroup, a.Id)
-					continue
+			peers := a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+			if addSourcePeers {
+				allSourcePeers = append(allSourcePeers, a.getPostureValidPeers(peers, policy.SourcePostureChecks)...)
+			} else if slices.Contains(peers, peerID) && a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
+				// add routes for the resource if the peer is in the distribution group
+				for peerId, router := range networkRoutingPeers {
+					routes = append(routes, a.getNetworkResourcesRoutes(resource, peerId, router, resourcePolicies)...)
 				}
-
-				// routing peer should be able to connect with all source peers
-				if addSourcePeers {
-					allSourcePeers = append(allSourcePeers, group.Peers...)
-				} else if slices.Contains(group.Peers, peerID) {
-					// add routes for the resource if the peer is in the distribution group
-					for peerId, router := range networkRoutingPeers {
-						routes = append(routes, a.getNetworkResourcesRoutes(resource, peerId, router, resourcePolicies)...)
-					}
-				}
+				addedResourceRoute = true
+			}
+			if addedResourceRoute {
+				break
 			}
 		}
 	}
 
-	return isRoutingPeer, routes, allSourcePeers
+	radix.Sort(allSourcePeers)
+	return isRoutingPeer, routes, slices.Compact(allSourcePeers)
+}
+
+func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []string) []string {
+	var dest []string
+	for _, peerID := range inputPeers {
+		if a.validatePostureChecksOnPeer(context.Background(), postureChecksIDs, peerID) {
+			dest = append(dest, peerID)
+		}
+	}
+	return dest
+}
+
+func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) []string {
+	gObjs := make([]*Group, 0, len(groups))
+	tp := 0
+	for _, groupID := range groups {
+		group := a.GetGroup(groupID)
+		if group == nil {
+			log.WithContext(ctx).Warnf("group %s doesn't exist under account %s, will continue map generation without it", groupID, a.Id)
+			continue
+		}
+
+		if group.IsGroupAll() || len(groups) == 1 {
+			return group.Peers
+		}
+
+		gObjs = append(gObjs, group)
+		tp += len(group.Peers)
+	}
+
+	ids := make([]string, 0, tp)
+	for _, group := range gObjs {
+		ids = append(ids, group.Peers...)
+	}
+
+	radix.Sort(ids)
+	return slices.Compact(ids)
 }
 
 // getNetworkResources filters and returns a list of network resources associated with the given network ID.
