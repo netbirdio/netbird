@@ -26,13 +26,11 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 		return
 	}
 
-	f.logger.Trace("forwarder: established TCP connection to %v", id)
-
 	// Create wait queue for blocking syscalls
 	wq := waiter.Queue{}
 
-	ep, err2 := r.CreateEndpoint(&wq)
-	if err2 != nil {
+	ep, epErr := r.CreateEndpoint(&wq)
+	if epErr != nil {
 		if err := outConn.Close(); err != nil {
 			f.logger.Error("forwarder: outConn close error: %v", err)
 		}
@@ -44,6 +42,8 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	r.Complete(false)
 
 	inConn := gonet.NewTCPConn(&wq, ep)
+
+	f.logger.Trace("forwarder: established TCP connection to %v", id)
 
 	go f.proxyTCP(inConn, outConn)
 }
