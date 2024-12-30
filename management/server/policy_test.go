@@ -159,6 +159,8 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		assert.Contains(t, peers, account.Peers["peerD"])
 		assert.Contains(t, peers, account.Peers["peerE"])
 		assert.Contains(t, peers, account.Peers["peerF"])
+		assert.Contains(t, peers, account.Peers["peerG"])
+		assert.Contains(t, peers, account.Peers["peerH"])
 
 		epectedFirewallRules := []*types.FirewallRule{
 			{
@@ -176,6 +178,20 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Port:      "",
 			},
 			{
+				PeerIP:    "0.0.0.0",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "0.0.0.0",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
 				PeerIP:    "100.65.14.88",
 				Direction: types.FirewallRuleDirectionIN,
 				Action:    "accept",
@@ -189,20 +205,20 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Protocol:  "all",
 				Port:      "",
 			},
-			{
-				PeerIP:    "100.65.254.139",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.254.139",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
+			//{
+			//	PeerIP:    "100.65.254.139",
+			//	Direction: types.FirewallRuleDirectionOUT,
+			//	Action:    "accept",
+			//	Protocol:  "all",
+			//	Port:      "",
+			//},
+			//{
+			//	PeerIP:    "100.65.254.139",
+			//	Direction: types.FirewallRuleDirectionIN,
+			//	Action:    "accept",
+			//	Protocol:  "all",
+			//	Port:      "",
+			//},
 
 			{
 				PeerIP:    "100.65.62.5",
@@ -234,20 +250,20 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Port:      "",
 			},
 
-			{
-				PeerIP:    "100.65.250.202",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.250.202",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
+			//{
+			//	PeerIP:    "100.65.250.202",
+			//	Direction: types.FirewallRuleDirectionOUT,
+			//	Action:    "accept",
+			//	Protocol:  "all",
+			//	Port:      "",
+			//},
+			//{
+			//	PeerIP:    "100.65.250.202",
+			//	Direction: types.FirewallRuleDirectionIN,
+			//	Action:    "accept",
+			//	Protocol:  "all",
+			//	Port:      "",
+			//},
 
 			{
 				PeerIP:    "100.65.13.186",
