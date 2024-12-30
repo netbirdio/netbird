@@ -1046,37 +1046,32 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
 func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
-	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
-	for _, g := range groups {
-		group, ok := a.Groups[g]
-		if !ok {
+	uniquePeerIDs := a.getUniquePeerIDsFromGroupsIDs(ctx, groups)
+	filteredPeers := make([]*nbpeer.Peer, 0, len(uniquePeerIDs))
+	for _, p := range uniquePeerIDs {
+		peer, ok := a.Peers[p]
+		if !ok || peer == nil {
 			continue
 		}
 
-		for _, p := range group.Peers {
-			peer, ok := a.Peers[p]
-			if !ok || peer == nil {
-				continue
-			}
-
-			// validate the peer based on policy posture checks applied
-			isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
-			if !isValid {
-				continue
-			}
-
-			if _, ok := validatedPeersMap[peer.ID]; !ok {
-				continue
-			}
-
-			if peer.ID == peerID {
-				peerInGroups = true
-				continue
-			}
-
-			filteredPeers = append(filteredPeers, peer)
+		// validate the peer based on policy posture checks applied
+		isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
+		if !isValid {
+			continue
 		}
+
+		if _, ok := validatedPeersMap[peer.ID]; !ok {
+			continue
+		}
+
+		if peer.ID == peerID {
+			peerInGroups = true
+			continue
+		}
+
+		filteredPeers = append(filteredPeers, peer)
 	}
+
 	return filteredPeers, peerInGroups
 }
 
@@ -1360,7 +1355,8 @@ func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []s
 }
 
 func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) []string {
-	ids := make([]string, 0)
+	gObjs := make([]*Group, 0, len(groups))
+	tp := 0
 	for _, groupID := range groups {
 		group := a.GetGroup(groupID)
 		if group == nil {
@@ -1368,12 +1364,19 @@ func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []st
 			continue
 		}
 
-		if group.IsGroupAll() {
+		if group.IsGroupAll() || len(groups) == 1 {
 			return group.Peers
 		}
 
+		gObjs = append(gObjs, group)
+		tp += len(group.Peers)
+	}
+
+	ids := make([]string, 0, tp)
+	for _, group := range gObjs {
 		ids = append(ids, group.Peers...)
 	}
+
 	radix.Sort(ids)
 	return slices.Compact(ids)
 }

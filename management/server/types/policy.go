@@ -123,6 +123,9 @@ func (p *Policy) RuleGroups() []string {
 
 // SourceGroups returns a slice of all unique source groups referenced in the policy's rules.
 func (p *Policy) SourceGroups() []string {
+	if len(p.Rules) == 1 {
+		return p.Rules[0].Sources
+	}
 	groups := make([]string, 0)
 	for _, rule := range p.Rules {
 		groups = append(groups, rule.Sources...)
