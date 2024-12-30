@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"reflect"
 	"testing"
@@ -328,7 +329,7 @@ func TestUser_Copy(t *testing.T) {
 			},
 		},
 		Blocked:   false,
-		LastLogin: time.Now().UTC(),
+		LastLogin: sql.NullTime{Time: time.Now().UTC(), Valid: true},
 		CreatedAt: time.Now().UTC(),
 		Issued:    "test",
 		IntegrationReference: integration_reference.IntegrationReference{

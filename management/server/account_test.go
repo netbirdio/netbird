@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -1096,7 +1097,7 @@ func genUsers(p string, n int) map[string]*types.User {
 		users[fmt.Sprintf("%s-%d", p, i)] = &types.User{
 			Id:         fmt.Sprintf("%s-%d", p, i),
 			Role:       types.UserRoleAdmin,
-			LastLogin:  now,
+			LastLogin:  sql.NullTime{Time: now, Valid: !now.IsZero()},
 			CreatedAt:  now,
 			Issued:     "api",
 			AutoGroups: []string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"},
