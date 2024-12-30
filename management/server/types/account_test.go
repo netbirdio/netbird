@@ -415,7 +415,7 @@ func getBasicAccountsWithResource() *Account {
 			accNetResourcePeer2ID: {
 				ID:        accNetResourcePeer2ID,
 				AccountID: "accountID",
-				Key:       "peer1Key",
+				Key:       "peer2Key",
 				IP:        accNetResourcePeer2IP,
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "windows",
@@ -689,10 +689,10 @@ func Test_NetworksNetMapGenWithTwoPoliciesAndPostureChecks(t *testing.T) {
 	assert.Equal(t, uint16(22), rules[1].Port, "should have port 22")
 	assert.Equal(t, "tcp", rules[1].Protocol, "should have protocol tcp")
 	if !slices.Contains(rules[1].SourceRanges, accNetResourcePeer1IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer1 %s", rules[0].SourceRanges, accNetResourcePeer1IP.String())
+		t.Errorf("%s should have source range of peer1 %s", rules[1].SourceRanges, accNetResourcePeer1IP.String())
 	}
 	if !slices.Contains(rules[1].SourceRanges, accNetResourcePeer2IP.String()+"/32") {
-		t.Errorf("%s should have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
+		t.Errorf("%s should have source range of peer2 %s", rules[1].SourceRanges, accNetResourcePeer2IP.String())
 	}
 }
 
