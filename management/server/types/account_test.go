@@ -542,23 +542,28 @@ func Test_NetworksNetMapGenWithNoPostureChecks(t *testing.T) {
 
 	// all peers should match the policy
 
+	// validate for peer1
 	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate for peer2
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate routes for router1
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
+	assert.Equal(t, accNetResourcePeer1ID, sourcePeers[0], "expected source peers don't match")
+	assert.Equal(t, accNetResourcePeer2ID, sourcePeers[1], "expected source peers don't match")
+
+	// validate rules for router1
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.Len(t, rules, 1, "expected rules count don't match")
 	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
 	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
@@ -577,23 +582,27 @@ func Test_NetworksNetMapGenWithPostureChecks(t *testing.T) {
 	policy := account.Policies[0]
 	policy.SourcePostureChecks = []string{accNetResourceRestrictPostureCheckID}
 
+	// validate for peer1
 	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate for peer2
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate routes for router1
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 1, "expected source peers don't match")
+	assert.Equal(t, accNetResourcePeer1ID, sourcePeers[0], "expected source peers don't match")
+
+	// validate rules for router1
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.Len(t, rules, 1, "expected rules count don't match")
 	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
 	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
@@ -612,23 +621,26 @@ func Test_NetworksNetMapGenWithNoMatchedPostureChecks(t *testing.T) {
 	policy := account.Policies[0]
 	policy.SourcePostureChecks = []string{accNetResourceLockedPostureCheckID}
 
+	// validate for peer1
 	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate for peer2
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate routes for router1
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
+
+	// validate rules for router1
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.Len(t, rules, 0, "expected rules count don't match")
 }
 
@@ -663,23 +675,28 @@ func Test_NetworksNetMapGenWithTwoPoliciesAndPostureChecks(t *testing.T) {
 
 	account.Policies = append(account.Policies, newPolicy)
 
+	// validate for peer1
 	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate for peer2
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate routes for router1
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
+	assert.Equal(t, accNetResourcePeer1ID, sourcePeers[0], "expected source peers don't match")
+	assert.Equal(t, accNetResourcePeer2ID, sourcePeers[1], "expected source peers don't match")
+
+	// validate rules for router1
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.Len(t, rules, 2, "expected rules count don't match")
 	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
 	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
@@ -707,23 +724,27 @@ func Test_NetworksNetMapGenWithTwoPostureChecks(t *testing.T) {
 	policy := account.Policies[0]
 	policy.SourcePostureChecks = []string{accNetResourceRelaxedPostureCheckID, accNetResourceLinuxPostureCheckID}
 
+	// validate for peer1
 	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate for peer2
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourcePeer2ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-
 	assert.False(t, isRouter, "expected router status")
 	assert.Len(t, networkResourcesRoutes, 0, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 0, "expected source peers don't match")
 
+	// validate routes for router1
 	isRouter, networkResourcesRoutes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
-	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 1, "expected source peers don't match")
+	assert.Equal(t, accNetResourcePeer1ID, sourcePeers[0], "expected source peers don't match")
+
+	// validate rules for router1
+	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
 	assert.Len(t, rules, 1, "expected rules count don't match")
 	assert.Equal(t, uint16(80), rules[0].Port, "should have port 80")
 	assert.Equal(t, "tcp", rules[0].Protocol, "should have protocol tcp")
