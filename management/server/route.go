@@ -364,7 +364,7 @@ func toProtocolRoute(route *route.Route) *proto.Route {
 }
 
 func toProtocolRoutes(routes []*route.Route) []*proto.Route {
-	protoRoutes := make([]*proto.Route, 0)
+	protoRoutes := make([]*proto.Route, 0, len(routes))
 	for _, r := range routes {
 		protoRoutes = append(protoRoutes, toProtocolRoute(r))
 	}
