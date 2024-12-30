@@ -74,6 +74,19 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 					"peerH",
 				},
 			},
+			"GroupWorkstations": {
+				ID:   "GroupWorkstations",
+				Name: "All",
+				Peers: []string{
+					"peerB",
+					"peerA",
+					"peerD",
+					"peerE",
+					"peerF",
+					"peerG",
+					"peerH",
+				},
+			},
 			"GroupSwarm": {
 				ID:   "GroupSwarm",
 				Name: "swarm",
@@ -127,7 +140,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 						Action:        types.PolicyTrafficActionAccept,
 						Sources: []string{
 							"GroupSwarm",
-							"GroupAll",
+							"GroupWorkstations",
 						},
 						Destinations: []string{
 							"GroupSwarm",
@@ -178,20 +191,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Port:      "",
 			},
 			{
-				PeerIP:    "0.0.0.0",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "0.0.0.0",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
 				PeerIP:    "100.65.14.88",
 				Direction: types.FirewallRuleDirectionIN,
 				Action:    "accept",
@@ -205,21 +204,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Protocol:  "all",
 				Port:      "",
 			},
-			//{
-			//	PeerIP:    "100.65.254.139",
-			//	Direction: types.FirewallRuleDirectionOUT,
-			//	Action:    "accept",
-			//	Protocol:  "all",
-			//	Port:      "",
-			//},
-			//{
-			//	PeerIP:    "100.65.254.139",
-			//	Direction: types.FirewallRuleDirectionIN,
-			//	Action:    "accept",
-			//	Protocol:  "all",
-			//	Port:      "",
-			//},
-
 			{
 				PeerIP:    "100.65.62.5",
 				Direction: types.FirewallRuleDirectionOUT,
@@ -250,20 +234,20 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Port:      "",
 			},
 
-			//{
-			//	PeerIP:    "100.65.250.202",
-			//	Direction: types.FirewallRuleDirectionOUT,
-			//	Action:    "accept",
-			//	Protocol:  "all",
-			//	Port:      "",
-			//},
-			//{
-			//	PeerIP:    "100.65.250.202",
-			//	Direction: types.FirewallRuleDirectionIN,
-			//	Action:    "accept",
-			//	Protocol:  "all",
-			//	Port:      "",
-			//},
+			{
+				PeerIP:    "100.65.250.202",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "100.65.250.202",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
 
 			{
 				PeerIP:    "100.65.13.186",
