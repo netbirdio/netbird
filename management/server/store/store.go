@@ -171,6 +171,8 @@ const (
 	FileStoreEngine     Engine = "jsonfile"
 	SqliteStoreEngine   Engine = "sqlite"
 	PostgresStoreEngine Engine = "postgres"
+	// InMemoryStoreEngine is used for testing purposes only.
+	InMemoryStoreEngine Engine = "memory"
 
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 )
@@ -183,7 +185,7 @@ func getStoreEngineFromEnv() Engine {
 	}
 
 	value := Engine(strings.ToLower(kind))
-	if value == SqliteStoreEngine || value == PostgresStoreEngine {
+	if value == SqliteStoreEngine || value == PostgresStoreEngine || value == InMemoryStoreEngine {
 		return value
 	}
 
@@ -301,6 +303,9 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 
 	file := filepath.Join(dataDir, storeStr)
+	if kind == InMemoryStoreEngine {
+		file = ":memory:"
+	}
 	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
 	if err != nil {
 		return nil, nil, err
