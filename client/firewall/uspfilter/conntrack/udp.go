@@ -4,6 +4,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 const (
@@ -20,6 +22,7 @@ type UDPConnTrack struct {
 
 // UDPTracker manages UDP connection states
 type UDPTracker struct {
+	logger        *nblog.Logger
 	connections   map[ConnKey]*UDPConnTrack
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
@@ -29,12 +32,13 @@ type UDPTracker struct {
 }
 
 // NewUDPTracker creates a new UDP connection tracker
-func NewUDPTracker(timeout time.Duration) *UDPTracker {
+func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
 	if timeout == 0 {
 		timeout = DefaultUDPTimeout
 	}
 
 	tracker := &UDPTracker{
+		logger:        logger,
 		connections:   make(map[ConnKey]*UDPConnTrack),
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
@@ -70,6 +74,8 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 		conn.lastSeen.Store(now)
 		conn.established.Store(true)
 		t.connections[key] = conn
+
+		t.logger.Trace("New UDP connection: %s", conn)
 	}
 	t.mutex.Unlock()
 
@@ -120,6 +126,8 @@ func (t *UDPTracker) cleanup() {
 			t.ipPool.Put(conn.SourceIP)
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
+
+			t.logger.Trace("UDP connection timed out: %s", conn)
 		}
 	}
 }

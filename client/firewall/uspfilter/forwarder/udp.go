@@ -8,11 +8,12 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 	"gvisor.dev/gvisor/pkg/waiter"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 const (
@@ -29,15 +30,17 @@ type udpPacketConn struct {
 
 type udpForwarder struct {
 	sync.RWMutex
+	logger  *nblog.Logger
 	conns   map[stack.TransportEndpointID]*udpPacketConn
 	bufPool sync.Pool
 	ctx     context.Context
 	cancel  context.CancelFunc
 }
 
-func newUDPForwarder() *udpForwarder {
+func newUDPForwarder(logger *nblog.Logger) *udpForwarder {
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &udpForwarder{
+		logger: logger,
 		conns:  make(map[stack.TransportEndpointID]*udpPacketConn),
 		ctx:    ctx,
 		cancel: cancel,
@@ -62,10 +65,10 @@ func (f *udpForwarder) Stop() {
 	for id, conn := range f.conns {
 		conn.cancel()
 		if err := conn.conn.Close(); err != nil {
-			log.Errorf("forwarder: UDP conn close error for %v: %v", id, err)
+			f.logger.Error("forwarder: UDP conn close error for %v: %v", id, err)
 		}
 		if err := conn.outConn.Close(); err != nil {
-			log.Errorf("forwarder: UDP outConn close error for %v: %v", id, err)
+			f.logger.Error("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
 		delete(f.conns, id)
 	}
@@ -87,13 +90,13 @@ func (f *udpForwarder) cleanup() {
 				if now.Sub(conn.lastTime) > udpTimeout {
 					conn.cancel()
 					if err := conn.conn.Close(); err != nil {
-						log.Errorf("forwarder: UDP conn close error for %v: %v", id, err)
+						f.logger.Error("forwarder: UDP conn close error for %v: %v", id, err)
 					}
 					if err := conn.outConn.Close(); err != nil {
-						log.Errorf("forwarder: UDP outConn close error for %v: %v", id, err)
+						f.logger.Error("forwarder: UDP outConn close error for %v: %v", id, err)
 					}
 					delete(f.conns, id)
-					log.Debugf("forwarder: cleaned up idle UDP connection %v", id)
+					f.logger.Trace("forwarder: cleaned up idle UDP connection %v", id)
 				}
 			}
 			f.Unlock()
@@ -107,7 +110,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	dstAddr := fmt.Sprintf("%s:%d", id.LocalAddress.String(), id.LocalPort)
 
 	if f.ctx.Err() != nil {
-		log.Debug("forwarder: context done, dropping UDP packet")
+		f.logger.Trace("forwarder: context done, dropping UDP packet")
 		return
 	}
 
@@ -116,7 +119,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 
 	ep, err := r.CreateEndpoint(&wq)
 	if err != nil {
-		log.Errorf("forwarder: failed to create UDP endpoint: %v", err)
+		f.logger.Error("forwarder: failed to create UDP endpoint: %v", err)
 		return
 	}
 
@@ -131,11 +134,15 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		outConn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", dstAddr)
 		if err != nil {
 			if err := inConn.Close(); err != nil {
-				log.Errorf("forwarder: UDP inConn close error for %v: %v", id, err)
+				f.logger.Error("forwarder: UDP inConn close error for %v: %v", id, err)
 			}
-			log.Errorf("forwarder: UDP dial error for %v: %v", id, err)
+			f.logger.Debug("forwarder: UDP dial error for %v: %v", id, err)
+
+			// TODO: Send ICMP error message
 			return
 		}
+
+		f.logger.Trace("forwarder: established UDP connection to %v", id)
 
 		connCtx, connCancel := context.WithCancel(f.ctx)
 		pConn = &udpPacketConn{
@@ -154,10 +161,10 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	defer func() {
 		pConn.cancel()
 		if err := pConn.conn.Close(); err != nil {
-			log.Errorf("forwarder: UDP inConn close error for %v: %v", id, err)
+			f.logger.Error("forwarder: UDP inConn close error for %v: %v", id, err)
 		}
 		if err := pConn.outConn.Close(); err != nil {
-			log.Errorf("forwarder: UDP outConn close error for %v: %v", id, err)
+			f.logger.Error("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
 
 		f.udpForwarder.Lock()
@@ -180,7 +187,7 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		return
 	case err := <-errChan:
 		if err != nil && !isClosedError(err) {
-			log.Errorf("forwader: UDP proxy error for %v: %v", id, err)
+			f.logger.Error("proxyUDP: copy error: %v", err)
 		}
 		return
 	}

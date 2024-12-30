@@ -1,15 +1,17 @@
 package forwarder
 
 import (
-	log "github.com/sirupsen/logrus"
 	wgdevice "golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 // endpoint implements stack.LinkEndpoint and handles integration with the wireguard device
 type endpoint struct {
+	logger     *nblog.Logger
 	dispatcher stack.NetworkDispatcher
 	device     *wgdevice.Device
 	mtu        uint32
@@ -55,7 +57,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		// TODO: handle dest ip addresses outside our network
 		err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice())
 		if err != nil {
-			log.Errorf("CreateOutboundPacket: %v", err)
+			e.logger.Error("CreateOutboundPacket: %v", err)
 			continue
 		}
 		written++

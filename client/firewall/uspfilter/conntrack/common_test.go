@@ -64,7 +64,7 @@ func BenchmarkAtomicOperations(b *testing.B) {
 // Memory pressure tests
 func BenchmarkMemoryPressure(b *testing.B) {
 	b.Run("TCPHighLoad", func(b *testing.B) {
-		tracker := NewTCPTracker(DefaultTCPTimeout)
+		tracker := NewTCPTracker(DefaultTCPTimeout, nil)
 		defer tracker.Close()
 
 		// Generate different IPs
@@ -89,7 +89,7 @@ func BenchmarkMemoryPressure(b *testing.B) {
 	})
 
 	b.Run("UDPHighLoad", func(b *testing.B) {
-		tracker := NewUDPTracker(DefaultUDPTimeout)
+		tracker := NewUDPTracker(DefaultUDPTimeout, nil)
 		defer tracker.Close()
 
 		// Generate different IPs

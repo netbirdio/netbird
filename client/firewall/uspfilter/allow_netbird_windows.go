@@ -1,9 +1,11 @@
 package uspfilter
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -29,21 +31,29 @@ func (m *Manager) Reset(*statemanager.Manager) error {
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger)
 	}
 
 	if m.icmpTracker != nil {
 		m.icmpTracker.Close()
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger)
 	}
 
 	if m.tcpTracker != nil {
 		m.tcpTracker.Close()
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger)
 	}
 
 	if m.forwarder != nil {
 		m.forwarder.Stop()
+	}
+
+	if m.logger != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := m.logger.Stop(ctx); err != nil {
+			log.Errorf("failed to shutdown logger: %v", err)
+		}
 	}
 
 	if !isWindowsFirewallReachable() {

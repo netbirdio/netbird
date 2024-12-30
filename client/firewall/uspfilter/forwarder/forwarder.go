@@ -14,6 +14,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 )
 
 type Forwarder struct {
+	logger       *nblog.Logger
 	stack        *stack.Stack
 	endpoint     *endpoint
 	udpForwarder *udpForwarder
@@ -29,8 +31,7 @@ type Forwarder struct {
 	cancel       context.CancelFunc
 }
 
-func New(iface common.IFaceMapper) (*Forwarder, error) {
-
+func New(iface common.IFaceMapper, logger *nblog.Logger) (*Forwarder, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{
@@ -46,6 +47,7 @@ func New(iface common.IFaceMapper) (*Forwarder, error) {
 	}
 	nicID := tcpip.NICID(1)
 	endpoint := &endpoint{
+		logger: logger,
 		device: iface.GetWGDevice(),
 		mtu:    uint32(mtu),
 	}
@@ -91,9 +93,10 @@ func New(iface common.IFaceMapper) (*Forwarder, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &Forwarder{
+		logger:       logger,
 		stack:        s,
 		endpoint:     endpoint,
-		udpForwarder: newUDPForwarder(),
+		udpForwarder: newUDPForwarder(logger),
 		ctx:          ctx,
 		cancel:       cancel,
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -52,6 +53,7 @@ type Manager struct {
 	icmpTracker *conntrack.ICMPTracker
 	tcpTracker  *conntrack.TCPTracker
 	forwarder   *forwarder.Forwarder
+	logger      *nblog.Logger
 }
 
 // decoder for packages
@@ -106,15 +108,17 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 		stateful:      !disableConntrack,
 		// TODO: fix
 		routingEnabled: true,
+		// TODO: support chaning log level from logrus
+		logger: nblog.NewFromLogrus(log.StandardLogger()),
 	}
 
 	// Only initialize trackers if stateful mode is enabled
 	if disableConntrack {
 		log.Info("conntrack is disabled")
 	} else {
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout)
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout)
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger)
 	}
 
 	intf := iface.GetWGDevice()
@@ -125,7 +129,7 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 		m.routingEnabled = false
 	} else {
 		var err error
-		m.forwarder, err = forwarder.New(iface)
+		m.forwarder, err = forwarder.New(iface, m.logger)
 		if err != nil {
 			log.Errorf("failed to create forwarder: %v", err)
 			m.routingEnabled = false
@@ -455,17 +459,16 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	defer m.decoders.Put(d)
 
 	if !m.isValidPacket(d, packetData) {
-		log.Debugf("invalid packet: %v", d.decoded)
+		m.logger.Trace("Invalid packet structure")
 		return true
 	}
 
 	srcIP, dstIP := m.extractIPs(d)
 	if srcIP == nil {
-		log.Errorf("unknown layer: %v", d.decoded[0])
+		m.logger.Error("Unknown network layer: %v", d.decoded[0])
 		return true
 	}
 
-	// Check if this is local or routed traffic
 	isLocal := m.isLocalIP(dstIP)
 
 	// For all inbound traffic, first check if it matches a tracked connection.
@@ -476,7 +479,12 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 
 	// Handle local traffic - apply peer ACLs
 	if isLocal {
-		return m.applyRules(srcIP, packetData, rules, d)
+		drop := m.applyRules(srcIP, packetData, rules, d)
+		if drop {
+			m.logger.Trace("Dropping local packet: src=%s dst=%s rules=denied",
+				srcIP, dstIP)
+		}
+		return drop
 	}
 
 	// Handle routed traffic
@@ -484,6 +492,8 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	// We might need to apply NAT
 	// Don't handle routing if not enabled
 	if !m.routingEnabled {
+		m.logger.Trace("Dropping routed packet (routing disabled): src=%s dst=%s",
+			srcIP, dstIP)
 		return true
 	}
 
@@ -493,13 +503,15 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 
 	// Check route ACLs
 	if !m.checkRouteACLs(srcIP, dstIP, proto, srcPort, dstPort) {
+		m.logger.Trace("Dropping routed packet (ACL denied): src=%s:%d dst=%s:%d proto=%v",
+			srcIP, srcPort, dstIP, dstPort, proto)
 		return true
 	}
 
 	// Let forwarder handle the packet if it passed route ACLs
 	err := m.forwarder.InjectIncomingPacket(packetData)
 	if err != nil {
-		log.Errorf("Failed to inject incoming packet: %v", err)
+		m.logger.Error("Failed to inject incoming packet: %v", err)
 	}
 
 	// Default: drop

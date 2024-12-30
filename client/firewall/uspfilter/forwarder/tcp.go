@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 
-	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/waiter"
@@ -23,8 +22,11 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {
 		r.Complete(true)
+		f.logger.Trace("forwarder: dial error for %v: %v", id, err)
 		return
 	}
+
+	f.logger.Trace("forwarder: established TCP connection to %v", id)
 
 	// Create wait queue for blocking syscalls
 	wq := waiter.Queue{}
@@ -32,7 +34,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	ep, err2 := r.CreateEndpoint(&wq)
 	if err2 != nil {
 		if err := outConn.Close(); err != nil {
-			log.Errorf("forwarder: outConn close error: %v", err)
+			f.logger.Error("forwarder: outConn close error: %v", err)
 		}
 		r.Complete(true)
 		return
@@ -49,10 +51,10 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 func (f *Forwarder) proxyTCP(inConn *gonet.TCPConn, outConn net.Conn) {
 	defer func() {
 		if err := inConn.Close(); err != nil {
-			log.Errorf("forwarder: inConn close error: %v", err)
+			f.logger.Error("forwarder: inConn close error: %v", err)
 		}
 		if err := outConn.Close(); err != nil {
-			log.Errorf("forwarder: outConn close error: %v", err)
+			f.logger.Error("forwarder: outConn close error: %v", err)
 		}
 	}()
 
@@ -65,7 +67,7 @@ func (f *Forwarder) proxyTCP(inConn *gonet.TCPConn, outConn net.Conn) {
 	go func() {
 		n, err := io.Copy(outConn, inConn)
 		if err != nil && !isClosedError(err) {
-			log.Errorf("proxyTCP: inbound->outbound copy error after %d bytes: %v", n, err)
+			f.logger.Error("inbound->outbound copy error after %d bytes: %v", n, err)
 		}
 		errChan <- err
 	}()
@@ -73,7 +75,7 @@ func (f *Forwarder) proxyTCP(inConn *gonet.TCPConn, outConn net.Conn) {
 	go func() {
 		n, err := io.Copy(inConn, outConn)
 		if err != nil && !isClosedError(err) {
-			log.Errorf("proxyTCP: outbound->inbound copy error after %d bytes: %v", n, err)
+			f.logger.Error("outbound->inbound copy error after %d bytes: %v", n, err)
 		}
 		errChan <- err
 	}()
@@ -83,7 +85,7 @@ func (f *Forwarder) proxyTCP(inConn *gonet.TCPConn, outConn net.Conn) {
 		return
 	case err := <-errChan:
 		if err != nil && !isClosedError(err) {
-			log.Errorf("proxyTCP: copy error: %v", err)
+			f.logger.Error("proxyTCP: copy error: %v", err)
 		}
 		return
 	}

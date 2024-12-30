@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/gopacket/layers"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 const (
@@ -33,6 +35,7 @@ type ICMPConnTrack struct {
 
 // ICMPTracker manages ICMP connection states
 type ICMPTracker struct {
+	logger        *nblog.Logger
 	connections   map[ICMPConnKey]*ICMPConnTrack
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
@@ -42,12 +45,13 @@ type ICMPTracker struct {
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
-func NewICMPTracker(timeout time.Duration) *ICMPTracker {
+func NewICMPTracker(timeout time.Duration, logger *nblog.Logger) *ICMPTracker {
 	if timeout == 0 {
 		timeout = DefaultICMPTimeout
 	}
 
 	tracker := &ICMPTracker{
+		logger:        logger,
 		connections:   make(map[ICMPConnKey]*ICMPConnTrack),
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(ICMPCleanupInterval),
@@ -83,6 +87,8 @@ func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq u
 		conn.lastSeen.Store(now)
 		conn.established.Store(true)
 		t.connections[key] = conn
+
+		t.logger.Trace("New ICMP connection %v", key)
 	}
 	t.mutex.Unlock()
 
@@ -141,6 +147,8 @@ func (t *ICMPTracker) cleanup() {
 			t.ipPool.Put(conn.SourceIP)
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
+
+			t.logger.Debug("ICMPTracker: removed connection %v", key)
 		}
 	}
 }

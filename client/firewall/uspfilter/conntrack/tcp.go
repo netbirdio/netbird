@@ -6,6 +6,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 const (
@@ -67,6 +69,7 @@ type TCPConnTrack struct {
 
 // TCPTracker manages TCP connection states
 type TCPTracker struct {
+	logger        *nblog.Logger
 	connections   map[ConnKey]*TCPConnTrack
 	mutex         sync.RWMutex
 	cleanupTicker *time.Ticker
@@ -76,8 +79,9 @@ type TCPTracker struct {
 }
 
 // NewTCPTracker creates a new TCP connection tracker
-func NewTCPTracker(timeout time.Duration) *TCPTracker {
+func NewTCPTracker(timeout time.Duration, logger *nblog.Logger) *TCPTracker {
 	tracker := &TCPTracker{
+		logger:        logger,
 		connections:   make(map[ConnKey]*TCPConnTrack),
 		cleanupTicker: time.NewTicker(TCPCleanupInterval),
 		done:          make(chan struct{}),
@@ -116,6 +120,8 @@ func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 		conn.lastSeen.Store(now)
 		conn.established.Store(false)
 		t.connections[key] = conn
+
+		t.logger.Trace("New TCP connection: %s:%d -> %s:%d", srcIP, srcPort, dstIP, dstPort)
 	}
 	t.mutex.Unlock()
 
@@ -318,6 +324,8 @@ func (t *TCPTracker) cleanup() {
 			t.ipPool.Put(conn.SourceIP)
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
+
+			t.logger.Trace("Closed TCP connection: %s:%d -> %s:%d", conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
 		}
 	}
 }

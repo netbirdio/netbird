@@ -400,7 +400,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 		Mask: net.CIDRMask(16, 32),
 	}
 	manager.udpTracker.Close()
-	manager.udpTracker = conntrack.NewUDPTracker(100 * time.Millisecond)
+	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, nil)
 	defer func() {
 		require.NoError(t, manager.Reset(nil))
 	}()
@@ -518,7 +518,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}
 
 	manager.udpTracker.Close() // Close the existing tracker
-	manager.udpTracker = conntrack.NewUDPTracker(200 * time.Millisecond)
+	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, nil)
 	manager.decoders = sync.Pool{
 		New: func() any {
 			d := &decoder{
