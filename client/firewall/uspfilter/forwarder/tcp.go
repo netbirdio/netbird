@@ -1,10 +1,10 @@
 package forwarder
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
-	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -20,9 +20,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	dstPort := id.LocalPort
 	dialAddr := fmt.Sprintf("%s:%d", dstAddr.String(), dstPort)
 
-	// Dial the destination first
-	dialer := net.Dialer{}
-	outConn, err := dialer.Dial("tcp", dialAddr)
+	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {
 		r.Complete(true)
 		return
@@ -40,8 +38,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 		return
 	}
 
-	// Now that we've successfully connected to the destination,
-	// we can complete the incoming connection
+	// Complete the handshake
 	r.Complete(false)
 
 	inConn := gonet.NewTCPConn(&wq, ep)
@@ -59,24 +56,35 @@ func (f *Forwarder) proxyTCP(inConn *gonet.TCPConn, outConn net.Conn) {
 		}
 	}()
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	// Create context for managing the proxy goroutines
+	ctx, cancel := context.WithCancel(f.ctx)
+	defer cancel()
+
+	errChan := make(chan error, 2)
 
 	go func() {
-		defer wg.Done()
-		_, err := io.Copy(outConn, inConn)
-		if err != nil {
-			log.Errorf("proxyTCP: copy error: %v", err)
+		n, err := io.Copy(outConn, inConn)
+		if err != nil && !isClosedError(err) {
+			log.Errorf("proxyTCP: inbound->outbound copy error after %d bytes: %v", n, err)
 		}
+		errChan <- err
 	}()
 
 	go func() {
-		defer wg.Done()
-		_, err := io.Copy(inConn, outConn)
-		if err != nil {
-			log.Errorf("proxyTCP: copy error: %v", err)
+		n, err := io.Copy(inConn, outConn)
+		if err != nil && !isClosedError(err) {
+			log.Errorf("proxyTCP: outbound->inbound copy error after %d bytes: %v", n, err)
 		}
+		errChan <- err
 	}()
 
-	wg.Wait()
+	select {
+	case <-ctx.Done():
+		return
+	case err := <-errChan:
+		if err != nil && !isClosedError(err) {
+			log.Errorf("proxyTCP: copy error: %v", err)
+		}
+		return
+	}
 }

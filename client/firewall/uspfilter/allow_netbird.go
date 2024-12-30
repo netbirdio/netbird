@@ -30,6 +30,10 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
 	}
 
+	if m.forwarder != nil {
+		m.forwarder.Stop()
+	}
+
 	if m.nativeFirewall != nil {
 		return m.nativeFirewall.Reset(stateManager)
 	}

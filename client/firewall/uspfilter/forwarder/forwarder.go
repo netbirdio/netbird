@@ -1,6 +1,7 @@
 package forwarder
 
 import (
+	"context"
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
@@ -24,9 +25,12 @@ type Forwarder struct {
 	stack        *stack.Stack
 	endpoint     *endpoint
 	udpForwarder *udpForwarder
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 func New(iface common.IFaceMapper) (*Forwarder, error) {
+
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{
@@ -85,10 +89,13 @@ func New(iface common.IFaceMapper) (*Forwarder, error) {
 		},
 	})
 
+	ctx, cancel := context.WithCancel(context.Background())
 	f := &Forwarder{
 		stack:        s,
 		endpoint:     endpoint,
 		udpForwarder: newUDPForwarder(),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 
 	// Set up TCP forwarder
@@ -116,5 +123,19 @@ func (f *Forwarder) InjectIncomingPacket(payload []byte) error {
 	if f.endpoint.dispatcher != nil {
 		f.endpoint.dispatcher.DeliverNetworkPacket(ipv4.ProtocolNumber, pkt)
 	}
+	return nil
+}
+
+// Stop gracefully shuts down the forwarder
+func (f *Forwarder) Stop() error {
+	f.cancel()
+
+	if f.udpForwarder != nil {
+		f.udpForwarder.Stop()
+	}
+
+	f.stack.Close()
+	f.stack.Wait()
+
 	return nil
 }

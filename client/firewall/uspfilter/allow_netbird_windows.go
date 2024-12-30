@@ -42,6 +42,10 @@ func (m *Manager) Reset(*statemanager.Manager) error {
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout)
 	}
 
+	if m.forwarder != nil {
+		m.forwarder.Stop()
+	}
+
 	if !isWindowsFirewallReachable() {
 		return nil
 	}
