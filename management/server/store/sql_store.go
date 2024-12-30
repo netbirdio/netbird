@@ -86,12 +86,6 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 
 	sql.SetMaxOpenConns(conns)
 
-	if storeEngine == MysqlStoreEngine {
-		sql.SetConnMaxLifetime(time.Minute * 2)
-		sql.SetConnMaxIdleTime(time.Minute * 2)
-		sql.SetMaxIdleConns(conns)
-	}
-
 	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
 	if err := migrate(ctx, db); err != nil {
@@ -974,10 +968,9 @@ func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics
 
 func getGormConfig() *gorm.Config {
 	return &gorm.Config{
-		Logger:                 logger.Default.LogMode(logger.Silent),
-		CreateBatchSize:        400,
-		PrepareStmt:            true,
-		SkipDefaultTransaction: true,
+		Logger:          logger.Default.LogMode(logger.Silent),
+		CreateBatchSize: 400,
+		PrepareStmt:     true,
 	}
 }
 
