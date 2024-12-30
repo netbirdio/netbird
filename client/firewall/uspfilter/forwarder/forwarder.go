@@ -10,6 +10,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 
@@ -37,6 +38,7 @@ func New(iface common.IFaceMapper, logger *nblog.Logger) (*Forwarder, error) {
 		TransportProtocols: []stack.TransportProtocolFactory{
 			tcp.NewProtocol,
 			udp.NewProtocol,
+			icmp.NewProtocol4,
 		},
 		HandleLocal: false,
 	})
@@ -101,13 +103,13 @@ func New(iface common.IFaceMapper, logger *nblog.Logger) (*Forwarder, error) {
 		cancel:       cancel,
 	}
 
-	// Set up TCP forwarder
 	tcpForwarder := tcp.NewForwarder(s, receiveWindow, maxInFlight, f.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)
 
-	// Set up UDP forwarder
 	udpForwarder := udp.NewForwarder(s, f.handleUDP)
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
+
+	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, f.handleICMP)
 
 	log.Debugf("forwarder: Initialization complete with NIC %d", nicID)
 	return f, nil
