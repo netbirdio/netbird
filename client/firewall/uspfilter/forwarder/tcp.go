@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/waiter"
 )
@@ -45,10 +46,10 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 
 	f.logger.Trace("forwarder: established TCP connection to %v", id)
 
-	go f.proxyTCP(inConn, outConn)
+	go f.proxyTCP(id, inConn, outConn)
 }
 
-func (f *Forwarder) proxyTCP(inConn *gonet.TCPConn, outConn net.Conn) {
+func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn, outConn net.Conn) {
 	defer func() {
 		if err := inConn.Close(); err != nil {
 			f.logger.Error("forwarder: inConn close error: %v", err)
@@ -82,11 +83,13 @@ func (f *Forwarder) proxyTCP(inConn *gonet.TCPConn, outConn net.Conn) {
 
 	select {
 	case <-ctx.Done():
+		f.logger.Trace("forwarder: tearing down TCP connection %v due to context done", id)
 		return
 	case err := <-errChan:
 		if err != nil && !isClosedError(err) {
 			f.logger.Error("proxyTCP: copy error: %v", err)
 		}
+		f.logger.Trace("forwarder: tearing down TCP connection %v", id)
 		return
 	}
 }

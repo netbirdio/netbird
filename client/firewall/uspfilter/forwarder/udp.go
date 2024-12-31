@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	udpTimeout    = 60 * time.Second
+	udpTimeout    = 30 * time.Second
 	maxPacketSize = 65535
 )
 
@@ -213,11 +213,13 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 
 	select {
 	case <-ctx.Done():
+		f.logger.Trace("forwarder: tearing down UDP connection %v due to context done", id)
 		return
 	case err := <-errChan:
 		if err != nil && !isClosedError(err) {
 			f.logger.Error("proxyUDP: copy error: %v", err)
 		}
+		f.logger.Trace("forwarder: tearing down UDP connection %v", id)
 		return
 	}
 }
