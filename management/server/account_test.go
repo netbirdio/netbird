@@ -2729,6 +2729,19 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 
 	assert.NoError(t, manager.Store.SaveAccount(context.Background(), account), "unable to save account")
 
+	t.Run("skip sync for token auth type", func(t *testing.T) {
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group3"}, "is_token": true},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 0, "JWT groups should not be synced")
+	})
+
 	t.Run("empty jwt groups", func(t *testing.T) {
 		claims := jwtclaims.AuthorizationClaims{
 			UserId: "user1",
@@ -2822,7 +2835,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.Len(t, user.AutoGroups, 1, "new group should be added")
 	})
 
-	t.Run("remove all JWT groups", func(t *testing.T) {
+	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {
 		claims := jwtclaims.AuthorizationClaims{
 			UserId: "user1",
 			Raw:    jwt.MapClaims{"groups": []interface{}{}},
@@ -2833,7 +2846,20 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "only non-JWT groups should remain")
-		assert.Contains(t, user.AutoGroups, "group1", " group1 should still be present")
+		assert.Contains(t, user.AutoGroups, "group1", "group1 should still be present")
+	})
+
+	t.Run("remove all JWT groups when claim does not exist", func(t *testing.T) {
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user2",
+			Raw:    jwt.MapClaims{},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user2")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 0, "all JWT groups should be removed")
 	})
 }
 

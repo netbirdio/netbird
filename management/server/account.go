@@ -1252,6 +1252,12 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
 // and propagates changes to peers if group propagation is enabled.
 func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID string, claims jwtclaims.AuthorizationClaims) error {
+	if claim, exists := claims.Raw[jwtclaims.IsToken]; exists {
+		if isToken, ok := claim.(bool); ok && isToken {
+			return nil
+		}
+	}
+
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return err
