@@ -13,7 +13,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"github.com/yourbasic/radix"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -1345,8 +1344,7 @@ func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []s
 }
 
 func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) []string {
-	gObjs := make([]*Group, 0, len(groups))
-	tp := 0
+	peerIDs := make(map[string]struct{}, len(groups)) // we expect at least one peer per group as initial capacity
 	for _, groupID := range groups {
 		group := a.GetGroup(groupID)
 		if group == nil {
@@ -1358,17 +1356,17 @@ func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []st
 			return group.Peers
 		}
 
-		gObjs = append(gObjs, group)
-		tp += len(group.Peers)
+		for _, peerID := range group.Peers {
+			peerIDs[peerID] = struct{}{}
+		}
 	}
 
-	ids := make([]string, 0, tp)
-	for _, group := range gObjs {
-		ids = append(ids, group.Peers...)
+	ids := make([]string, 0, len(peerIDs))
+	for peerID := range peerIDs {
+		ids = append(ids, peerID)
 	}
 
-	radix.Sort(ids)
-	return slices.Compact(ids)
+	return ids
 }
 
 // getNetworkResources filters and returns a list of network resources associated with the given network ID.
