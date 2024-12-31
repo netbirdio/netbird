@@ -634,7 +634,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 							r := args.Get(1).(*dns.Msg)
 							resp := new(dns.Msg)
 							resp.SetRcode(r, dns.RcodeSuccess)
-							w.WriteMsg(resp)
+							assert.NoError(t, w.WriteMsg(resp))
 						}).Once()
 					}
 					handler = subHandler
@@ -647,7 +647,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 							r := args.Get(1).(*dns.Msg)
 							resp := new(dns.Msg)
 							resp.SetRcode(r, dns.RcodeSuccess)
-							w.WriteMsg(resp)
+							assert.NoError(t, w.WriteMsg(resp))
 						}).Once()
 					}
 					handler = mockHandler
