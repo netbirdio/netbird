@@ -76,7 +76,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 			"GroupWorkstations": {
 				ID:   "GroupWorkstations",
-				Name: "All",
+				Name: "GroupWorkstations",
 				Peers: []string{
 					"peerB",
 					"peerA",
@@ -280,10 +280,16 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, sortFunc())
-		slices.SortFunc(firewallRules, sortFunc())
-		for i := range firewallRules {
-			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
+
+		for _, rule := range firewallRules {
+			contains := false
+			for _, expectedRule := range epectedFirewallRules {
+				if rule.IsEqual(expectedRule) {
+					contains = true
+					break
+				}
+			}
+			assert.True(t, contains, "rule not found in expected rules %#v", rule)
 		}
 	})
 }
