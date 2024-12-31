@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/slices"
 
@@ -76,7 +77,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 			"GroupWorkstations": {
 				ID:   "GroupWorkstations",
-				Name: "All",
+				Name: "GroupWorkstations",
 				Peers: []string{
 					"peerB",
 					"peerA",
@@ -165,125 +166,137 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 	})
 
 	t.Run("check first peer map details", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", validatedPeers)
-		assert.Len(t, peers, 7)
-		assert.Contains(t, peers, account.Peers["peerA"])
-		assert.Contains(t, peers, account.Peers["peerC"])
-		assert.Contains(t, peers, account.Peers["peerD"])
-		assert.Contains(t, peers, account.Peers["peerE"])
-		assert.Contains(t, peers, account.Peers["peerF"])
-		assert.Contains(t, peers, account.Peers["peerG"])
-		assert.Contains(t, peers, account.Peers["peerH"])
+		for _ = range 100 {
+			log.Info("checking first peer map details")
+			peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", validatedPeers)
+			assert.Len(t, peers, 7)
+			assert.Contains(t, peers, account.Peers["peerA"])
+			assert.Contains(t, peers, account.Peers["peerC"])
+			assert.Contains(t, peers, account.Peers["peerD"])
+			assert.Contains(t, peers, account.Peers["peerE"])
+			assert.Contains(t, peers, account.Peers["peerF"])
+			assert.Contains(t, peers, account.Peers["peerG"])
+			assert.Contains(t, peers, account.Peers["peerH"])
 
-		epectedFirewallRules := []*types.FirewallRule{
-			{
-				PeerIP:    "0.0.0.0",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "0.0.0.0",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.14.88",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.14.88",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.62.5",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.62.5",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
+			epectedFirewallRules := []*types.FirewallRule{
+				{
+					PeerIP:    "0.0.0.0",
+					Direction: types.FirewallRuleDirectionIN,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "0.0.0.0",
+					Direction: types.FirewallRuleDirectionOUT,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "100.65.14.88",
+					Direction: types.FirewallRuleDirectionIN,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "100.65.14.88",
+					Direction: types.FirewallRuleDirectionOUT,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "100.65.62.5",
+					Direction: types.FirewallRuleDirectionOUT,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "100.65.62.5",
+					Direction: types.FirewallRuleDirectionIN,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
 
-			{
-				PeerIP:    "100.65.32.206",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.32.206",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
+				{
+					PeerIP:    "100.65.32.206",
+					Direction: types.FirewallRuleDirectionOUT,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "100.65.32.206",
+					Direction: types.FirewallRuleDirectionIN,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
 
-			{
-				PeerIP:    "100.65.250.202",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.250.202",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
+				{
+					PeerIP:    "100.65.250.202",
+					Direction: types.FirewallRuleDirectionOUT,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "100.65.250.202",
+					Direction: types.FirewallRuleDirectionIN,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
 
-			{
-				PeerIP:    "100.65.13.186",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.13.186",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
+				{
+					PeerIP:    "100.65.13.186",
+					Direction: types.FirewallRuleDirectionOUT,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "100.65.13.186",
+					Direction: types.FirewallRuleDirectionIN,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
 
-			{
-				PeerIP:    "100.65.29.55",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.29.55",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-		}
-		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, sortFunc())
-		slices.SortFunc(firewallRules, sortFunc())
-		for i := range firewallRules {
-			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
+				{
+					PeerIP:    "100.65.29.55",
+					Direction: types.FirewallRuleDirectionOUT,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+				{
+					PeerIP:    "100.65.29.55",
+					Direction: types.FirewallRuleDirectionIN,
+					Action:    "accept",
+					Protocol:  "all",
+					Port:      "",
+				},
+			}
+			assert.Len(t, firewallRules, len(epectedFirewallRules))
+
+			if len(firewallRules) != 14 {
+				t.Errorf("expected firewall rules count is 14, got %d", len(firewallRules))
+			}
+			for _, rule := range firewallRules {
+				contains := false
+				for _, expectedRule := range epectedFirewallRules {
+					if rule.IsEqual(expectedRule) {
+						contains = true
+						break
+					}
+				}
+				assert.True(t, contains, "rule not found in expected rules %#v", rule)
+			}
 		}
 	})
 }
