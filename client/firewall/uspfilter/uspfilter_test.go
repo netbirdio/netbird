@@ -10,6 +10,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
@@ -20,6 +21,14 @@ import (
 type IFaceMock struct {
 	SetFilterFunc func(device.PacketFilter) error
 	AddressFunc   func() iface.WGAddress
+}
+
+func (i *IFaceMock) GetWGDevice() *wgdevice.Device {
+	return nil
+}
+
+func (i *IFaceMock) GetDevice() *device.FilteredDevice {
+	return nil
 }
 
 func (i *IFaceMock) SetFilter(iface device.PacketFilter) error {

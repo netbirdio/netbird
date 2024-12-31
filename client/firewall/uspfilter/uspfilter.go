@@ -555,10 +555,6 @@ func (m *Manager) isValidPacket(d *decoder, packetData []byte) bool {
 	return true
 }
 
-func (m *Manager) isWireguardTraffic(srcIP, dstIP net.IP) bool {
-	return m.wgNetwork.Contains(srcIP) && m.wgNetwork.Contains(dstIP)
-}
-
 func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP) bool {
 	switch d.decoded[1] {
 	case layers.LayerTypeTCP:

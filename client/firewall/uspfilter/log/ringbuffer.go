@@ -83,11 +83,3 @@ func (r *ringBuffer) Read(p []byte) (n int, err error) {
 
 	return n, nil
 }
-
-// min returns the smaller of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -1,7 +1,7 @@
 package common
 
 import (
-	device2 "golang.zx2c4.com/wireguard/device"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -11,6 +11,6 @@ import (
 type IFaceMapper interface {
 	SetFilter(device.PacketFilter) error
 	Address() iface.WGAddress
-	GetWGDevice() *device2.Device
+	GetWGDevice() *wgdevice.Device
 	GetDevice() *device.FilteredDevice
 }

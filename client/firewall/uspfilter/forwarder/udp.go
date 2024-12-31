@@ -131,7 +131,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	}
 
 	f.udpForwarder.RLock()
-	pConn, exists := f.udpForwarder.conns[id]
+	_, exists := f.udpForwarder.conns[id]
 	f.udpForwarder.RUnlock()
 	if exists {
 		f.logger.Trace("forwarder: existing UDP connection for %v", id)
@@ -159,7 +159,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	inConn := gonet.NewUDPConn(f.stack, &wq, ep)
 	connCtx, connCancel := context.WithCancel(f.ctx)
 
-	pConn = &udpPacketConn{
+	pConn := &udpPacketConn{
 		conn:    inConn,
 		outConn: outConn,
 		cancel:  connCancel,

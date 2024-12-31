@@ -75,7 +75,7 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 		conn.established.Store(true)
 		t.connections[key] = conn
 
-		t.logger.Trace("New UDP connection: %s", conn)
+		t.logger.Trace("New UDP connection: %v", conn)
 	}
 	t.mutex.Unlock()
 
@@ -127,7 +127,7 @@ func (t *UDPTracker) cleanup() {
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
-			t.logger.Trace("UDP connection timed out: %s", conn)
+			t.logger.Trace("UDP connection timed out: %v", conn)
 		}
 	}
 }

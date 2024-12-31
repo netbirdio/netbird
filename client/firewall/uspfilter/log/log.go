@@ -42,27 +42,6 @@ var levelStrings = map[Level]string{
 	LevelTrace: "TRAC",
 }
 
-func FromLogrusLevel(level log.Level) Level {
-	switch level {
-	case log.TraceLevel:
-		return LevelTrace
-	case log.DebugLevel:
-		return LevelDebug
-	case log.InfoLevel:
-		return LevelInfo
-	case log.WarnLevel:
-		return LevelWarn
-	case log.ErrorLevel:
-		return LevelError
-	case log.FatalLevel:
-		return LevelFatal
-	case log.PanicLevel:
-		return LevelPanic
-	default:
-		return LevelInfo
-	}
-}
-
 // Logger is a high-performance, non-blocking logger
 type Logger struct {
 	output   io.Writer
@@ -128,7 +107,7 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 	if len(*bufp) > maxMessageSize {
 		*bufp = (*bufp)[:maxMessageSize]
 	}
-	l.buffer.Write(*bufp)
+	_, _ = l.buffer.Write(*bufp)
 
 	l.bufPool.Put(bufp)
 }
@@ -184,7 +163,7 @@ func (l *Logger) worker() {
 			}
 
 			// Write batch
-			l.output.Write(buf[:n])
+			_, _ = l.output.Write(buf[:n])
 		}
 	}
 }

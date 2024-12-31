@@ -55,7 +55,7 @@ func New(iface common.IFaceMapper, logger *nblog.Logger) (*Forwarder, error) {
 	}
 
 	if err := s.CreateNIC(nicID, endpoint); err != nil {
-		return nil, fmt.Errorf("failed to create NIC: %w", err)
+		return nil, fmt.Errorf("failed to create NIC: %v", err)
 	}
 
 	_, bits := iface.Address().Network.Mask.Size()
@@ -68,7 +68,7 @@ func New(iface common.IFaceMapper, logger *nblog.Logger) (*Forwarder, error) {
 	}
 
 	if err := s.AddProtocolAddress(nicID, protoAddr, stack.AddressProperties{}); err != nil {
-		return nil, fmt.Errorf("failed to add protocol address: %w", err)
+		return nil, fmt.Errorf("failed to add protocol address: %s", err)
 	}
 
 	defaultSubnet, err := tcpip.NewSubnet(
@@ -79,11 +79,11 @@ func New(iface common.IFaceMapper, logger *nblog.Logger) (*Forwarder, error) {
 		return nil, fmt.Errorf("creating default subnet: %w", err)
 	}
 
-	if s.SetPromiscuousMode(nicID, true); err != nil {
-		return nil, fmt.Errorf("set promiscuous mode: %w", err)
+	if err := s.SetPromiscuousMode(nicID, true); err != nil {
+		return nil, fmt.Errorf("set promiscuous mode: %s", err)
 	}
-	if s.SetSpoofing(nicID, true); err != nil {
-		return nil, fmt.Errorf("set spoofing: %w", err)
+	if err := s.SetSpoofing(nicID, true); err != nil {
+		return nil, fmt.Errorf("set spoofing: %s", err)
 	}
 
 	s.SetRouteTable([]tcpip.Route{
@@ -132,7 +132,7 @@ func (f *Forwarder) InjectIncomingPacket(payload []byte) error {
 }
 
 // Stop gracefully shuts down the forwarder
-func (f *Forwarder) Stop() error {
+func (f *Forwarder) Stop() {
 	f.cancel()
 
 	if f.udpForwarder != nil {
@@ -141,6 +141,4 @@ func (f *Forwarder) Stop() error {
 
 	f.stack.Close()
 	f.stack.Wait()
-
-	return nil
 }
