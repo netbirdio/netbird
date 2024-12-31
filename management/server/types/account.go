@@ -13,7 +13,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"github.com/yourbasic/radix"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -304,55 +303,47 @@ func (a *Account) GetPeerNetworkMap(
 	return nm
 }
 
-func (a *Account) addNetworksRoutingPeers(networkResourcesRoutes []*route.Route, peer *nbpeer.Peer, peersToConnect []*nbpeer.Peer, expiredPeers []*nbpeer.Peer, isRouter bool, sourcePeers []string) []*nbpeer.Peer {
-	missingPeers := map[string]struct{}{}
-	for _, r := range networkResourcesRoutes {
-		if r.Peer == peer.Key {
-			continue
-		}
+func (a *Account) addNetworksRoutingPeers(
+	networkResourcesRoutes []*route.Route,
+	peer *nbpeer.Peer,
+	peersToConnect []*nbpeer.Peer,
+	expiredPeers []*nbpeer.Peer,
+	isRouter bool,
+	sourcePeers map[string]struct{},
+) []*nbpeer.Peer {
 
-		missing := true
-		for _, p := range slices.Concat(peersToConnect, expiredPeers) {
-			if r.Peer == p.Key {
-				missing = false
-				break
-			}
-		}
-		if missing {
-			missingPeers[r.Peer] = struct{}{}
-		}
+	networkRoutesPeers := make(map[string]struct{}, len(networkResourcesRoutes))
+	for _, r := range networkResourcesRoutes {
+		networkRoutesPeers[r.PeerID] = struct{}{}
 	}
 
-	if isRouter {
-		for _, s := range sourcePeers {
-			if s == peer.ID {
-				continue
-			}
+	delete(sourcePeers, peer.ID)
 
-			missing := true
-			for _, p := range slices.Concat(peersToConnect, expiredPeers) {
-				if s == p.ID {
-					missing = false
-					break
-				}
-			}
-			if missing {
-				p, ok := a.Peers[s]
-				if ok {
-					missingPeers[p.Key] = struct{}{}
-				}
-			}
+	for _, existingPeer := range peersToConnect {
+		delete(sourcePeers, existingPeer.ID)
+		delete(networkRoutesPeers, existingPeer.ID)
+	}
+	for _, expPeer := range expiredPeers {
+		delete(sourcePeers, expPeer.ID)
+		delete(networkRoutesPeers, expPeer.ID)
+	}
+
+	missingPeers := make(map[string]struct{}, len(sourcePeers)+len(networkRoutesPeers))
+	if isRouter {
+		for p := range sourcePeers {
+			missingPeers[p] = struct{}{}
 		}
+	}
+	for p := range networkRoutesPeers {
+		missingPeers[p] = struct{}{}
 	}
 
 	for p := range missingPeers {
-		for _, p2 := range a.Peers {
-			if p2.Key == p {
-				peersToConnect = append(peersToConnect, p2)
-				break
-			}
+		if missingPeer := a.Peers[p]; missingPeer != nil {
+			peersToConnect = append(peersToConnect, missingPeer)
 		}
 	}
+
 	return peersToConnect
 }
 
@@ -1156,7 +1147,7 @@ func (a *Account) getRouteFirewallRules(ctx context.Context, peerID string, poli
 }
 
 func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}, validatedPeersMap map[string]struct{}) []*nbpeer.Peer {
-	distPeersWithPolicy := make([]string, 0)
+	distPeersWithPolicy := make(map[string]struct{})
 	for _, id := range rule.Sources {
 		group := a.Groups[id]
 		if group == nil {
@@ -1170,16 +1161,13 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 			_, distPeer := distributionPeers[pID]
 			_, valid := validatedPeersMap[pID]
 			if distPeer && valid && a.validatePostureChecksOnPeer(context.Background(), postureChecks, pID) {
-				distPeersWithPolicy = append(distPeersWithPolicy, pID)
+				distPeersWithPolicy[pID] = struct{}{}
 			}
 		}
 	}
 
-	radix.Sort(distPeersWithPolicy)
-	uniqueDistributionPeers := slices.Compact(distPeersWithPolicy)
-
-	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(uniqueDistributionPeers))
-	for _, pID := range uniqueDistributionPeers {
+	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
+	for pID := range distPeersWithPolicy {
 		peer := a.Peers[pID]
 		if peer == nil {
 			continue
@@ -1306,10 +1294,10 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 }
 
 // GetNetworkResourcesRoutesToSync returns network routes for syncing with a specific peer and its ACL peers.
-func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route, []string) {
+func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route, map[string]struct{}) {
 	var isRoutingPeer bool
 	var routes []*route.Route
-	allSourcePeers := make([]string, 0)
+	allSourcePeers := make(map[string]struct{}, len(a.Peers))
 
 	for _, resource := range a.NetworkResources {
 		var addSourcePeers bool
@@ -1326,7 +1314,9 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 		for _, policy := range resourcePolicies[resource.ID] {
 			peers := a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
 			if addSourcePeers {
-				allSourcePeers = append(allSourcePeers, a.getPostureValidPeers(peers, policy.SourcePostureChecks)...)
+				for _, pID := range a.getPostureValidPeers(peers, policy.SourcePostureChecks) {
+					allSourcePeers[pID] = struct{}{}
+				}
 			} else if slices.Contains(peers, peerID) && a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
 				// add routes for the resource if the peer is in the distribution group
 				for peerId, router := range networkRoutingPeers {
@@ -1340,8 +1330,7 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 		}
 	}
 
-	radix.Sort(allSourcePeers)
-	return isRoutingPeer, routes, slices.Compact(allSourcePeers)
+	return isRoutingPeer, routes, allSourcePeers
 }
 
 func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []string) []string {
@@ -1355,8 +1344,7 @@ func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []s
 }
 
 func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) []string {
-	gObjs := make([]*Group, 0, len(groups))
-	tp := 0
+	peerIDs := make(map[string]struct{}, len(groups)) // we expect at least one peer per group as initial capacity
 	for _, groupID := range groups {
 		group := a.GetGroup(groupID)
 		if group == nil {
@@ -1368,17 +1356,17 @@ func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []st
 			return group.Peers
 		}
 
-		gObjs = append(gObjs, group)
-		tp += len(group.Peers)
+		for _, peerID := range group.Peers {
+			peerIDs[peerID] = struct{}{}
+		}
 	}
 
-	ids := make([]string, 0, tp)
-	for _, group := range gObjs {
-		ids = append(ids, group.Peers...)
+	ids := make([]string, 0, len(peerIDs))
+	for peerID := range peerIDs {
+		ids = append(ids, peerID)
 	}
 
-	radix.Sort(ids)
-	return slices.Compact(ids)
+	return ids
 }
 
 // getNetworkResources filters and returns a list of network resources associated with the given network ID.

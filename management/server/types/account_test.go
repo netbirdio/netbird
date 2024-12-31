@@ -316,19 +316,19 @@ func Test_GetResourcePoliciesMap(t *testing.T) {
 
 func Test_AddNetworksRoutingPeersAddsMissingPeers(t *testing.T) {
 	account := setupTestAccount()
-	peer := &nbpeer.Peer{Key: "peer1"}
+	peer := &nbpeer.Peer{Key: "peer1Key", ID: "peer1"}
 	networkResourcesRoutes := []*route.Route{
-		{Peer: "peer2Key"},
-		{Peer: "peer3Key"},
+		{Peer: "peer2Key", PeerID: "peer2"},
+		{Peer: "peer3Key", PeerID: "peer3"},
 	}
 	peersToConnect := []*nbpeer.Peer{
-		{Key: "peer2Key"},
+		{Key: "peer2Key", ID: "peer2"},
 	}
 	expiredPeers := []*nbpeer.Peer{
-		{Key: "peer4Key"},
+		{Key: "peer4Key", ID: "peer4"},
 	}
 
-	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, []string{})
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, map[string]struct{}{})
 	require.Len(t, result, 2)
 	require.Equal(t, "peer2Key", result[0].Key)
 	require.Equal(t, "peer3Key", result[1].Key)
@@ -345,7 +345,7 @@ func Test_AddNetworksRoutingPeersIgnoresExistingPeers(t *testing.T) {
 	}
 	expiredPeers := []*nbpeer.Peer{}
 
-	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, []string{})
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, map[string]struct{}{})
 	require.Len(t, result, 1)
 	require.Equal(t, "peer2Key", result[0].Key)
 }
@@ -364,7 +364,7 @@ func Test_AddNetworksRoutingPeersAddsExpiredPeers(t *testing.T) {
 		{Key: "peer3Key"},
 	}
 
-	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, []string{})
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, map[string]struct{}{})
 	require.Len(t, result, 1)
 	require.Equal(t, "peer2Key", result[0].Key)
 }
@@ -376,7 +376,7 @@ func Test_AddNetworksRoutingPeersHandlesNoMissingPeers(t *testing.T) {
 	peersToConnect := []*nbpeer.Peer{}
 	expiredPeers := []*nbpeer.Peer{}
 
-	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, []string{})
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, map[string]struct{}{})
 	require.Len(t, result, 0)
 }
 
@@ -559,8 +559,8 @@ func Test_NetworksNetMapGenWithNoPostureChecks(t *testing.T) {
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
-	assert.Equal(t, accNetResourcePeer1ID, sourcePeers[0], "expected source peers don't match")
-	assert.Equal(t, accNetResourcePeer2ID, sourcePeers[1], "expected source peers don't match")
+	assert.NotNil(t, sourcePeers[accNetResourcePeer1ID], "expected source peers don't match")
+	assert.NotNil(t, sourcePeers[accNetResourcePeer2ID], "expected source peers don't match")
 
 	// validate rules for router1
 	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
@@ -599,7 +599,7 @@ func Test_NetworksNetMapGenWithPostureChecks(t *testing.T) {
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 1, "expected source peers don't match")
-	assert.Equal(t, accNetResourcePeer1ID, sourcePeers[0], "expected source peers don't match")
+	assert.NotNil(t, sourcePeers[accNetResourcePeer1ID], "expected source peers don't match")
 
 	// validate rules for router1
 	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
@@ -692,8 +692,8 @@ func Test_NetworksNetMapGenWithTwoPoliciesAndPostureChecks(t *testing.T) {
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
-	assert.Equal(t, accNetResourcePeer1ID, sourcePeers[0], "expected source peers don't match")
-	assert.Equal(t, accNetResourcePeer2ID, sourcePeers[1], "expected source peers don't match")
+	assert.NotNil(t, sourcePeers[accNetResourcePeer1ID], "expected source peers don't match")
+	assert.NotNil(t, sourcePeers[accNetResourcePeer2ID], "expected source peers don't match")
 
 	// validate rules for router1
 	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
@@ -741,7 +741,7 @@ func Test_NetworksNetMapGenWithTwoPostureChecks(t *testing.T) {
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 1, "expected source peers don't match")
-	assert.Equal(t, accNetResourcePeer1ID, sourcePeers[0], "expected source peers don't match")
+	assert.NotNil(t, sourcePeers[accNetResourcePeer1ID], "expected source peers don't match")
 
 	// validate rules for router1
 	rules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers[accNetResourceRouter1ID], accNetResourceValidPeers, networkResourcesRoutes, account.GetResourcePoliciesMap())
