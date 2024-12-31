@@ -68,17 +68,16 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	pattern = strings.ToLower(dns.Fqdn(pattern))
 	origPattern := pattern
 	isWildcard := strings.HasPrefix(pattern, "*.")
 	if isWildcard {
 		pattern = pattern[2:]
 	}
-	pattern = dns.Fqdn(pattern)
-	origPattern = dns.Fqdn(origPattern)
 
-	// First remove any existing handler with same original pattern and priority
+	// First remove any existing handler with same pattern (case-insensitive) and priority
 	for i := len(c.handlers) - 1; i >= 0; i-- {
-		if c.handlers[i].OrigPattern == origPattern && c.handlers[i].Priority == priority {
+		if strings.EqualFold(c.handlers[i].OrigPattern, origPattern) && c.handlers[i].Priority == priority {
 			if c.handlers[i].StopHandler != nil {
 				c.handlers[i].StopHandler.stop()
 			}
@@ -126,10 +125,10 @@ func (c *HandlerChain) RemoveHandler(pattern string, priority int) {
 
 	pattern = dns.Fqdn(pattern)
 
-	// Find and remove handlers matching both original pattern and priority
+	// Find and remove handlers matching both original pattern (case-insensitive) and priority
 	for i := len(c.handlers) - 1; i >= 0; i-- {
 		entry := c.handlers[i]
-		if entry.OrigPattern == pattern && entry.Priority == priority {
+		if strings.EqualFold(entry.OrigPattern, pattern) && entry.Priority == priority {
 			if entry.StopHandler != nil {
 				entry.StopHandler.stop()
 			}
@@ -144,9 +143,9 @@ func (c *HandlerChain) HasHandlers(pattern string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	pattern = dns.Fqdn(pattern)
+	pattern = strings.ToLower(dns.Fqdn(pattern))
 	for _, entry := range c.handlers {
-		if entry.Pattern == pattern {
+		if strings.EqualFold(entry.Pattern, pattern) {
 			return true
 		}
 	}
@@ -158,7 +157,7 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	qname := r.Question[0].Name
+	qname := strings.ToLower(r.Question[0].Name)
 	log.Tracef("handling DNS request for domain=%s", qname)
 
 	c.mu.RLock()
@@ -187,9 +186,9 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			// If handler wants subdomain matching, allow suffix match
 			// Otherwise require exact match
 			if entry.MatchSubdomains {
-				matched = qname == entry.Pattern || strings.HasSuffix(qname, "."+entry.Pattern)
+				matched = strings.EqualFold(qname, entry.Pattern) || strings.HasSuffix(qname, "."+entry.Pattern)
 			} else {
-				matched = qname == entry.Pattern
+				matched = strings.EqualFold(qname, entry.Pattern)
 			}
 		}
 

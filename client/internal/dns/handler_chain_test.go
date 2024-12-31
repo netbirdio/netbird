@@ -507,5 +507,173 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 
 	// Test 4: Remove last handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityDefault)
+
 	assert.False(t, chain.HasHandlers(testDomain))
+}
+
+func TestHandlerChain_CaseSensitivity(t *testing.T) {
+	tests := []struct {
+		name        string
+		scenario    string
+		addHandlers []struct {
+			pattern     string
+			priority    int
+			subdomains  bool
+			shouldMatch bool
+		}
+		query         string
+		expectedCalls int
+	}{
+		{
+			name:     "case insensitive exact match",
+			scenario: "handler registered lowercase, query uppercase",
+			addHandlers: []struct {
+				pattern     string
+				priority    int
+				subdomains  bool
+				shouldMatch bool
+			}{
+				{"example.com.", nbdns.PriorityDefault, false, true},
+			},
+			query:         "EXAMPLE.COM.",
+			expectedCalls: 1,
+		},
+		{
+			name:     "case insensitive wildcard match",
+			scenario: "handler registered mixed case wildcard, query different case",
+			addHandlers: []struct {
+				pattern     string
+				priority    int
+				subdomains  bool
+				shouldMatch bool
+			}{
+				{"*.Example.Com.", nbdns.PriorityDefault, false, true},
+			},
+			query:         "sub.EXAMPLE.COM.",
+			expectedCalls: 1,
+		},
+		{
+			name:     "multiple handlers different case same domain",
+			scenario: "second handler should replace first despite case difference",
+			addHandlers: []struct {
+				pattern     string
+				priority    int
+				subdomains  bool
+				shouldMatch bool
+			}{
+				{"EXAMPLE.COM.", nbdns.PriorityDefault, false, false},
+				{"example.com.", nbdns.PriorityDefault, false, true},
+			},
+			query:         "ExAmPlE.cOm.",
+			expectedCalls: 1,
+		},
+		{
+			name:     "subdomain matching case insensitive",
+			scenario: "handler with MatchSubdomains true should match regardless of case",
+			addHandlers: []struct {
+				pattern     string
+				priority    int
+				subdomains  bool
+				shouldMatch bool
+			}{
+				{"example.com.", nbdns.PriorityDefault, true, true},
+			},
+			query:         "SUB.EXAMPLE.COM.",
+			expectedCalls: 1,
+		},
+		{
+			name:     "root zone case insensitive",
+			scenario: "root zone handler should match regardless of case",
+			addHandlers: []struct {
+				pattern     string
+				priority    int
+				subdomains  bool
+				shouldMatch bool
+			}{
+				{".", nbdns.PriorityDefault, false, true},
+			},
+			query:         "EXAMPLE.COM.",
+			expectedCalls: 1,
+		},
+		{
+			name:     "multiple handlers different priority",
+			scenario: "should call higher priority handler despite case differences",
+			addHandlers: []struct {
+				pattern     string
+				priority    int
+				subdomains  bool
+				shouldMatch bool
+			}{
+				{"EXAMPLE.COM.", nbdns.PriorityDefault, false, false},
+				{"example.com.", nbdns.PriorityMatchDomain, false, false},
+				{"Example.Com.", nbdns.PriorityDNSRoute, false, true},
+			},
+			query:         "example.com.",
+			expectedCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain := nbdns.NewHandlerChain()
+			handlerCalls := make(map[string]bool) // track which patterns were called
+
+			// Add handlers according to test case
+			for _, h := range tt.addHandlers {
+				var handler dns.Handler
+				pattern := h.pattern // capture pattern for closure
+
+				if h.subdomains {
+					subHandler := &nbdns.MockSubdomainHandler{
+						Subdomains: true,
+					}
+					if h.shouldMatch {
+						subHandler.On("ServeDNS", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+							handlerCalls[pattern] = true
+							w := args.Get(0).(dns.ResponseWriter)
+							r := args.Get(1).(*dns.Msg)
+							resp := new(dns.Msg)
+							resp.SetRcode(r, dns.RcodeSuccess)
+							w.WriteMsg(resp)
+						}).Once()
+					}
+					handler = subHandler
+				} else {
+					mockHandler := &nbdns.MockHandler{}
+					if h.shouldMatch {
+						mockHandler.On("ServeDNS", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+							handlerCalls[pattern] = true
+							w := args.Get(0).(dns.ResponseWriter)
+							r := args.Get(1).(*dns.Msg)
+							resp := new(dns.Msg)
+							resp.SetRcode(r, dns.RcodeSuccess)
+							w.WriteMsg(resp)
+						}).Once()
+					}
+					handler = mockHandler
+				}
+
+				chain.AddHandler(pattern, handler, h.priority, nil)
+			}
+
+			// Execute request
+			r := new(dns.Msg)
+			r.SetQuestion(tt.query, dns.TypeA)
+			chain.ServeDNS(&mockResponseWriter{}, r)
+
+			// Verify each handler was called exactly as expected
+			for _, h := range tt.addHandlers {
+				wasCalled := handlerCalls[h.pattern]
+				assert.Equal(t, h.shouldMatch, wasCalled,
+					"Handler for pattern %q was %s when it should%s have been",
+					h.pattern,
+					map[bool]string{true: "called", false: "not called"}[wasCalled],
+					map[bool]string{true: "", false: " not"}[wasCalled == h.shouldMatch])
+			}
+
+			// Verify total number of calls
+			assert.Equal(t, tt.expectedCalls, len(handlerCalls),
+				"Wrong number of total handler calls")
+		})
+	}
 }
