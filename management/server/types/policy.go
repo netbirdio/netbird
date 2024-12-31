@@ -1,11 +1,5 @@
 package types
 
-import (
-	"slices"
-
-	"github.com/yourbasic/radix"
-)
-
 const (
 	// PolicyTrafficActionAccept indicates that the traffic is accepted
 	PolicyTrafficActionAccept = PolicyTrafficActionType("accept")
@@ -126,10 +120,17 @@ func (p *Policy) SourceGroups() []string {
 	if len(p.Rules) == 1 {
 		return p.Rules[0].Sources
 	}
-	groups := make([]string, 0)
+	groups := make(map[string]struct{}, len(p.Rules))
 	for _, rule := range p.Rules {
-		groups = append(groups, rule.Sources...)
+		for _, source := range rule.Sources {
+			groups[source] = struct{}{}
+		}
 	}
-	radix.Sort(groups)
-	return slices.Compact(groups)
+
+	groupIDs := make([]string, 0, len(groups))
+	for groupID := range groups {
+		groupIDs = append(groupIDs, groupID)
+	}
+
+	return groupIDs
 }
