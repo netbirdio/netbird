@@ -55,8 +55,11 @@ type Manager struct {
 	routingEnabled bool
 	// indicates whether we leave forwarding and filtering to the native firewall
 	nativeRouter bool
+	// indicates whether we track outbound connections
+	stateful bool
 
-	stateful    bool
+	localipmanager *localIPManager
+
 	udpTracker  *conntrack.UDPTracker
 	icmpTracker *conntrack.ICMPTracker
 	tcpTracker  *conntrack.TCPTracker
@@ -120,13 +123,18 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 				return d
 			},
 		},
-		outgoingRules: make(map[string]RuleSet),
-		incomingRules: make(map[string]RuleSet),
-		routeRules:    make(map[string]RouteRule),
-		wgIface:       iface,
-		stateful:      !disableConntrack,
+		outgoingRules:  make(map[string]RuleSet),
+		incomingRules:  make(map[string]RuleSet),
+		routeRules:     make(map[string]RouteRule),
+		wgIface:        iface,
+		localipmanager: newLocalIPManager(),
+		stateful:       !disableConntrack,
 		// TODO: support changing log level from logrus
 		logger: nblog.NewFromLogrus(log.StandardLogger()),
+	}
+
+	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
+		return nil, fmt.Errorf("update local IPs: %w", err)
 	}
 
 	// Only initialize trackers if stateful mode is enabled
@@ -346,9 +354,9 @@ func (m *Manager) DropIncoming(packetData []byte) bool {
 	return m.dropFilter(packetData, m.incomingRules)
 }
 
-func (m *Manager) isLocalIP(ip net.IP) bool {
-	// TODO: add other interface IPs and keep track of them
-	return ip.Equal(m.wgIface.Address().IP)
+// UpdateLocalIPs updates the list of local IPs
+func (m *Manager) UpdateLocalIPs() error {
+	return m.localipmanager.UpdateLocalIPs(m.wgIface)
 }
 
 func (m *Manager) processOutgoingHooks(packetData []byte) bool {
@@ -496,7 +504,7 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	}
 
 	// Handle local traffic - apply peer ACLs
-	if m.isLocalIP(dstIP) {
+	if m.localipmanager.IsLocalIP(dstIP) {
 		drop := m.applyRules(srcIP, packetData, rules, d)
 		if drop {
 			m.logger.Trace("Dropping local packet: src=%s dst=%s rules=denied",
