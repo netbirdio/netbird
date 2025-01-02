@@ -113,33 +113,33 @@ func (l *Logger) log(level Level, format string, args ...interface{}) {
 	l.bufPool.Put(bufp)
 }
 
-func (l *Logger) Trace(format string, args ...interface{}) {
-	if l.level.Load() <= uint32(LevelTrace) {
-		l.log(LevelTrace, format, args...)
-	}
-}
-
-func (l *Logger) Debug(format string, args ...interface{}) {
-	if l.level.Load() <= uint32(LevelDebug) {
-		l.log(LevelDebug, format, args...)
-	}
-}
-
-func (l *Logger) Info(format string, args ...interface{}) {
-	if l.level.Load() <= uint32(LevelInfo) {
-		l.log(LevelInfo, format, args...)
+func (l *Logger) Error(format string, args ...interface{}) {
+	if l.level.Load() >= uint32(LevelError) {
+		l.log(LevelError, format, args...)
 	}
 }
 
 func (l *Logger) Warn(format string, args ...interface{}) {
-	if l.level.Load() <= uint32(LevelWarn) {
+	if l.level.Load() >= uint32(LevelWarn) {
 		l.log(LevelWarn, format, args...)
 	}
 }
 
-func (l *Logger) Error(format string, args ...interface{}) {
-	if l.level.Load() <= uint32(LevelError) {
-		l.log(LevelError, format, args...)
+func (l *Logger) Info(format string, args ...interface{}) {
+	if l.level.Load() >= uint32(LevelInfo) {
+		l.log(LevelInfo, format, args...)
+	}
+}
+
+func (l *Logger) Debug(format string, args ...interface{}) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		l.log(LevelDebug, format, args...)
+	}
+}
+
+func (l *Logger) Trace(format string, args ...interface{}) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		l.log(LevelTrace, format, args...)
 	}
 }
 
