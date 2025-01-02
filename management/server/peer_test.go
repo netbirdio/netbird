@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -80,7 +81,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			peer := &nbpeer.Peer{
 				LoginExpirationEnabled: c.expirationEnabled,
-				LastLogin:              c.lastLogin,
+				LastLogin:              util.ToPtr(c.lastLogin),
 				UserID:                 userID,
 			}
 
@@ -141,7 +142,7 @@ func TestPeer_SessionExpired(t *testing.T) {
 			}
 			peer := &nbpeer.Peer{
 				InactivityExpirationEnabled: c.expirationEnabled,
-				LastLogin:                   c.lastLogin,
+				LastLogin:                   util.ToPtr(c.lastLogin),
 				Status:                      peerStatus,
 				UserID:                      userID,
 			}
@@ -1209,7 +1210,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		UserID:     existingUserID,
 		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 		SSHEnabled: false,
-		LastLogin:  time.Now(),
+		LastLogin:  util.ToPtr(time.Now()),
 	}
 
 	addedPeer, _, _, err := am.AddPeer(context.Background(), "", existingUserID, newPeer)

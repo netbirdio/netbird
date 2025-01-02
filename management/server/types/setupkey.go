@@ -39,7 +39,7 @@ type SetupKey struct {
 	Name      string
 	Type      SetupKeyType
 	CreatedAt time.Time
-	ExpiresAt time.Time
+	ExpiresAt *time.Time
 	UpdatedAt time.Time `gorm:"autoUpdateTime:false"`
 	// Revoked indicates whether the key was revoked or not (we don't remove them for tracking purposes)
 	Revoked bool
@@ -95,6 +95,14 @@ func (key *SetupKey) LastUsedTime() time.Time {
 	return time.Time{}
 }
 
+// ExpirationTime returns the expiration time of the setup key.
+func (key *SetupKey) ExpirationTime() time.Time {
+	if key.ExpiresAt != nil {
+		return *key.ExpiresAt
+	}
+	return time.Time{}
+}
+
 // HiddenKey returns the Key value hidden with "*" and a 5 character prefix.
 // E.g., "831F6*******************************"
 func HiddenKey(key string, length int) string {
@@ -125,10 +133,10 @@ func (key *SetupKey) IsRevoked() bool {
 
 // IsExpired if key was expired
 func (key *SetupKey) IsExpired() bool {
-	if key.ExpiresAt.IsZero() {
+	if key.ExpirationTime().IsZero() {
 		return false
 	}
-	return time.Now().After(key.ExpiresAt)
+	return time.Now().After(key.ExpirationTime())
 }
 
 // IsOverUsed if the key was used too many times. SetupKey.UsageLimit == 0 indicates the unlimited usage.
@@ -149,9 +157,9 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 		limit = 1
 	}
 
-	expiresAt := time.Time{}
+	var expiresAt *time.Time
 	if validFor != 0 {
-		expiresAt = time.Now().UTC().Add(validFor)
+		expiresAt = util.ToPtr(time.Now().UTC().Add(validFor))
 	}
 
 	hashedKey := sha256.Sum256([]byte(key))

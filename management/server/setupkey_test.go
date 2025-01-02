@@ -66,7 +66,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertKey(t, newKey, keyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
+	assertKey(t, newKey, keyName, revoked, "reusable", 0, key.CreatedAt, key.ExpirationTime(),
 		key.Id, time.Now().UTC(), autoGroups, true)
 
 	// check the corresponding events that should have been generated
@@ -391,7 +391,7 @@ func TestSetupKey_Copy(t *testing.T) {
 	key, _ := types.GenerateSetupKey("key name", types.SetupKeyOneOff, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false)
 	keyCopy := key.Copy()
 
-	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id,
+	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpirationTime(), key.Id,
 		key.UpdatedAt, key.AutoGroups, true)
 
 }

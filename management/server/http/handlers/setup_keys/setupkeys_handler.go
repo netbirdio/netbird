@@ -240,7 +240,7 @@ func toResponseBody(key *types.SetupKey) *api.SetupKey {
 		Id:         key.Id,
 		Key:        key.KeySecret,
 		Name:       key.Name,
-		Expires:    key.ExpiresAt,
+		Expires:    key.ExpirationTime(),
 		Type:       string(key.Type),
 		Valid:      key.IsValid(),
 		Revoked:    key.Revoked,
