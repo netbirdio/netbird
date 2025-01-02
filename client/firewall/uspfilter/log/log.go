@@ -44,11 +44,12 @@ var levelStrings = map[Level]string{
 
 // Logger is a high-performance, non-blocking logger
 type Logger struct {
-	output   io.Writer
-	level    atomic.Uint32
-	buffer   *ringBuffer
-	shutdown chan struct{}
-	wg       sync.WaitGroup
+	output    io.Writer
+	level     atomic.Uint32
+	buffer    *ringBuffer
+	shutdown  chan struct{}
+	closeOnce sync.Once
+	wg        sync.WaitGroup
 
 	// Reusable buffer pool for formatting messages
 	bufPool sync.Pool
@@ -170,9 +171,12 @@ func (l *Logger) worker() {
 
 // Stop gracefully shuts down the logger
 func (l *Logger) Stop(ctx context.Context) error {
-	close(l.shutdown)
-
 	done := make(chan struct{})
+
+	l.closeOnce.Do(func() {
+		close(l.shutdown)
+	})
+
 	go func() {
 		l.wg.Wait()
 		close(done)
