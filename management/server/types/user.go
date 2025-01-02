@@ -142,11 +142,6 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 	}
 
 	if userData == nil {
-		var lastLogin time.Time
-		if u.LastLogin != nil {
-			lastLogin = *u.LastLogin
-		}
-
 		return &UserInfo{
 			ID:            u.Id,
 			Email:         "",
@@ -156,7 +151,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
 			IsBlocked:     u.Blocked,
-			LastLogin:     lastLogin,
+			LastLogin:     u.LastLoginTime(),
 			Issued:        u.Issued,
 			Permissions: UserPermissions{
 				DashboardView: dashboardViewPermissions,
@@ -172,11 +167,6 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 		userStatus = UserStatusInvited
 	}
 
-	lastLogin := time.Time{}
-	if u.LastLogin != nil {
-		lastLogin = *u.LastLogin
-	}
-
 	return &UserInfo{
 		ID:            u.Id,
 		Email:         userData.Email,
@@ -186,7 +176,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
 		IsBlocked:     u.Blocked,
-		LastLogin:     lastLogin,
+		LastLogin:     u.LastLoginTime(),
 		Issued:        u.Issued,
 		Permissions: UserPermissions{
 			DashboardView: dashboardViewPermissions,

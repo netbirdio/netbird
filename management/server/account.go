@@ -1134,7 +1134,7 @@ func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string
 		return fmt.Errorf("token not found")
 	}
 
-	pat.LastUsed = time.Now().UTC()
+	pat.LastUsed = util.ToPtr(time.Now().UTC())
 
 	return am.Store.SaveAccount(ctx, account)
 }
