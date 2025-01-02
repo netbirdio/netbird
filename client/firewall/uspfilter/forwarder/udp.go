@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
@@ -27,6 +28,7 @@ type udpPacketConn struct {
 	outConn  net.Conn
 	lastSeen atomic.Int64
 	cancel   context.CancelFunc
+	ep       tcpip.Endpoint
 }
 
 type udpForwarder struct {
@@ -36,6 +38,11 @@ type udpForwarder struct {
 	bufPool sync.Pool
 	ctx     context.Context
 	cancel  context.CancelFunc
+}
+
+type idleConn struct {
+	id   stack.TransportEndpointID
+	conn *udpPacketConn
 }
 
 func newUDPForwarder(logger *nblog.Logger) *udpForwarder {
@@ -85,18 +92,12 @@ func (f *udpForwarder) cleanup() {
 		case <-f.ctx.Done():
 			return
 		case <-ticker.C:
-			var idleConns []struct {
-				id   stack.TransportEndpointID
-				conn *udpPacketConn
-			}
+			var idleConns []idleConn
 
 			f.RLock()
 			for id, conn := range f.conns {
 				if conn.getIdleDuration() > udpTimeout {
-					idleConns = append(idleConns, struct {
-						id   stack.TransportEndpointID
-						conn *udpPacketConn
-					}{id, conn})
+					idleConns = append(idleConns, idleConn{id, conn})
 				}
 			}
 			f.RUnlock()
@@ -109,6 +110,8 @@ func (f *udpForwarder) cleanup() {
 				if err := idle.conn.outConn.Close(); err != nil {
 					f.logger.Error("forwarder: UDP outConn close error for %v: %v", idle.id, err)
 				}
+
+				idle.conn.ep.Close()
 
 				f.Lock()
 				delete(f.conns, idle.id)
@@ -163,6 +166,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		conn:    inConn,
 		outConn: outConn,
 		cancel:  connCancel,
+		ep:      ep,
 	}
 	pConn.updateLastSeen()
 
@@ -183,10 +187,10 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	f.udpForwarder.Unlock()
 
 	f.logger.Trace("forwarder: established UDP connection to %v", id)
-	go f.proxyUDP(connCtx, pConn, id)
+	go f.proxyUDP(connCtx, pConn, id, ep)
 }
 
-func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack.TransportEndpointID) {
+func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack.TransportEndpointID, ep tcpip.Endpoint) {
 	defer func() {
 		pConn.cancel()
 		if err := pConn.conn.Close(); err != nil {
@@ -195,6 +199,8 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		if err := pConn.outConn.Close(); err != nil {
 			f.logger.Error("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
+
+		ep.Close()
 
 		f.udpForwarder.Lock()
 		delete(f.udpForwarder.conns, id)

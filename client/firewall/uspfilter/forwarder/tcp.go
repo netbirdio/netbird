@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 
+	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
@@ -32,6 +33,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 
 	ep, epErr := r.CreateEndpoint(&wq)
 	if epErr != nil {
+		f.logger.Error("forwarder: failed to create TCP endpoint: %v", epErr)
 		if err := outConn.Close(); err != nil {
 			f.logger.Error("forwarder: outConn close error: %v", err)
 		}
@@ -44,12 +46,12 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 
 	inConn := gonet.NewTCPConn(&wq, ep)
 
-	f.logger.Trace("forwarder: established TCP connection to %v", id)
+	f.logger.Trace("forwarder: established TCP connection %v", id)
 
-	go f.proxyTCP(id, inConn, outConn)
+	go f.proxyTCP(id, inConn, outConn, ep)
 }
 
-func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn, outConn net.Conn) {
+func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn, outConn net.Conn, ep tcpip.Endpoint) {
 	defer func() {
 		if err := inConn.Close(); err != nil {
 			f.logger.Error("forwarder: inConn close error: %v", err)
@@ -57,6 +59,7 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 		if err := outConn.Close(); err != nil {
 			f.logger.Error("forwarder: outConn close error: %v", err)
 		}
+		ep.Close()
 	}()
 
 	// Create context for managing the proxy goroutines
