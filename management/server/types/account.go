@@ -317,8 +317,6 @@ func (a *Account) addNetworksRoutingPeers(
 		networkRoutesPeers[r.PeerID] = struct{}{}
 	}
 
-	delete(sourcePeers, peer.ID)
-
 	for _, existingPeer := range peersToConnect {
 		delete(sourcePeers, existingPeer.ID)
 		delete(networkRoutesPeers, existingPeer.ID)
@@ -335,14 +333,11 @@ func (a *Account) addNetworksRoutingPeers(
 		}
 	}
 	for p := range networkRoutesPeers {
-		if p == peer.ID {
-			continue
-		}
 		missingPeers[p] = struct{}{}
 	}
 
 	for p := range missingPeers {
-		if missingPeer := a.Peers[p]; missingPeer != nil {
+		if missingPeer := a.Peers[p]; missingPeer != nil && missingPeer.ID != peer.ID {
 			peersToConnect = append(peersToConnect, missingPeer)
 		}
 	}
