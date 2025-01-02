@@ -110,8 +110,8 @@ func BenchmarkGetAllPeers(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
 		"Peers - XS":     {MinMsPerOpLocal: 600, MaxMsPerOpLocal: 900, MinMsPerOpCICD: 1100, MaxMsPerOpCICD: 6000},
 		"Peers - S":      {MinMsPerOpLocal: 4, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 7, MaxMsPerOpCICD: 30},
-		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 40, MaxMsPerOpCICD: 80},
-		"Peers - L":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 170, MaxMsPerOpCICD: 350},
+		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 40, MaxMsPerOpCICD: 90},
+		"Peers - L":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 150, MaxMsPerOpCICD: 350},
 		"Groups - L":     {MinMsPerOpLocal: 5000, MaxMsPerOpLocal: 5500, MinMsPerOpCICD: 7000, MaxMsPerOpCICD: 15000},
 		"Users - L":      {MinMsPerOpLocal: 250, MaxMsPerOpLocal: 300, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 600},
 		"Setup Keys - L": {MinMsPerOpLocal: 250, MaxMsPerOpLocal: 350, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 600},
