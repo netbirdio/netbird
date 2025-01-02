@@ -23,12 +23,17 @@ import (
 
 const layerTypeAll = 0
 
-const EnvDisableConntrack = "NB_DISABLE_CONNTRACK"
+const (
+	// EnvDisableConntrack disables the stateful filter, replies to outbound traffic won't be allowed.
+	EnvDisableConntrack = "NB_DISABLE_CONNTRACK"
 
-// TODO: Add env var to disable routing
+	// EnvDisableUserspaceRouting disables userspace routing, to-be-routed packets will be dropped.
+	EnvDisableUserspaceRouting = "NB_DISABLE_USERSPACE_ROUTING"
 
-var (
-	errRouteNotSupported = fmt.Errorf("route not supported with userspace firewall")
+	// EnvForceNativeRouter forces forwarding to the native stack (even if doesn't support routing).
+	// This is useful when routing/firewall setup is done manually instead of by netbird.
+	// This setting always disables userspace routing and filtering of routed traffic.
+	EnvForceNativeRouter = "NB_FORCE_NATIVE_ROUTER"
 )
 
 // RuleSet is a set of rules grouped by a string key
@@ -46,7 +51,10 @@ type Manager struct {
 
 	mutex sync.RWMutex
 
+	// indicates whether we forward packets not destined for ourselves
 	routingEnabled bool
+	// indicates whether we leave forwarding and filtering to the native firewall
+	nativeRouter bool
 
 	stateful    bool
 	udpTracker  *conntrack.UDPTracker
@@ -81,6 +89,17 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 	}
 
 	mgr.nativeFirewall = nativeFirewall
+
+	forceNativeRouter, _ := strconv.ParseBool(EnvForceNativeRouter)
+	// if the OS supports routing natively, or it is explicitly requested, then we don't need to filter/route ourselves
+	if mgr.nativeFirewall != nil && mgr.nativeFirewall.IsServerRouteSupported() || forceNativeRouter {
+		mgr.nativeRouter = true
+		mgr.routingEnabled = true
+		if mgr.forwarder != nil {
+			mgr.forwarder.Stop()
+		}
+	}
+
 	return mgr, nil
 }
 
@@ -106,9 +125,7 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 		routeRules:    make(map[string]RouteRule),
 		wgIface:       iface,
 		stateful:      !disableConntrack,
-		// TODO: fix
-		routingEnabled: true,
-		// TODO: support chaning log level from logrus
+		// TODO: support changing log level from logrus
 		logger: nblog.NewFromLogrus(log.StandardLogger()),
 	}
 
@@ -121,18 +138,22 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger)
 	}
 
+	if disableRouting, _ := strconv.ParseBool(os.Getenv(EnvDisableUserspaceRouting)); disableRouting {
+		log.Info("userspace routing is disabled")
+		return m, nil
+	}
+
 	intf := iface.GetWGDevice()
 	if intf == nil {
 		log.Info("forwarding not supported")
 		// Only supported in userspace mode as we need to inject packets back into wireguard directly
-		// TODO: Check if native firewall can do the job, in that case just forward everything (restores previous behavior)
-		m.routingEnabled = false
 	} else {
 		var err error
 		m.forwarder, err = forwarder.New(iface, m.logger)
 		if err != nil {
 			log.Errorf("failed to create forwarder: %v", err)
-			m.routingEnabled = false
+		} else {
+			m.routingEnabled = true
 		}
 	}
 
@@ -147,16 +168,14 @@ func (m *Manager) Init(*statemanager.Manager) error {
 }
 
 func (m *Manager) IsServerRouteSupported() bool {
-	if m.nativeFirewall == nil {
-		return false
-	} else {
-		return true
-	}
+	return m.nativeFirewall != nil || m.routingEnabled && m.forwarder != nil
 }
 
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	if m.nativeFirewall == nil {
-		return errRouteNotSupported
+		// userspace routed packets are always SNATed to the inbound direction
+		// TODO: implement outbound SNAT
+		return nil
 	}
 	return m.nativeFirewall.AddNatRule(pair)
 }
@@ -164,7 +183,7 @@ func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 // RemoveNatRule removes a routing firewall rule
 func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	if m.nativeFirewall == nil {
-		return errRouteNotSupported
+		return nil
 	}
 	return m.nativeFirewall.RemoveNatRule(pair)
 }
@@ -450,7 +469,8 @@ func (m *Manager) trackICMPOutbound(d *decoder, srcIP, dstIP net.IP) {
 	}
 }
 
-// dropFilter implements filtering logic for incoming packets
+// dropFilter implements filtering logic for incoming packets.
+// If it returns true, the packet should be dropped.
 func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -469,8 +489,6 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 		return true
 	}
 
-	isLocal := m.isLocalIP(dstIP)
-
 	// For all inbound traffic, first check if it matches a tracked connection.
 	// This must happen before any other filtering because the packets are statefully tracked.
 	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP) {
@@ -478,7 +496,7 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	}
 
 	// Handle local traffic - apply peer ACLs
-	if isLocal {
+	if m.isLocalIP(dstIP) {
 		drop := m.applyRules(srcIP, packetData, rules, d)
 		if drop {
 			m.logger.Trace("Dropping local packet: src=%s dst=%s rules=denied",
@@ -486,15 +504,20 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 		}
 		return drop
 	}
+	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData)
+}
 
-	// Handle routed traffic
-	// TODO: Handle replies for [routed network -> netbird peer], we don't need to start the forwarder here
-	// We might need to apply NAT
-	// Don't handle routing if not enabled
+func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
+	// Drop if routing is disabled
 	if !m.routingEnabled {
 		m.logger.Trace("Dropping routed packet (routing disabled): src=%s dst=%s",
 			srcIP, dstIP)
 		return true
+	}
+
+	// Pass to native stack if native router is enabled or forced
+	if m.nativeRouter {
+		return false
 	}
 
 	// Get protocol and ports for route ACL check
@@ -502,7 +525,7 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 	srcPort, dstPort := getPortsFromPacket(d)
 
 	// Check route ACLs
-	if !m.checkRouteACLs(srcIP, dstIP, proto, srcPort, dstPort) {
+	if !m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort) {
 		m.logger.Trace("Dropping routed packet (ACL denied): src=%s:%d dst=%s:%d proto=%v",
 			srcIP, srcPort, dstIP, dstPort, proto)
 		return true
@@ -514,7 +537,7 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 		m.logger.Error("Failed to inject incoming packet: %v", err)
 	}
 
-	// Default: drop
+	// Forwarded packets shouldn't reach the native stack, hence they won't be visible in a packet capture
 	return true
 }
 
@@ -655,7 +678,8 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *de
 	return false, false
 }
 
-func (m *Manager) checkRouteACLs(srcIP, dstIP net.IP, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+// routeACLsPass returns treu if the packet is allowed by the route ACLs
+func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, srcPort, dstPort uint16) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
