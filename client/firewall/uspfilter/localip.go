@@ -52,7 +52,7 @@ func (m *localIPManager) processIP(ip net.IP, newIPv4Bitmap *[1 << 16]uint32, ip
 		if _, exists := ipv4Set[ipStr]; !exists {
 			ipv4Set[ipStr] = struct{}{}
 			*ipv4Addresses = append(*ipv4Addresses, ipStr)
-			(*newIPv4Bitmap)[high] |= 1 << (low % 32)
+			newIPv4Bitmap[high] |= 1 << (low % 32)
 		}
 	}
 	return nil
