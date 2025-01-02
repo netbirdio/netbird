@@ -23,7 +23,7 @@ type handler struct {
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func AddEndpoints(accountManager server.AccountManager, locationManager *geolocation.Geolocation, authCfg configs.AuthCfg, router *mux.Router) {
+func AddEndpoints(accountManager server.AccountManager, locationManager geolocation.Geolocation, authCfg configs.AuthCfg, router *mux.Router) {
 	policiesHandler := newHandler(accountManager, authCfg)
 	router.HandleFunc("/policies", policiesHandler.getAllPolicies).Methods("GET", "OPTIONS")
 	router.HandleFunc("/policies", policiesHandler.createPolicy).Methods("POST", "OPTIONS")

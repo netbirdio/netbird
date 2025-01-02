@@ -32,6 +32,9 @@ type managerImpl struct {
 	routersManager     routers.Manager
 }
 
+type mockManager struct {
+}
+
 func NewManager(store store.Store, permissionsManager permissions.Manager, resourceManager resources.Manager, routersManager routers.Manager, accountManager s.AccountManager) Manager {
 	return &managerImpl{
 		store:              store,
@@ -183,5 +186,29 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 
+	return nil
+}
+
+func NewManagerMock() Manager {
+	return &mockManager{}
+}
+
+func (m *mockManager) GetAllNetworks(ctx context.Context, accountID, userID string) ([]*types.Network, error) {
+	return []*types.Network{}, nil
+}
+
+func (m *mockManager) CreateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
+	return network, nil
+}
+
+func (m *mockManager) GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error) {
+	return &types.Network{}, nil
+}
+
+func (m *mockManager) UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
+	return network, nil
+}
+
+func (m *mockManager) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {
 	return nil
 }
