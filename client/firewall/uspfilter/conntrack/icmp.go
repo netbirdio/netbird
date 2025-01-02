@@ -97,13 +97,7 @@ func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq u
 
 // IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request
 func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, icmpType uint8) bool {
-	switch icmpType {
-	case uint8(layers.ICMPv4TypeDestinationUnreachable),
-		uint8(layers.ICMPv4TypeTimeExceeded):
-		return true
-	case uint8(layers.ICMPv4TypeEchoReply):
-		// continue processing
-	default:
+	if icmpType != uint8(layers.ICMPv4TypeEchoReply) {
 		return false
 	}
 

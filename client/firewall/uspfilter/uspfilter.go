@@ -620,7 +620,22 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP net.IP) bool
 	return false
 }
 
+// isSpecialICMP returns true if the packet is a special ICMP packet that should be allowed
+func (m *Manager) isSpecialICMP(d *decoder) bool {
+	if d.decoded[1] != layers.LayerTypeICMPv4 {
+		return false
+	}
+
+	icmpType := d.icmp4.TypeCode.Type()
+	return icmpType == layers.ICMPv4TypeDestinationUnreachable ||
+		icmpType == layers.ICMPv4TypeTimeExceeded
+}
+
 func (m *Manager) applyRules(srcIP net.IP, packetData []byte, rules map[string]RuleSet, d *decoder) bool {
+	if m.isSpecialICMP(d) {
+		return false
+	}
+
 	if filter, ok := validateRule(srcIP, packetData, rules[srcIP.String()], d); ok {
 		return filter
 	}
