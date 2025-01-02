@@ -335,6 +335,9 @@ func (a *Account) addNetworksRoutingPeers(
 		}
 	}
 	for p := range networkRoutesPeers {
+		if p == peer.ID {
+			continue
+		}
 		missingPeers[p] = struct{}{}
 	}
 

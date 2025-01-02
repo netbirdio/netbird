@@ -336,12 +336,12 @@ func Test_AddNetworksRoutingPeersAddsMissingPeers(t *testing.T) {
 
 func Test_AddNetworksRoutingPeersIgnoresExistingPeers(t *testing.T) {
 	account := setupTestAccount()
-	peer := &nbpeer.Peer{Key: "peer1"}
+	peer := &nbpeer.Peer{Key: "peer1Key", ID: "peer1"}
 	networkResourcesRoutes := []*route.Route{
 		{Peer: "peer2Key"},
 	}
 	peersToConnect := []*nbpeer.Peer{
-		{Key: "peer2Key"},
+		{Key: "peer2Key", ID: "peer2"},
 	}
 	expiredPeers := []*nbpeer.Peer{}
 
@@ -352,16 +352,16 @@ func Test_AddNetworksRoutingPeersIgnoresExistingPeers(t *testing.T) {
 
 func Test_AddNetworksRoutingPeersAddsExpiredPeers(t *testing.T) {
 	account := setupTestAccount()
-	peer := &nbpeer.Peer{Key: "peer1Key"}
+	peer := &nbpeer.Peer{Key: "peer1Key", ID: "peer1"}
 	networkResourcesRoutes := []*route.Route{
-		{Peer: "peer2Key"},
-		{Peer: "peer3Key"},
+		{Peer: "peer2Key", PeerID: "peer2"},
+		{Peer: "peer3Key", PeerID: "peer3"},
 	}
 	peersToConnect := []*nbpeer.Peer{
-		{Key: "peer2Key"},
+		{Key: "peer2Key", ID: "peer2"},
 	}
 	expiredPeers := []*nbpeer.Peer{
-		{Key: "peer3Key"},
+		{Key: "peer3Key", ID: "peer3"},
 	}
 
 	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, false, map[string]struct{}{})
@@ -369,9 +369,24 @@ func Test_AddNetworksRoutingPeersAddsExpiredPeers(t *testing.T) {
 	require.Equal(t, "peer2Key", result[0].Key)
 }
 
+func Test_AddNetworksRoutingPeersExcludesSelf(t *testing.T) {
+	account := setupTestAccount()
+	peer := &nbpeer.Peer{Key: "peer1Key", ID: "peer1"}
+	networkResourcesRoutes := []*route.Route{
+		{Peer: "peer1Key", PeerID: "peer1"},
+		{Peer: "peer2Key", PeerID: "peer2"},
+	}
+	peersToConnect := []*nbpeer.Peer{}
+	expiredPeers := []*nbpeer.Peer{}
+
+	result := account.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, true, map[string]struct{}{})
+	require.Len(t, result, 1)
+	require.Equal(t, "peer2Key", result[0].Key)
+}
+
 func Test_AddNetworksRoutingPeersHandlesNoMissingPeers(t *testing.T) {
 	account := setupTestAccount()
-	peer := &nbpeer.Peer{Key: "peer1"}
+	peer := &nbpeer.Peer{Key: "peer1key", ID: "peer1"}
 	networkResourcesRoutes := []*route.Route{}
 	peersToConnect := []*nbpeer.Peer{}
 	expiredPeers := []*nbpeer.Peer{}
