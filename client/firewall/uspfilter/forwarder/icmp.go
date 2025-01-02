@@ -37,7 +37,8 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	icmpHdr := header.ICMPv4(pkt.TransportHeader().View().AsSlice())
 
 	// For Echo Requests, send and handle response
-	if icmpHdr.Type() == header.ICMPv4Echo {
+	switch icmpHdr.Type() {
+	case header.ICMPv4Echo:
 		_, err = conn.WriteTo(payload, dst)
 		if err != nil {
 			f.logger.Error("Failed to write ICMP packet for %v: %v", id, err)
@@ -48,9 +49,21 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 			id, icmpHdr.Type(), icmpHdr.Code())
 
 		return f.handleEchoResponse(conn, id)
+	case header.ICMPv4EchoReply:
+		// dont process our own replies
+		return false
+	default:
 	}
 
-	// TODO: forward other ICMP types
+	// For other ICMP types (Time Exceeded, Destination Unreachable, etc)
+	_, err = conn.WriteTo(payload, dst)
+	if err != nil {
+		f.logger.Error("Failed to write ICMP packet for %v: %v", id, err)
+		return false
+	}
+
+	f.logger.Trace("Forwarded ICMP packet %v type=%v code=%v",
+		id, icmpHdr.Type(), icmpHdr.Code())
 
 	return true
 }
