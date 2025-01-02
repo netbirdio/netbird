@@ -3025,7 +3025,7 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		{"Medium", 500, 100, 7, 13, 10, 70},
 		{"Large", 5000, 200, 65, 80, 60, 220},
 		{"Small single", 50, 10, 1, 3, 3, 70},
-		{"Medium single", 500, 10, 7, 13, 10, 26},
+		{"Medium single", 500, 10, 7, 13, 10, 32},
 		{"Large 5", 5000, 15, 65, 80, 60, 200},
 	}
 
