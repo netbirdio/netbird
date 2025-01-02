@@ -19,6 +19,8 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	conn, err := lc.ListenPacket(ctx, "ip4:icmp", "0.0.0.0")
 	if err != nil {
 		f.logger.Error("Failed to create ICMP socket for %v: %v", id, err)
+
+		// This will make netstack reply on behalf of the original destination, that's ok for now
 		return false
 	}
 	defer func() {
@@ -42,7 +44,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 		_, err = conn.WriteTo(payload, dst)
 		if err != nil {
 			f.logger.Error("Failed to write ICMP packet for %v: %v", id, err)
-			return false
+			return true
 		}
 
 		f.logger.Trace("Forwarded ICMP packet %v type=%v code=%v",
@@ -51,7 +53,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 		return f.handleEchoResponse(conn, id)
 	case header.ICMPv4EchoReply:
 		// dont process our own replies
-		return false
+		return true
 	default:
 	}
 
@@ -59,7 +61,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	_, err = conn.WriteTo(payload, dst)
 	if err != nil {
 		f.logger.Error("Failed to write ICMP packet for %v: %v", id, err)
-		return false
+		return true
 	}
 
 	f.logger.Trace("Forwarded ICMP packet %v type=%v code=%v",
