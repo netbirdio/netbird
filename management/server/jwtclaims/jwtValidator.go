@@ -72,15 +72,19 @@ type JSONWebKey struct {
 	X5c []string `json:"x5c"`
 }
 
-// JWTValidator struct to handle token validation and parsing
-type JWTValidator struct {
+type JWTValidator interface {
+	ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error)
+}
+
+// jwtValidatorImpl struct to handle token validation and parsing
+type jwtValidatorImpl struct {
 	options Options
 }
 
 var keyNotFound = errors.New("unable to find appropriate key")
 
 // NewJWTValidator constructor
-func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (*JWTValidator, error) {
+func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (JWTValidator, error) {
 	keys, err := getPemKeys(ctx, keysLocation)
 	if err != nil {
 		return nil, err
@@ -146,13 +150,13 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 		options.UserProperty = "user"
 	}
 
-	return &JWTValidator{
+	return &jwtValidatorImpl{
 		options: options,
 	}, nil
 }
 
 // ValidateAndParse validates the token and returns the parsed token
-func (m *JWTValidator) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+func (m *jwtValidatorImpl) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// Check if it was required
@@ -318,3 +322,28 @@ func getMaxAgeFromCacheHeader(ctx context.Context, cacheControl string) int {
 
 	return 0
 }
+
+type JwtValidatorMock struct{}
+
+func (j *JwtValidatorMock) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+	claimMaps := jwt.MapClaims{}
+
+	switch token {
+	case "testUserId", "testAdminId", "testOwnerId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
+		claimMaps[UserIDClaim] = token
+		claimMaps[AccountIDSuffix] = "testAccountId"
+		claimMaps[DomainIDSuffix] = "test.com"
+		claimMaps[DomainCategorySuffix] = "private"
+	case "otherUserId":
+		claimMaps[UserIDClaim] = "otherUserId"
+		claimMaps[AccountIDSuffix] = "otherAccountId"
+		claimMaps[DomainIDSuffix] = "other.com"
+		claimMaps[DomainCategorySuffix] = "private"
+	case "invalidToken":
+		return nil, errors.New("invalid token")
+	}
+
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
+	return jwtToken, nil
+}
+
