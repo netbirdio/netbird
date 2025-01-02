@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	log "github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
@@ -37,6 +38,10 @@ func CreateMysqlTestContainer() (func(), error) {
 		mysql.WithDatabase("netbird"),
 		mysql.WithUsername("root"),
 		mysql.WithPassword("netbird"),
+		testcontainers.WithHostConfigModifier(func(hostConfig *container.HostConfig) {
+			hostConfig.AutoRemove = true
+			hostConfig.Tmpfs = map[string]string{"/var/lib/mysql": "rw"}
+		}),
 	)
 	if err != nil {
 		return nil, err
