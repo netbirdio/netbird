@@ -3,7 +3,13 @@ package conntrack
 import (
 	"net"
 	"testing"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
+
+var logger = log.NewFromLogrus(logrus.StandardLogger())
 
 func BenchmarkIPOperations(b *testing.B) {
 	b.Run("MakeIPAddr", func(b *testing.B) {
