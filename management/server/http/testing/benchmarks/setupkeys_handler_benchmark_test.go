@@ -49,7 +49,7 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -95,7 +95,7 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -142,7 +142,7 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -176,7 +176,7 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -210,7 +210,7 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, 1000)
 
 			b.ResetTimer()
