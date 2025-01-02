@@ -177,6 +177,9 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 	if flags&TCPRst != 0 {
 		conn.State = TCPStateClosed
 		conn.SetEstablished(false)
+
+		t.logger.Trace("TCP connection reset: %s:%d -> %s:%d",
+			conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
 		return
 	}
 
@@ -233,6 +236,9 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 		if flags&TCPAck != 0 {
 			conn.State = TCPStateTimeWait
 			// Keep established = false from previous state
+
+			t.logger.Trace("TCP connection closed (simultaneous) - %s:%d -> %s:%d",
+				conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
 		}
 
 	case TCPStateCloseWait:
@@ -243,11 +249,17 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 	case TCPStateLastAck:
 		if flags&TCPAck != 0 {
 			conn.State = TCPStateClosed
+
+			t.logger.Trace("TCP connection gracefully closed: %s:%d -> %s:%d",
+				conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
 		}
 
 	case TCPStateTimeWait:
 		// Stay in TIME-WAIT for 2MSL before transitioning to closed
 		// This is handled by the cleanup routine
+
+		t.logger.Trace("TCP connection completed - %s:%d -> %s:%d",
+			conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
 	}
 }
 
@@ -325,7 +337,7 @@ func (t *TCPTracker) cleanup() {
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
-			t.logger.Trace("Closed TCP connection: %s:%d -> %s:%d", conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
+			t.logger.Trace("Cleaned up TCP connection: %s:%d -> %s:%d", conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
 		}
 	}
 }
