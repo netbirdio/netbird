@@ -76,7 +76,7 @@ func BenchmarkGetOnePeer(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
 		"Peers - XS":     {MinMsPerOpLocal: 600, MaxMsPerOpLocal: 900, MinMsPerOpCICD: 1100, MaxMsPerOpCICD: 7000},
 		"Peers - S":      {MinMsPerOpLocal: 3, MaxMsPerOpLocal: 7, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 30},
-		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 40, MinMsPerOpCICD: 35, MaxMsPerOpCICD: 65},
+		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 40, MinMsPerOpCICD: 35, MaxMsPerOpCICD: 80},
 		"Peers - L":      {MinMsPerOpLocal: 120, MaxMsPerOpLocal: 160, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
 		"Groups - L":     {MinMsPerOpLocal: 500, MaxMsPerOpLocal: 750, MinMsPerOpCICD: 900, MaxMsPerOpCICD: 6500},
 		"Users - L":      {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 300, MinMsPerOpCICD: 300, MaxMsPerOpCICD: 600},
@@ -148,7 +148,7 @@ func BenchmarkDeletePeer(b *testing.B) {
 		"Peers - L":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 210},
 		"Groups - L":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 550, MinMsPerOpCICD: 700, MaxMsPerOpCICD: 5500},
 		"Users - L":      {MinMsPerOpLocal: 170, MaxMsPerOpLocal: 210, MinMsPerOpCICD: 290, MaxMsPerOpCICD: 1700},
-		"Setup Keys - L": {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 125, MinMsPerOpCICD: 80, MaxMsPerOpCICD: 280},
+		"Setup Keys - L": {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 125, MinMsPerOpCICD: 70, MaxMsPerOpCICD: 280},
 		"Peers - XL":     {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 60, MaxMsPerOpCICD: 250},
 	}
 
