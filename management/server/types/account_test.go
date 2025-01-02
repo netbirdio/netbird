@@ -770,3 +770,21 @@ func Test_NetworksNetMapGenWithTwoPostureChecks(t *testing.T) {
 		t.Errorf("%s should not have source range of peer2 %s", rules[0].SourceRanges, accNetResourcePeer2IP.String())
 	}
 }
+
+func Test_NetworksNetMapGenShouldExcludeOtherRouters(t *testing.T) {
+	account := getBasicAccountsWithResource()
+
+	account.Peers["router2Id"] = &nbpeer.Peer{Key: "router2Key", ID: "router2Id", AccountID: accID, IP: net.IP{192, 168, 1, 4}}
+	account.NetworkRouters = append(account.NetworkRouters, &routerTypes.NetworkRouter{
+		ID:        "router2Id",
+		NetworkID: network1ID,
+		AccountID: accID,
+		Peer:      "router2Id",
+	})
+
+	// validate routes for router1
+	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), accNetResourceRouter1ID, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap())
+	assert.True(t, isRouter, "should be router")
+	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
+	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
+}
