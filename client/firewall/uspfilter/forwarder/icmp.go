@@ -27,7 +27,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 		}
 	}()
 
-	dstIP := net.IP(id.LocalAddress.AsSlice())
+	dstIP := f.determineDialAddr(id.LocalAddress)
 	dst := &net.IPAddr{IP: dstIP}
 
 	// Get the complete ICMP message (header + data)

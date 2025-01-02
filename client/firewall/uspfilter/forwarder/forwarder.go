@@ -3,6 +3,7 @@ package forwarder
 import (
 	"context"
 	"fmt"
+	"net"
 
 	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -30,9 +31,11 @@ type Forwarder struct {
 	udpForwarder *udpForwarder
 	ctx          context.Context
 	cancel       context.CancelFunc
+	ip           net.IP
+	netstack     bool
 }
 
-func New(iface common.IFaceMapper, logger *nblog.Logger) (*Forwarder, error) {
+func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwarder, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{
@@ -101,6 +104,8 @@ func New(iface common.IFaceMapper, logger *nblog.Logger) (*Forwarder, error) {
 		udpForwarder: newUDPForwarder(logger),
 		ctx:          ctx,
 		cancel:       cancel,
+		netstack:     netstack,
+		ip:           iface.Address().IP,
 	}
 
 	tcpForwarder := tcp.NewForwarder(s, receiveWindow, maxInFlight, f.handleTCP)
@@ -141,4 +146,11 @@ func (f *Forwarder) Stop() {
 
 	f.stack.Close()
 	f.stack.Wait()
+}
+
+func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {
+	if f.netstack && f.ip.Equal(addr.AsSlice()) {
+		return net.IPv4(127, 0, 0, 1)
+	}
+	return addr.AsSlice()
 }

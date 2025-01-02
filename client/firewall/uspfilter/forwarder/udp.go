@@ -125,13 +125,12 @@ func (f *udpForwarder) cleanup() {
 
 // handleUDP is called by the UDP forwarder for new packets
 func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
-	id := r.ID()
-	dstAddr := fmt.Sprintf("%s:%d", id.LocalAddress.String(), id.LocalPort)
-
 	if f.ctx.Err() != nil {
 		f.logger.Trace("forwarder: context done, dropping UDP packet")
 		return
 	}
+
+	id := r.ID()
 
 	f.udpForwarder.RLock()
 	_, exists := f.udpForwarder.conns[id]
@@ -141,6 +140,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		return
 	}
 
+	dstAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", dstAddr)
 	if err != nil {
 		f.logger.Debug("forwarder: UDP dial error for %v: %v", id, err)

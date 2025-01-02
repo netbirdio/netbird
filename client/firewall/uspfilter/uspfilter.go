@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -57,6 +58,8 @@ type Manager struct {
 	nativeRouter bool
 	// indicates whether we track outbound connections
 	stateful bool
+	// indicates whether wireguards runs in netstack mode
+	netstack bool
 
 	localipmanager *localIPManager
 
@@ -130,7 +133,8 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 		localipmanager: newLocalIPManager(),
 		stateful:       !disableConntrack,
 		// TODO: support changing log level from logrus
-		logger: nblog.NewFromLogrus(log.StandardLogger()),
+		logger:   nblog.NewFromLogrus(log.StandardLogger()),
+		netstack: netstack.IsEnabled(),
 	}
 
 	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
@@ -157,7 +161,7 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 		// Only supported in userspace mode as we need to inject packets back into wireguard directly
 	} else {
 		var err error
-		m.forwarder, err = forwarder.New(iface, m.logger)
+		m.forwarder, err = forwarder.New(iface, m.logger, m.netstack)
 		if err != nil {
 			log.Errorf("failed to create forwarder: %v", err)
 		} else {
@@ -505,14 +509,34 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 
 	// Handle local traffic - apply peer ACLs
 	if m.localipmanager.IsLocalIP(dstIP) {
-		drop := m.applyRules(srcIP, packetData, rules, d)
-		if drop {
+		if m.peerACLsBlock(srcIP, packetData, rules, d) {
 			m.logger.Trace("Dropping local packet: src=%s dst=%s rules=denied",
 				srcIP, dstIP)
+			return true
 		}
-		return drop
+
+		// if running in netstack mode we need to pass this to the forwarder
+		if m.netstack {
+			m.logger.Trace("Passing local packet to netstack: src=%s dst=%s", srcIP, dstIP)
+			m.handleNetstackLocalTraffic(packetData)
+			// don't process this packet further
+			return true
+		}
+
+		return false
 	}
+
 	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData)
+}
+
+func (m *Manager) handleNetstackLocalTraffic(packetData []byte) {
+	if m.forwarder == nil {
+		return
+	}
+
+	if err := m.forwarder.InjectIncomingPacket(packetData); err != nil {
+		m.logger.Error("Failed to inject local packet: %v", err)
+	}
 }
 
 func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
@@ -540,8 +564,7 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 	}
 
 	// Let forwarder handle the packet if it passed route ACLs
-	err := m.forwarder.InjectIncomingPacket(packetData)
-	if err != nil {
+	if err := m.forwarder.InjectIncomingPacket(packetData); err != nil {
 		m.logger.Error("Failed to inject incoming packet: %v", err)
 	}
 
@@ -631,7 +654,7 @@ func (m *Manager) isSpecialICMP(d *decoder) bool {
 		icmpType == layers.ICMPv4TypeTimeExceeded
 }
 
-func (m *Manager) applyRules(srcIP net.IP, packetData []byte, rules map[string]RuleSet, d *decoder) bool {
+func (m *Manager) peerACLsBlock(srcIP net.IP, packetData []byte, rules map[string]RuleSet, d *decoder) bool {
 	if m.isSpecialICMP(d) {
 		return false
 	}

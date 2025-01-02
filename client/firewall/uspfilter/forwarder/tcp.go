@@ -17,10 +17,9 @@ import (
 func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	id := r.ID()
 
-	dstAddr := id.LocalAddress
-	dstPort := id.LocalPort
-	dialAddr := fmt.Sprintf("%s:%d", dstAddr.String(), dstPort)
+	dialAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 
+	f.logger.Trace("forwarder: handling TCP connection %v", id)
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {
 		r.Complete(true)
