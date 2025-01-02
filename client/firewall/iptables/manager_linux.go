@@ -197,7 +197,7 @@ func (m *Manager) AllowNetbird() error {
 	}
 
 	_, err := m.AddPeerFiltering(
-		net.ParseIP("0.0.0.0"),
+		net.IP{0, 0, 0, 0},
 		"all",
 		nil,
 		nil,

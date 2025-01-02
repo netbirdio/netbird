@@ -35,6 +35,15 @@ type FirewallRule struct {
 	Port string
 }
 
+// IsEqual checks if two firewall rules are equal.
+func (r *FirewallRule) IsEqual(other *FirewallRule) bool {
+	return r.PeerIP == other.PeerIP &&
+		r.Direction == other.Direction &&
+		r.Action == other.Action &&
+		r.Protocol == other.Protocol &&
+		r.Port == other.Port
+}
+
 // generateRouteFirewallRules generates a list of firewall rules for a given route.
 func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) []*RouteFirewallRule {
 	rulesExists := make(map[string]struct{})

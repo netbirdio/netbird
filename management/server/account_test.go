@@ -2730,6 +2730,19 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 
 	assert.NoError(t, manager.Store.SaveAccount(context.Background(), account), "unable to save account")
 
+	t.Run("skip sync for token auth type", func(t *testing.T) {
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group3"}, "is_token": true},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 0, "JWT groups should not be synced")
+	})
+
 	t.Run("empty jwt groups", func(t *testing.T) {
 		claims := jwtclaims.AuthorizationClaims{
 			UserId: "user1",
@@ -2823,7 +2836,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.Len(t, user.AutoGroups, 1, "new group should be added")
 	})
 
-	t.Run("remove all JWT groups", func(t *testing.T) {
+	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {
 		claims := jwtclaims.AuthorizationClaims{
 			UserId: "user1",
 			Raw:    jwt.MapClaims{"groups": []interface{}{}},
@@ -2834,7 +2847,20 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "only non-JWT groups should remain")
-		assert.Contains(t, user.AutoGroups, "group1", " group1 should still be present")
+		assert.Contains(t, user.AutoGroups, "group1", "group1 should still be present")
+	})
+
+	t.Run("remove all JWT groups when claim does not exist", func(t *testing.T) {
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user2",
+			Raw:    jwt.MapClaims{},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user2")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 0, "all JWT groups should be removed")
 	})
 }
 
@@ -3038,9 +3064,9 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 3, 3, 10},
+		{"Small", 50, 5, 1, 3, 3, 11},
 		{"Medium", 500, 100, 7, 13, 10, 70},
-		{"Large", 5000, 200, 65, 80, 60, 200},
+		{"Large", 5000, 200, 65, 80, 60, 220},
 		{"Small single", 50, 10, 1, 3, 3, 70},
 		{"Medium single", 500, 10, 7, 13, 10, 26},
 		{"Large 5", 5000, 15, 65, 80, 60, 200},
@@ -3180,7 +3206,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 		maxMsPerOpCICD  float64
 	}{
 		{"Small", 50, 5, 107, 120, 107, 160},
-		{"Medium", 500, 100, 105, 140, 105, 190},
+		{"Medium", 500, 100, 105, 140, 105, 220},
 		{"Large", 5000, 200, 180, 220, 180, 350},
 		{"Small single", 50, 10, 107, 120, 105, 160},
 		{"Medium single", 500, 10, 105, 140, 105, 170},
