@@ -925,7 +925,7 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 					return tc.expectedResponse[i].UsageLimit < tc.expectedResponse[j].UsageLimit
 				})
 
-				for i, _ := range tc.expectedResponse {
+				for i := range tc.expectedResponse {
 					validateCreatedKey(t, tc.expectedResponse[i], &got[i])
 
 					key, err := am.GetSetupKey(context.Background(), testing_tools.TestAccountId, testing_tools.TestUserId, got[i].Id)
