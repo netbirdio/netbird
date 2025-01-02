@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -77,4 +78,46 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 
 func (am *DefaultAccountManager) GetValidatedPeers(account *types.Account) (map[string]struct{}, error) {
 	return am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
+}
+
+type MocIntegratedValidator struct {
+	ValidatePeerFunc func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error)
+}
+
+func (a MocIntegratedValidator) ValidateExtraSettings(_ context.Context, newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+	return nil
+}
+
+func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error) {
+	if a.ValidatePeerFunc != nil {
+		return a.ValidatePeerFunc(context.Background(), update, peer, userID, accountID, dnsDomain, peersGroup, extraSettings)
+	}
+	return update, false, nil
+}
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*types.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	validatedPeers := make(map[string]struct{})
+	for _, peer := range peers {
+		validatedPeers[peer.ID] = struct{}{}
+	}
+	return validatedPeers, nil
+}
+
+func (MocIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+	return peer
+}
+
+func (MocIntegratedValidator) IsNotValidPeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
+	return false, false, nil
+}
+
+func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
+	// just a dummy
+}
+
+func (MocIntegratedValidator) Stop(_ context.Context) {
+	// just a dummy
 }
