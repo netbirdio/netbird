@@ -474,6 +474,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed")
 	}
 
+	if len(group.Resources) > 0 {
+		return &GroupLinkError{"network resource", group.Resources[0].ID}
+	}
+
 	if isLinked, linkedRoute := isGroupLinkedToRoute(ctx, transaction, group.AccountID, group.ID); isLinked {
 		return &GroupLinkError{"route", string(linkedRoute.NetID)}
 	}
@@ -529,7 +533,10 @@ func isGroupLinkedToRoute(ctx context.Context, transaction store.Store, accountI
 	}
 
 	for _, r := range routes {
-		if slices.Contains(r.Groups, groupID) || slices.Contains(r.PeerGroups, groupID) {
+		isLinked := slices.Contains(r.Groups, groupID) ||
+			slices.Contains(r.PeerGroups, groupID) ||
+			slices.Contains(r.AccessControlGroups, groupID)
+		if isLinked {
 			return true, r
 		}
 	}

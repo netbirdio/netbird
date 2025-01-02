@@ -154,6 +154,7 @@ func TestPoliciesGetPolicy(t *testing.T) {
 
 func TestPoliciesWritePolicy(t *testing.T) {
 	str := func(s string) *string { return &s }
+	emptyString := ""
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -184,8 +185,9 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedPolicy: &api.Policy{
-				Id:   str("id-was-set"),
-				Name: "Default POSTed Policy",
+				Id:          str("id-was-set"),
+				Name:        "Default POSTed Policy",
+				Description: &emptyString,
 				Rules: []api.PolicyRule{
 					{
 						Id:            str("id-was-set"),
@@ -232,8 +234,9 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedPolicy: &api.Policy{
-				Id:   str("id-existed"),
-				Name: "Default POSTed Policy",
+				Id:          str("id-existed"),
+				Name:        "Default POSTed Policy",
+				Description: &emptyString,
 				Rules: []api.PolicyRule{
 					{
 						Id:            str("id-existed"),

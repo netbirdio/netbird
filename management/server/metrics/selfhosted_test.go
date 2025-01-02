@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -172,6 +175,31 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 					},
 				},
 			},
+			Networks: []*networkTypes.Network{
+				{
+					ID:        "1",
+					AccountID: "1",
+				},
+			},
+			NetworkResources: []*resourceTypes.NetworkResource{
+				{
+					ID:        "1",
+					AccountID: "1",
+					NetworkID: "1",
+				},
+				{
+					ID:        "2",
+					AccountID: "1",
+					NetworkID: "1",
+				},
+			},
+			NetworkRouters: []*routerTypes.NetworkRouter{
+				{
+					ID:        "1",
+					AccountID: "1",
+					NetworkID: "1",
+				},
+			},
 		},
 	}
 }
@@ -199,6 +227,15 @@ func TestGenerateProperties(t *testing.T) {
 	}
 	if properties["routes"] != 2 {
 		t.Errorf("expected 2 routes, got %d", properties["routes"])
+	}
+	if properties["networks"] != 1 {
+		t.Errorf("expected 1 networks, got %d", properties["networks"])
+	}
+	if properties["network_resources"] != 2 {
+		t.Errorf("expected 2 network_resources, got %d", properties["network_resources"])
+	}
+	if properties["network_routers"] != 1 {
+		t.Errorf("expected 1 network_routers, got %d", properties["network_routers"])
 	}
 	if properties["rules"] != 4 {
 		t.Errorf("expected 4 rules, got %d", properties["rules"])

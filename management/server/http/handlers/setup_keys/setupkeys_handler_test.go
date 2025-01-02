@@ -26,7 +26,6 @@ const (
 	newSetupKeyName     = "New Setup Key"
 	updatedSetupKeyName = "KKKey"
 	notFoundSetupKeyID  = "notFoundSetupKeyID"
-	testAccountID       = "test_id"
 )
 
 func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKey, updatedSetupKey *types.SetupKey,
@@ -81,7 +80,7 @@ func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKe
 				return jwtclaims.AuthorizationClaims{
 					UserId:    user.Id,
 					Domain:    "hotmail.com",
-					AccountId: testAccountID,
+					AccountId: "testAccountId",
 				}
 			}),
 		),
@@ -102,7 +101,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 	updatedDefaultSetupKey.Name = updatedSetupKeyName
 	updatedDefaultSetupKey.Revoked = true
 
-	expectedNewKey := toResponseBody(newSetupKey)
+	expectedNewKey := ToResponseBody(newSetupKey)
 	expectedNewKey.Key = plainKey
 	tt := []struct {
 		name              string
@@ -120,7 +119,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			requestPath:       "/api/setup-keys",
 			expectedStatus:    http.StatusOK,
 			expectedBody:      true,
-			expectedSetupKeys: []*api.SetupKey{toResponseBody(defaultSetupKey)},
+			expectedSetupKeys: []*api.SetupKey{ToResponseBody(defaultSetupKey)},
 		},
 		{
 			name:             "Get Existing Setup Key",
@@ -128,7 +127,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			requestPath:      "/api/setup-keys/" + existingSetupKeyID,
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(defaultSetupKey),
+			expectedSetupKey: ToResponseBody(defaultSetupKey),
 		},
 		{
 			name:           "Get Not Existing Setup Key",
@@ -159,7 +158,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 				))),
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(updatedDefaultSetupKey),
+			expectedSetupKey: ToResponseBody(updatedDefaultSetupKey),
 		},
 		{
 			name:           "Delete Setup Key",
@@ -228,7 +227,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 func assertKeys(t *testing.T, got *api.SetupKey, expected *api.SetupKey) {
 	t.Helper()
 	// this comparison is done manually because when converting to JSON dates formatted differently
-	// assert.Equal(t, got.UpdatedAt, tc.expectedSetupKey.UpdatedAt) //doesn't work
+	// assert.Equal(t, got.UpdatedAt, tc.expectedResponse.UpdatedAt) //doesn't work
 	assert.WithinDurationf(t, got.UpdatedAt, expected.UpdatedAt, 0, "")
 	assert.WithinDurationf(t, got.Expires, expected.Expires, 0, "")
 	assert.Equal(t, got.Name, expected.Name)

@@ -95,6 +95,7 @@ type Route struct {
 	NetID               NetID
 	Description         string
 	Peer                string
+	PeerID              string   `gorm:"-"`
 	PeerGroups          []string `gorm:"serializer:json"`
 	NetworkType         NetworkType
 	Masquerade          bool
@@ -120,6 +121,7 @@ func (r *Route) Copy() *Route {
 		KeepRoute:           r.KeepRoute,
 		NetworkType:         r.NetworkType,
 		Peer:                r.Peer,
+		PeerID:              r.PeerID,
 		PeerGroups:          slices.Clone(r.PeerGroups),
 		Metric:              r.Metric,
 		Masquerade:          r.Masquerade,
@@ -146,6 +148,7 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.KeepRoute == r.KeepRoute &&
 		other.NetworkType == r.NetworkType &&
 		other.Peer == r.Peer &&
+		other.PeerID == r.PeerID &&
 		other.Metric == r.Metric &&
 		other.Masquerade == r.Masquerade &&
 		other.Enabled == r.Enabled &&

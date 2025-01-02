@@ -410,13 +410,9 @@ func (e *Engine) Start() error {
 	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
 	if err != nil {
 		log.Errorf("failed creating firewall manager: %s", err)
-	}
-
-	if e.firewall != nil && e.firewall.IsServerRouteSupported() {
-		err = e.routeManager.EnableServerRouter(e.firewall)
-		if err != nil {
-			e.close()
-			return fmt.Errorf("enable server router: %w", err)
+	} else if e.firewall != nil {
+		if err := e.initFirewall(err); err != nil {
+			return err
 		}
 	}
 
@@ -455,6 +451,41 @@ func (e *Engine) Start() error {
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
+
+	return nil
+}
+
+func (e *Engine) initFirewall(error) error {
+	if e.firewall.IsServerRouteSupported() {
+		if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
+			e.close()
+			return fmt.Errorf("enable server router: %w", err)
+		}
+	}
+
+	if e.rpManager == nil || !e.config.RosenpassEnabled {
+		return nil
+	}
+
+	rosenpassPort := e.rpManager.GetAddress().Port
+	port := manager.Port{Values: []int{rosenpassPort}}
+
+	// this rule is static and will be torn down on engine down by the firewall manager
+	if _, err := e.firewall.AddPeerFiltering(
+		net.IP{0, 0, 0, 0},
+		manager.ProtocolUDP,
+		nil,
+		&port,
+		manager.RuleDirectionIN,
+		manager.ActionAccept,
+		"",
+		"",
+	); err != nil {
+		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
+		return nil
+	}
+
+	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
 }

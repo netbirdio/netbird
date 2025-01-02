@@ -74,6 +74,19 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 					"peerH",
 				},
 			},
+			"GroupWorkstations": {
+				ID:   "GroupWorkstations",
+				Name: "GroupWorkstations",
+				Peers: []string{
+					"peerB",
+					"peerA",
+					"peerD",
+					"peerE",
+					"peerF",
+					"peerG",
+					"peerH",
+				},
+			},
 			"GroupSwarm": {
 				ID:   "GroupSwarm",
 				Name: "swarm",
@@ -127,7 +140,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 						Action:        types.PolicyTrafficActionAccept,
 						Sources: []string{
 							"GroupSwarm",
-							"GroupAll",
+							"GroupWorkstations",
 						},
 						Destinations: []string{
 							"GroupSwarm",
@@ -159,6 +172,8 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		assert.Contains(t, peers, account.Peers["peerD"])
 		assert.Contains(t, peers, account.Peers["peerE"])
 		assert.Contains(t, peers, account.Peers["peerF"])
+		assert.Contains(t, peers, account.Peers["peerG"])
+		assert.Contains(t, peers, account.Peers["peerH"])
 
 		epectedFirewallRules := []*types.FirewallRule{
 			{
@@ -189,21 +204,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Protocol:  "all",
 				Port:      "",
 			},
-			{
-				PeerIP:    "100.65.254.139",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-			{
-				PeerIP:    "100.65.254.139",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-			},
-
 			{
 				PeerIP:    "100.65.62.5",
 				Direction: types.FirewallRuleDirectionOUT,
@@ -280,10 +280,16 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, sortFunc())
-		slices.SortFunc(firewallRules, sortFunc())
-		for i := range firewallRules {
-			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
+
+		for _, rule := range firewallRules {
+			contains := false
+			for _, expectedRule := range epectedFirewallRules {
+				if rule.IsEqual(expectedRule) {
+					contains = true
+					break
+				}
+			}
+			assert.True(t, contains, "rule not found in expected rules %#v", rule)
 		}
 	})
 }
