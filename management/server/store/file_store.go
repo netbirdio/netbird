@@ -14,6 +14,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbutil "github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -176,7 +177,7 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 		for key, peer := range account.Peers {
 			// set LastLogin for the peers that were onboarded before the peer login expiration feature
 			if peer.LastLogin.IsZero() {
-				peer.LastLogin = time.Now().UTC()
+				peer.LastLogin = nbutil.ToPtr(time.Now().UTC())
 			}
 			if peer.ID != "" {
 				continue

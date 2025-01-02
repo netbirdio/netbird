@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 const (
@@ -45,7 +46,7 @@ type SetupKey struct {
 	// UsedTimes indicates how many times the key was used
 	UsedTimes int
 	// LastUsed last time the key was used for peer registration
-	LastUsed time.Time
+	LastUsed *time.Time
 	// AutoGroups is a list of Group IDs that are auto assigned to a Peer when it uses this key to register
 	AutoGroups []string `gorm:"serializer:json"`
 	// UsageLimit indicates the number of times this key can be used to enroll a machine.
@@ -86,6 +87,14 @@ func (key *SetupKey) EventMeta() map[string]any {
 	return map[string]any{"name": key.Name, "type": key.Type, "key": key.KeySecret}
 }
 
+// LastUsedTime returns the last used time of the setup key.
+func (key *SetupKey) LastUsedTime() time.Time {
+	if key.LastUsed != nil {
+		return *key.LastUsed
+	}
+	return time.Time{}
+}
+
 // HiddenKey returns the Key value hidden with "*" and a 5 character prefix.
 // E.g., "831F6*******************************"
 func HiddenKey(key string, length int) string {
@@ -100,7 +109,7 @@ func HiddenKey(key string, length int) string {
 func (key *SetupKey) IncrementUsage() *SetupKey {
 	c := key.Copy()
 	c.UsedTimes++
-	c.LastUsed = time.Now().UTC()
+	c.LastUsed = util.ToPtr(time.Now().UTC())
 	return c
 }
 

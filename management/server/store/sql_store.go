@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -895,7 +894,7 @@ func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID stri
 		}
 		return status.NewGetUserFromStoreError()
 	}
-	user.LastLogin = sql.NullTime{Time: lastLogin, Valid: !lastLogin.IsZero()}
+	user.LastLogin = &lastLogin
 
 	return s.db.Save(&user).Error
 }

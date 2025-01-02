@@ -1,7 +1,6 @@
 package types
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -85,7 +84,7 @@ type User struct {
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
-	LastLogin sql.NullTime
+	LastLogin *time.Time
 	// CreatedAt records the time the user was created
 	CreatedAt time.Time
 
@@ -100,8 +99,16 @@ func (u *User) IsBlocked() bool {
 	return u.Blocked
 }
 
-func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
-	return LastLogin.After(u.LastLogin.Time) && !u.LastLogin.Time.IsZero()
+func (u *User) LastDashboardLoginChanged(lastLogin time.Time) bool {
+	return lastLogin.After(u.LastLoginTime()) && !u.LastLoginTime().IsZero()
+}
+
+// LastLoginTime returns the last login time of the user.
+func (u *User) LastLoginTime() time.Time {
+	if u.LastLogin != nil {
+		return *u.LastLogin
+	}
+	return time.Time{}
 }
 
 // HasAdminPower returns true if the user has admin or owner roles, false otherwise
@@ -135,6 +142,11 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 	}
 
 	if userData == nil {
+		var lastLogin time.Time
+		if u.LastLogin != nil {
+			lastLogin = *u.LastLogin
+		}
+
 		return &UserInfo{
 			ID:            u.Id,
 			Email:         "",
@@ -144,7 +156,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
 			IsBlocked:     u.Blocked,
-			LastLogin:     u.LastLogin.Time,
+			LastLogin:     lastLogin,
 			Issued:        u.Issued,
 			Permissions: UserPermissions{
 				DashboardView: dashboardViewPermissions,
@@ -160,6 +172,11 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 		userStatus = UserStatusInvited
 	}
 
+	lastLogin := time.Time{}
+	if u.LastLogin != nil {
+		lastLogin = *u.LastLogin
+	}
+
 	return &UserInfo{
 		ID:            u.Id,
 		Email:         userData.Email,
@@ -169,7 +186,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
 		IsBlocked:     u.Blocked,
-		LastLogin:     u.LastLogin.Time,
+		LastLogin:     lastLogin,
 		Issued:        u.Issued,
 		Permissions: UserPermissions{
 			DashboardView: dashboardViewPermissions,

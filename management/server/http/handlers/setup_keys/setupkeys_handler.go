@@ -245,7 +245,7 @@ func toResponseBody(key *types.SetupKey) *api.SetupKey {
 		Valid:      key.IsValid(),
 		Revoked:    key.Revoked,
 		UsedTimes:  key.UsedTimes,
-		LastUsed:   key.LastUsed,
+		LastUsed:   key.LastUsedTime(),
 		State:      state,
 		AutoGroups: key.AutoGroups,
 		UpdatedAt:  key.UpdatedAt,
