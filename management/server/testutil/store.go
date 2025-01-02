@@ -7,11 +7,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
 	log "github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
@@ -27,28 +24,22 @@ var (
 func CreateMysqlTestContainer() (func(), error) {
 	ctx := context.Background()
 
-	_, caller, _, ok := runtime.Caller(0)
-	if !ok {
-		return nil, fmt.Errorf("failed to get caller information")
-	}
-
 	container, err := mysql.RunContainer(ctx,
-		testcontainers.WithImage("mysql:8.0.40"),
-		mysql.WithConfigFile(filepath.Join(filepath.Dir(caller), mysqlContainerConfigPath)),
-		mysql.WithDatabase("netbird"),
-		mysql.WithUsername("root"),
-		mysql.WithPassword("netbird"),
-		testcontainers.WithHostConfigModifier(func(hostConfig *container.HostConfig) {
-			hostConfig.AutoRemove = true
-			hostConfig.Tmpfs = map[string]string{"/var/lib/mysql": "rw"}
-		}),
+		testcontainers.WithImage("ghcr.io/mlsmaycon/warmed-mysql:8"),
+		mysql.WithDatabase("testing"),
+		mysql.WithUsername("testing"),
+		mysql.WithPassword("testing"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("/usr/sbin/mysqld: ready for connections").
+				WithOccurrence(1).WithStartupTimeout(15*time.Second).WithPollInterval(100*time.Millisecond),
+		),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	cleanUp := func() {
-		timeout := 2 * time.Second
+		timeout := 1 * time.Second
 		if err = container.Stop(ctx, &timeout); err != nil {
 			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
 		}
@@ -91,6 +82,8 @@ func CreatePostgresTestContainer() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Println("talksConn: ", talksConn)
 
 	return cleanUp, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
 }
