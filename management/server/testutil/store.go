@@ -25,7 +25,7 @@ func CreateMysqlTestContainer() (func(), error) {
 	ctx := context.Background()
 
 	container, err := mysql.RunContainer(ctx,
-		testcontainers.WithImage("ghcr.io/mlsmaycon/warmed-mysql:8"),
+		testcontainers.WithImage("mlsmaycon/warmed-mysql:8"),
 		mysql.WithDatabase("testing"),
 		mysql.WithUsername("testing"),
 		mysql.WithPassword("testing"),
