@@ -35,6 +35,9 @@ const (
 	// This is useful when routing/firewall setup is done manually instead of by netbird.
 	// This setting always disables userspace routing and filtering of routed traffic.
 	EnvForceNativeRouter = "NB_FORCE_NATIVE_ROUTER"
+
+	// EnvForceUserspaceRouter forces userspace routing even if native routing is available.
+	EnvForceUserspaceRouter = "NB_FORCE_USERSPACE_ROUTER"
 )
 
 // RuleSet is a set of rules grouped by a string key
@@ -96,7 +99,13 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 
 	mgr.nativeFirewall = nativeFirewall
 
+	if forceUserspaceRouter, _ := strconv.ParseBool(os.Getenv(EnvForceUserspaceRouter)); forceUserspaceRouter {
+		log.Info("userspace routing is forced")
+		return mgr, nil
+	}
+
 	forceNativeRouter, _ := strconv.ParseBool(EnvForceNativeRouter)
+
 	// if the OS supports routing natively, or it is explicitly requested, then we don't need to filter/route ourselves
 	if mgr.nativeFirewall != nil && mgr.nativeFirewall.IsServerRouteSupported() || forceNativeRouter {
 		mgr.nativeRouter = true
