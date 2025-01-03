@@ -183,10 +183,15 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
+        if: matrix.store == 'mysql'
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: download mysql image
+        if: matrix.store == 'mysql'
+        run: docker pull mlsmaycon/warmed-mysql:8
 
       - name: Test
         run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -p 1 -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 10m $(go list ./... | grep /management)
