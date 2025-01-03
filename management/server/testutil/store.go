@@ -34,8 +34,7 @@ func CreateMysqlTestContainer() (func(), error) {
 	}
 
 	cleanUp := func() {
-		timeout := 1 * time.Second
-		if err = container.Stop(ctx, &timeout); err != nil {
+		if err = container.Terminate(ctx); err != nil {
 			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
 		}
 	}
