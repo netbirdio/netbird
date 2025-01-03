@@ -78,6 +78,8 @@ func (f *udpForwarder) Stop() {
 		if err := conn.outConn.Close(); err != nil {
 			f.logger.Error("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
+
+		conn.ep.Close()
 		delete(f.conns, id)
 	}
 }
