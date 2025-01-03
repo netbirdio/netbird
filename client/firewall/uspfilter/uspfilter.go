@@ -732,47 +732,47 @@ func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, sr
 	srcAddr, _ := netip.AddrFromSlice(srcIP)
 	dstAddr, _ := netip.AddrFromSlice(dstIP)
 
-	// Default deny if no rules match
 	matched := false
-
 	for _, rule := range m.routeRules {
-		// Check destination
-		if !rule.destination.Contains(dstAddr) {
-			continue
-		}
-
-		// Check if source matches any source prefix
-		sourceMatched := false
-		for _, src := range rule.sources {
-			if src.Contains(srcAddr) {
-				sourceMatched = true
-				break
+		if m.ruleMatches(rule, srcAddr, dstAddr, proto, srcPort, dstPort) {
+			matched = true
+			if rule.action == firewall.ActionDrop {
+				return false
 			}
-		}
-		if !sourceMatched {
-			continue
-		}
-
-		// Check protocol
-		if rule.proto != firewall.ProtocolALL && rule.proto != proto {
-			continue
-		}
-
-		// Check ports if specified
-		if rule.srcPort != nil && rule.srcPort.Values[0] != int(srcPort) {
-			continue
-		}
-		if rule.dstPort != nil && rule.dstPort.Values[0] != int(dstPort) {
-			continue
-		}
-
-		matched = true
-		if rule.action == firewall.ActionDrop {
-			return false
 		}
 	}
 
 	return matched
+}
+
+func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+	if !rule.destination.Contains(dstAddr) {
+		return false
+	}
+
+	sourceMatched := false
+	for _, src := range rule.sources {
+		if src.Contains(srcAddr) {
+			sourceMatched = true
+			break
+		}
+	}
+	if !sourceMatched {
+		return false
+	}
+
+	if rule.proto != firewall.ProtocolALL && rule.proto != proto {
+		return false
+	}
+
+	if rule.srcPort != nil && rule.srcPort.Values[0] != int(srcPort) {
+		return false
+	}
+	if rule.dstPort != nil && rule.dstPort.Values[0] != int(dstPort) {
+		return false
+	}
+
+	return true
 }
 
 // SetNetwork of the wireguard interface to which filtering applied

@@ -67,6 +67,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 }
 
 func (e *endpoint) Wait() {
+	// not required
 }
 
 func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
@@ -74,6 +75,7 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 }
 
 func (e *endpoint) AddHeader(*stack.PacketBuffer) {
+	// not required
 }
 
 func (e *endpoint) ParseHeader(*stack.PacketBuffer) bool {

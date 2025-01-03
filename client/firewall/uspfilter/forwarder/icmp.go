@@ -41,16 +41,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	// For Echo Requests, send and handle response
 	switch icmpHdr.Type() {
 	case header.ICMPv4Echo:
-		_, err = conn.WriteTo(payload, dst)
-		if err != nil {
-			f.logger.Error("Failed to write ICMP packet for %v: %v", id, err)
-			return true
-		}
-
-		f.logger.Trace("Forwarded ICMP packet %v type=%v code=%v",
-			id, icmpHdr.Type(), icmpHdr.Code())
-
-		return f.handleEchoResponse(conn, id)
+		return f.handleEchoResponse(icmpHdr, payload, dst, conn, id)
 	case header.ICMPv4EchoReply:
 		// dont process our own replies
 		return true
@@ -70,10 +61,18 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	return true
 }
 
-func (f *Forwarder) handleEchoResponse(conn net.PacketConn, id stack.TransportEndpointID) bool {
+func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, payload []byte, dst *net.IPAddr, conn net.PacketConn, id stack.TransportEndpointID) bool {
+	if _, err := conn.WriteTo(payload, dst); err != nil {
+		f.logger.Error("Failed to write ICMP packet for %v: %v", id, err)
+		return true
+	}
+
+	f.logger.Trace("Forwarded ICMP packet %v type=%v code=%v",
+		id, icmpHdr.Type(), icmpHdr.Code())
+
 	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		f.logger.Error("Failed to set read deadline for ICMP response: %v", err)
-		return false
+		return true
 	}
 
 	response := make([]byte, f.endpoint.mtu)
@@ -82,7 +81,7 @@ func (f *Forwarder) handleEchoResponse(conn net.PacketConn, id stack.TransportEn
 		if !isTimeout(err) {
 			f.logger.Error("Failed to read ICMP response: %v", err)
 		}
-		return false
+		return true
 	}
 
 	ipHdr := make([]byte, header.IPv4MinimumSize)
@@ -102,7 +101,7 @@ func (f *Forwarder) handleEchoResponse(conn net.PacketConn, id stack.TransportEn
 
 	if err := f.InjectIncomingPacket(fullPacket); err != nil {
 		f.logger.Error("Failed to inject ICMP response: %v", err)
-		return false
+		return true
 	}
 
 	f.logger.Trace("Forwarded ICMP echo reply for %v", id)
