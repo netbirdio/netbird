@@ -184,20 +184,21 @@ func (m *Manager) IsServerRouteSupported() bool {
 }
 
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
-	if m.nativeFirewall == nil {
-		// userspace routed packets are always SNATed to the inbound direction
-		// TODO: implement outbound SNAT
-		return nil
+	if m.nativeRouter {
+		return m.nativeFirewall.AddNatRule(pair)
 	}
-	return m.nativeFirewall.AddNatRule(pair)
+
+	// userspace routed packets are always SNATed to the inbound direction
+	// TODO: implement outbound SNAT
+	return nil
 }
 
 // RemoveNatRule removes a routing firewall rule
 func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
-	if m.nativeFirewall == nil {
-		return nil
+	if m.nativeRouter {
+		return m.nativeFirewall.RemoveNatRule(pair)
 	}
-	return m.nativeFirewall.RemoveNatRule(pair)
+	return nil
 }
 
 // AddPeerFiltering rule to the firewall
@@ -278,6 +279,10 @@ func (m *Manager) AddRouteFiltering(
 	dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
+	if m.nativeRouter {
+		return m.nativeFirewall.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+	}
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -298,6 +303,10 @@ func (m *Manager) AddRouteFiltering(
 }
 
 func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
+	if m.nativeRouter {
+		return m.nativeFirewall.DeleteRouteRule(rule)
+	}
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
