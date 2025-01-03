@@ -732,34 +732,10 @@ func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, sr
 	dstAddr := netip.AddrFrom4([4]byte(dstIP.To4()))
 
 	for _, rule := range m.routeRules {
-		if !rule.destination.Contains(dstAddr) {
-			continue
+		if m.ruleMatches(rule, srcAddr, dstAddr, proto, srcPort, dstPort) {
+			return rule.action == firewall.ActionAccept
 		}
-
-		sourceMatched := false
-		for _, src := range rule.sources {
-			if src.Contains(srcAddr) {
-				sourceMatched = true
-				break
-			}
-		}
-		if !sourceMatched {
-			continue
-		}
-
-		if rule.proto != firewall.ProtocolALL && rule.proto != proto {
-			continue
-		}
-
-		if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
-			if !m.portsMatch(rule.srcPort, srcPort) || !m.portsMatch(rule.dstPort, dstPort) {
-				continue
-			}
-		}
-
-		return rule.action == firewall.ActionAccept
 	}
-
 	return false
 }
 
@@ -783,9 +759,10 @@ func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto
 		return false
 	}
 
-	// Port matches for TCP/UDP only
 	if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
-		return m.portsMatch(rule.srcPort, srcPort) && m.portsMatch(rule.dstPort, dstPort)
+		if !m.portsMatch(rule.srcPort, srcPort) || !m.portsMatch(rule.dstPort, dstPort) {
+			return false
+		}
 	}
 
 	return true

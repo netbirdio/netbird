@@ -223,15 +223,15 @@ func createTestPacket(t *testing.T, srcIP, dstIP string, proto fw.Protocol, srcP
 	return buf.Bytes()
 }
 
-func setupRoutedManager(t testing.TB, network string) *Manager {
-	t.Helper()
+func setupRoutedManager(tb testing.TB, network string) *Manager {
+	tb.Helper()
 
-	ctrl := gomock.NewController(t)
+	ctrl := gomock.NewController(tb)
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().MTU().Return(1500, nil).AnyTimes()
 
 	localIP, wgNet, err := net.ParseCIDR(network)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
@@ -250,13 +250,13 @@ func setupRoutedManager(t testing.TB, network string) *Manager {
 	}
 
 	manager, err := Create(ifaceMock)
-	require.NoError(t, err)
-	require.NotNil(t, manager)
-	require.True(t, manager.routingEnabled)
-	require.False(t, manager.nativeRouter)
+	require.NoError(tb, err)
+	require.NotNil(tb, manager)
+	require.True(tb, manager.routingEnabled)
+	require.False(tb, manager.nativeRouter)
 
-	t.Cleanup(func() {
-		require.NoError(t, manager.Reset(nil))
+	tb.Cleanup(func() {
+		require.NoError(tb, manager.Reset(nil))
 	})
 
 	return manager
