@@ -3,7 +3,13 @@ package conntrack
 import (
 	"net"
 	"testing"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
+
+var logger = log.NewFromLogrus(logrus.StandardLogger())
 
 func BenchmarkIPOperations(b *testing.B) {
 	b.Run("MakeIPAddr", func(b *testing.B) {
@@ -64,7 +70,7 @@ func BenchmarkAtomicOperations(b *testing.B) {
 // Memory pressure tests
 func BenchmarkMemoryPressure(b *testing.B) {
 	b.Run("TCPHighLoad", func(b *testing.B) {
-		tracker := NewTCPTracker(DefaultTCPTimeout)
+		tracker := NewTCPTracker(DefaultTCPTimeout, logger)
 		defer tracker.Close()
 
 		// Generate different IPs
@@ -89,7 +95,7 @@ func BenchmarkMemoryPressure(b *testing.B) {
 	})
 
 	b.Run("UDPHighLoad", func(b *testing.B) {
-		tracker := NewUDPTracker(DefaultUDPTimeout)
+		tracker := NewUDPTracker(DefaultUDPTimeout, logger)
 		defer tracker.Close()
 
 		// Generate different IPs

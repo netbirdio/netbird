@@ -488,7 +488,15 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 	}
 
 	log.SetLevel(level)
+
+	if s.connectClient != nil &&
+		s.connectClient.Engine() != nil &&
+		s.connectClient.Engine().GetFirewallManager() != nil {
+		s.connectClient.Engine().GetFirewallManager().SetLogLevel(level)
+	}
+
 	log.Infof("Log level set to %s", level.String())
+
 	return &proto.SetLogLevelResponse{}, nil
 }
 

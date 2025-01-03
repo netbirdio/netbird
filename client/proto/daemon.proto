@@ -57,6 +57,8 @@ service DaemonService {
 
   // SetNetworkMapPersistence enables or disables network map persistence
   rpc SetNetworkMapPersistence(SetNetworkMapPersistenceRequest) returns (SetNetworkMapPersistenceResponse) {}
+
+  rpc TracePacket(TracePacketRequest) returns (TracePacketResponse) {}
 }
 
 
@@ -349,3 +351,36 @@ message SetNetworkMapPersistenceRequest {
 }
 
 message SetNetworkMapPersistenceResponse {}
+
+message TCPFlags {
+  bool syn = 1;
+  bool ack = 2;
+  bool fin = 3;
+  bool rst = 4;
+  bool psh = 5;
+  bool urg = 6;
+}
+
+message TracePacketRequest {
+  string source_ip = 1;
+  string destination_ip = 2;
+  string protocol = 3;
+  uint32 source_port = 4;
+  uint32 destination_port = 5;
+  string direction = 6;
+  optional TCPFlags tcp_flags = 7;
+  optional uint32 icmp_type = 8;
+  optional uint32 icmp_code = 9;
+}
+
+message TraceStage {
+  string name = 1;
+  string message = 2;
+  bool allowed = 3;
+  optional string forwarding_details = 4;
+}
+
+message TracePacketResponse {
+  repeated TraceStage stages = 1;
+  bool final_disposition = 2;
+}
