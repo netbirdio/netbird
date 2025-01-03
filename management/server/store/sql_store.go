@@ -886,6 +886,10 @@ func (s *SqlStore) GetAccountSettings(ctx context.Context, lockStrength LockingS
 
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error {
+	if lastLogin.IsZero() {
+		return nil
+	}
+
 	var user types.User
 	result := s.db.First(&user, accountAndIDQueryCondition, accountID, userID)
 	if result.Error != nil {
