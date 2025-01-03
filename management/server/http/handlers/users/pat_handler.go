@@ -169,7 +169,7 @@ func toPATResponse(pat *types.PersonalAccessToken) *api.PersonalAccessToken {
 		CreatedAt:      pat.CreatedAt,
 		CreatedBy:      pat.CreatedBy,
 		Name:           pat.Name,
-		ExpirationDate: pat.ExpirationTime(),
+		ExpirationDate: pat.GetExpirationDate(),
 		Id:             pat.ID,
 		LastUsed:       pat.LastUsed,
 	}

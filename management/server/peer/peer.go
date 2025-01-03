@@ -224,8 +224,8 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
 	return true
 }
 
-// LastLoginTime returns the last login time of the peer.
-func (p *Peer) LastLoginTime() time.Time {
+// GetLastLogin returns the last login time of the peer.
+func (p *Peer) GetLastLogin() time.Time {
 	if p.LastLogin != nil {
 		return *p.LastLogin
 	}
@@ -269,7 +269,7 @@ func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
 	if !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
 		return false, 0
 	}
-	expiresAt := p.LastLogin.Add(expiresIn)
+	expiresAt := p.GetLastLogin().Add(expiresIn)
 	now := time.Now()
 	timeLeft := expiresAt.Sub(now)
 	return timeLeft <= 0, timeLeft

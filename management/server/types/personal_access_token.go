@@ -51,16 +51,16 @@ func (t *PersonalAccessToken) Copy() *PersonalAccessToken {
 	}
 }
 
-// ExpirationTime returns the expiration time of the token.
-func (t *PersonalAccessToken) ExpirationTime() time.Time {
+// GetExpirationDate returns the expiration time of the token.
+func (t *PersonalAccessToken) GetExpirationDate() time.Time {
 	if t.ExpirationDate != nil {
 		return *t.ExpirationDate
 	}
 	return time.Time{}
 }
 
-// LastUsedTime returns the last time the token was used.
-func (t *PersonalAccessToken) LastUsedTime() time.Time {
+// GetLastUsed returns the last time the token was used.
+func (t *PersonalAccessToken) GetLastUsed() time.Time {
 	if t.LastUsed != nil {
 		return *t.LastUsed
 	}

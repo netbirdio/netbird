@@ -793,7 +793,7 @@ func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error when getting account: %s", err)
 	}
-	assert.True(t, !account.Users["someUser"].PATs["tokenId"].LastUsed.IsZero())
+	assert.True(t, !account.Users["someUser"].PATs["tokenId"].GetLastUsed().IsZero())
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {

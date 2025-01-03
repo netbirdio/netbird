@@ -789,7 +789,7 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 		if user.Issued == types.UserIssuedIntegration {
 			continue
 		}
-		users[user.Id] = userLoggedInOnce(!user.LastLoginTime().IsZero())
+		users[user.Id] = userLoggedInOnce(!user.GetLastLogin().IsZero())
 	}
 	log.WithContext(ctx).Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(ctx, users, account.Id)

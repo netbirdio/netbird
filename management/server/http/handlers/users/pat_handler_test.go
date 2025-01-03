@@ -251,6 +251,6 @@ func toTokenResponse(serverToken types.PersonalAccessToken) api.PersonalAccessTo
 		CreatedAt:      serverToken.CreatedAt,
 		LastUsed:       serverToken.LastUsed,
 		CreatedBy:      serverToken.CreatedBy,
-		ExpirationDate: serverToken.ExpirationTime(),
+		ExpirationDate: serverToken.GetExpirationDate(),
 	}
 }

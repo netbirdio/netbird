@@ -87,16 +87,16 @@ func (key *SetupKey) EventMeta() map[string]any {
 	return map[string]any{"name": key.Name, "type": key.Type, "key": key.KeySecret}
 }
 
-// LastUsedTime returns the last used time of the setup key.
-func (key *SetupKey) LastUsedTime() time.Time {
+// GetLastUsed returns the last used time of the setup key.
+func (key *SetupKey) GetLastUsed() time.Time {
 	if key.LastUsed != nil {
 		return *key.LastUsed
 	}
 	return time.Time{}
 }
 
-// ExpirationTime returns the expiration time of the setup key.
-func (key *SetupKey) ExpirationTime() time.Time {
+// GetExpiresAt returns the expiration time of the setup key.
+func (key *SetupKey) GetExpiresAt() time.Time {
 	if key.ExpiresAt != nil {
 		return *key.ExpiresAt
 	}
@@ -133,10 +133,10 @@ func (key *SetupKey) IsRevoked() bool {
 
 // IsExpired if key was expired
 func (key *SetupKey) IsExpired() bool {
-	if key.ExpirationTime().IsZero() {
+	if key.GetExpiresAt().IsZero() {
 		return false
 	}
-	return time.Now().After(key.ExpirationTime())
+	return time.Now().After(key.GetExpiresAt())
 }
 
 // IsOverUsed if the key was used too many times. SetupKey.UsageLimit == 0 indicates the unlimited usage.

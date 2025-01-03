@@ -567,7 +567,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 
 		if addedByUser {
-			err := transaction.SaveUserLastLogin(ctx, accountID, userID, *newPeer.LastLogin)
+			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 			if err != nil {
 				return fmt.Errorf("failed to update user last login: %w", err)
 			}
@@ -912,7 +912,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, user *ty
 		return err
 	}
 
-	err = am.Store.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.LastLoginTime())
+	err = am.Store.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.GetLastLogin())
 	if err != nil {
 		return err
 	}

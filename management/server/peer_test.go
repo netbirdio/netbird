@@ -1232,7 +1232,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 
 	lastLogin, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
 	assert.NoError(t, err)
-	assert.NotEqual(t, lastLogin, account.Users[existingUserID].LastLogin)
+	assert.NotEqual(t, lastLogin, account.Users[existingUserID].GetLastLogin())
 }
 
 func Test_RegisterPeerBySetupKey(t *testing.T) {
@@ -1362,7 +1362,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	hashedKey := sha256.Sum256([]byte(faultyKey))
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
-	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].LastUsedTime().UTC())
+	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].GetLastUsed().UTC())
 	assert.Equal(t, 0, account.SetupKeys[encodedHashedKey].UsedTimes)
 }
 

@@ -100,11 +100,11 @@ func (u *User) IsBlocked() bool {
 }
 
 func (u *User) LastDashboardLoginChanged(lastLogin time.Time) bool {
-	return lastLogin.After(u.LastLoginTime()) && !u.LastLoginTime().IsZero()
+	return lastLogin.After(u.GetLastLogin()) && !u.GetLastLogin().IsZero()
 }
 
-// LastLoginTime returns the last login time of the user.
-func (u *User) LastLoginTime() time.Time {
+// GetLastLogin returns the last login time of the user.
+func (u *User) GetLastLogin() time.Time {
 	if u.LastLogin != nil {
 		return *u.LastLogin
 	}
@@ -151,7 +151,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
 			IsBlocked:     u.Blocked,
-			LastLogin:     u.LastLoginTime(),
+			LastLogin:     u.GetLastLogin(),
 			Issued:        u.Issued,
 			Permissions: UserPermissions{
 				DashboardView: dashboardViewPermissions,
@@ -176,7 +176,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
 		IsBlocked:     u.Blocked,
-		LastLogin:     u.LastLoginTime(),
+		LastLogin:     u.GetLastLogin(),
 		Issued:        u.Issued,
 		Permissions: UserPermissions{
 			DashboardView: dashboardViewPermissions,

@@ -19,7 +19,7 @@ import (
 func CreateMysqlTestContainer() (func(), error) {
 	ctx := context.Background()
 
-	container, err := mysql.RunContainer(ctx,
+	myContainer, err := mysql.RunContainer(ctx,
 		testcontainers.WithImage("mlsmaycon/warmed-mysql:8"),
 		mysql.WithDatabase("testing"),
 		mysql.WithUsername("testing"),
@@ -36,12 +36,12 @@ func CreateMysqlTestContainer() (func(), error) {
 	cleanup := func() {
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
 		defer cancelFunc()
-		if err = container.Terminate(timeoutCtx); err != nil {
-			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
+		if err = myContainer.Terminate(timeoutCtx); err != nil {
+			log.WithContext(ctx).Warnf("failed to stop mysql container %s: %s", myContainer.GetContainerID(), err)
 		}
 	}
 
-	talksConn, err := container.ConnectionString(ctx)
+	talksConn, err := myContainer.ConnectionString(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func CreateMysqlTestContainer() (func(), error) {
 func CreatePostgresTestContainer() (func(), error) {
 	ctx := context.Background()
 
-	container, err := postgres.RunContainer(ctx,
+	pgContainer, err := postgres.RunContainer(ctx,
 		testcontainers.WithImage("postgres:16-alpine"),
 		postgres.WithDatabase("netbird"),
 		postgres.WithUsername("root"),
@@ -70,12 +70,12 @@ func CreatePostgresTestContainer() (func(), error) {
 	cleanup := func() {
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
 		defer cancelFunc()
-		if err = container.Terminate(timeoutCtx); err != nil {
-			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
+		if err = pgContainer.Terminate(timeoutCtx); err != nil {
+			log.WithContext(ctx).Warnf("failed to stop postgres container %s: %s", pgContainer.GetContainerID(), err)
 		}
 	}
 
-	talksConn, err := container.ConnectionString(ctx)
+	talksConn, err := pgContainer.ConnectionString(ctx)
 	if err != nil {
 		return nil, err
 	}
