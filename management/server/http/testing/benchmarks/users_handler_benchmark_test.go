@@ -1,3 +1,6 @@
+//go:build benchmark
+// +build benchmark
+
 package benchmarks
 
 import (
@@ -49,7 +52,7 @@ func BenchmarkUpdateUser(b *testing.B) {
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -98,7 +101,7 @@ func BenchmarkGetOneUser(b *testing.B) {
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -132,7 +135,7 @@ func BenchmarkGetAllUsers(b *testing.B) {
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -166,7 +169,7 @@ func BenchmarkDeleteUsers(b *testing.B) {
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, 1000, bc.SetupKeys)
 
 			b.ResetTimer()
