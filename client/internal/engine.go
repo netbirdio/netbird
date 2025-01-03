@@ -1624,6 +1624,14 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	return nm, nil
 }
 
+// GetWgAddr returns the wireguard address
+func (e *Engine) GetWgAddr() net.IP {
+	if e.wgInterface == nil {
+		return nil
+	}
+	return e.wgInterface.Address().IP
+}
+
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
 func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
 	if !enabled {
