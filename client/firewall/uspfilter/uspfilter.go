@@ -107,14 +107,21 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 	forceNativeRouter, _ := strconv.ParseBool(EnvForceNativeRouter)
 
 	// if the OS supports routing natively, or it is explicitly requested, then we don't need to filter/route ourselves
-	if mgr.nativeFirewall != nil && mgr.nativeFirewall.IsServerRouteSupported() || forceNativeRouter {
+	// netstack mode won't support userspace routing as there is no interface
+	if forceNativeRouter ||
+		!netstack.IsEnabled() && mgr.nativeFirewall != nil && mgr.nativeFirewall.IsServerRouteSupported() {
+
 		mgr.nativeRouter = true
 		mgr.routingEnabled = true
 		if mgr.forwarder != nil {
 			mgr.forwarder.Stop()
 		}
+
+		log.Info("native routing is enabled")
+		return mgr, nil
 	}
 
+	log.Info("userspace routing is enabled")
 	return mgr, nil
 }
 
