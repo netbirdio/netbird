@@ -318,6 +318,7 @@ func (a *Account) addNetworksRoutingPeers(
 	}
 
 	delete(sourcePeers, peer.ID)
+	delete(networkRoutesPeers, peer.ID)
 
 	for _, existingPeer := range peersToConnect {
 		delete(sourcePeers, existingPeer.ID)

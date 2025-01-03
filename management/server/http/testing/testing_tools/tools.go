@@ -82,7 +82,7 @@ type PerformanceMetrics struct {
 	MaxMsPerOpCICD  float64
 }
 
-func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage) (http.Handler, server.AccountManager, chan struct{}) {
+func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, server.AccountManager, chan struct{}) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
@@ -97,14 +97,16 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	updMsg := peersUpdateManager.CreateChannel(context.Background(), TestPeerId)
 	done := make(chan struct{})
-	go func() {
-		if expectedPeerUpdate != nil {
-			peerShouldReceiveUpdate(t, updMsg, expectedPeerUpdate)
-		} else {
-			peerShouldNotReceiveUpdate(t, updMsg)
-		}
-		close(done)
-	}()
+	if validateUpdate {
+		go func() {
+			if expectedPeerUpdate != nil {
+				peerShouldReceiveUpdate(t, updMsg, expectedPeerUpdate)
+			} else {
+				peerShouldNotReceiveUpdate(t, updMsg)
+			}
+			close(done)
+		}()
+	}
 
 	geoMock := &geolocation.Mock{}
 	validatorMock := server.MocIntegratedValidator{}

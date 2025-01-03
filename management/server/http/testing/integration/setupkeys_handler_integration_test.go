@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package integration
 
 import (
@@ -284,7 +287,7 @@ func Test_SetupKeys_Create(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(user.name+" - "+tc.name, func(t *testing.T) {
-				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
+				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil, true)
 
 				body, err := json.Marshal(tc.requestBody)
 				if err != nil {
@@ -569,7 +572,7 @@ func Test_SetupKeys_Update(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(tc.name, func(t *testing.T) {
-				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
+				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil, true)
 
 				body, err := json.Marshal(tc.requestBody)
 				if err != nil {
@@ -748,7 +751,7 @@ func Test_SetupKeys_Get(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(tc.name, func(t *testing.T) {
-				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
+				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil, true)
 
 				req := testing_tools.BuildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
 
@@ -900,7 +903,7 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(tc.name, func(t *testing.T) {
-				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
+				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil, true)
 
 				req := testing_tools.BuildRequest(t, []byte{}, tc.requestType, tc.requestPath, user.userId)
 
@@ -1084,7 +1087,7 @@ func Test_SetupKeys_Delete(t *testing.T) {
 	for _, tc := range tt {
 		for _, user := range users {
 			t.Run(tc.name, func(t *testing.T) {
-				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil)
+				apiHandler, am, done := testing_tools.BuildApiBlackBoxWithDBState(t, "../testdata/setup_keys.sql", nil, true)
 
 				req := testing_tools.BuildRequest(t, []byte{}, tc.requestType, strings.Replace(tc.requestPath, "{id}", tc.requestId, 1), user.userId)
 
