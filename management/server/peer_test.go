@@ -745,7 +745,7 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			DNSLabel: fmt.Sprintf("peer-%d", i),
 			Key:      peerKey.PublicKey().String(),
 			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
-			Status:   &nbpeer.PeerStatus{},
+			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 		}
 		account.Peers[peer.ID] = peer
@@ -784,7 +784,7 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			DNSLabel: fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
 			Key:      peerKey.PublicKey().String(),
 			IP:       peerIP,
-			Status:   &nbpeer.PeerStatus{},
+			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 			Meta: nbpeer.PeerSystemMeta{
 				Hostname:  fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
