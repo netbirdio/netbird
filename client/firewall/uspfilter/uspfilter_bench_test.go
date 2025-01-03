@@ -1,3 +1,5 @@
+//go:build uspbench
+
 package uspfilter
 
 import (
