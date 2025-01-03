@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -19,10 +18,6 @@ import (
 )
 
 func Test_SetupKeys_Create(t *testing.T) {
-	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-		t.Skip("skip integration tests on mysql")
-	}
-
 	truePointer := true
 
 	users := []struct {
@@ -330,10 +325,6 @@ func Test_SetupKeys_Create(t *testing.T) {
 }
 
 func Test_SetupKeys_Update(t *testing.T) {
-	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-		t.Skip("skip integration tests on mysql")
-	}
-
 	users := []struct {
 		name           string
 		userId         string
@@ -620,10 +611,6 @@ func Test_SetupKeys_Update(t *testing.T) {
 }
 
 func Test_SetupKeys_Get(t *testing.T) {
-	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-		t.Skip("skip integration tests on mysql")
-	}
-
 	users := []struct {
 		name           string
 		userId         string
@@ -798,10 +785,6 @@ func Test_SetupKeys_Get(t *testing.T) {
 }
 
 func Test_SetupKeys_GetAll(t *testing.T) {
-	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-		t.Skip("skip integration tests on mysql")
-	}
-
 	users := []struct {
 		name           string
 		userId         string
@@ -964,10 +947,6 @@ func Test_SetupKeys_GetAll(t *testing.T) {
 }
 
 func Test_SetupKeys_Delete(t *testing.T) {
-	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
-		t.Skip("skip integration tests on mysql")
-	}
-
 	users := []struct {
 		name           string
 		userId         string

@@ -33,8 +33,10 @@ func CreateMysqlTestContainer() (func(), error) {
 		return nil, err
 	}
 
-	cleanUp := func() {
-		if err = container.Terminate(ctx); err != nil {
+	cleanup := func() {
+		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
+		defer cancelFunc()
+		if err = container.Terminate(timeoutCtx); err != nil {
 			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
 		}
 	}
@@ -44,7 +46,7 @@ func CreateMysqlTestContainer() (func(), error) {
 		return nil, err
 	}
 
-	return cleanUp, os.Setenv("NETBIRD_STORE_ENGINE_MYSQL_DSN", talksConn)
+	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_MYSQL_DSN", talksConn)
 }
 
 // CreatePostgresTestContainer creates a new PostgreSQL container for testing.
@@ -65,9 +67,10 @@ func CreatePostgresTestContainer() (func(), error) {
 		return nil, err
 	}
 
-	cleanUp := func() {
-		timeout := 2 * time.Second
-		if err = container.Stop(ctx, &timeout); err != nil {
+	cleanup := func() {
+		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
+		defer cancelFunc()
+		if err = container.Terminate(timeoutCtx); err != nil {
 			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
 		}
 	}
@@ -77,5 +80,5 @@ func CreatePostgresTestContainer() (func(), error) {
 		return nil, err
 	}
 
-	return cleanUp, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
+	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
 }
