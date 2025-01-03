@@ -1394,6 +1394,11 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 	return e.routeManager
 }
 
+// GetFirewallManager returns the firewall manager
+func (e *Engine) GetFirewallManager() manager.Manager {
+	return e.firewall
+}
+
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {

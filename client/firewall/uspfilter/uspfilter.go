@@ -858,3 +858,10 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 	}
 	return fmt.Errorf("hook with given id not found")
 }
+
+// SetLogLevel sets the log level for the firewall manager
+func (m *Manager) SetLogLevel(level log.Level) {
+	if m.logger != nil {
+		m.logger.SetLevel(nblog.Level(level))
+	}
+}

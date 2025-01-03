@@ -81,6 +81,8 @@ func NewFromLogrus(logrusLogger *log.Logger) *Logger {
 
 func (l *Logger) SetLevel(level Level) {
 	l.level.Store(uint32(level))
+
+	log.Debugf("Set uspfilter logger loglevel to %v", levelStrings[level])
 }
 
 func (l *Logger) formatMessage(buf *[]byte, level Level, format string, args ...interface{}) {
