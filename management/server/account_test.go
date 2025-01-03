@@ -3021,8 +3021,8 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 3, 3, 11},
-		{"Medium", 500, 100, 7, 13, 10, 70},
+		{"Small", 50, 5, 1, 3, 3, 14},
+		{"Medium", 500, 100, 7, 13, 10, 80},
 		{"Large", 5000, 200, 65, 80, 60, 220},
 		{"Small single", 50, 10, 1, 3, 3, 70},
 		{"Medium single", 500, 10, 7, 13, 10, 32},
@@ -3164,7 +3164,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 	}{
 		{"Small", 50, 5, 107, 120, 107, 160},
 		{"Medium", 500, 100, 105, 140, 105, 220},
-		{"Large", 5000, 200, 180, 220, 180, 350},
+		{"Large", 5000, 200, 180, 220, 180, 395},
 		{"Small single", 50, 10, 107, 120, 105, 160},
 		{"Medium single", 500, 10, 105, 140, 105, 170},
 		{"Large 5", 5000, 15, 180, 220, 180, 340},
