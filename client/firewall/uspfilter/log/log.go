@@ -87,7 +87,7 @@ func (l *Logger) formatMessage(buf *[]byte, level Level, format string, args ...
 	*buf = (*buf)[:0]
 
 	// Timestamp
-	*buf = time.Now().AppendFormat(*buf, "2006-01-02T15:04:05.000000-07:00")
+	*buf = time.Now().AppendFormat(*buf, "2006-01-02T15:04:05-07:00")
 	*buf = append(*buf, ' ')
 
 	// Level
