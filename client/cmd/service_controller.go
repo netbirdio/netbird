@@ -48,7 +48,7 @@ func (p *program) Start(svc service.Service) error {
 		defer listen.Close()
 
 		if split[0] == "unix" {
-			err = os.Chmod(split[1], 0666)
+			err = os.Chmod(split[1], 0600)
 			if err != nil {
 				log.Errorf("failed setting daemon permissions: %v", split[1])
 				return
