@@ -880,7 +880,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 				continue
 			}
 			if !user.IsServiceUser {
-				users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
+				users[user.Id] = userLoggedInOnce(!user.GetLastLogin().IsZero())
 			}
 		}
 		queriedUsers, err = am.lookupCache(ctx, users, accountID)

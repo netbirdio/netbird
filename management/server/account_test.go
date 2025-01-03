@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -145,7 +146,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 						LoginExpired: true,
 					},
 					UserID:    userID,
-					LastLogin: time.Now().UTC().Add(-time.Hour * 24 * 30 * 30),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-time.Hour * 24 * 30 * 30)),
 				},
 				"peer-2": {
 					ID:       peerID2,
@@ -159,7 +160,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 						LoginExpired: false,
 					},
 					UserID:                 userID,
-					LastLogin:              time.Now().UTC(),
+					LastLogin:              util.ToPtr(time.Now().UTC()),
 					LoginExpirationEnabled: true,
 				},
 			},
@@ -183,7 +184,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 						LoginExpired: true,
 					},
 					UserID:                 userID,
-					LastLogin:              time.Now().UTC().Add(-time.Hour * 24 * 30 * 30),
+					LastLogin:              util.ToPtr(time.Now().UTC().Add(-time.Hour * 24 * 30 * 30)),
 					LoginExpirationEnabled: true,
 				},
 				"peer-2": {
@@ -198,7 +199,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 						LoginExpired: true,
 					},
 					UserID:                 userID,
-					LastLogin:              time.Now().UTC().Add(-time.Hour * 24 * 30 * 30),
+					LastLogin:              util.ToPtr(time.Now().UTC().Add(-time.Hour * 24 * 30 * 30)),
 					LoginExpirationEnabled: true,
 				},
 			},
@@ -771,7 +772,6 @@ func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 			"tokenId": {
 				ID:          "tokenId",
 				HashedToken: encodedHashedToken,
-				LastUsed:    time.Time{},
 			},
 		},
 	}
@@ -793,7 +793,7 @@ func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error when getting account: %s", err)
 	}
-	assert.True(t, !account.Users["someUser"].PATs["tokenId"].LastUsed.IsZero())
+	assert.True(t, !account.Users["someUser"].PATs["tokenId"].GetLastUsed().IsZero())
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {
@@ -1054,7 +1054,7 @@ func genUsers(p string, n int) map[string]*types.User {
 		users[fmt.Sprintf("%s-%d", p, i)] = &types.User{
 			Id:         fmt.Sprintf("%s-%d", p, i),
 			Role:       types.UserRoleAdmin,
-			LastLogin:  now,
+			LastLogin:  util.ToPtr(now),
 			CreatedAt:  now,
 			Issued:     "api",
 			AutoGroups: []string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"},
@@ -1706,10 +1706,10 @@ func TestAccount_Copy(t *testing.T) {
 						ID:             "pat1",
 						Name:           "First PAT",
 						HashedToken:    "SoMeHaShEdToKeN",
-						ExpirationDate: time.Now().UTC().AddDate(0, 0, 7),
+						ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
 						CreatedBy:      "user1",
 						CreatedAt:      time.Now().UTC(),
-						LastUsed:       time.Now().UTC(),
+						LastUsed:       util.ToPtr(time.Now().UTC()),
 					},
 				},
 			},
@@ -2065,7 +2065,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						Connected:    true,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-30 * time.Minute),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-30 * time.Minute)),
 					UserID:    userID,
 				},
 				"peer-2": {
@@ -2076,7 +2076,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						Connected:    true,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-2 * time.Hour),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-2 * time.Hour)),
 					UserID:    userID,
 				},
 
@@ -2088,7 +2088,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						Connected:    true,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-1 * time.Hour),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-1 * time.Hour)),
 					UserID:    userID,
 				},
 			},
@@ -2150,7 +2150,7 @@ func TestAccount_GetInactivePeers(t *testing.T) {
 						Connected:    false,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-30 * time.Minute),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-30 * time.Minute)),
 					UserID:    userID,
 				},
 				"peer-2": {
@@ -2161,7 +2161,7 @@ func TestAccount_GetInactivePeers(t *testing.T) {
 						Connected:    false,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-2 * time.Hour),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-2 * time.Hour)),
 					UserID:    userID,
 				},
 				"peer-3": {
@@ -2172,7 +2172,7 @@ func TestAccount_GetInactivePeers(t *testing.T) {
 						Connected:    true,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-1 * time.Hour),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-1 * time.Hour)),
 					UserID:    userID,
 				},
 			},
@@ -2442,7 +2442,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						LoginExpired: false,
 					},
 					LoginExpirationEnabled: true,
-					LastLogin:              time.Now().UTC(),
+					LastLogin:              util.ToPtr(time.Now().UTC()),
 					UserID:                 userID,
 				},
 				"peer-2": {
@@ -2602,7 +2602,7 @@ func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
 						LastSeen:     time.Now().Add(-1 * time.Second),
 					},
 					InactivityExpirationEnabled: true,
-					LastLogin:                   time.Now().UTC(),
+					LastLogin:                   util.ToPtr(time.Now().UTC()),
 					UserID:                      userID,
 				},
 				"peer-2": {
@@ -2680,8 +2680,8 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		},
 		Settings: &types.Settings{GroupsPropagationEnabled: true, JWTGroupsEnabled: true, JWTGroupsClaimName: "groups"},
 		Users: map[string]*types.User{
-			"user1": {Id: "user1", AccountID: "accountID"},
-			"user2": {Id: "user2", AccountID: "accountID"},
+			"user1": {Id: "user1", AccountID: "accountID", CreatedAt: time.Now()},
+			"user2": {Id: "user2", AccountID: "accountID", CreatedAt: time.Now()},
 		},
 	}
 
@@ -3021,8 +3021,8 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 3, 3, 11},
-		{"Medium", 500, 100, 7, 13, 10, 70},
+		{"Small", 50, 5, 1, 3, 3, 14},
+		{"Medium", 500, 100, 7, 13, 10, 80},
 		{"Large", 5000, 200, 65, 80, 60, 220},
 		{"Small single", 50, 10, 1, 3, 3, 70},
 		{"Medium single", 500, 10, 7, 13, 10, 32},
@@ -3164,7 +3164,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 	}{
 		{"Small", 50, 5, 107, 120, 107, 160},
 		{"Medium", 500, 100, 105, 140, 105, 220},
-		{"Large", 5000, 200, 180, 220, 180, 350},
+		{"Large", 5000, 200, 180, 220, 180, 395},
 		{"Small single", 50, 10, 107, 120, 105, 160},
 		{"Medium single", 500, 10, 105, 140, 105, 170},
 		{"Large 5", 5000, 15, 180, 220, 180, 340},

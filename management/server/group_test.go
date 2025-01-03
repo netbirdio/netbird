@@ -355,6 +355,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	setupKey := &types.SetupKey{
 		Id:         "example setup key",
 		AutoGroups: []string{groupForSetupKeys.ID},
+		UpdatedAt:  time.Now(),
 	}
 
 	user := &types.User{

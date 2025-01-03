@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/gorilla/mux"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -42,19 +43,19 @@ var testAccount = &types.Account{
 					ID:             existingTokenID,
 					Name:           "My first token",
 					HashedToken:    "someHash",
-					ExpirationDate: time.Now().UTC().AddDate(0, 0, 7),
+					ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
 					CreatedBy:      existingUserID,
 					CreatedAt:      time.Now().UTC(),
-					LastUsed:       time.Now().UTC(),
+					LastUsed:       util.ToPtr(time.Now().UTC()),
 				},
 				"token2": {
 					ID:             "token2",
 					Name:           "My second token",
 					HashedToken:    "someOtherHash",
-					ExpirationDate: time.Now().UTC().AddDate(0, 0, 7),
+					ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
 					CreatedBy:      existingUserID,
 					CreatedAt:      time.Now().UTC(),
-					LastUsed:       time.Now().UTC(),
+					LastUsed:       util.ToPtr(time.Now().UTC()),
 				},
 			},
 		},
@@ -248,8 +249,8 @@ func toTokenResponse(serverToken types.PersonalAccessToken) api.PersonalAccessTo
 		Id:             serverToken.ID,
 		Name:           serverToken.Name,
 		CreatedAt:      serverToken.CreatedAt,
-		LastUsed:       &serverToken.LastUsed,
+		LastUsed:       serverToken.LastUsed,
 		CreatedBy:      serverToken.CreatedBy,
-		ExpirationDate: serverToken.ExpirationDate,
+		ExpirationDate: serverToken.GetExpirationDate(),
 	}
 }

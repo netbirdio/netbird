@@ -14,3 +14,8 @@ func Difference(a, b []string) []string {
 	}
 	return diff
 }
+
+// ToPtr returns a pointer to the given value.
+func ToPtr[T any](value T) *T {
+	return &value
+}

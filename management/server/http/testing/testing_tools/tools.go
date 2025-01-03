@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -199,7 +200,7 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 			DNSLabel: fmt.Sprintf("oldpeer-%d", i),
 			Key:      peerKey.PublicKey().String(),
 			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
-			Status:   &nbpeer.PeerStatus{},
+			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   TestUserId,
 		}
 		account.Peers[peer.ID] = peer
@@ -220,7 +221,8 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 			Id:         fmt.Sprintf("oldkey-%d", i),
 			AccountID:  account.Id,
 			AutoGroups: []string{"someGroupID"},
-			ExpiresAt:  time.Now().Add(ExpiresIn * time.Second),
+			UpdatedAt:  time.Now().UTC(),
+			ExpiresAt:  util.ToPtr(time.Now().Add(ExpiresIn * time.Second)),
 			Name:       NewKeyName + strconv.Itoa(i),
 			Type:       "reusable",
 			UsageLimit: 0,
