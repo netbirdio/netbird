@@ -3,7 +3,146 @@ package uspfilter
 import (
 	"net"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/iface"
 )
+
+func TestLocalIPManager(t *testing.T) {
+	tests := []struct {
+		name      string
+		setupAddr iface.WGAddress
+		testIP    net.IP
+		expected  bool
+	}{
+		{
+			name: "Local IP matches",
+			setupAddr: iface.WGAddress{
+				IP: net.ParseIP("192.168.1.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("192.168.1.0"),
+					Mask: net.CIDRMask(24, 32),
+				},
+			},
+			testIP:   net.ParseIP("192.168.1.1"),
+			expected: true,
+		},
+		{
+			name: "Local IP doesn't match",
+			setupAddr: iface.WGAddress{
+				IP: net.ParseIP("192.168.1.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("192.168.1.0"),
+					Mask: net.CIDRMask(24, 32),
+				},
+			},
+			testIP:   net.ParseIP("192.168.1.2"),
+			expected: false,
+		},
+		{
+			name: "IPv6 address",
+			setupAddr: iface.WGAddress{
+				IP: net.ParseIP("fe80::1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("fe80::"),
+					Mask: net.CIDRMask(64, 128),
+				},
+			},
+			testIP:   net.ParseIP("fe80::1"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := newLocalIPManager()
+
+			mock := &IFaceMock{
+				AddressFunc: func() iface.WGAddress {
+					return tt.setupAddr
+				},
+			}
+
+			err := manager.UpdateLocalIPs(mock)
+			require.NoError(t, err)
+
+			result := manager.IsLocalIP(tt.testIP)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestLocalIPManager_AllInterfaces(t *testing.T) {
+	manager := newLocalIPManager()
+	mock := &IFaceMock{}
+
+	// Get actual local interfaces
+	interfaces, err := net.Interfaces()
+	require.NoError(t, err)
+
+	var tests []struct {
+		ip       string
+		expected bool
+	}
+
+	// Add all local interface IPs to test cases
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		require.NoError(t, err)
+
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			default:
+				continue
+			}
+
+			if ip4 := ip.To4(); ip4 != nil {
+				tests = append(tests, struct {
+					ip       string
+					expected bool
+				}{
+					ip:       ip4.String(),
+					expected: true,
+				})
+			}
+		}
+	}
+
+	// Add some external IPs as negative test cases
+	externalIPs := []string{
+		"8.8.8.8",
+		"1.1.1.1",
+		"208.67.222.222",
+	}
+	for _, ip := range externalIPs {
+		tests = append(tests, struct {
+			ip       string
+			expected bool
+		}{
+			ip:       ip,
+			expected: false,
+		})
+	}
+
+	require.NotEmpty(t, tests, "No test cases generated")
+
+	err = manager.UpdateLocalIPs(mock)
+	require.NoError(t, err)
+
+	t.Logf("Testing %d IPs", len(tests))
+	for _, tt := range tests {
+		t.Run(tt.ip, func(t *testing.T) {
+			result := manager.IsLocalIP(net.ParseIP(tt.ip))
+			require.Equal(t, tt.expected, result, "IP: %s", tt.ip)
+		})
+	}
+}
 
 // MapImplementation is a version using map[string]struct{}
 type MapImplementation struct {
