@@ -1362,7 +1362,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	hashedKey := sha256.Sum256([]byte(faultyKey))
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
-	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].LastUsed.UTC())
+	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].LastUsedTime().UTC())
 	assert.Equal(t, 0, account.SetupKeys[encodedHashedKey].UsedTimes)
 }
 

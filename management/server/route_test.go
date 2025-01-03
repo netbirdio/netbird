@@ -1307,7 +1307,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 			WtVersion: "development",
 			UIVersion: "development",
 		},
-		Status: &nbpeer.PeerStatus{},
+		Status: &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 	}
 	account.Peers[peer1.ID] = peer1
 
@@ -1334,7 +1334,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 			WtVersion: "development",
 			UIVersion: "development",
 		},
-		Status: &nbpeer.PeerStatus{},
+		Status: &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 	}
 	account.Peers[peer2.ID] = peer2
 
@@ -1361,7 +1361,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 			WtVersion: "development",
 			UIVersion: "development",
 		},
-		Status: &nbpeer.PeerStatus{},
+		Status: &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 	}
 	account.Peers[peer3.ID] = peer3
 
@@ -1388,7 +1388,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 			WtVersion: "development",
 			UIVersion: "development",
 		},
-		Status: &nbpeer.PeerStatus{},
+		Status: &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 	}
 	account.Peers[peer4.ID] = peer4
 
@@ -1415,7 +1415,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 			WtVersion: "development",
 			UIVersion: "development",
 		},
-		Status: &nbpeer.PeerStatus{},
+		Status: &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 	}
 	account.Peers[peer5.ID] = peer5
 
