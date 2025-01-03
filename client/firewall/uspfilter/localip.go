@@ -89,11 +89,6 @@ func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
 		}
 	}()
 
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return fmt.Errorf("get interfaces: %w", err)
-	}
-
 	var newIPv4Bitmap [1 << 16]uint32
 	ipv4Set := make(map[string]struct{})
 	var ipv4Addresses []string
@@ -104,8 +99,13 @@ func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
 		}
 	}
 
-	for _, intf := range interfaces {
-		m.processInterface(intf, &newIPv4Bitmap, ipv4Set, &ipv4Addresses)
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		log.Warnf("failed to get interfaces: %v", err)
+	} else {
+		for _, intf := range interfaces {
+			m.processInterface(intf, &newIPv4Bitmap, ipv4Set, &ipv4Addresses)
+		}
 	}
 
 	m.mu.Lock()
