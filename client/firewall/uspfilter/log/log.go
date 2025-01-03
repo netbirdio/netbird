@@ -68,7 +68,10 @@ func NewFromLogrus(logrusLogger *log.Logger) *Logger {
 			},
 		},
 	}
-	l.level.Store(uint32(LevelInfo))
+	logrusLevel := logrusLogger.GetLevel()
+	l.level.Store(uint32(logrusLevel))
+	level := levelStrings[Level(logrusLevel)]
+	log.Debugf("New uspfilter logger created with loglevel %v", level)
 
 	l.wg.Add(1)
 	go l.worker()
