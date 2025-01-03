@@ -53,8 +53,6 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 
 		// Send the packet through WireGuard
 		address := netHeader.DestinationAddress()
-
-		// TODO: handle dest ip addresses outside our network
 		err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice())
 		if err != nil {
 			e.logger.Error("CreateOutboundPacket: %v", err)

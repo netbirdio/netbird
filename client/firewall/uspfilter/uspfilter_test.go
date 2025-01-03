@@ -23,16 +23,24 @@ import (
 var logger = log.NewFromLogrus(logrus.StandardLogger())
 
 type IFaceMock struct {
-	SetFilterFunc func(device.PacketFilter) error
-	AddressFunc   func() iface.WGAddress
+	SetFilterFunc   func(device.PacketFilter) error
+	AddressFunc     func() iface.WGAddress
+	GetWGDeviceFunc func() *wgdevice.Device
+	GetDeviceFunc   func() *device.FilteredDevice
 }
 
 func (i *IFaceMock) GetWGDevice() *wgdevice.Device {
-	return nil
+	if i.GetWGDeviceFunc == nil {
+		return nil
+	}
+	return i.GetWGDeviceFunc()
 }
 
 func (i *IFaceMock) GetDevice() *device.FilteredDevice {
-	return nil
+	if i.GetDeviceFunc == nil {
+		return nil
+	}
+	return i.GetDeviceFunc()
 }
 
 func (i *IFaceMock) SetFilter(iface device.PacketFilter) error {

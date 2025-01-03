@@ -517,7 +517,6 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 
 		// if running in netstack mode we need to pass this to the forwarder
 		if m.netstack {
-			m.logger.Trace("Passing local packet to netstack: src=%s dst=%s", srcIP, dstIP)
 			m.handleNetstackLocalTraffic(packetData)
 			// don't process this packet further
 			return true
@@ -729,20 +728,39 @@ func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, sr
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	srcAddr, _ := netip.AddrFromSlice(srcIP)
-	dstAddr, _ := netip.AddrFromSlice(dstIP)
+	srcAddr := netip.AddrFrom4([4]byte(srcIP.To4()))
+	dstAddr := netip.AddrFrom4([4]byte(dstIP.To4()))
 
-	matched := false
 	for _, rule := range m.routeRules {
-		if m.ruleMatches(rule, srcAddr, dstAddr, proto, srcPort, dstPort) {
-			matched = true
-			if rule.action == firewall.ActionDrop {
-				return false
+		if !rule.destination.Contains(dstAddr) {
+			continue
+		}
+
+		sourceMatched := false
+		for _, src := range rule.sources {
+			if src.Contains(srcAddr) {
+				sourceMatched = true
+				break
 			}
 		}
+		if !sourceMatched {
+			continue
+		}
+
+		if rule.proto != firewall.ProtocolALL && rule.proto != proto {
+			continue
+		}
+
+		if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
+			if !m.portsMatch(rule.srcPort, srcPort) || !m.portsMatch(rule.dstPort, dstPort) {
+				continue
+			}
+		}
+
+		return rule.action == firewall.ActionAccept
 	}
 
-	return matched
+	return false
 }
 
 func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
@@ -765,14 +783,37 @@ func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto
 		return false
 	}
 
-	if rule.srcPort != nil && rule.srcPort.Values[0] != int(srcPort) {
-		return false
-	}
-	if rule.dstPort != nil && rule.dstPort.Values[0] != int(dstPort) {
-		return false
+	// Port matches for TCP/UDP only
+	if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
+		return m.portsMatch(rule.srcPort, srcPort) && m.portsMatch(rule.dstPort, dstPort)
 	}
 
 	return true
+}
+
+// Add to uspfilter.go, replace existing portsMatch method
+func (m *Manager) portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
+	if rulePort == nil || len(rulePort.Values) == 0 {
+		return true
+	}
+
+	if rulePort.IsRange {
+		if len(rulePort.Values) != 2 {
+			m.logger.Error("Invalid port range configuration: expected 2 values for range")
+			return false
+		}
+		startPort := rulePort.Values[0]
+		endPort := rulePort.Values[1]
+		return int(packetPort) >= startPort && int(packetPort) <= endPort
+	}
+
+	// Handle list of individual ports
+	for _, p := range rulePort.Values {
+		if uint16(p) == packetPort {
+			return true
+		}
+	}
+	return false
 }
 
 // SetNetwork of the wireguard interface to which filtering applied

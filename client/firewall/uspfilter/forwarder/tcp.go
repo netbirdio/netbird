@@ -19,7 +19,6 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 
 	dialAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 
-	f.logger.Trace("forwarder: handling TCP connection %v", id)
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {
 		r.Complete(true)
