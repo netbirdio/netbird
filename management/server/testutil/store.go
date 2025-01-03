@@ -5,7 +5,6 @@ package testutil
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"time"
 
@@ -14,10 +13,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-)
-
-var (
-	mysqlContainerConfigPath = "../testdata/mysql.cnf"
 )
 
 // CreateMysqlTestContainer creates a new MySQL container for testing.
@@ -82,8 +77,6 @@ func CreatePostgresTestContainer() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Println("talksConn: ", talksConn)
 
 	return cleanUp, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
 }
