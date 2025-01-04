@@ -40,32 +40,6 @@ func BenchmarkIPOperations(b *testing.B) {
 	})
 
 }
-func BenchmarkAtomicOperations(b *testing.B) {
-	conn := &BaseConnTrack{}
-	b.Run("UpdateLastSeen", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			conn.UpdateLastSeen()
-		}
-	})
-
-	b.Run("IsEstablished", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			_ = conn.IsEstablished()
-		}
-	})
-
-	b.Run("SetEstablished", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			conn.SetEstablished(i%2 == 0)
-		}
-	})
-
-	b.Run("GetLastSeen", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			_ = conn.GetLastSeen()
-		}
-	})
-}
 
 // Memory pressure tests
 func BenchmarkMemoryPressure(b *testing.B) {

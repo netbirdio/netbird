@@ -5,6 +5,7 @@ package conntrack
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
@@ -63,8 +64,19 @@ type TCPConnKey struct {
 // TCPConnTrack represents a TCP connection state
 type TCPConnTrack struct {
 	BaseConnTrack
-	State TCPState
+	State       TCPState
+	established atomic.Bool
 	sync.RWMutex
+}
+
+// IsEstablished safely checks if connection is established
+func (t *TCPConnTrack) IsEstablished() bool {
+	return t.established.Load()
+}
+
+// SetEstablished safely sets the established state
+func (t *TCPConnTrack) SetEstablished(state bool) {
+	t.established.Store(state)
 }
 
 // TCPTracker manages TCP connection states
@@ -97,7 +109,6 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger) *TCPTracker {
 func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
 	// Create key before lock
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
-	now := time.Now().UnixNano()
 
 	t.mutex.Lock()
 	conn, exists := t.connections[key]
@@ -117,7 +128,7 @@ func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 			},
 			State: TCPStateNew,
 		}
-		conn.lastSeen.Store(now)
+		conn.UpdateLastSeen()
 		conn.established.Store(false)
 		t.connections[key] = conn
 
@@ -129,7 +140,7 @@ func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 	conn.Lock()
 	t.updateState(conn, flags, true)
 	conn.Unlock()
-	conn.lastSeen.Store(now)
+	conn.UpdateLastSeen()
 }
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection

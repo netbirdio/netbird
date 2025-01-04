@@ -53,7 +53,6 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
 // TrackOutbound records an outbound UDP connection
 func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
-	now := time.Now().UnixNano()
 
 	t.mutex.Lock()
 	conn, exists := t.connections[key]
@@ -71,15 +70,14 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 				DestPort:   dstPort,
 			},
 		}
-		conn.lastSeen.Store(now)
-		conn.established.Store(true)
+		conn.UpdateLastSeen()
 		t.connections[key] = conn
 
 		t.logger.Trace("New UDP connection: %v", conn)
 	}
 	t.mutex.Unlock()
 
-	conn.lastSeen.Store(now)
+	conn.UpdateLastSeen()
 }
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
@@ -98,8 +96,7 @@ func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 		return false
 	}
 
-	return conn.IsEstablished() &&
-		ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
+	return ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
 		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
 		conn.DestPort == srcPort &&
 		conn.SourcePort == dstPort
