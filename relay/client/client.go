@@ -95,6 +95,8 @@ func (cc *connContainer) writeMsg(msg Msg) {
 	case cc.messages <- msg:
 	case <-cc.ctx.Done():
 		msg.Free()
+	default:
+		msg.Free()
 	}
 }
 
