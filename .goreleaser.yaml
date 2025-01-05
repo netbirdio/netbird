@@ -179,6 +179,51 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
+
+  - image_templates:
+      - netbirdio/netbird:{{ .Version }}-rootless-amd64
+    ids:
+      - netbird
+    goarch: amd64
+    use: buildx
+    dockerfile: client/Dockerfile-rootless
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
+    ids:
+      - netbird
+    goarch: arm64
+    use: buildx
+    dockerfile: client/Dockerfile-rootless
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/netbird:{{ .Version }}-rootless-arm
+    ids:
+      - netbird
+    goarch: arm
+    goarm: 6
+    use: buildx
+    dockerfile: client/Dockerfile-rootless
+    build_flag_templates:
+      - "--platform=linux/arm"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=maintainer=dev@netbird.io"
+
   - image_templates:
       - netbirdio/relay:{{ .Version }}-amd64
     ids:
@@ -376,6 +421,18 @@ docker_manifests:
       - netbirdio/netbird:{{ .Version }}-arm64v8
       - netbirdio/netbird:{{ .Version }}-arm
       - netbirdio/netbird:{{ .Version }}-amd64
+
+  - name_template: netbirdio/netbird:{{ .Version }}-rootless
+    image_templates:
+      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
+      - netbirdio/netbird:{{ .Version }}-rootless-arm
+      - netbirdio/netbird:{{ .Version }}-rootless-amd64
+
+  - name_template: netbirdio/netbird:rootless-latest
+    image_templates:
+      - netbirdio/netbird:{{ .Version }}-rootless-arm64v8
+      - netbirdio/netbird:{{ .Version }}-rootless-arm
+      - netbirdio/netbird:{{ .Version }}-rootless-amd64
 
   - name_template: netbirdio/relay:{{ .Version }}
     image_templates:

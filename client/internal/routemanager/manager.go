@@ -17,6 +17,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -104,22 +105,43 @@ func NewManager(
 		peerStore:        peerStore,
 	}
 
-	dm.routeRefCounter = refcounter.New(
+	dm.setupRefCounters()
+
+	if runtime.GOOS == "android" {
+		cr := dm.initialClientRoutes(initialRoutes)
+		dm.notifier.SetInitialClientRoutes(cr)
+	}
+	return dm
+}
+
+func (m *DefaultManager) setupRefCounters() {
+	m.routeRefCounter = refcounter.New(
 		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
-			return struct{}{}, sysOps.AddVPNRoute(prefix, wgInterface.ToInterface())
+			return struct{}{}, m.sysOps.AddVPNRoute(prefix, m.wgInterface.ToInterface())
 		},
 		func(prefix netip.Prefix, _ struct{}) error {
-			return sysOps.RemoveVPNRoute(prefix, wgInterface.ToInterface())
+			return m.sysOps.RemoveVPNRoute(prefix, m.wgInterface.ToInterface())
 		},
 	)
 
-	dm.allowedIPsRefCounter = refcounter.New(
+	if netstack.IsEnabled() {
+		m.routeRefCounter = refcounter.New(
+			func(netip.Prefix, struct{}) (struct{}, error) {
+				return struct{}{}, refcounter.ErrIgnore
+			},
+			func(netip.Prefix, struct{}) error {
+				return nil
+			},
+		)
+	}
+
+	m.allowedIPsRefCounter = refcounter.New(
 		func(prefix netip.Prefix, peerKey string) (string, error) {
 			// save peerKey to use it in the remove function
-			return peerKey, wgInterface.AddAllowedIP(peerKey, prefix.String())
+			return peerKey, m.wgInterface.AddAllowedIP(peerKey, prefix.String())
 		},
 		func(prefix netip.Prefix, peerKey string) error {
-			if err := wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
+			if err := m.wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
 				if !errors.Is(err, configurer.ErrPeerNotFound) && !errors.Is(err, configurer.ErrAllowedIPNotFound) {
 					return err
 				}
@@ -128,12 +150,6 @@ func NewManager(
 			return nil
 		},
 	)
-
-	if runtime.GOOS == "android" {
-		cr := dm.initialClientRoutes(initialRoutes)
-		dm.notifier.SetInitialClientRoutes(cr)
-	}
-	return dm
 }
 
 // Init sets up the routing
