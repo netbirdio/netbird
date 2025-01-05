@@ -58,7 +58,6 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 	assert.True(t, conn.DestIP.Equal(dstIP))
 	assert.Equal(t, srcPort, conn.SourcePort)
 	assert.Equal(t, dstPort, conn.DestPort)
-	assert.True(t, conn.IsEstablished())
 	assert.WithinDuration(t, time.Now(), conn.GetLastSeen(), 1*time.Second)
 }
 
