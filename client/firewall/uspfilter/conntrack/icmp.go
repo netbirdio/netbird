@@ -139,7 +139,7 @@ func (t *ICMPTracker) cleanup() {
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
-			t.logger.Debug("ICMPTracker: removed connection %v", key)
+			t.logger.Debug("Removed ICMP connection %v (timeout)", key)
 		}
 	}
 }

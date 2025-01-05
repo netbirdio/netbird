@@ -124,7 +124,7 @@ func (t *UDPTracker) cleanup() {
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
-			t.logger.Trace("UDP connection timed out: %v", conn)
+			t.logger.Trace("Removed UDP connection %v (timeout)", conn)
 		}
 	}
 }

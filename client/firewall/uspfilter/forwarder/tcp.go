@@ -33,7 +33,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	if epErr != nil {
 		f.logger.Error("forwarder: failed to create TCP endpoint: %v", epErr)
 		if err := outConn.Close(); err != nil {
-			f.logger.Error("forwarder: outConn close error: %v", err)
+			f.logger.Debug("forwarder: outConn close error: %v", err)
 		}
 		r.Complete(true)
 		return
@@ -52,10 +52,10 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn, outConn net.Conn, ep tcpip.Endpoint) {
 	defer func() {
 		if err := inConn.Close(); err != nil {
-			f.logger.Error("forwarder: inConn close error: %v", err)
+			f.logger.Debug("forwarder: inConn close error: %v", err)
 		}
 		if err := outConn.Close(); err != nil {
-			f.logger.Error("forwarder: outConn close error: %v", err)
+			f.logger.Debug("forwarder: outConn close error: %v", err)
 		}
 		ep.Close()
 	}()
@@ -67,18 +67,12 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	errChan := make(chan error, 2)
 
 	go func() {
-		n, err := io.Copy(outConn, inConn)
-		if err != nil && !isClosedError(err) {
-			f.logger.Error("inbound->outbound copy error after %d bytes: %v", n, err)
-		}
+		_, err := io.Copy(outConn, inConn)
 		errChan <- err
 	}()
 
 	go func() {
-		n, err := io.Copy(inConn, outConn)
-		if err != nil && !isClosedError(err) {
-			f.logger.Error("outbound->inbound copy error after %d bytes: %v", n, err)
-		}
+		_, err := io.Copy(inConn, outConn)
 		errChan <- err
 	}()
 

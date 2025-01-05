@@ -73,10 +73,10 @@ func (f *udpForwarder) Stop() {
 	for id, conn := range f.conns {
 		conn.cancel()
 		if err := conn.conn.Close(); err != nil {
-			f.logger.Error("forwarder: UDP conn close error for %v: %v", id, err)
+			f.logger.Debug("forwarder: UDP conn close error for %v: %v", id, err)
 		}
 		if err := conn.outConn.Close(); err != nil {
-			f.logger.Error("forwarder: UDP outConn close error for %v: %v", id, err)
+			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
 
 		conn.ep.Close()
@@ -107,10 +107,10 @@ func (f *udpForwarder) cleanup() {
 			for _, idle := range idleConns {
 				idle.conn.cancel()
 				if err := idle.conn.conn.Close(); err != nil {
-					f.logger.Error("forwarder: UDP conn close error for %v: %v", idle.id, err)
+					f.logger.Debug("forwarder: UDP conn close error for %v: %v", idle.id, err)
 				}
 				if err := idle.conn.outConn.Close(); err != nil {
-					f.logger.Error("forwarder: UDP outConn close error for %v: %v", idle.id, err)
+					f.logger.Debug("forwarder: UDP outConn close error for %v: %v", idle.id, err)
 				}
 
 				idle.conn.ep.Close()
@@ -154,7 +154,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	wq := waiter.Queue{}
 	ep, epErr := r.CreateEndpoint(&wq)
 	if epErr != nil {
-		f.logger.Error("forwarder: failed to create UDP endpoint: %v", epErr)
+		f.logger.Debug("forwarder: failed to create UDP endpoint: %v", epErr)
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
@@ -196,10 +196,10 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	defer func() {
 		pConn.cancel()
 		if err := pConn.conn.Close(); err != nil {
-			f.logger.Error("forwarder: UDP inConn close error for %v: %v", id, err)
+			f.logger.Debug("forwarder: UDP inConn close error for %v: %v", id, err)
 		}
 		if err := pConn.outConn.Close(); err != nil {
-			f.logger.Error("forwarder: UDP outConn close error for %v: %v", id, err)
+			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
 
 		ep.Close()
