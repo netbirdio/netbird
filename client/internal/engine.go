@@ -379,18 +379,20 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(
-		e.ctx,
-		e.config.WgPrivateKey.PublicKey().String(),
-		e.config.DNSRouteInterval,
-		e.wgInterface,
-		e.statusRecorder,
-		e.relayManager,
-		initialRoutes,
-		e.stateManager,
-		dnsServer,
-		e.peerStore,
-	)
+	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
+		Context:             e.ctx,
+		PublicKey:           e.config.WgPrivateKey.PublicKey().String(),
+		DNSRouteInterval:    e.config.DNSRouteInterval,
+		WGInterface:         e.wgInterface,
+		StatusRecorder:      e.statusRecorder,
+		RelayManager:        e.relayManager,
+		InitialRoutes:       initialRoutes,
+		StateManager:        e.stateManager,
+		DNSServer:           dnsServer,
+		PeerStore:           e.peerStore,
+		DisableClientRoutes: e.config.DisableClientRoutes,
+		DisableServerRoutes: e.config.DisableServerRoutes,
+	})
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -412,7 +414,7 @@ func (e *Engine) Start() error {
 	if err != nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 	} else if e.firewall != nil {
-		if err := e.initFirewall(err); err != nil {
+		if err := e.initFirewall(); err != nil {
 			return err
 		}
 	}
@@ -456,7 +458,7 @@ func (e *Engine) Start() error {
 	return nil
 }
 
-func (e *Engine) initFirewall(error) error {
+func (e *Engine) initFirewall() error {
 	if e.firewall.IsServerRouteSupported() {
 		if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
 			e.close()
