@@ -19,8 +19,7 @@ import (
 )
 
 const (
-	udpTimeout    = 30 * time.Second
-	maxPacketSize = 65535
+	udpTimeout = 30 * time.Second
 )
 
 type udpPacketConn struct {
@@ -45,7 +44,7 @@ type idleConn struct {
 	conn *udpPacketConn
 }
 
-func newUDPForwarder(logger *nblog.Logger) *udpForwarder {
+func newUDPForwarder(mtu int, logger *nblog.Logger) *udpForwarder {
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &udpForwarder{
 		logger: logger,
@@ -54,7 +53,7 @@ func newUDPForwarder(logger *nblog.Logger) *udpForwarder {
 		cancel: cancel,
 		bufPool: sync.Pool{
 			New: func() any {
-				b := make([]byte, maxPacketSize)
+				b := make([]byte, mtu)
 				return &b
 			},
 		},

@@ -101,7 +101,7 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwar
 		logger:       logger,
 		stack:        s,
 		endpoint:     endpoint,
-		udpForwarder: newUDPForwarder(logger),
+		udpForwarder: newUDPForwarder(mtu, logger),
 		ctx:          ctx,
 		cancel:       cancel,
 		netstack:     netstack,
