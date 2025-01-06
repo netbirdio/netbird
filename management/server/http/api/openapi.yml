@@ -1398,12 +1398,17 @@ components:
           description: Indicate if peer should masquerade traffic to this route's prefix
           type: boolean
           example: true
+        enabled:
+          description: Network router status
+          type: boolean
+          example: true
       required:
         # Only one property has to be set
         #- peer
         #- peer_groups
         - metric
         - masquerade
+        - enabled
     NetworkRouter:
       allOf:
         - type: object

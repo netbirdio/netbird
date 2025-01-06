@@ -1463,6 +1463,10 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 	routers := make(map[string]map[string]*routerTypes.NetworkRouter)
 
 	for _, router := range a.NetworkRouters {
+		if !router.Enabled {
+			continue
+		}
+
 		if routers[router.NetworkID] == nil {
 			routers[router.NetworkID] = make(map[string]*routerTypes.NetworkRouter)
 		}

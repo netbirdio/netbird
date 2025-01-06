@@ -614,6 +614,9 @@ type NetworkResourceType string
 
 // NetworkRouter defines model for NetworkRouter.
 type NetworkRouter struct {
+	// Enabled Network router status
+	Enabled bool `json:"enabled"`
+
 	// Id Network Router Id
 	Id string `json:"id"`
 
@@ -632,6 +635,9 @@ type NetworkRouter struct {
 
 // NetworkRouterRequest defines model for NetworkRouterRequest.
 type NetworkRouterRequest struct {
+	// Enabled Network router status
+	Enabled bool `json:"enabled"`
+
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`
 
