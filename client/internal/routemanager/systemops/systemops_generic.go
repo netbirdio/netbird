@@ -17,6 +17,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
@@ -61,6 +62,17 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 		},
 		r.removeFromRouteTable,
 	)
+
+	if netstack.IsEnabled() {
+		refCounter = refcounter.New(
+			func(netip.Prefix, struct{}) (Nexthop, error) {
+				return Nexthop{}, refcounter.ErrIgnore
+			},
+			func(netip.Prefix, Nexthop) error {
+				return nil
+			},
+		)
+	}
 
 	r.refCounter = refCounter
 
