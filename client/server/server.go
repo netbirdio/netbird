@@ -399,6 +399,23 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.DNSRouteInterval = &duration
 	}
 
+	if msg.DisableClientRoutes != nil {
+		inputConfig.DisableClientRoutes = msg.DisableClientRoutes
+		s.latestConfigInput.DisableClientRoutes = msg.DisableClientRoutes
+	}
+	if msg.DisableServerRoutes != nil {
+		inputConfig.DisableServerRoutes = msg.DisableServerRoutes
+		s.latestConfigInput.DisableServerRoutes = msg.DisableServerRoutes
+	}
+	if msg.DisableDns != nil {
+		inputConfig.DisableDNS = msg.DisableDns
+		s.latestConfigInput.DisableDNS = msg.DisableDns
+	}
+	if msg.DisableFirewall != nil {
+		inputConfig.DisableFirewall = msg.DisableFirewall
+		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
+	}
+
 	s.mutex.Unlock()
 
 	if msg.OptionalPreSharedKey != nil {

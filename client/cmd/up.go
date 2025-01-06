@@ -147,6 +147,19 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.DNSRouteInterval = &dnsRouteInterval
 	}
 
+	if cmd.Flag(disableClientRoutesFlag).Changed {
+		ic.DisableClientRoutes = &disableClientRoutes
+	}
+	if cmd.Flag(disableServerRoutesFlag).Changed {
+		ic.DisableServerRoutes = &disableServerRoutes
+	}
+	if cmd.Flag(disableDNSFlag).Changed {
+		ic.DisableDNS = &disableDNS
+	}
+	if cmd.Flag(disableFirewallFlag).Changed {
+		ic.DisableFirewall = &disableFirewall
+	}
+
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
 		return err
@@ -262,6 +275,19 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(dnsRouteIntervalFlag).Changed {
 		loginRequest.DnsRouteInterval = durationpb.New(dnsRouteInterval)
+	}
+
+	if cmd.Flag(disableClientRoutesFlag).Changed {
+		loginRequest.DisableClientRoutes = &disableClientRoutes
+	}
+	if cmd.Flag(disableServerRoutesFlag).Changed {
+		loginRequest.DisableServerRoutes = &disableServerRoutes
+	}
+	if cmd.Flag(disableDNSFlag).Changed {
+		loginRequest.DisableDns = &disableDNS
+	}
+	if cmd.Flag(disableFirewallFlag).Changed {
+		loginRequest.DisableFirewall = &disableFirewall
 	}
 
 	var loginErr error

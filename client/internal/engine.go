@@ -108,6 +108,11 @@ type EngineConfig struct {
 	ServerSSHAllowed bool
 
 	DNSRouteInterval time.Duration
+
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
