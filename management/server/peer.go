@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -511,7 +512,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
 			SSHEnabled:                  false,
 			SSHKey:                      peer.SSHKey,
-			LastLogin:                   registrationTime,
+			LastLogin:                   util.ToPtr(registrationTime),
 			CreatedAt:                   registrationTime,
 			LoginExpirationEnabled:      addedByUser,
 			Ephemeral:                   ephemeral,
@@ -566,7 +567,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 
 		if addedByUser {
-			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.LastLogin)
+			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 			if err != nil {
 				return fmt.Errorf("failed to update user last login: %w", err)
 			}
@@ -911,7 +912,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, user *ty
 		return err
 	}
 
-	err = am.Store.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.LastLogin)
+	err = am.Store.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.GetLastLogin())
 	if err != nil {
 		return err
 	}

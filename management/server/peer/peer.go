@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 // Peer represents a machine connected to the network.
@@ -40,7 +42,7 @@ type Peer struct {
 
 	InactivityExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
-	LastLogin time.Time
+	LastLogin *time.Time
 	// CreatedAt records the time the peer was created
 	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
@@ -222,6 +224,15 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
 	return true
 }
 
+// GetLastLogin returns the last login time of the peer.
+func (p *Peer) GetLastLogin() time.Time {
+	if p.LastLogin != nil {
+		return *p.LastLogin
+	}
+	return time.Time{}
+
+}
+
 // MarkLoginExpired marks peer's status expired or not
 func (p *Peer) MarkLoginExpired(expired bool) {
 	newStatus := p.Status.Copy()
@@ -258,7 +269,7 @@ func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
 	if !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
 		return false, 0
 	}
-	expiresAt := p.LastLogin.Add(expiresIn)
+	expiresAt := p.GetLastLogin().Add(expiresIn)
 	now := time.Now()
 	timeLeft := expiresAt.Sub(now)
 	return timeLeft <= 0, timeLeft
@@ -291,7 +302,7 @@ func (p *PeerStatus) Copy() *PeerStatus {
 
 // UpdateLastLogin and set login expired false
 func (p *Peer) UpdateLastLogin() *Peer {
-	p.LastLogin = time.Now().UTC()
+	p.LastLogin = util.ToPtr(time.Now().UTC())
 	newStatus := p.Status.Copy()
 	newStatus.LoginExpired = false
 	p.Status = newStatus
