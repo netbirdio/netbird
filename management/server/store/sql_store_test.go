@@ -2494,7 +2494,7 @@ func TestSqlStore_SaveNetworkResource(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	networkID := "ct286bi7qv930dsrrug0"
 
-	netResource, err := resourceTypes.NewNetworkResource(accountID, networkID, "resource-name", "", "example.com", []string{})
+	netResource, err := resourceTypes.NewNetworkResource(accountID, networkID, "resource-name", "", "example.com", []string{}, true)
 	require.NoError(t, err)
 
 	err = store.SaveNetworkResource(context.Background(), LockingStrengthUpdate, netResource)
