@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 
 	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -20,8 +21,10 @@ import (
 )
 
 const (
-	receiveWindow = 32768
-	maxInFlight   = 1024
+	defaultReceiveWindow = 32768
+	defaultMaxInFlight   = 1024
+	iosReceiveWindow     = 16384
+	iosMaxInFlight       = 256
 )
 
 type Forwarder struct {
@@ -106,6 +109,13 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwar
 		cancel:       cancel,
 		netstack:     netstack,
 		ip:           iface.Address().IP,
+	}
+
+	receiveWindow := defaultReceiveWindow
+	maxInFlight := defaultMaxInFlight
+	if runtime.GOOS == "ios" {
+		receiveWindow = iosReceiveWindow
+		maxInFlight = iosMaxInFlight
 	}
 
 	tcpForwarder := tcp.NewForwarder(s, receiveWindow, maxInFlight, f.handleTCP)
