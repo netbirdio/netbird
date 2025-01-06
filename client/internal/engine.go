@@ -410,13 +410,8 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("create wg interface: %w", err)
 	}
 
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
-	if err != nil {
-		log.Errorf("failed creating firewall manager: %s", err)
-	} else if e.firewall != nil {
-		if err := e.initFirewall(); err != nil {
-			return err
-		}
+	if err := e.createFirewall(); err != nil {
+		return err
 	}
 
 	e.udpMux, err = e.wgInterface.Up()
@@ -454,6 +449,26 @@ func (e *Engine) Start() error {
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
+
+	return nil
+}
+
+func (e *Engine) createFirewall() error {
+	if e.config.DisableFirewall {
+		log.Infof("firewall is disabled")
+		return nil
+	}
+
+	var err error
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
+	if err != nil || e.firewall == nil {
+		log.Errorf("failed creating firewall manager: %s", err)
+		return nil
+	}
+
+	if err := e.initFirewall(); err != nil {
+		return err
+	}
 
 	return nil
 }
