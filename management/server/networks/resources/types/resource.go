@@ -43,7 +43,7 @@ type NetworkResource struct {
 	Enabled     bool
 }
 
-func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string) (*NetworkResource, error) {
+func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string, enabled bool) (*NetworkResource, error) {
 	resourceType, domain, prefix, err := GetResourceType(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
@@ -60,7 +60,7 @@ func NewNetworkResource(accountID, networkID, name, description, address string,
 		Domain:      domain,
 		Prefix:      prefix,
 		GroupIDs:    groupIDs,
-		Enabled:     true,
+		Enabled:     enabled,
 	}, nil
 }
 
