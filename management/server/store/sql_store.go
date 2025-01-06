@@ -886,10 +886,6 @@ func (s *SqlStore) GetAccountSettings(ctx context.Context, lockStrength LockingS
 
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error {
-	if lastLogin.IsZero() {
-		return nil
-	}
-
 	var user types.User
 	result := s.db.First(&user, accountAndIDQueryCondition, accountID, userID)
 	if result.Error != nil {
@@ -898,9 +894,13 @@ func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID stri
 		}
 		return status.NewGetUserFromStoreError()
 	}
-	user.LastLogin = &lastLogin
 
-	return s.db.Save(&user).Error
+	if !lastLogin.IsZero() {
+		user.LastLogin = &lastLogin
+		return s.db.Save(&user).Error
+	}
+
+	return nil
 }
 
 func (s *SqlStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
