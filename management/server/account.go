@@ -438,7 +438,6 @@ func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Con
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, account *types.Account, oldSettings, newSettings *types.Settings, userID, accountID string) error {
-
 	if newSettings.PeerInactivityExpirationEnabled {
 		if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
 			oldSettings.PeerInactivityExpiration = newSettings.PeerInactivityExpiration
@@ -790,7 +789,7 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 		if user.Issued == types.UserIssuedIntegration {
 			continue
 		}
-		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
+		users[user.Id] = userLoggedInOnce(!user.GetLastLogin().IsZero())
 	}
 	log.WithContext(ctx).Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(ctx, users, account.Id)
@@ -1135,7 +1134,7 @@ func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string
 		return fmt.Errorf("token not found")
 	}
 
-	pat.LastUsed = time.Now().UTC()
+	pat.LastUsed = util.ToPtr(time.Now().UTC())
 
 	return am.Store.SaveAccount(ctx, account)
 }
