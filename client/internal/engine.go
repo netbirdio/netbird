@@ -1353,6 +1353,7 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 	if e.dnsServer != nil {
 		return nil, e.dnsServer, nil
 	}
+
 	switch runtime.GOOS {
 	case "android":
 		routes, dnsConfig, err := e.readInitialSettings()
@@ -1366,14 +1367,17 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 			*dnsConfig,
 			e.mobileDep.NetworkChangeListener,
 			e.statusRecorder,
+			e.config.DisableDNS,
 		)
 		go e.mobileDep.DnsReadyListener.OnReady()
 		return routes, dnsServer, nil
+
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
 		return nil, dnsServer, nil
+
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS)
 		if err != nil {
 			return nil, nil, err
 		}

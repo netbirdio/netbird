@@ -102,3 +102,17 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 
 	return config
 }
+
+type noopHostConfigurator struct{}
+
+func (n noopHostConfigurator) applyDNSConfig(HostDNSConfig, *statemanager.Manager) error {
+	return nil
+}
+
+func (n noopHostConfigurator) restoreHostDNS() error {
+	return nil
+}
+
+func (n noopHostConfigurator) supportCustomPort() bool {
+	return true
+}
