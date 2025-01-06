@@ -40,6 +40,7 @@ type NetworkResource struct {
 	GroupIDs    []string `gorm:"-"`
 	Domain      string
 	Prefix      netip.Prefix `gorm:"serializer:json"`
+	Enabled     bool
 }
 
 func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string) (*NetworkResource, error) {
@@ -59,6 +60,7 @@ func NewNetworkResource(accountID, networkID, name, description, address string,
 		Domain:      domain,
 		Prefix:      prefix,
 		GroupIDs:    groupIDs,
+		Enabled:     true,
 	}, nil
 }
 
@@ -75,6 +77,7 @@ func (n *NetworkResource) ToAPIResponse(groups []api.GroupMinimum) *api.NetworkR
 		Type:        api.NetworkResourceType(n.Type.String()),
 		Address:     addr,
 		Groups:      groups,
+		Enabled:     n.Enabled,
 	}
 }
 
@@ -86,6 +89,7 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 	}
 	n.Address = req.Address
 	n.GroupIDs = req.Groups
+	n.Enabled = req.Enabled
 }
 
 func (n *NetworkResource) Copy() *NetworkResource {
@@ -100,6 +104,7 @@ func (n *NetworkResource) Copy() *NetworkResource {
 		Domain:      n.Domain,
 		Prefix:      n.Prefix,
 		GroupIDs:    n.GroupIDs,
+		Enabled:     n.Enabled,
 	}
 }
 
@@ -115,7 +120,7 @@ func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.Network
 		PeerGroups:          nil,
 		Masquerade:          router.Masquerade,
 		Metric:              router.Metric,
-		Enabled:             true,
+		Enabled:             n.Enabled,
 		Groups:              nil,
 		AccessControlGroups: nil,
 	}

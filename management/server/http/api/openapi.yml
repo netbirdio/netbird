@@ -1328,9 +1328,14 @@ components:
           description: Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
           type: string
           example: "1.1.1.1"
+        enabled:
+          description: Network resource status
+          type: boolean
+          example: true
       required:
         - name
         - address
+        - enabled
     NetworkResourceRequest:
       allOf:
         - $ref: '#/components/schemas/NetworkResourceMinimum'

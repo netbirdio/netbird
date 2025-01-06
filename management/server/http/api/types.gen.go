@@ -560,6 +560,9 @@ type NetworkResource struct {
 	// Description Network resource description
 	Description *string `json:"description,omitempty"`
 
+	// Enabled Network resource status
+	Enabled bool `json:"enabled"`
+
 	// Groups Groups that the resource belongs to
 	Groups []GroupMinimum `json:"groups"`
 
@@ -581,6 +584,9 @@ type NetworkResourceMinimum struct {
 	// Description Network resource description
 	Description *string `json:"description,omitempty"`
 
+	// Enabled Network resource status
+	Enabled bool `json:"enabled"`
+
 	// Name Network resource name
 	Name string `json:"name"`
 }
@@ -592,6 +598,9 @@ type NetworkResourceRequest struct {
 
 	// Description Network resource description
 	Description *string `json:"description,omitempty"`
+
+	// Enabled Network resource status
+	Enabled bool `json:"enabled"`
 
 	// Groups Group IDs containing the resource
 	Groups []string `json:"groups"`
