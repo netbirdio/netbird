@@ -12,7 +12,7 @@ import (
 const (
 	PriorityDNSRoute    = 100
 	PriorityMatchDomain = 50
-	PriorityDefault     = 0
+	PriorityDefault     = 1
 )
 
 type SubdomainMatcher interface {
@@ -26,7 +26,6 @@ type HandlerEntry struct {
 	Pattern         string
 	OrigPattern     string
 	IsWildcard      bool
-	StopHandler     handlerWithStop
 	MatchSubdomains bool
 }
 
@@ -64,7 +63,7 @@ func (w *ResponseWriterChain) GetOrigPattern() string {
 }
 
 // AddHandler adds a new handler to the chain, replacing any existing handler with the same pattern and priority
-func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority int, stopHandler handlerWithStop) {
+func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -78,9 +77,6 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 	// First remove any existing handler with same pattern (case-insensitive) and priority
 	for i := len(c.handlers) - 1; i >= 0; i-- {
 		if strings.EqualFold(c.handlers[i].OrigPattern, origPattern) && c.handlers[i].Priority == priority {
-			if c.handlers[i].StopHandler != nil {
-				c.handlers[i].StopHandler.stop()
-			}
 			c.handlers = append(c.handlers[:i], c.handlers[i+1:]...)
 			break
 		}
@@ -101,7 +97,6 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 		Pattern:         pattern,
 		OrigPattern:     origPattern,
 		IsWildcard:      isWildcard,
-		StopHandler:     stopHandler,
 		MatchSubdomains: matchSubdomains,
 	}
 
@@ -129,9 +124,6 @@ func (c *HandlerChain) RemoveHandler(pattern string, priority int) {
 	for i := len(c.handlers) - 1; i >= 0; i-- {
 		entry := c.handlers[i]
 		if strings.EqualFold(entry.OrigPattern, pattern) && entry.Priority == priority {
-			if entry.StopHandler != nil {
-				entry.StopHandler.stop()
-			}
 			c.handlers = append(c.handlers[:i], c.handlers[i+1:]...)
 			return
 		}
@@ -167,8 +159,8 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if log.IsLevelEnabled(log.TraceLevel) {
 		log.Tracef("current handlers (%d):", len(handlers))
 		for _, h := range handlers {
-			log.Tracef("  - pattern: domain=%s original: domain=%s wildcard=%v priority=%d",
-				h.Pattern, h.OrigPattern, h.IsWildcard, h.Priority)
+			log.Tracef("  - pattern: domain=%s original: domain=%s wildcard=%v match_subdomain=%v priority=%d",
+				h.Pattern, h.OrigPattern, h.IsWildcard, h.MatchSubdomains, h.Priority)
 		}
 	}
 
@@ -193,13 +185,13 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		}
 
 		if !matched {
-			log.Tracef("trying domain match: request: domain=%s pattern: domain=%s wildcard=%v match_subdomain=%v matched=false",
-				qname, entry.OrigPattern, entry.MatchSubdomains, entry.IsWildcard)
+			log.Tracef("trying domain match: request: domain=%s pattern: domain=%s wildcard=%v match_subdomain=%v priority=%d matched=false",
+				qname, entry.OrigPattern, entry.MatchSubdomains, entry.IsWildcard, entry.Priority)
 			continue
 		}
 
-		log.Tracef("handler matched: request: domain=%s pattern: domain=%s wildcard=%v match_subdomain=%v",
-			qname, entry.OrigPattern, entry.IsWildcard, entry.MatchSubdomains)
+		log.Tracef("handler matched: request: domain=%s pattern: domain=%s wildcard=%v match_subdomain=%v priority=%d",
+			qname, entry.OrigPattern, entry.IsWildcard, entry.MatchSubdomains, entry.Priority)
 
 		chainWriter := &ResponseWriterChain{
 			ResponseWriter: w,
