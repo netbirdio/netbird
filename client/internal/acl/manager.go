@@ -151,7 +151,7 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 			d.rollBack(newRulePairs)
 			break
 		}
-		if len(rules) > 0 {
+		if len(rulePair) > 0 {
 			d.peerRulesPairs[pairID] = rulePair
 			newRulePairs[pairID] = rulePair
 		}
@@ -288,6 +288,8 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	case mgmProto.RuleDirection_IN:
 		rules, err = d.addInRules(ip, protocol, port, action, ipsetName, "")
 	case mgmProto.RuleDirection_OUT:
+		// TODO: Remove this soon. Outbound rules are obsolete.
+		// We only maintain this for return traffic (in dir) which is now handled by the stateful firewall already
 		rules, err = d.addOutRules(ip, protocol, port, action, ipsetName, "")
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
@@ -308,25 +310,12 @@ func (d *DefaultManager) addInRules(
 	ipsetName string,
 	comment string,
 ) ([]firewall.Rule, error) {
-	var rules []firewall.Rule
-	rule, err := d.firewall.AddPeerFiltering(
-		ip, protocol, nil, port, firewall.RuleDirectionIN, action, ipsetName, comment)
+	rule, err := d.firewall.AddPeerFiltering(ip, protocol, nil, port, action, ipsetName, comment)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
-	}
-	rules = append(rules, rule...)
-
-	if shouldSkipInvertedRule(protocol, port) {
-		return rules, nil
+		return nil, fmt.Errorf("add firewall rule: %w", err)
 	}
 
-	rule, err = d.firewall.AddPeerFiltering(
-		ip, protocol, port, nil, firewall.RuleDirectionOUT, action, ipsetName, comment)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
-	}
-
-	return append(rules, rule...), nil
+	return rule, nil
 }
 
 func (d *DefaultManager) addOutRules(
@@ -337,25 +326,16 @@ func (d *DefaultManager) addOutRules(
 	ipsetName string,
 	comment string,
 ) ([]firewall.Rule, error) {
-	var rules []firewall.Rule
-	rule, err := d.firewall.AddPeerFiltering(
-		ip, protocol, nil, port, firewall.RuleDirectionOUT, action, ipsetName, comment)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
-	}
-	rules = append(rules, rule...)
-
 	if shouldSkipInvertedRule(protocol, port) {
-		return rules, nil
+		return nil, nil
 	}
 
-	rule, err = d.firewall.AddPeerFiltering(
-		ip, protocol, port, nil, firewall.RuleDirectionIN, action, ipsetName, comment)
+	rule, err := d.firewall.AddPeerFiltering(ip, protocol, port, nil, action, ipsetName, comment)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
+		return nil, fmt.Errorf("add firewall rule: %w", err)
 	}
 
-	return append(rules, rule...), nil
+	return rule, nil
 }
 
 // getPeerRuleID() returns unique ID for the rule based on its parameters.

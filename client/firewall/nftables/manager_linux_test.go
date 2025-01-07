@@ -74,16 +74,7 @@ func TestNftablesManager(t *testing.T) {
 
 	testClient := &nftables.Conn{}
 
-	rule, err := manager.AddPeerFiltering(
-		ip,
-		fw.ProtocolTCP,
-		nil,
-		&fw.Port{Values: []int{53}},
-		fw.RuleDirectionIN,
-		fw.ActionDrop,
-		"",
-		"",
-	)
+	rule, err := manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []int{53}}, fw.ActionDrop, "", "")
 	require.NoError(t, err, "failed to add rule")
 
 	err = manager.Flush()
@@ -211,9 +202,9 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []int{1000 + i}}
 				if i%2 == 0 {
-					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
+					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
 				} else {
-					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
+					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
 				}
 				require.NoError(t, err, "failed to add rule")
 
@@ -296,16 +287,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	})
 
 	ip := net.ParseIP("100.96.0.1")
-	_, err = manager.AddPeerFiltering(
-		ip,
-		fw.ProtocolTCP,
-		nil,
-		&fw.Port{Values: []int{80}},
-		fw.RuleDirectionIN,
-		fw.ActionAccept,
-		"",
-		"test rule",
-	)
+	_, err = manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []int{80}}, fw.ActionAccept, "", "test rule")
 	require.NoError(t, err, "failed to add peer filtering rule")
 
 	_, err = manager.AddRouteFiltering(

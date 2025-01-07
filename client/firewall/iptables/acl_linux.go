@@ -19,8 +19,7 @@ const (
 	tableName = "filter"
 
 	// rules chains contains the effective ACL rules
-	chainNameInputRules  = "NETBIRD-ACL-INPUT"
-	chainNameOutputRules = "NETBIRD-ACL-OUTPUT"
+	chainNameInputRules = "NETBIRD-ACL-INPUT"
 )
 
 type aclEntries map[string][][]string
@@ -84,7 +83,6 @@ func (m *aclManager) AddPeerFiltering(
 	protocol firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
-	direction firewall.RuleDirection,
 	action firewall.Action,
 	ipsetName string,
 ) ([]firewall.Rule, error) {
@@ -97,15 +95,10 @@ func (m *aclManager) AddPeerFiltering(
 		sPortVal = strconv.Itoa(sPort.Values[0])
 	}
 
-	var chain string
-	if direction == firewall.RuleDirectionOUT {
-		chain = chainNameOutputRules
-	} else {
-		chain = chainNameInputRules
-	}
+	chain := chainNameInputRules
 
 	ipsetName = transformIPsetName(ipsetName, sPortVal, dPortVal)
-	specs := filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
+	specs := filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, action, ipsetName)
 	if ipsetName != "" {
 		if ipList, ipsetExists := m.ipsetStore.ipset(ipsetName); ipsetExists {
 			if err := ipset.Add(ipsetName, ip.String()); err != nil {
@@ -214,28 +207,7 @@ func (m *aclManager) Reset() error {
 
 // todo write less destructive cleanup mechanism
 func (m *aclManager) cleanChains() error {
-	ok, err := m.iptablesClient.ChainExists(tableName, chainNameOutputRules)
-	if err != nil {
-		log.Debugf("failed to list chains: %s", err)
-		return err
-	}
-	if ok {
-		rules := m.entries["OUTPUT"]
-		for _, rule := range rules {
-			err := m.iptablesClient.DeleteIfExists(tableName, "OUTPUT", rule...)
-			if err != nil {
-				log.Errorf("failed to delete rule: %v, %s", rule, err)
-			}
-		}
-
-		err = m.iptablesClient.ClearAndDeleteChain(tableName, chainNameOutputRules)
-		if err != nil {
-			log.Debugf("failed to clear and delete %s chain: %s", chainNameOutputRules, err)
-			return err
-		}
-	}
-
-	ok, err = m.iptablesClient.ChainExists(tableName, chainNameInputRules)
+	ok, err := m.iptablesClient.ChainExists(tableName, chainNameInputRules)
 	if err != nil {
 		log.Debugf("failed to list chains: %s", err)
 		return err
@@ -295,12 +267,6 @@ func (m *aclManager) createDefaultChains() error {
 		return err
 	}
 
-	// chain netbird-acl-output-rules
-	if err := m.iptablesClient.NewChain(tableName, chainNameOutputRules); err != nil {
-		log.Debugf("failed to create '%s' chain: %s", chainNameOutputRules, err)
-		return err
-	}
-
 	for chainName, rules := range m.entries {
 		for _, rule := range rules {
 			if err := m.iptablesClient.InsertUnique(tableName, chainName, 1, rule...); err != nil {
@@ -329,8 +295,6 @@ func (m *aclManager) createDefaultChains() error {
 
 // The existing FORWARD rules/policies decide outbound traffic towards our interface.
 // In case the FORWARD policy is set to "drop", we add an established/related rule to allow return traffic for the inbound rule.
-
-// The OUTPUT chain gets an extra rule to allow traffic to any set up routes, the return traffic is handled by the INPUT related/established rule.
 func (m *aclManager) seedInitialEntries() {
 	established := getConntrackEstablished()
 
@@ -390,30 +354,18 @@ func (m *aclManager) updateState() {
 }
 
 // filterRuleSpecs returns the specs of a filtering rule
-func filterRuleSpecs(
-	ip net.IP, protocol string, sPort, dPort string, direction firewall.RuleDirection, action firewall.Action, ipsetName string,
-) (specs []string) {
+func filterRuleSpecs(ip net.IP, protocol, sPort, dPort string, action firewall.Action, ipsetName string) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
 	if ip.String() == "0.0.0.0" {
 		matchByIP = false
 	}
-	switch direction {
-	case firewall.RuleDirectionIN:
-		if matchByIP {
-			if ipsetName != "" {
-				specs = append(specs, "-m", "set", "--set", ipsetName, "src")
-			} else {
-				specs = append(specs, "-s", ip.String())
-			}
-		}
-	case firewall.RuleDirectionOUT:
-		if matchByIP {
-			if ipsetName != "" {
-				specs = append(specs, "-m", "set", "--set", ipsetName, "dst")
-			} else {
-				specs = append(specs, "-d", ip.String())
-			}
+
+	if matchByIP {
+		if ipsetName != "" {
+			specs = append(specs, "-m", "set", "--set", ipsetName, "src")
+		} else {
+			specs = append(specs, "-s", ip.String())
 		}
 	}
 	if protocol != "all" {
