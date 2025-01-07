@@ -107,6 +107,11 @@ message LoginRequest {
   optional bool networkMonitor = 18;
 
   optional google.protobuf.Duration dnsRouteInterval = 19;
+
+  optional bool disable_client_routes = 20;
+  optional bool disable_server_routes = 21;
+  optional bool disable_dns = 22;
+  optional bool disable_firewall = 23;
 }
 
 message LoginResponse {

@@ -11,5 +11,6 @@ ENV NB_FOREGROUND_MODE=true
 ENV NB_USE_NETSTACK_MODE=true
 ENV NB_CONFIG=config.json
 ENV NB_DAEMON_ADDR=unix://netbird.sock
+ENV NB_DISABLE_DNS=true
 
 ENTRYPOINT [ "/usr/local/bin/netbird", "up" ]
