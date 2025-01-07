@@ -1614,7 +1614,7 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 		return nil, nil
 	}
 
-	// Create a deep copy to avoid external modifications
+	log.Debugf("Retrieving latest network map with size %d bytes", proto.Size(e.latestNetworkMap))
 	nm, ok := proto.Clone(e.latestNetworkMap).(*mgmProto.NetworkMap)
 	if !ok {
 

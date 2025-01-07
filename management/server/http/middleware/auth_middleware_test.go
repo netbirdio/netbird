@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/management/server/util"
 
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -39,10 +40,10 @@ var testAccount = &types.Account{
 					ID:             tokenID,
 					Name:           "My first token",
 					HashedToken:    "someHash",
-					ExpirationDate: time.Now().UTC().AddDate(0, 0, 7),
+					ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
 					CreatedBy:      userID,
 					CreatedAt:      time.Now().UTC(),
-					LastUsed:       time.Now().UTC(),
+					LastUsed:       util.ToPtr(time.Now().UTC()),
 				},
 			},
 		},
