@@ -93,7 +93,7 @@ func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiSetupKeys := toResponseBody(setupKey)
+	apiSetupKeys := ToResponseBody(setupKey)
 	// for the creation we need to send the plain key
 	apiSetupKeys.Key = setupKey.Key
 
@@ -183,7 +183,7 @@ func (h *handler) getAllSetupKeys(w http.ResponseWriter, r *http.Request) {
 
 	apiSetupKeys := make([]*api.SetupKey, 0)
 	for _, key := range setupKeys {
-		apiSetupKeys = append(apiSetupKeys, toResponseBody(key))
+		apiSetupKeys = append(apiSetupKeys, ToResponseBody(key))
 	}
 
 	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
@@ -216,14 +216,14 @@ func (h *handler) deleteSetupKey(w http.ResponseWriter, r *http.Request) {
 func writeSuccess(ctx context.Context, w http.ResponseWriter, key *types.SetupKey) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	err := json.NewEncoder(w).Encode(toResponseBody(key))
+	err := json.NewEncoder(w).Encode(ToResponseBody(key))
 	if err != nil {
 		util.WriteError(ctx, err, w)
 		return
 	}
 }
 
-func toResponseBody(key *types.SetupKey) *api.SetupKey {
+func ToResponseBody(key *types.SetupKey) *api.SetupKey {
 	var state string
 	switch {
 	case key.IsExpired():
@@ -240,12 +240,12 @@ func toResponseBody(key *types.SetupKey) *api.SetupKey {
 		Id:         key.Id,
 		Key:        key.KeySecret,
 		Name:       key.Name,
-		Expires:    key.ExpiresAt,
+		Expires:    key.GetExpiresAt(),
 		Type:       string(key.Type),
 		Valid:      key.IsValid(),
 		Revoked:    key.Revoked,
 		UsedTimes:  key.UsedTimes,
-		LastUsed:   key.LastUsed,
+		LastUsed:   key.GetLastUsed(),
 		State:      state,
 		AutoGroups: key.AutoGroups,
 		UpdatedAt:  key.UpdatedAt,

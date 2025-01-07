@@ -91,6 +91,8 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		signalProbe: internal.NewProbe(),
 		relayProbe:  internal.NewProbe(),
 		wgProbe:     internal.NewProbe(),
+
+		persistNetworkMap: true,
 	}
 }
 

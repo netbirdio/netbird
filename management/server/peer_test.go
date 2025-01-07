@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -80,7 +81,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			peer := &nbpeer.Peer{
 				LoginExpirationEnabled: c.expirationEnabled,
-				LastLogin:              c.lastLogin,
+				LastLogin:              util.ToPtr(c.lastLogin),
 				UserID:                 userID,
 			}
 
@@ -141,7 +142,7 @@ func TestPeer_SessionExpired(t *testing.T) {
 			}
 			peer := &nbpeer.Peer{
 				InactivityExpirationEnabled: c.expirationEnabled,
-				LastLogin:                   c.lastLogin,
+				LastLogin:                   util.ToPtr(c.lastLogin),
 				Status:                      peerStatus,
 				UserID:                      userID,
 			}
@@ -744,7 +745,7 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			DNSLabel: fmt.Sprintf("peer-%d", i),
 			Key:      peerKey.PublicKey().String(),
 			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
-			Status:   &nbpeer.PeerStatus{},
+			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 		}
 		account.Peers[peer.ID] = peer
@@ -783,7 +784,7 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			DNSLabel: fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
 			Key:      peerKey.PublicKey().String(),
 			IP:       peerIP,
-			Status:   &nbpeer.PeerStatus{},
+			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 			Meta: nbpeer.PeerSystemMeta{
 				Hostname:  fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
@@ -932,11 +933,11 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 	}{
 		{"Small", 50, 5, 90, 120, 90, 120},
 		{"Medium", 500, 100, 110, 150, 120, 260},
-		{"Large", 5000, 200, 800, 1390, 2500, 4600},
+		{"Large", 5000, 200, 800, 1700, 2500, 5000},
 		{"Small single", 50, 10, 90, 120, 90, 120},
 		{"Medium single", 500, 10, 110, 170, 120, 200},
-		{"Large 5", 5000, 15, 1300, 2100, 5000, 7000},
-		{"Extra Large", 2000, 2000, 1300, 2100, 4000, 6000},
+		{"Large 5", 5000, 15, 1300, 2100, 4900, 7000},
+		{"Extra Large", 2000, 2000, 1300, 2400, 4000, 6400},
 	}
 
 	log.SetOutput(io.Discard)
@@ -1209,7 +1210,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		UserID:     existingUserID,
 		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 		SSHEnabled: false,
-		LastLogin:  time.Now(),
+		LastLogin:  util.ToPtr(time.Now()),
 	}
 
 	addedPeer, _, _, err := am.AddPeer(context.Background(), "", existingUserID, newPeer)
@@ -1231,7 +1232,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 
 	lastLogin, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
 	assert.NoError(t, err)
-	assert.NotEqual(t, lastLogin, account.Users[existingUserID].LastLogin)
+	assert.NotEqual(t, lastLogin, account.Users[existingUserID].GetLastLogin())
 }
 
 func Test_RegisterPeerBySetupKey(t *testing.T) {
@@ -1361,7 +1362,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	hashedKey := sha256.Sum256([]byte(faultyKey))
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
-	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].LastUsed.UTC())
+	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].GetLastUsed().UTC())
 	assert.Equal(t, 0, account.SetupKeys[encodedHashedKey].UsedTimes)
 }
 

@@ -111,6 +111,7 @@ func (n *NetworkResource) ToRoute(peer *nbpeer.Peer, router *routerTypes.Network
 		NetID:               route.NetID(n.Name),
 		Description:         n.Description,
 		Peer:                peer.Key,
+		PeerID:              peer.ID,
 		PeerGroups:          nil,
 		Masquerade:          router.Masquerade,
 		Metric:              router.Metric,

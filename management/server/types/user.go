@@ -84,7 +84,7 @@ type User struct {
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
-	LastLogin time.Time
+	LastLogin *time.Time
 	// CreatedAt records the time the user was created
 	CreatedAt time.Time
 
@@ -99,8 +99,16 @@ func (u *User) IsBlocked() bool {
 	return u.Blocked
 }
 
-func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
-	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
+func (u *User) LastDashboardLoginChanged(lastLogin time.Time) bool {
+	return lastLogin.After(u.GetLastLogin()) && !u.GetLastLogin().IsZero()
+}
+
+// GetLastLogin returns the last login time of the user.
+func (u *User) GetLastLogin() time.Time {
+	if u.LastLogin != nil {
+		return *u.LastLogin
+	}
+	return time.Time{}
 }
 
 // HasAdminPower returns true if the user has admin or owner roles, false otherwise
@@ -143,7 +151,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
 			IsBlocked:     u.Blocked,
-			LastLogin:     u.LastLogin,
+			LastLogin:     u.GetLastLogin(),
 			Issued:        u.Issued,
 			Permissions: UserPermissions{
 				DashboardView: dashboardViewPermissions,
@@ -168,7 +176,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
 		IsBlocked:     u.Blocked,
-		LastLogin:     u.LastLogin,
+		LastLogin:     u.GetLastLogin(),
 		Issued:        u.Issued,
 		Permissions: UserPermissions{
 			DashboardView: dashboardViewPermissions,

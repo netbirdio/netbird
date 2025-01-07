@@ -34,6 +34,9 @@ type managerImpl struct {
 	accountManager     s.AccountManager
 }
 
+type mockManager struct {
+}
+
 func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager s.AccountManager) Manager {
 	return &managerImpl{
 		store:              store,
@@ -380,4 +383,40 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 	})
 
 	return eventsToStore, nil
+}
+
+func NewManagerMock() Manager {
+	return &mockManager{}
+}
+
+func (m *mockManager) GetAllResourcesInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error) {
+	return []*types.NetworkResource{}, nil
+}
+
+func (m *mockManager) GetAllResourcesInAccount(ctx context.Context, accountID, userID string) ([]*types.NetworkResource, error) {
+	return []*types.NetworkResource{}, nil
+}
+
+func (m *mockManager) GetAllResourceIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
+	return map[string][]string{}, nil
+}
+
+func (m *mockManager) CreateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
+	return &types.NetworkResource{}, nil
+}
+
+func (m *mockManager) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
+	return &types.NetworkResource{}, nil
+}
+
+func (m *mockManager) UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
+	return &types.NetworkResource{}, nil
+}
+
+func (m *mockManager) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
+	return nil
+}
+
+func (m *mockManager) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error) {
+	return []func(){}, nil
 }
