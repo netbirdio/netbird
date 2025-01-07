@@ -261,7 +261,6 @@ func TestNotMatchByIP(t *testing.T) {
 
 	ip := net.ParseIP("0.0.0.0")
 	proto := fw.ProtocolUDP
-	direction := fw.RuleDirectionOUT
 	action := fw.ActionAccept
 	comment := "Test rule"
 

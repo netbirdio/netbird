@@ -578,19 +578,22 @@ func (m *Manager) AddUDPPacketHook(
 
 // RemovePacketHook removes packet hook by given ID
 func (m *Manager) RemovePacketHook(hookID string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	for _, arr := range m.incomingRules {
 		for _, r := range arr {
 			if r.id == hookID {
-				rule := r
-				return m.DeletePeerRule(&rule)
+				delete(arr, r.id)
+				return nil
 			}
 		}
 	}
 	for _, arr := range m.outgoingRules {
 		for _, r := range arr {
 			if r.id == hookID {
-				rule := r
-				return m.DeletePeerRule(&rule)
+				delete(arr, r.id)
+				return nil
 			}
 		}
 	}
