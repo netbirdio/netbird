@@ -61,6 +61,11 @@ type ConfigInput struct {
 	DNSRouteInterval    *time.Duration
 	ClientCertPath      string
 	ClientCertKeyPath   string
+
+	DisableClientRoutes *bool
+	DisableServerRoutes *bool
+	DisableDNS          *bool
+	DisableFirewall     *bool
 }
 
 // Config Configuration type
@@ -78,6 +83,12 @@ type Config struct {
 	RosenpassEnabled     bool
 	RosenpassPermissive  bool
 	ServerSSHAllowed     *bool
+
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
+
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
 
@@ -402,7 +413,46 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.DNSRouteInterval = dynamic.DefaultInterval
 		log.Infof("using default DNS route interval %s", config.DNSRouteInterval)
 		updated = true
+	}
 
+	if input.DisableClientRoutes != nil && *input.DisableClientRoutes != config.DisableClientRoutes {
+		if *input.DisableClientRoutes {
+			log.Infof("disabling client routes")
+		} else {
+			log.Infof("enabling client routes")
+		}
+		config.DisableClientRoutes = *input.DisableClientRoutes
+		updated = true
+	}
+
+	if input.DisableServerRoutes != nil && *input.DisableServerRoutes != config.DisableServerRoutes {
+		if *input.DisableServerRoutes {
+			log.Infof("disabling server routes")
+		} else {
+			log.Infof("enabling server routes")
+		}
+		config.DisableServerRoutes = *input.DisableServerRoutes
+		updated = true
+	}
+
+	if input.DisableDNS != nil && *input.DisableDNS != config.DisableDNS {
+		if *input.DisableDNS {
+			log.Infof("disabling DNS configuration")
+		} else {
+			log.Infof("enabling DNS configuration")
+		}
+		config.DisableDNS = *input.DisableDNS
+		updated = true
+	}
+
+	if input.DisableFirewall != nil && *input.DisableFirewall != config.DisableFirewall {
+		if *input.DisableFirewall {
+			log.Infof("disabling firewall configuration")
+		} else {
+			log.Infof("enabling firewall configuration")
+		}
+		config.DisableFirewall = *input.DisableFirewall
+		updated = true
 	}
 
 	if input.ClientCertKeyPath != "" {

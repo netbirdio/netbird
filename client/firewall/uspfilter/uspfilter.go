@@ -402,6 +402,8 @@ func (m *Manager) trackICMPOutbound(d *decoder, srcIP, dstIP net.IP) {
 
 // dropFilter implements filtering logic for incoming packets
 func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
+	// TODO: Disable router if --disable-server-router is set
+
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 

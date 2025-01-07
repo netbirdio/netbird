@@ -108,6 +108,11 @@ type EngineConfig struct {
 	ServerSSHAllowed bool
 
 	DNSRouteInterval time.Duration
+
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -374,18 +379,20 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(
-		e.ctx,
-		e.config.WgPrivateKey.PublicKey().String(),
-		e.config.DNSRouteInterval,
-		e.wgInterface,
-		e.statusRecorder,
-		e.relayManager,
-		initialRoutes,
-		e.stateManager,
-		dnsServer,
-		e.peerStore,
-	)
+	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
+		Context:             e.ctx,
+		PublicKey:           e.config.WgPrivateKey.PublicKey().String(),
+		DNSRouteInterval:    e.config.DNSRouteInterval,
+		WGInterface:         e.wgInterface,
+		StatusRecorder:      e.statusRecorder,
+		RelayManager:        e.relayManager,
+		InitialRoutes:       initialRoutes,
+		StateManager:        e.stateManager,
+		DNSServer:           dnsServer,
+		PeerStore:           e.peerStore,
+		DisableClientRoutes: e.config.DisableClientRoutes,
+		DisableServerRoutes: e.config.DisableServerRoutes,
+	})
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -403,13 +410,8 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("create wg interface: %w", err)
 	}
 
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
-	if err != nil {
-		log.Errorf("failed creating firewall manager: %s", err)
-	} else if e.firewall != nil {
-		if err := e.initFirewall(err); err != nil {
-			return err
-		}
+	if err := e.createFirewall(); err != nil {
+		return err
 	}
 
 	e.udpMux, err = e.wgInterface.Up()
@@ -451,7 +453,27 @@ func (e *Engine) Start() error {
 	return nil
 }
 
-func (e *Engine) initFirewall(error) error {
+func (e *Engine) createFirewall() error {
+	if e.config.DisableFirewall {
+		log.Infof("firewall is disabled")
+		return nil
+	}
+
+	var err error
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
+	if err != nil || e.firewall == nil {
+		log.Errorf("failed creating firewall manager: %s", err)
+		return nil
+	}
+
+	if err := e.initFirewall(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (e *Engine) initFirewall() error {
 	if e.firewall.IsServerRouteSupported() {
 		if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
 			e.close()
@@ -1348,6 +1370,7 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 	if e.dnsServer != nil {
 		return nil, e.dnsServer, nil
 	}
+
 	switch runtime.GOOS {
 	case "android":
 		routes, dnsConfig, err := e.readInitialSettings()
@@ -1361,14 +1384,17 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 			*dnsConfig,
 			e.mobileDep.NetworkChangeListener,
 			e.statusRecorder,
+			e.config.DisableDNS,
 		)
 		go e.mobileDep.DnsReadyListener.OnReady()
 		return routes, dnsServer, nil
+
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
 		return nil, dnsServer, nil
+
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS)
 		if err != nil {
 			return nil, nil, err
 		}
