@@ -139,6 +139,11 @@ func setupTestAccount() *Account {
 				AccountID: "accountID",
 				Name:      "network2",
 			},
+			{
+				ID:        "network3ID",
+				AccountID: "accountID",
+				Name:      "network3",
+			},
 		},
 		NetworkRouters: []*routerTypes.NetworkRouter{
 			{
@@ -201,6 +206,16 @@ func setupTestAccount() *Account {
 				Metric:     100,
 				Enabled:    true,
 			},
+			{
+				ID:         "router6ID",
+				NetworkID:  "network3ID",
+				AccountID:  "accountID",
+				Peer:       "",
+				PeerGroups: []string{"group6"},
+				Masquerade: false,
+				Metric:     100,
+				Enabled:    false,
+			},
 		},
 		NetworkResources: []*resourceTypes.NetworkResource{
 			{
@@ -226,6 +241,12 @@ func setupTestAccount() *Account {
 				AccountID: "accountID",
 				NetworkID: "network1ID",
 				Enabled:   true,
+			},
+			{
+				ID:        "resource5ID",
+				AccountID: "accountID",
+				NetworkID: "network3ID",
+				Enabled:   false,
 			},
 		},
 		Policies: []*Policy{
@@ -291,6 +312,17 @@ func setupTestAccount() *Account {
 					},
 				},
 			},
+			{
+				ID:        "policy6ID",
+				AccountID: "accountID",
+				Enabled:   true,
+				Rules: []*PolicyRule{
+					{
+						ID:      "rule6ID",
+						Enabled: true,
+					},
+				},
+			},
 		},
 	}
 }
@@ -312,6 +344,8 @@ func Test_GetResourceRoutersMap(t *testing.T) {
 	require.Equal(t, 2, len(routers["network2ID"]))
 	require.NotNil(t, routers["network2ID"]["peer2"])
 	require.NotNil(t, routers["network2ID"]["peer41"])
+
+	require.Equal(t, 0, len(routers["network3ID"]))
 }
 
 func Test_GetResourcePoliciesMap(t *testing.T) {
@@ -322,6 +356,7 @@ func Test_GetResourcePoliciesMap(t *testing.T) {
 	require.Equal(t, 1, len(policies["resource2ID"]))
 	require.Equal(t, 2, len(policies["resource3ID"]))
 	require.Equal(t, 1, len(policies["resource4ID"]))
+	require.Equal(t, 0, len(policies["resource5ID"]))
 }
 
 func Test_AddNetworksRoutingPeersAddsMissingPeers(t *testing.T) {
