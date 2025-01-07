@@ -2388,6 +2388,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				PeerGroups: nil,
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 			{
 				ID:         "router2",
@@ -2395,12 +2396,14 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				PeerGroups: []string{"router1", "router2"},
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 			{
 				ID:         "router3",
 				NetworkID:  "network3",
 				Peer:       "peerE",
 				PeerGroups: []string{},
+				Enabled:    true,
 			},
 			{
 				ID:         "router4",
@@ -2408,6 +2411,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				PeerGroups: []string{"router1"},
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 			{
 				ID:         "router5",
@@ -2415,6 +2419,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Peer:       "peerL",
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 			{
 				ID:         "router6",
@@ -2422,6 +2427,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Peer:       "peerN",
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 		},
 		NetworkResources: []*resourceTypes.NetworkResource{

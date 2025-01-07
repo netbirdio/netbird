@@ -149,6 +149,7 @@ func setupTestAccount() *Account {
 				PeerGroups: []string{},
 				Masquerade: false,
 				Metric:     100,
+				Enabled:    true,
 			},
 			{
 				ID:         "router2ID",
@@ -158,6 +159,7 @@ func setupTestAccount() *Account {
 				PeerGroups: []string{},
 				Masquerade: false,
 				Metric:     100,
+				Enabled:    true,
 			},
 			{
 				ID:         "router3ID",
@@ -167,6 +169,7 @@ func setupTestAccount() *Account {
 				PeerGroups: []string{},
 				Masquerade: false,
 				Metric:     100,
+				Enabled:    true,
 			},
 			{
 				ID:         "router4ID",
@@ -176,6 +179,7 @@ func setupTestAccount() *Account {
 				PeerGroups: []string{"group1"},
 				Masquerade: false,
 				Metric:     100,
+				Enabled:    true,
 			},
 			{
 				ID:         "router5ID",
@@ -185,6 +189,7 @@ func setupTestAccount() *Account {
 				PeerGroups: []string{"group2", "group3"},
 				Masquerade: false,
 				Metric:     100,
+				Enabled:    true,
 			},
 			{
 				ID:         "router6ID",
@@ -194,6 +199,7 @@ func setupTestAccount() *Account {
 				PeerGroups: []string{"group4"},
 				Masquerade: false,
 				Metric:     100,
+				Enabled:    true,
 			},
 		},
 		NetworkResources: []*resourceTypes.NetworkResource{
@@ -201,21 +207,25 @@ func setupTestAccount() *Account {
 				ID:        "resource1ID",
 				AccountID: "accountID",
 				NetworkID: "network1ID",
+				Enabled:   true,
 			},
 			{
 				ID:        "resource2ID",
 				AccountID: "accountID",
 				NetworkID: "network2ID",
+				Enabled:   true,
 			},
 			{
 				ID:        "resource3ID",
 				AccountID: "accountID",
 				NetworkID: "network1ID",
+				Enabled:   true,
 			},
 			{
 				ID:        "resource4ID",
 				AccountID: "accountID",
 				NetworkID: "network1ID",
+				Enabled:   true,
 			},
 		},
 		Policies: []*Policy{
@@ -476,6 +486,7 @@ func getBasicAccountsWithResource() *Account {
 				PeerGroups: []string{},
 				Masquerade: false,
 				Metric:     100,
+				Enabled:    true,
 			},
 		},
 		NetworkResources: []*resourceTypes.NetworkResource{
@@ -486,6 +497,7 @@ func getBasicAccountsWithResource() *Account {
 				Address:   "10.10.10.0/24",
 				Prefix:    netip.MustParsePrefix("10.10.10.0/24"),
 				Type:      resourceTypes.NetworkResourceType("subnet"),
+				Enabled:   true,
 			},
 		},
 		Policies: []*Policy{

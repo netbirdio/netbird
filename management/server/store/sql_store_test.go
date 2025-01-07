@@ -2377,7 +2377,7 @@ func TestSqlStore_SaveNetworkRouter(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	networkID := "ct286bi7qv930dsrrug0"
 
-	netRouter, err := routerTypes.NewNetworkRouter(accountID, networkID, "", []string{"net-router-grp"}, true, 0)
+	netRouter, err := routerTypes.NewNetworkRouter(accountID, networkID, "", []string{"net-router-grp"}, true, 0, true)
 	require.NoError(t, err)
 
 	err = store.SaveNetworkRouter(context.Background(), LockingStrengthUpdate, netRouter)
