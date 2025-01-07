@@ -220,6 +220,10 @@ func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 		return nil
 	}
 
+	if firewall == nil {
+		return errors.New("firewall manager is not set")
+	}
+
 	var err error
 	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall, m.statusRecorder)
 	if err != nil {
