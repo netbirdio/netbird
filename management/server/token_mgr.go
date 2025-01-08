@@ -207,16 +207,13 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 
 	// workaround for the case when client is unable to handle turn and relay updates at different time
 	if m.relayCfg != nil {
-		relayToken, err := m.relayHmacToken.GenerateToken()
-		if err != nil {
-			log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
-			return
-		}
-
-		update.WiretrusteeConfig.Relay = &proto.RelayConfig{
-			Urls:           m.relayCfg.Addresses,
-			TokenPayload:   string(relayToken.Payload),
-			TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
+		token, err := m.GenerateRelayToken()
+		if err == nil {
+			update.WiretrusteeConfig.Relay = &proto.RelayConfig{
+				Urls:           m.relayCfg.Addresses,
+				TokenPayload:   token.Payload,
+				TokenSignature: token.Signature,
+			}
 		}
 	}
 
