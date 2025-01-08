@@ -602,44 +602,17 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if update.GetWiretrusteeConfig() != nil {
-		wCfg := update.GetWiretrusteeConfig()
-		err := e.updateTURNs(wCfg.GetTurns())
-		if err != nil {
-			return fmt.Errorf("update TURNs: %w", err)
-		}
-
-		err = e.updateSTUNs(wCfg.GetStuns())
-		if err != nil {
-			return fmt.Errorf("update STUNs: %w", err)
-		}
-
-		var stunTurn []*stun.URI
-		stunTurn = append(stunTurn, e.STUNs...)
-		stunTurn = append(stunTurn, e.TURNs...)
-		e.stunTurn.Store(stunTurn)
-
-		relayMsg := wCfg.GetRelay()
-		if relayMsg != nil {
-			// when we receive token we expect valid address list too
-			c := &auth.Token{
-				Payload:   relayMsg.GetTokenPayload(),
-				Signature: relayMsg.GetTokenSignature(),
+	wCfg := update.GetWiretrusteeConfig()
+	if wCfg != nil {
+		if isTURNMsg(wCfg.GetTurns()) {
+			if err := e.updateTURN(wCfg); err != nil {
+				return err
 			}
-			if err := e.relayManager.UpdateToken(c); err != nil {
-				log.Errorf("failed to update relay token: %v", err)
-				return fmt.Errorf("update relay token: %w", err)
-			}
-
-			e.relayManager.UpdateServerURLs(relayMsg.Urls)
-
-			// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
-			// We can ignore all errors because the guard will manage the reconnection retries.
-			_ = e.relayManager.Serve()
 		} else {
-			e.relayManager.UpdateServerURLs(nil)
+			if err := e.updateRelay(wCfg.GetRelay()); err != nil {
+				return err
+			}
 		}
-
 		// todo update signal
 	}
 
@@ -1667,6 +1640,50 @@ func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
 	}
 }
 
+func (e *Engine) updateTURN(wCfg *mgmProto.WiretrusteeConfig) error {
+	log.Infof("update TURN/STUN configuration")
+	err := e.updateTURNs(wCfg.GetTurns())
+	if err != nil {
+		return fmt.Errorf("update TURNs: %w", err)
+	}
+
+	err = e.updateSTUNs(wCfg.GetStuns())
+	if err != nil {
+		return fmt.Errorf("update STUNs: %w", err)
+	}
+
+	var stunTurn []*stun.URI
+	stunTurn = append(stunTurn, e.STUNs...)
+	stunTurn = append(stunTurn, e.TURNs...)
+	e.stunTurn.Store(stunTurn)
+	return nil
+}
+
+func (e *Engine) updateRelay(relayCfg *mgmProto.RelayConfig) error {
+	log.Infof("update Relay configuration")
+	if relayCfg == nil {
+		e.relayManager.UpdateServerURLs(nil)
+		return nil
+	}
+
+	// when we receive token we expect valid address list too
+	c := &auth.Token{
+		Payload:   relayCfg.GetTokenPayload(),
+		Signature: relayCfg.GetTokenSignature(),
+	}
+	if err := e.relayManager.UpdateToken(c); err != nil {
+		log.Errorf("failed to update relay token: %v", err)
+		return fmt.Errorf("update relay token: %w", err)
+	}
+
+	e.relayManager.UpdateServerURLs(relayCfg.Urls)
+
+	// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
+	// We can ignore all errors because the guard will manage the reconnection retries.
+	_ = e.relayManager.Serve()
+	return nil
+}
+
 // isChecksEqual checks if two slices of checks are equal.
 func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 	for _, check := range checks {
@@ -1683,4 +1700,8 @@ func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
 		return slices.Equal(checks.Files, oChecks.Files)
 	})
+}
+
+func isTURNMsg(turns []*mgmProto.ProtectedHostConfig) bool {
+	return len(turns) > 0
 }
