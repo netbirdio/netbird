@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -30,15 +29,18 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -62,6 +64,7 @@ import (
 const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
+	connInitLimit            = 200
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -105,6 +108,11 @@ type EngineConfig struct {
 	ServerSSHAllowed bool
 
 	DNSRouteInterval time.Duration
+
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -115,7 +123,7 @@ type Engine struct {
 	// mgmClient is a Management Service client
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
-	peerConns map[string]*peer.Conn
+	peerStore *peerstore.Store
 
 	beforePeerHook nbnet.AddHookFunc
 	afterPeerHook  nbnet.RemoveHookFunc
@@ -134,10 +142,6 @@ type Engine struct {
 	// TURNs is a list of STUN servers used by ICE
 	TURNs    []*stun.URI
 	stunTurn atomic.Value
-
-	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes   route.HAMap
-	clientRoutesMu sync.RWMutex
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -159,9 +163,10 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall     manager.Manager
-	routeManager routemanager.Manager
-	acl          acl.Manager
+	firewall      manager.Manager
+	routeManager  routemanager.Manager
+	acl           acl.Manager
+	dnsForwardMgr *dnsfwd.Manager
 
 	dnsServer dns.Server
 
@@ -177,6 +182,7 @@ type Engine struct {
 	// Network map persistence
 	persistNetworkMap bool
 	latestNetworkMap  *mgmProto.NetworkMap
+	connSemaphore     *semaphoregroup.SemaphoreGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -231,7 +237,7 @@ func NewEngineWithProbes(
 		signaler:       peer.NewSignaler(signalClient, config.WgPrivateKey),
 		mgmClient:      mgmClient,
 		relayManager:   relayManager,
-		peerConns:      make(map[string]*peer.Conn),
+		peerStore:      peerstore.NewConnStore(),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
 		mobileDep:      mobileDep,
@@ -242,6 +248,18 @@ func NewEngineWithProbes(
 		statusRecorder: statusRecorder,
 		probes:         probes,
 		checks:         checks,
+		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+	}
+	if runtime.GOOS == "ios" {
+		if !fileExists(mobileDep.StateFilePath) {
+			err := createFile(mobileDep.StateFilePath)
+			if err != nil {
+				log.Errorf("failed to create state file: %v", err)
+				// we are not exiting as we can run without the state manager
+			}
+		}
+
+		engine.stateManager = statemanager.New(mobileDep.StateFilePath)
 	}
 	if path := statemanager.GetDefaultStatePath(); path != "" {
 		engine.stateManager = statemanager.New(path)
@@ -272,6 +290,13 @@ func (e *Engine) Stop() error {
 		e.routeManager.Stop(e.stateManager)
 	}
 
+	if e.dnsForwardMgr != nil {
+		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+			log.Errorf("failed to stop DNS forward: %v", err)
+		}
+		e.dnsForwardMgr = nil
+	}
+
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
 	}
@@ -284,10 +309,6 @@ func (e *Engine) Stop() error {
 	if err != nil {
 		return fmt.Errorf("failed to remove all peers: %s", err)
 	}
-
-	e.clientRoutesMu.Lock()
-	e.clientRoutes = nil
-	e.clientRoutesMu.Unlock()
 
 	if e.cancel != nil {
 		e.cancel()
@@ -358,16 +379,20 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(
-		e.ctx,
-		e.config.WgPrivateKey.PublicKey().String(),
-		e.config.DNSRouteInterval,
-		e.wgInterface,
-		e.statusRecorder,
-		e.relayManager,
-		initialRoutes,
-		e.stateManager,
-	)
+	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
+		Context:             e.ctx,
+		PublicKey:           e.config.WgPrivateKey.PublicKey().String(),
+		DNSRouteInterval:    e.config.DNSRouteInterval,
+		WGInterface:         e.wgInterface,
+		StatusRecorder:      e.statusRecorder,
+		RelayManager:        e.relayManager,
+		InitialRoutes:       initialRoutes,
+		StateManager:        e.stateManager,
+		DNSServer:           dnsServer,
+		PeerStore:           e.peerStore,
+		DisableClientRoutes: e.config.DisableClientRoutes,
+		DisableServerRoutes: e.config.DisableServerRoutes,
+	})
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -385,17 +410,8 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("create wg interface: %w", err)
 	}
 
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
-	if err != nil {
-		log.Errorf("failed creating firewall manager: %s", err)
-	}
-
-	if e.firewall != nil && e.firewall.IsServerRouteSupported() {
-		err = e.routeManager.EnableServerRouter(e.firewall)
-		if err != nil {
-			e.close()
-			return fmt.Errorf("enable server router: %w", err)
-		}
+	if err := e.createFirewall(); err != nil {
+		return err
 	}
 
 	e.udpMux, err = e.wgInterface.Up()
@@ -437,6 +453,61 @@ func (e *Engine) Start() error {
 	return nil
 }
 
+func (e *Engine) createFirewall() error {
+	if e.config.DisableFirewall {
+		log.Infof("firewall is disabled")
+		return nil
+	}
+
+	var err error
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
+	if err != nil || e.firewall == nil {
+		log.Errorf("failed creating firewall manager: %s", err)
+		return nil
+	}
+
+	if err := e.initFirewall(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (e *Engine) initFirewall() error {
+	if e.firewall.IsServerRouteSupported() {
+		if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
+			e.close()
+			return fmt.Errorf("enable server router: %w", err)
+		}
+	}
+
+	if e.rpManager == nil || !e.config.RosenpassEnabled {
+		return nil
+	}
+
+	rosenpassPort := e.rpManager.GetAddress().Port
+	port := manager.Port{Values: []int{rosenpassPort}}
+
+	// this rule is static and will be torn down on engine down by the firewall manager
+	if _, err := e.firewall.AddPeerFiltering(
+		net.IP{0, 0, 0, 0},
+		manager.ProtocolUDP,
+		nil,
+		&port,
+		manager.RuleDirectionIN,
+		manager.ActionAccept,
+		"",
+		"",
+	); err != nil {
+		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
+		return nil
+	}
+
+	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
+
+	return nil
+}
+
 // modifyPeers updates peers that have been modified (e.g. IP address has been changed).
 // It closes the existing connection, removes it from the peerConns map, and creates a new one.
 func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
@@ -445,8 +516,8 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
 		peerPubKey := p.GetWgPubKey()
-		if peerConn, ok := e.peerConns[peerPubKey]; ok {
-			if peerConn.WgConfig().AllowedIps != strings.Join(p.AllowedIps, ",") {
+		if allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey); ok {
+			if allowedIPs != strings.Join(p.AllowedIps, ",") {
 				modified = append(modified, p)
 				continue
 			}
@@ -477,17 +548,12 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 // removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service.
 // It also removes peers that have been modified (e.g. change of IP address). They will be added again in addPeers method.
 func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
-	currentPeers := make([]string, 0, len(e.peerConns))
-	for p := range e.peerConns {
-		currentPeers = append(currentPeers, p)
-	}
-
 	newPeers := make([]string, 0, len(peersUpdate))
 	for _, p := range peersUpdate {
 		newPeers = append(newPeers, p.GetWgPubKey())
 	}
 
-	toRemove := util.SliceDiff(currentPeers, newPeers)
+	toRemove := util.SliceDiff(e.peerStore.PeersPubKey(), newPeers)
 
 	for _, p := range toRemove {
 		err := e.removePeer(p)
@@ -501,7 +567,7 @@ func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 
 func (e *Engine) removeAllPeers() error {
 	log.Debugf("removing all peer connections")
-	for p := range e.peerConns {
+	for _, p := range e.peerStore.PeersPubKey() {
 		err := e.removePeer(p)
 		if err != nil {
 			return err
@@ -525,9 +591,8 @@ func (e *Engine) removePeer(peerKey string) error {
 		}
 	}()
 
-	conn, exists := e.peerConns[peerKey]
+	conn, exists := e.peerStore.Remove(peerKey)
 	if exists {
-		delete(e.peerConns, peerKey)
 		conn.Close()
 	}
 	return nil
@@ -771,7 +836,6 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
-
 	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
 	if networkMap.GetPeerConfig() != nil {
 		err := e.updateConfig(networkMap.GetPeerConfig())
@@ -791,19 +855,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 
-	protoRoutes := networkMap.GetRoutes()
-	if protoRoutes == nil {
-		protoRoutes = []*mgmProto.Route{}
-	}
+	// DNS forwarder
+	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
+	dnsRouteDomains := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), networkMap.GetRoutes())
+	e.updateDNSForwarder(dnsRouteFeatureFlag, dnsRouteDomains)
 
-	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
-	if err != nil {
+	routes := toRoutes(networkMap.GetRoutes())
+	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
-
-	e.clientRoutesMu.Lock()
-	e.clientRoutes = clientRoutes
-	e.clientRoutesMu.Unlock()
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
@@ -852,8 +912,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
 
-	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
-	if err != nil {
+	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig)); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
@@ -866,7 +925,18 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	return nil
 }
 
+func toDNSFeatureFlag(networkMap *mgmProto.NetworkMap) bool {
+	if networkMap.PeerConfig != nil {
+		return networkMap.PeerConfig.RoutingPeerDnsResolutionEnabled
+	}
+	return false
+}
+
 func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
+	if protoRoutes == nil {
+		protoRoutes = []*mgmProto.Route{}
+	}
+
 	routes := make([]*route.Route, 0)
 	for _, protoRoute := range protoRoutes {
 		var prefix netip.Prefix
@@ -877,6 +947,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 				continue
 			}
 		}
+
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
 			Network:     prefix,
@@ -891,6 +962,23 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 		routes = append(routes, convertedRoute)
 	}
 	return routes
+}
+
+func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) []string {
+	if protoRoutes == nil {
+		protoRoutes = []*mgmProto.Route{}
+	}
+
+	var dnsRoutes []string
+	for _, protoRoute := range protoRoutes {
+		if len(protoRoute.Domains) == 0 {
+			continue
+		}
+		if protoRoute.Peer == myPubKey {
+			dnsRoutes = append(dnsRoutes, protoRoute.Domains...)
+		}
+	}
+	return dnsRoutes
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
@@ -967,12 +1055,16 @@ func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	peerKey := peerConfig.GetWgPubKey()
 	peerIPs := peerConfig.GetAllowedIps()
-	if _, ok := e.peerConns[peerKey]; !ok {
+	if _, ok := e.peerStore.PeerConn(peerKey); !ok {
 		conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
 		if err != nil {
 			return fmt.Errorf("create peer connection: %w", err)
 		}
-		e.peerConns[peerKey] = conn
+
+		if ok := e.peerStore.AddPeerConn(peerKey, conn); !ok {
+			conn.Close()
+			return fmt.Errorf("peer already exists: %s", peerKey)
+		}
 
 		if e.beforePeerHook != nil && e.afterPeerHook != nil {
 			conn.AddBeforeAddPeerHook(e.beforePeerHook)
@@ -1040,7 +1132,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		},
 	}
 
-	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher)
+	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher, e.connSemaphore)
 	if err != nil {
 		return nil, err
 	}
@@ -1061,8 +1153,8 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn := e.peerConns[msg.Key]
-			if conn == nil {
+			conn, ok := e.peerStore.PeerConn(msg.Key)
+			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
 
@@ -1120,7 +1212,7 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				go conn.OnRemoteCandidate(candidate, e.GetClientRoutes())
+				go conn.OnRemoteCandidate(candidate, e.routeManager.GetClientRoutes())
 			case sProto.Body_MODE:
 			}
 
@@ -1278,6 +1370,7 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 	if e.dnsServer != nil {
 		return nil, e.dnsServer, nil
 	}
+
 	switch runtime.GOOS {
 	case "android":
 		routes, dnsConfig, err := e.readInitialSettings()
@@ -1291,40 +1384,23 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 			*dnsConfig,
 			e.mobileDep.NetworkChangeListener,
 			e.statusRecorder,
+			e.config.DisableDNS,
 		)
 		go e.mobileDep.DnsReadyListener.OnReady()
 		return routes, dnsServer, nil
+
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
 		return nil, dnsServer, nil
+
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		return nil, dnsServer, nil
 	}
-}
-
-// GetClientRoutes returns the current routes from the route map
-func (e *Engine) GetClientRoutes() route.HAMap {
-	e.clientRoutesMu.RLock()
-	defer e.clientRoutesMu.RUnlock()
-
-	return maps.Clone(e.clientRoutes)
-}
-
-// GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
-func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
-	e.clientRoutesMu.RLock()
-	defer e.clientRoutesMu.RUnlock()
-
-	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
-	for id, v := range e.clientRoutes {
-		routes[id.NetID()] = v
-	}
-	return routes
 }
 
 // GetRouteManager returns the route manager
@@ -1411,9 +1487,8 @@ func (e *Engine) receiveProbeEvents() {
 		go e.probes.WgProbe.Receive(e.ctx, func() bool {
 			log.Debug("received wg probe request")
 
-			for _, peer := range e.peerConns {
-				key := peer.GetKey()
-				wgStats, err := peer.WgConfig().WgInterface.GetStats(key)
+			for _, key := range e.peerStore.PeersPubKey() {
+				wgStats, err := e.wgInterface.GetStats(key)
 				if err != nil {
 					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
 				}
@@ -1490,7 +1565,7 @@ func (e *Engine) startNetworkMonitor() {
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 	var vpnRoutes []netip.Prefix
-	for _, routes := range e.GetClientRoutes() {
+	for _, routes := range e.routeManager.GetClientRoutes() {
 		if len(routes) > 0 && routes[0] != nil {
 			vpnRoutes = append(vpnRoutes, routes[0].Network)
 		}
@@ -1548,7 +1623,7 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 		return nil, nil
 	}
 
-	// Create a deep copy to avoid external modifications
+	log.Debugf("Retrieving latest network map with size %d bytes", proto.Size(e.latestNetworkMap))
 	nm, ok := proto.Clone(e.latestNetworkMap).(*mgmProto.NetworkMap)
 	if !ok {
 
@@ -1556,6 +1631,40 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	}
 
 	return nm, nil
+}
+
+// updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
+func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
+	if !enabled {
+		if e.dnsForwardMgr == nil {
+			return
+		}
+		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+			log.Errorf("failed to stop DNS forward: %v", err)
+		}
+		return
+	}
+
+	if len(domains) > 0 {
+		log.Infof("enable domain router service for domains: %v", domains)
+		if e.dnsForwardMgr == nil {
+			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall)
+
+			if err := e.dnsForwardMgr.Start(domains); err != nil {
+				log.Errorf("failed to start DNS forward: %v", err)
+				e.dnsForwardMgr = nil
+			}
+		} else {
+			log.Infof("update domain router service for domains: %v", domains)
+			e.dnsForwardMgr.UpdateDomains(domains)
+		}
+	} else if e.dnsForwardMgr != nil {
+		log.Infof("disable domain router service")
+		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+			log.Errorf("failed to stop DNS forward: %v", err)
+		}
+		e.dnsForwardMgr = nil
+	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.

@@ -9,6 +9,9 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // UpdateIntegratedValidatorGroups updates the integrated validator groups for a specified account.
@@ -59,9 +62,9 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 		return true, nil
 	}
 
-	err := am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		for _, groupID := range groupIDs {
-			_, err := transaction.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+			_, err := transaction.GetGroupByID(context.Background(), store.LockingStrengthShare, accountID, groupID)
 			if err != nil {
 				return err
 			}
@@ -82,17 +85,17 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 	var settings *Settings
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		groups, err = transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
+		groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return err
 		}
 
-		peers, err = transaction.GetAccountPeers(ctx, LockingStrengthShare, accountID)
+		peers, err = transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return err
 		}
 
-		settings, err = transaction.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 		return err
 	})
 	if err != nil {
@@ -110,4 +113,46 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 	}
 
 	return am.integratedPeerValidator.GetValidatedPeers(accountID, groupsMap, peersMap, settings.Extra)
+}
+
+type MocIntegratedValidator struct {
+	ValidatePeerFunc func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error)
+}
+
+func (a MocIntegratedValidator) ValidateExtraSettings(_ context.Context, newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+	return nil
+}
+
+func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error) {
+	if a.ValidatePeerFunc != nil {
+		return a.ValidatePeerFunc(context.Background(), update, peer, userID, accountID, dnsDomain, peersGroup, extraSettings)
+	}
+	return update, false, nil
+}
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*types.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	validatedPeers := make(map[string]struct{})
+	for _, peer := range peers {
+		validatedPeers[peer.ID] = struct{}{}
+	}
+	return validatedPeers, nil
+}
+
+func (MocIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+	return peer
+}
+
+func (MocIntegratedValidator) IsNotValidPeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
+	return false, false, nil
+}
+
+func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
+	// just a dummy
+}
+
+func (MocIntegratedValidator) Stop(_ context.Context) {
+	// just a dummy
 }

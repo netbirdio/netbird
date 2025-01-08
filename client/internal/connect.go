@@ -91,6 +91,7 @@ func (c *ConnectClient) RunOniOS(
 	fileDescriptor int32,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
+	stateFilePath string,
 ) error {
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
 	debug.SetGCPercent(5)
@@ -99,6 +100,7 @@ func (c *ConnectClient) RunOniOS(
 		FileDescriptor:        fileDescriptor,
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
+		StateFilePath:         stateFilePath,
 	}
 	return c.run(mobileDependency, nil, nil)
 }
@@ -380,8 +382,7 @@ func (c *ConnectClient) isContextCancelled() bool {
 // SetNetworkMapPersistence enables or disables network map persistence.
 // When enabled, the last received network map will be stored and can be retrieved
 // through the Engine's getLatestNetworkMap method. When disabled, any stored
-// network map will be cleared. This functionality is primarily used for debugging
-// and should not be enabled during normal operation.
+// network map will be cleared.
 func (c *ConnectClient) SetNetworkMapPersistence(enabled bool) {
 	c.engineMutex.Lock()
 	c.persistNetworkMap = enabled
@@ -414,6 +415,11 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		RosenpassPermissive:  config.RosenpassPermissive,
 		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
 		DNSRouteInterval:     config.DNSRouteInterval,
+
+		DisableClientRoutes: config.DisableClientRoutes,
+		DisableServerRoutes: config.DisableServerRoutes,
+		DisableDNS:          config.DisableDNS,
+		DisableFirewall:     config.DisableFirewall,
 	}
 
 	if config.PreSharedKey != "" {

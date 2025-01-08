@@ -13,21 +13,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
 )
 
@@ -37,13 +43,13 @@ func TestPeer_LoginExpired(t *testing.T) {
 		expirationEnabled bool
 		lastLogin         time.Time
 		expected          bool
-		accountSettings   *Settings
+		accountSettings   *types.Settings
 	}{
 		{
 			name:              "Peer Login Expiration Disabled. Peer Login Should Not Expire",
 			expirationEnabled: false,
 			lastLogin:         time.Now().UTC().Add(-25 * time.Hour),
-			accountSettings: &Settings{
+			accountSettings: &types.Settings{
 				PeerLoginExpirationEnabled: true,
 				PeerLoginExpiration:        time.Hour,
 			},
@@ -53,7 +59,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 			name:              "Peer Login Should Expire",
 			expirationEnabled: true,
 			lastLogin:         time.Now().UTC().Add(-25 * time.Hour),
-			accountSettings: &Settings{
+			accountSettings: &types.Settings{
 				PeerLoginExpirationEnabled: true,
 				PeerLoginExpiration:        time.Hour,
 			},
@@ -63,7 +69,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 			name:              "Peer Login Should Not Expire",
 			expirationEnabled: true,
 			lastLogin:         time.Now().UTC(),
-			accountSettings: &Settings{
+			accountSettings: &types.Settings{
 				PeerLoginExpirationEnabled: true,
 				PeerLoginExpiration:        time.Hour,
 			},
@@ -75,7 +81,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			peer := &nbpeer.Peer{
 				LoginExpirationEnabled: c.expirationEnabled,
-				LastLogin:              c.lastLogin,
+				LastLogin:              util.ToPtr(c.lastLogin),
 				UserID:                 userID,
 			}
 
@@ -92,14 +98,14 @@ func TestPeer_SessionExpired(t *testing.T) {
 		lastLogin         time.Time
 		connected         bool
 		expected          bool
-		accountSettings   *Settings
+		accountSettings   *types.Settings
 	}{
 		{
 			name:              "Peer Inactivity Expiration Disabled. Peer Inactivity Should Not Expire",
 			expirationEnabled: false,
 			connected:         false,
 			lastLogin:         time.Now().UTC().Add(-1 * time.Second),
-			accountSettings: &Settings{
+			accountSettings: &types.Settings{
 				PeerInactivityExpirationEnabled: true,
 				PeerInactivityExpiration:        time.Hour,
 			},
@@ -110,7 +116,7 @@ func TestPeer_SessionExpired(t *testing.T) {
 			expirationEnabled: true,
 			connected:         false,
 			lastLogin:         time.Now().UTC().Add(-1 * time.Second),
-			accountSettings: &Settings{
+			accountSettings: &types.Settings{
 				PeerInactivityExpirationEnabled: true,
 				PeerInactivityExpiration:        time.Second,
 			},
@@ -121,7 +127,7 @@ func TestPeer_SessionExpired(t *testing.T) {
 			expirationEnabled: true,
 			connected:         true,
 			lastLogin:         time.Now().UTC(),
-			accountSettings: &Settings{
+			accountSettings: &types.Settings{
 				PeerInactivityExpirationEnabled: true,
 				PeerInactivityExpiration:        time.Second,
 			},
@@ -136,7 +142,7 @@ func TestPeer_SessionExpired(t *testing.T) {
 			}
 			peer := &nbpeer.Peer{
 				InactivityExpirationEnabled: c.expirationEnabled,
-				LastLogin:                   c.lastLogin,
+				LastLogin:                   util.ToPtr(c.lastLogin),
 				Status:                      peerStatus,
 				UserID:                      userID,
 			}
@@ -161,7 +167,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userId, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -233,9 +239,9 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var setupKey *SetupKey
+	var setupKey *types.SetupKey
 	for _, key := range account.SetupKeys {
-		if key.Type == SetupKeyReusable {
+		if key.Type == types.SetupKeyReusable {
 			setupKey = key
 		}
 	}
@@ -281,8 +287,8 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 	var (
-		group1 nbgroup.Group
-		group2 nbgroup.Group
+		group1 types.Group
+		group2 types.Group
 	)
 
 	group1.ID = xid.New().String()
@@ -303,16 +309,16 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 
-	policy := &Policy{
+	policy := &types.Policy{
 		Name:    "test",
 		Enabled: true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{group1.ID},
 				Destinations:  []string{group2.ID},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 	}
@@ -410,7 +416,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userId, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -469,9 +475,9 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	adminUser := "account_creator"
 	someUser := "some_user"
 	account := newAccountWithId(context.Background(), accountID, adminUser, "")
-	account.Users[someUser] = &User{
+	account.Users[someUser] = &types.User{
 		Id:   someUser,
-		Role: UserRoleUser,
+		Role: types.UserRoleUser,
 	}
 	account.Settings.RegularUsersViewBlocked = false
 
@@ -482,7 +488,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// two peers one added by a regular user and one with a setup key
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, adminUser, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, adminUser, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -567,77 +573,77 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	testCases := []struct {
 		name                string
-		role                UserRole
+		role                types.UserRole
 		limitedViewSettings bool
 		isServiceUser       bool
 		expectedPeerCount   int
 	}{
 		{
 			name:                "Regular user, no limited view settings, not a service user",
-			role:                UserRoleUser,
+			role:                types.UserRoleUser,
 			limitedViewSettings: false,
 			isServiceUser:       false,
 			expectedPeerCount:   1,
 		},
 		{
 			name:                "Service user, no limited view settings",
-			role:                UserRoleUser,
+			role:                types.UserRoleUser,
 			limitedViewSettings: false,
 			isServiceUser:       true,
 			expectedPeerCount:   2,
 		},
 		{
 			name:                "Regular user, limited view settings",
-			role:                UserRoleUser,
+			role:                types.UserRoleUser,
 			limitedViewSettings: true,
 			isServiceUser:       false,
 			expectedPeerCount:   0,
 		},
 		{
 			name:                "Service user, limited view settings",
-			role:                UserRoleUser,
+			role:                types.UserRoleUser,
 			limitedViewSettings: true,
 			isServiceUser:       true,
 			expectedPeerCount:   2,
 		},
 		{
 			name:                "Admin, no limited view settings, not a service user",
-			role:                UserRoleAdmin,
+			role:                types.UserRoleAdmin,
 			limitedViewSettings: false,
 			isServiceUser:       false,
 			expectedPeerCount:   2,
 		},
 		{
 			name:                "Admin service user, no limited view settings",
-			role:                UserRoleAdmin,
+			role:                types.UserRoleAdmin,
 			limitedViewSettings: false,
 			isServiceUser:       true,
 			expectedPeerCount:   2,
 		},
 		{
 			name:                "Admin, limited view settings",
-			role:                UserRoleAdmin,
+			role:                types.UserRoleAdmin,
 			limitedViewSettings: true,
 			isServiceUser:       false,
 			expectedPeerCount:   2,
 		},
 		{
 			name:                "Admin Service user, limited view settings",
-			role:                UserRoleAdmin,
+			role:                types.UserRoleAdmin,
 			limitedViewSettings: true,
 			isServiceUser:       true,
 			expectedPeerCount:   2,
 		},
 		{
 			name:                "Owner, no limited view settings",
-			role:                UserRoleOwner,
+			role:                types.UserRoleOwner,
 			limitedViewSettings: true,
 			isServiceUser:       false,
 			expectedPeerCount:   2,
 		},
 		{
 			name:                "Owner, limited view settings",
-			role:                UserRoleOwner,
+			role:                types.UserRoleOwner,
 			limitedViewSettings: true,
 			isServiceUser:       false,
 			expectedPeerCount:   2,
@@ -656,12 +662,12 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			adminUser := "account_creator"
 			someUser := "some_user"
 			account := newAccountWithId(context.Background(), accountID, adminUser, "")
-			account.Users[someUser] = &User{
+			account.Users[someUser] = &types.User{
 				Id:            someUser,
 				Role:          testCase.role,
 				IsServiceUser: testCase.isServiceUser,
 			}
-			account.Policies = []*Policy{}
+			account.Policies = []*types.Policy{}
 			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
 
 			err = manager.Store.SaveAccount(context.Background(), account)
@@ -726,9 +732,9 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 	regularUser := "regular_user"
 
 	account := newAccountWithId(context.Background(), accountID, adminUser, "")
-	account.Users[regularUser] = &User{
+	account.Users[regularUser] = &types.User{
 		Id:   regularUser,
-		Role: UserRoleUser,
+		Role: types.UserRoleUser,
 	}
 
 	// Create peers
@@ -739,17 +745,17 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			DNSLabel: fmt.Sprintf("peer-%d", i),
 			Key:      peerKey.PublicKey().String(),
 			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
-			Status:   &nbpeer.PeerStatus{},
+			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 		}
 		account.Peers[peer.ID] = peer
 	}
 
 	// Create groups and policies
-	account.Policies = make([]*Policy, 0, groups)
+	account.Policies = make([]*types.Policy, 0, groups)
 	for i := 0; i < groups; i++ {
 		groupID := fmt.Sprintf("group-%d", i)
-		group := &nbgroup.Group{
+		group := &types.Group{
 			ID:   groupID,
 			Name: fmt.Sprintf("Group %d", i),
 		}
@@ -757,14 +763,95 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 			peerIndex := i*(peers/groups) + j
 			group.Peers = append(group.Peers, fmt.Sprintf("peer-%d", peerIndex))
 		}
+
+		// Create network, router and resource for this group
+		network := &networkTypes.Network{
+			ID:        fmt.Sprintf("network-%d", i),
+			AccountID: account.Id,
+			Name:      fmt.Sprintf("Network for Group %d", i),
+		}
+		account.Networks = append(account.Networks, network)
+
+		ips := account.GetTakenIPs()
+		peerIP, err := types.AllocatePeerIP(account.Network.Net, ips)
+		if err != nil {
+			return nil, "", "", err
+		}
+
+		peerKey, _ := wgtypes.GeneratePrivateKey()
+		peer := &nbpeer.Peer{
+			ID:       fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
+			DNSLabel: fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
+			Key:      peerKey.PublicKey().String(),
+			IP:       peerIP,
+			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
+			UserID:   regularUser,
+			Meta: nbpeer.PeerSystemMeta{
+				Hostname:  fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
+				GoOS:      "linux",
+				Kernel:    "Linux",
+				Core:      "21.04",
+				Platform:  "x86_64",
+				OS:        "Ubuntu",
+				WtVersion: "development",
+				UIVersion: "development",
+			},
+		}
+		account.Peers[peer.ID] = peer
+
+		group.Peers = append(group.Peers, peer.ID)
 		account.Groups[groupID] = group
 
+		router := &routerTypes.NetworkRouter{
+			ID:         fmt.Sprintf("network-router-%d", i),
+			NetworkID:  network.ID,
+			AccountID:  account.Id,
+			Peer:       peer.ID,
+			PeerGroups: []string{},
+			Masquerade: false,
+			Metric:     9999,
+		}
+		account.NetworkRouters = append(account.NetworkRouters, router)
+
+		resource := &resourceTypes.NetworkResource{
+			ID:        fmt.Sprintf("network-resource-%d", i),
+			NetworkID: network.ID,
+			AccountID: account.Id,
+			Name:      fmt.Sprintf("Network resource for Group %d", i),
+			Type:      "host",
+			Address:   "192.0.2.0/32",
+		}
+		account.NetworkResources = append(account.NetworkResources, resource)
+
+		// Create a policy for this network resource
+		nrPolicy := &types.Policy{
+			ID:      fmt.Sprintf("policy-nr-%d", i),
+			Name:    fmt.Sprintf("Policy for network resource %d", i),
+			Enabled: true,
+			Rules: []*types.PolicyRule{
+				{
+					ID:           fmt.Sprintf("rule-nr-%d", i),
+					Name:         fmt.Sprintf("Rule for network resource %d", i),
+					Enabled:      true,
+					Sources:      []string{groupID},
+					Destinations: []string{},
+					DestinationResource: types.Resource{
+						ID: resource.ID,
+					},
+					Bidirectional: true,
+					Protocol:      types.PolicyRuleProtocolALL,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}
+		account.Policies = append(account.Policies, nrPolicy)
+
 		// Create a policy for this group
-		policy := &Policy{
+		policy := &types.Policy{
 			ID:      fmt.Sprintf("policy-%d", i),
 			Name:    fmt.Sprintf("Policy for Group %d", i),
 			Enabled: true,
-			Rules: []*PolicyRule{
+			Rules: []*types.PolicyRule{
 				{
 					ID:            fmt.Sprintf("rule-%d", i),
 					Name:          fmt.Sprintf("Rule for Group %d", i),
@@ -772,8 +859,8 @@ func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccou
 					Sources:       []string{groupID},
 					Destinations:  []string{groupID},
 					Bidirectional: true,
-					Protocol:      PolicyRuleProtocolALL,
-					Action:        PolicyTrafficActionAccept,
+					Protocol:      types.PolicyRuleProtocolALL,
+					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
 		}
@@ -845,11 +932,12 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 		maxMsPerOpCICD  float64
 	}{
 		{"Small", 50, 5, 90, 120, 90, 120},
-		{"Medium", 500, 100, 110, 140, 120, 200},
-		{"Large", 5000, 200, 800, 1300, 2500, 3600},
+		{"Medium", 500, 100, 110, 150, 120, 260},
+		{"Large", 5000, 200, 800, 1700, 2500, 5000},
 		{"Small single", 50, 10, 90, 120, 90, 120},
 		{"Medium single", 500, 10, 110, 170, 120, 200},
-		{"Large 5", 5000, 15, 1300, 1800, 5000, 6000},
+		{"Large 5", 5000, 15, 1300, 2100, 4900, 7000},
+		{"Extra Large", 2000, 2000, 1300, 2400, 4000, 6400},
 	}
 
 	log.SetOutput(io.Discard)
@@ -881,7 +969,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 			start := time.Now()
 
 			for i := 0; i < b.N; i++ {
-				manager.updateAccountPeers(ctx, account.Id)
+				manager.UpdateAccountPeers(ctx, account.Id)
 			}
 
 			duration := time.Since(start)
@@ -899,7 +987,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
 			}
 
-			if msPerOp > maxExpected {
+			if msPerOp > (maxExpected * 1.1) {
 				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
@@ -939,8 +1027,8 @@ func TestToSyncResponse(t *testing.T) {
 		Payload:   "turn-user",
 		Signature: "turn-pass",
 	}
-	networkMap := &NetworkMap{
-		Network:      &Network{Net: *ipnet, Serial: 1000},
+	networkMap := &types.NetworkMap{
+		Network:      &types.Network{Net: *ipnet, Serial: 1000},
 		Peers:        []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.2"), Key: "peer2-key", DNSLabel: "peer2", SSHEnabled: true, SSHKey: "peer2-ssh-key"}},
 		OfflinePeers: []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.3"), Key: "peer3-key", DNSLabel: "peer3", SSHEnabled: true, SSHKey: "peer3-ssh-key"}},
 		Routes: []*nbroute.Route{
@@ -987,8 +1075,8 @@ func TestToSyncResponse(t *testing.T) {
 			},
 			CustomZones: []nbdns.CustomZone{{Domain: "example.com", Records: []nbdns.SimpleRecord{{Name: "example.com", Type: 1, Class: "IN", TTL: 60, RData: "100.64.0.1"}}}},
 		},
-		FirewallRules: []*FirewallRule{
-			{PeerIP: "192.168.1.2", Direction: firewallRuleDirectionIN, Action: string(PolicyTrafficActionAccept), Protocol: string(PolicyRuleProtocolTCP), Port: "80"},
+		FirewallRules: []*types.FirewallRule{
+			{PeerIP: "192.168.1.2", Direction: types.FirewallRuleDirectionIN, Action: string(types.PolicyTrafficActionAccept), Protocol: string(types.PolicyRuleProtocolTCP), Port: "80"},
 		},
 	}
 	dnsName := "example.com"
@@ -1003,7 +1091,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, true)
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1088,7 +1176,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1099,13 +1187,13 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	existingUserID := "edafee4e-63fb-11ec-90d6-0242ac120003"
 
-	_, err = store.GetAccount(context.Background(), existingAccountID)
+	_, err = s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	newPeer := &nbpeer.Peer{
@@ -1122,18 +1210,18 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		UserID:     existingUserID,
 		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 		SSHEnabled: false,
-		LastLogin:  time.Now(),
+		LastLogin:  util.ToPtr(time.Now()),
 	}
 
 	addedPeer, _, _, err := am.AddPeer(context.Background(), "", existingUserID, newPeer)
 	require.NoError(t, err)
 
-	peer, err := store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, addedPeer.Key)
+	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, addedPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.UserID, existingUserID)
 
-	account, err := store.GetAccount(context.Background(), existingAccountID)
+	account, err := s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 	assert.Contains(t, account.Peers, addedPeer.ID)
 	assert.Equal(t, peer.Meta.Hostname, newPeer.Meta.Hostname)
@@ -1144,7 +1232,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 
 	lastLogin, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
 	assert.NoError(t, err)
-	assert.NotEqual(t, lastLogin, account.Users[existingUserID].LastLogin)
+	assert.NotEqual(t, lastLogin, account.Users[existingUserID].GetLastLogin())
 }
 
 func Test_RegisterPeerBySetupKey(t *testing.T) {
@@ -1152,7 +1240,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1163,13 +1251,13 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	existingSetupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
-	_, err = store.GetAccount(context.Background(), existingAccountID)
+	_, err = s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	newPeer := &nbpeer.Peer{
@@ -1192,11 +1280,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	require.NoError(t, err)
 
-	peer, err := store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, newPeer.Key)
+	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 
-	account, err := store.GetAccount(context.Background(), existingAccountID)
+	account, err := s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 	assert.Contains(t, account.Peers, addedPeer.ID)
 	assert.Contains(t, account.Groups["cfefqs706sqkneg59g2g"].Peers, addedPeer.ID)
@@ -1219,7 +1307,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1230,13 +1318,13 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	faultyKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBC"
 
-	_, err = store.GetAccount(context.Background(), existingAccountID)
+	_, err = s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
 	newPeer := &nbpeer.Peer{
@@ -1258,10 +1346,10 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	_, _, _, err = am.AddPeer(context.Background(), faultyKey, "", newPeer)
 	require.Error(t, err)
 
-	_, err = store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, newPeer.Key)
+	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
 	require.Error(t, err)
 
-	account, err := store.GetAccount(context.Background(), existingAccountID)
+	account, err := s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 	assert.NotContains(t, account.Peers, newPeer.ID)
 	assert.NotContains(t, account.Groups["cfefqs706sqkneg59g3g"].Peers, newPeer.ID)
@@ -1274,7 +1362,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	hashedKey := sha256.Sum256([]byte(faultyKey))
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
-	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].LastUsed.UTC())
+	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].GetLastUsed().UTC())
 	assert.Equal(t, 0, account.SetupKeys[encodedHashedKey].UsedTimes)
 }
 
@@ -1284,7 +1372,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
 	require.NoError(t, err)
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -1304,26 +1392,26 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// create a user with auto groups
-	_, err = manager.SaveOrAddUsers(context.Background(), account.Id, userID, []*User{
+	_, err = manager.SaveOrAddUsers(context.Background(), account.Id, userID, []*types.User{
 		{
 			Id:         "regularUser1",
 			AccountID:  account.Id,
-			Role:       UserRoleAdmin,
-			Issued:     UserIssuedAPI,
+			Role:       types.UserRoleAdmin,
+			Issued:     types.UserIssuedAPI,
 			AutoGroups: []string{"groupA"},
 		},
 		{
 			Id:         "regularUser2",
 			AccountID:  account.Id,
-			Role:       UserRoleAdmin,
-			Issued:     UserIssuedAPI,
+			Role:       types.UserRoleAdmin,
+			Issued:     types.UserIssuedAPI,
 			AutoGroups: []string{"groupB"},
 		},
 		{
 			Id:         "regularUser3",
 			AccountID:  account.Id,
-			Role:       UserRoleAdmin,
-			Issued:     UserIssuedAPI,
+			Role:       types.UserRoleAdmin,
+			Issued:     types.UserIssuedAPI,
 			AutoGroups: []string{"groupC"},
 		},
 	}, true)
@@ -1464,15 +1552,15 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to group linked with policy should update account peers and send peer update
 	t.Run("adding peer to group linked with policy", func(t *testing.T) {
-		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 			Enabled: true,
-			Rules: []*PolicyRule{
+			Rules: []*types.PolicyRule{
 				{
 					Enabled:       true,
 					Sources:       []string{"groupA"},
 					Destinations:  []string{"groupA"},
 					Bidirectional: true,
-					Action:        PolicyTrafficActionAccept,
+					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
 		})

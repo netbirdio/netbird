@@ -7,11 +7,13 @@ import (
 	"time"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 type MockStore struct {
-	Store
-	account *Account
+	store.Store
+	account *types.Account
 }
 
 func (s *MockStore) GetAllEphemeralPeers(_ context.Context, _ LockingStrength) ([]*nbpeer.Peer, error) {

@@ -222,6 +222,8 @@ message PeerConfig {
   SSHConfig sshConfig = 3;
   // Peer fully qualified domain name
   string fqdn = 4;
+
+  bool RoutingPeerDnsResolutionEnabled = 5;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -396,6 +398,7 @@ enum RuleProtocol {
   TCP = 2;
   UDP = 3;
   ICMP = 4;
+  CUSTOM = 5;
 }
 
 enum RuleDirection {
@@ -459,5 +462,11 @@ message RouteFirewallRule {
 
   // IsDynamic indicates if the route is a DNS route.
   bool isDynamic = 6;
+
+  // Domains is a list of domains for which the rule is applicable.
+  repeated string domains = 7;
+
+  // CustomProtocol is a custom protocol ID.
+  uint32 customProtocol = 8;
 }
 

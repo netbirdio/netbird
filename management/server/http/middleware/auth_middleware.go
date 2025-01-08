@@ -11,16 +11,16 @@ import (
 	"github.com/golang-jwt/jwt"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // GetAccountFromPATFunc function
-type GetAccountFromPATFunc func(ctx context.Context, token string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
+type GetAccountFromPATFunc func(ctx context.Context, token string) (*types.Account, *types.User, *types.PersonalAccessToken, error)
 
 // ValidateAndParseTokenFunc function
 type ValidateAndParseTokenFunc func(ctx context.Context, token string) (*jwt.Token, error)
@@ -161,7 +161,7 @@ func (m *AuthMiddleware) checkPATFromRequest(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return fmt.Errorf("invalid Token: %w", err)
 	}
-	if time.Now().After(pat.ExpirationDate) {
+	if time.Now().After(pat.GetExpirationDate()) {
 		return fmt.Errorf("token expired")
 	}
 
@@ -175,6 +175,7 @@ func (m *AuthMiddleware) checkPATFromRequest(w http.ResponseWriter, r *http.Requ
 	claimMaps[m.audience+jwtclaims.AccountIDSuffix] = account.Id
 	claimMaps[m.audience+jwtclaims.DomainIDSuffix] = account.Domain
 	claimMaps[m.audience+jwtclaims.DomainCategorySuffix] = account.DomainCategory
+	claimMaps[jwtclaims.IsToken] = true
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	newRequest := r.WithContext(context.WithValue(r.Context(), jwtclaims.TokenUserProperty, jwtToken)) //nolint
 	// Update the current request with the new context information.

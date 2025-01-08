@@ -30,6 +30,8 @@ type IosDnsManager interface {
 
 // Server is a dns server interface
 type Server interface {
+	RegisterHandler(domains []string, handler dns.Handler, priority int)
+	DeregisterHandler(domains []string, priority int)
 	Initialize() error
 	Stop()
 	DnsIP() string
@@ -45,15 +47,18 @@ type registeredHandlerMap map[string]handlerWithStop
 type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
+	disableSys         bool
 	mux                sync.Mutex
 	service            service
 	dnsMuxMap          registeredHandlerMap
+	handlerPriorities  map[string]int
 	localResolver      *localResolver
 	wgInterface        WGIface
 	hostManager        hostManager
 	updateSerial       uint64
 	previousConfigHash uint64
 	currentConfig      HostDNSConfig
+	handlerChain       *HandlerChain
 
 	// permanent related properties
 	permanent      bool
@@ -74,12 +79,20 @@ type handlerWithStop interface {
 }
 
 type muxUpdate struct {
-	domain  string
-	handler handlerWithStop
+	domain   string
+	handler  handlerWithStop
+	priority int
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress string, statusRecorder *peer.Status, stateManager *statemanager.Manager) (*DefaultServer, error) {
+func NewDefaultServer(
+	ctx context.Context,
+	wgInterface WGIface,
+	customAddress string,
+	statusRecorder *peer.Status,
+	stateManager *statemanager.Manager,
+	disableSys bool,
+) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
 	if customAddress != "" {
 		parsedAddrPort, err := netip.ParseAddrPort(customAddress)
@@ -96,7 +109,7 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 		dnsService = newServiceViaListener(wgInterface, addrPort)
 	}
 
-	return newDefaultServer(ctx, wgInterface, dnsService, statusRecorder, stateManager), nil
+	return newDefaultServer(ctx, wgInterface, dnsService, statusRecorder, stateManager, disableSys), nil
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
@@ -107,9 +120,10 @@ func NewDefaultServerPermanentUpstream(
 	config nbdns.Config,
 	listener listener.NetworkChangeListener,
 	statusRecorder *peer.Status,
+	disableSys bool,
 ) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
-	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.addHostRootZone()
@@ -126,19 +140,30 @@ func NewDefaultServerIos(
 	wgInterface WGIface,
 	iosDnsManager IosDnsManager,
 	statusRecorder *peer.Status,
+	disableSys bool,
 ) *DefaultServer {
-	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.iosDnsManager = iosDnsManager
 	return ds
 }
 
-func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService service, statusRecorder *peer.Status, stateManager *statemanager.Manager) *DefaultServer {
+func newDefaultServer(
+	ctx context.Context,
+	wgInterface WGIface,
+	dnsService service,
+	statusRecorder *peer.Status,
+	stateManager *statemanager.Manager,
+	disableSys bool,
+) *DefaultServer {
 	ctx, stop := context.WithCancel(ctx)
 	defaultServer := &DefaultServer{
-		ctx:       ctx,
-		ctxCancel: stop,
-		service:   dnsService,
-		dnsMuxMap: make(registeredHandlerMap),
+		ctx:               ctx,
+		ctxCancel:         stop,
+		disableSys:        disableSys,
+		service:           dnsService,
+		handlerChain:      NewHandlerChain(),
+		dnsMuxMap:         make(registeredHandlerMap),
+		handlerPriorities: make(map[string]int),
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
@@ -149,6 +174,51 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 	}
 
 	return defaultServer
+}
+
+func (s *DefaultServer) RegisterHandler(domains []string, handler dns.Handler, priority int) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	s.registerHandler(domains, handler, priority)
+}
+
+func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
+	log.Debugf("registering handler %s with priority %d", handler, priority)
+
+	for _, domain := range domains {
+		if domain == "" {
+			log.Warn("skipping empty domain")
+			continue
+		}
+		s.handlerChain.AddHandler(domain, handler, priority, nil)
+		s.handlerPriorities[domain] = priority
+		s.service.RegisterMux(nbdns.NormalizeZone(domain), s.handlerChain)
+	}
+}
+
+func (s *DefaultServer) DeregisterHandler(domains []string, priority int) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	s.deregisterHandler(domains, priority)
+}
+
+func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
+	log.Debugf("deregistering handler %v with priority %d", domains, priority)
+
+	for _, domain := range domains {
+		s.handlerChain.RemoveHandler(domain, priority)
+
+		// Only deregister from service if no handlers remain
+		if !s.handlerChain.HasHandlers(domain) {
+			if domain == "" {
+				log.Warn("skipping empty domain")
+				continue
+			}
+			s.service.DeregisterMux(nbdns.NormalizeZone(domain))
+		}
+	}
 }
 
 // Initialize instantiate host manager and the dns service
@@ -168,6 +238,13 @@ func (s *DefaultServer) Initialize() (err error) {
 	}
 
 	s.stateManager.RegisterState(&ShutdownState{})
+
+	if s.disableSys {
+		log.Info("system DNS is disabled, not setting up host manager")
+		s.hostManager = &noopHostConfigurator{}
+		return nil
+	}
+
 	s.hostManager, err = s.initialize()
 	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
@@ -216,47 +293,47 @@ func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 
 // UpdateDNSServer processes an update received from the management service
 func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
-	select {
-	case <-s.ctx.Done():
+	if s.ctx.Err() != nil {
 		log.Infof("not updating DNS server as context is closed")
 		return s.ctx.Err()
-	default:
-		if serial < s.updateSerial {
-			return fmt.Errorf("not applying dns update, error: "+
-				"network update is %d behind the last applied update", s.updateSerial-serial)
-		}
-		s.mux.Lock()
-		defer s.mux.Unlock()
+	}
 
-		if s.hostManager == nil {
-			return fmt.Errorf("dns service is not initialized yet")
-		}
+	if serial < s.updateSerial {
+		return fmt.Errorf("not applying dns update, error: "+
+			"network update is %d behind the last applied update", s.updateSerial-serial)
+	}
 
-		hash, err := hashstructure.Hash(update, hashstructure.FormatV2, &hashstructure.HashOptions{
-			ZeroNil:         true,
-			IgnoreZeroValue: true,
-			SlicesAsSets:    true,
-			UseStringer:     true,
-		})
-		if err != nil {
-			log.Errorf("unable to hash the dns configuration update, got error: %s", err)
-		}
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-		if s.previousConfigHash == hash {
-			log.Debugf("not applying the dns configuration update as there is nothing new")
-			s.updateSerial = serial
-			return nil
-		}
+	if s.hostManager == nil {
+		return fmt.Errorf("dns service is not initialized yet")
+	}
 
-		if err := s.applyConfiguration(update); err != nil {
-			return fmt.Errorf("apply configuration: %w", err)
-		}
+	hash, err := hashstructure.Hash(update, hashstructure.FormatV2, &hashstructure.HashOptions{
+		ZeroNil:         true,
+		IgnoreZeroValue: true,
+		SlicesAsSets:    true,
+		UseStringer:     true,
+	})
+	if err != nil {
+		log.Errorf("unable to hash the dns configuration update, got error: %s", err)
+	}
 
+	if s.previousConfigHash == hash {
+		log.Debugf("not applying the dns configuration update as there is nothing new")
 		s.updateSerial = serial
-		s.previousConfigHash = hash
-
 		return nil
 	}
+
+	if err := s.applyConfiguration(update); err != nil {
+		return fmt.Errorf("apply configuration: %w", err)
+	}
+
+	s.updateSerial = serial
+	s.previousConfigHash = hash
+
+	return nil
 }
 
 func (s *DefaultServer) SearchDomains() []string {
@@ -343,14 +420,14 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 	localRecords := make(map[string]nbdns.SimpleRecord, 0)
 
 	for _, customZone := range customZones {
-
 		if len(customZone.Records) == 0 {
 			return nil, nil, fmt.Errorf("received an empty list of records")
 		}
 
 		muxUpdates = append(muxUpdates, muxUpdate{
-			domain:  customZone.Domain,
-			handler: s.localResolver,
+			domain:   customZone.Domain,
+			handler:  s.localResolver,
+			priority: PriorityMatchDomain,
 		})
 
 		for _, record := range customZone.Records {
@@ -412,8 +489,9 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 
 		if nsGroup.Primary {
 			muxUpdates = append(muxUpdates, muxUpdate{
-				domain:  nbdns.RootZone,
-				handler: handler,
+				domain:   nbdns.RootZone,
+				handler:  handler,
+				priority: PriorityDefault,
 			})
 			continue
 		}
@@ -429,8 +507,9 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
-				domain:  domain,
-				handler: handler,
+				domain:   domain,
+				handler:  handler,
+				priority: PriorityMatchDomain,
 			})
 		}
 	}
@@ -440,12 +519,16 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 
 func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 	muxUpdateMap := make(registeredHandlerMap)
+	handlersByPriority := make(map[string]int)
 
 	var isContainRootUpdate bool
 
+	// First register new handlers
 	for _, update := range muxUpdates {
-		s.service.RegisterMux(update.domain, update.handler)
+		s.registerHandler([]string{update.domain}, update.handler, update.priority)
 		muxUpdateMap[update.domain] = update.handler
+		handlersByPriority[update.domain] = update.priority
+
 		if existingHandler, ok := s.dnsMuxMap[update.domain]; ok {
 			existingHandler.stop()
 		}
@@ -455,6 +538,7 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 		}
 	}
 
+	// Then deregister old handlers not in the update
 	for key, existingHandler := range s.dnsMuxMap {
 		_, found := muxUpdateMap[key]
 		if !found {
@@ -463,12 +547,16 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 				existingHandler.stop()
 			} else {
 				existingHandler.stop()
-				s.service.DeregisterMux(key)
+				// Deregister with the priority that was used to register
+				if oldPriority, ok := s.handlerPriorities[key]; ok {
+					s.deregisterHandler([]string{key}, oldPriority)
+				}
 			}
 		}
 	}
 
 	s.dnsMuxMap = muxUpdateMap
+	s.handlerPriorities = handlersByPriority
 }
 
 func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord) {
@@ -517,13 +605,13 @@ func (s *DefaultServer) upstreamCallbacks(
 		if nsGroup.Primary {
 			removeIndex[nbdns.RootZone] = -1
 			s.currentConfig.RouteAll = false
-			s.service.DeregisterMux(nbdns.RootZone)
+			s.deregisterHandler([]string{nbdns.RootZone}, PriorityDefault)
 		}
 
 		for i, item := range s.currentConfig.Domains {
 			if _, found := removeIndex[item.Domain]; found {
 				s.currentConfig.Domains[i].Disabled = true
-				s.service.DeregisterMux(item.Domain)
+				s.deregisterHandler([]string{item.Domain}, PriorityMatchDomain)
 				removeIndex[item.Domain] = i
 			}
 		}
@@ -554,7 +642,7 @@ func (s *DefaultServer) upstreamCallbacks(
 				continue
 			}
 			s.currentConfig.Domains[i].Disabled = false
-			s.service.RegisterMux(domain, handler)
+			s.registerHandler([]string{domain}, handler, PriorityMatchDomain)
 		}
 
 		l := log.WithField("nameservers", nsGroup.NameServers)
@@ -562,10 +650,13 @@ func (s *DefaultServer) upstreamCallbacks(
 
 		if nsGroup.Primary {
 			s.currentConfig.RouteAll = true
-			s.service.RegisterMux(nbdns.RootZone, handler)
+			s.registerHandler([]string{nbdns.RootZone}, handler, PriorityDefault)
 		}
-		if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
-			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
+
+		if s.hostManager != nil {
+			if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
+				l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
+			}
 		}
 
 		s.updateNSState(nsGroup, nil, true)
@@ -593,7 +684,8 @@ func (s *DefaultServer) addHostRootZone() {
 	}
 	handler.deactivate = func(error) {}
 	handler.reactivate = func() {}
-	s.service.RegisterMux(nbdns.RootZone, handler)
+
+	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityDefault)
 }
 
 func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {

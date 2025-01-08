@@ -15,7 +15,8 @@ import (
 	"github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	nbversion "github.com/netbirdio/netbird/version"
 )
 
@@ -47,8 +48,8 @@ type properties map[string]interface{}
 
 // DataSource metric data source
 type DataSource interface {
-	GetAllAccounts(ctx context.Context) []*server.Account
-	GetStoreEngine() server.StoreEngine
+	GetAllAccounts(ctx context.Context) []*types.Account
+	GetStoreEngine() store.Engine
 }
 
 // ConnManager peer connection manager that holds state for current active connections
@@ -194,6 +195,10 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		groups                    int
 		routes                    int
 		routesWithRGGroups        int
+		networks                  int
+		networkResources          int
+		networkRouters            int
+		networkRoutersWithPG      int
 		nameservers               int
 		uiClient                  int
 		version                   string
@@ -218,6 +223,16 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		}
 
 		groups += len(account.Groups)
+		networks += len(account.Networks)
+		networkResources += len(account.NetworkResources)
+
+		networkRouters += len(account.NetworkRouters)
+		for _, router := range account.NetworkRouters {
+			if len(router.PeerGroups) > 0 {
+				networkRoutersWithPG++
+			}
+		}
+
 		routes += len(account.Routes)
 		for _, route := range account.Routes {
 			if len(route.PeerGroups) > 0 {
@@ -311,6 +326,10 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["rules_with_src_posture_checks"] = rulesWithSrcPostureChecks
 	metricsProperties["posture_checks"] = postureChecks
 	metricsProperties["groups"] = groups
+	metricsProperties["networks"] = networks
+	metricsProperties["network_resources"] = networkResources
+	metricsProperties["network_routers"] = networkRouters
+	metricsProperties["network_routers_with_groups"] = networkRoutersWithPG
 	metricsProperties["routes"] = routes
 	metricsProperties["routes_with_routing_groups"] = routesWithRGGroups
 	metricsProperties["nameservers"] = nameservers

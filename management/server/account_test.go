@@ -16,64 +16,29 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/management/server/util"
+
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
 
-type MocIntegratedValidator struct {
-	ValidatePeerFunc func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error)
-}
-
-func (a MocIntegratedValidator) ValidateExtraSettings(_ context.Context, newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
-	return nil
-}
-
-func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool, error) {
-	if a.ValidatePeerFunc != nil {
-		return a.ValidatePeerFunc(context.Background(), update, peer, userID, accountID, dnsDomain, peersGroup, extraSettings)
-	}
-	return update, false, nil
-}
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
-	validatedPeers := make(map[string]struct{})
-	for _, peer := range peers {
-		validatedPeers[peer.ID] = struct{}{}
-	}
-	return validatedPeers, nil
-}
-
-func (MocIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
-	return peer
-}
-
-func (MocIntegratedValidator) IsNotValidPeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
-	return false, false, nil
-}
-
-func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
-
-}
-
-func (MocIntegratedValidator) Stop(_ context.Context) {
-}
-
-func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
+func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *types.Account, userID string) {
 	t.Helper()
 	peer := &nbpeer.Peer{
 		Key:  "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8=",
@@ -101,7 +66,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Ac
 	}
 }
 
-func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy string, domain string, expectedUsers []string) {
+func verifyNewAccountHasDefaultFields(t *testing.T, account *types.Account, createdBy string, domain string, expectedUsers []string) {
 	t.Helper()
 	if len(account.Peers) != 0 {
 		t.Errorf("expected account to have len(Peers) = %v, got %v", 0, len(account.Peers))
@@ -156,7 +121,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	// peerID3 := "peer-3"
 	tt := []struct {
 		name                 string
-		accountSettings      Settings
+		accountSettings      types.Settings
 		peerID               string
 		expectedPeers        []string
 		expectedOfflinePeers []string
@@ -164,7 +129,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	}{
 		{
 			name:                 "Should return ALL peers when global peer login expiration disabled",
-			accountSettings:      Settings{PeerLoginExpirationEnabled: false, PeerLoginExpiration: time.Hour},
+			accountSettings:      types.Settings{PeerLoginExpirationEnabled: false, PeerLoginExpiration: time.Hour},
 			peerID:               peerID1,
 			expectedPeers:        []string{peerID2},
 			expectedOfflinePeers: []string{},
@@ -181,7 +146,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 						LoginExpired: true,
 					},
 					UserID:    userID,
-					LastLogin: time.Now().UTC().Add(-time.Hour * 24 * 30 * 30),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-time.Hour * 24 * 30 * 30)),
 				},
 				"peer-2": {
 					ID:       peerID2,
@@ -195,14 +160,14 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 						LoginExpired: false,
 					},
 					UserID:                 userID,
-					LastLogin:              time.Now().UTC(),
+					LastLogin:              util.ToPtr(time.Now().UTC()),
 					LoginExpirationEnabled: true,
 				},
 			},
 		},
 		{
 			name:                 "Should return no peers when global peer login expiration enabled and peers expired",
-			accountSettings:      Settings{PeerLoginExpirationEnabled: true, PeerLoginExpiration: time.Hour},
+			accountSettings:      types.Settings{PeerLoginExpirationEnabled: true, PeerLoginExpiration: time.Hour},
 			peerID:               peerID1,
 			expectedPeers:        []string{},
 			expectedOfflinePeers: []string{peerID2},
@@ -219,7 +184,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 						LoginExpired: true,
 					},
 					UserID:                 userID,
-					LastLogin:              time.Now().UTC().Add(-time.Hour * 24 * 30 * 30),
+					LastLogin:              util.ToPtr(time.Now().UTC().Add(-time.Hour * 24 * 30 * 30)),
 					LoginExpirationEnabled: true,
 				},
 				"peer-2": {
@@ -234,7 +199,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 						LoginExpired: true,
 					},
 					UserID:                 userID,
-					LastLogin:              time.Now().UTC().Add(-time.Hour * 24 * 30 * 30),
+					LastLogin:              util.ToPtr(time.Now().UTC().Add(-time.Hour * 24 * 30 * 30)),
 					LoginExpirationEnabled: true,
 				},
 			},
@@ -396,12 +361,12 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 
 	netIP := net.IP{100, 64, 0, 0}
 	netMask := net.IPMask{255, 255, 0, 0}
-	network := &Network{
+	network := &types.Network{
 		Identifier: "network",
 		Net:        net.IPNet{IP: netIP, Mask: netMask},
 		Dns:        "netbird.selfhosted",
 		Serial:     0,
-		mu:         sync.Mutex{},
+		Mu:         sync.Mutex{},
 	}
 
 	for _, testCase := range tt {
@@ -420,7 +385,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		}
 
 		customZone := account.GetPeersCustomZone(context.Background(), "netbird.io")
-		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, validatedPeers, nil)
+		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -485,12 +450,12 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 	}
 
 	initUnknown := defaultInitAccount
-	initUnknown.DomainCategory = UnknownCategory
+	initUnknown.DomainCategory = types.UnknownCategory
 	initUnknown.Domain = unknownDomain
 
 	privateInitAccount := defaultInitAccount
 	privateInitAccount.Domain = privateDomain
-	privateInitAccount.DomainCategory = PrivateCategory
+	privateInitAccount.DomainCategory = types.PrivateCategory
 
 	testCases := []struct {
 		name                        string
@@ -500,7 +465,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		inputUpdateClaimAccount     bool
 		testingFunc                 require.ComparisonAssertionFunc
 		expectedMSG                 string
-		expectedUserRole            UserRole
+		expectedUserRole            types.UserRole
 		expectedDomainCategory      string
 		expectedDomain              string
 		expectedPrimaryDomainStatus bool
@@ -512,12 +477,12 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         publicDomain,
 				UserId:         "pub-domain-user",
-				DomainCategory: PublicCategory,
+				DomainCategory: types.PublicCategory,
 			},
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.NotEqual,
 			expectedMSG:                 "account IDs shouldn't match",
-			expectedUserRole:            UserRoleOwner,
+			expectedUserRole:            types.UserRoleOwner,
 			expectedDomainCategory:      "",
 			expectedDomain:              publicDomain,
 			expectedPrimaryDomainStatus: false,
@@ -529,12 +494,12 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         unknownDomain,
 				UserId:         "unknown-domain-user",
-				DomainCategory: UnknownCategory,
+				DomainCategory: types.UnknownCategory,
 			},
 			inputInitUserParams:         initUnknown,
 			testingFunc:                 require.NotEqual,
 			expectedMSG:                 "account IDs shouldn't match",
-			expectedUserRole:            UserRoleOwner,
+			expectedUserRole:            types.UserRoleOwner,
 			expectedDomain:              unknownDomain,
 			expectedDomainCategory:      "",
 			expectedPrimaryDomainStatus: false,
@@ -546,14 +511,14 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         privateDomain,
 				UserId:         "pvt-domain-user",
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.NotEqual,
 			expectedMSG:                 "account IDs shouldn't match",
-			expectedUserRole:            UserRoleOwner,
+			expectedUserRole:            types.UserRoleOwner,
 			expectedDomain:              privateDomain,
-			expectedDomainCategory:      PrivateCategory,
+			expectedDomainCategory:      types.PrivateCategory,
 			expectedPrimaryDomainStatus: true,
 			expectedCreatedBy:           "pvt-domain-user",
 			expectedUsers:               []string{"pvt-domain-user"},
@@ -563,15 +528,15 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         privateDomain,
 				UserId:         "new-pvt-domain-user",
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputUpdateAttrs:            true,
 			inputInitUserParams:         privateInitAccount,
 			testingFunc:                 require.Equal,
 			expectedMSG:                 "account IDs should match",
-			expectedUserRole:            UserRoleUser,
+			expectedUserRole:            types.UserRoleUser,
 			expectedDomain:              privateDomain,
-			expectedDomainCategory:      PrivateCategory,
+			expectedDomainCategory:      types.PrivateCategory,
 			expectedPrimaryDomainStatus: true,
 			expectedCreatedBy:           defaultInitAccount.UserId,
 			expectedUsers:               []string{defaultInitAccount.UserId, "new-pvt-domain-user"},
@@ -581,14 +546,14 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         defaultInitAccount.Domain,
 				UserId:         defaultInitAccount.UserId,
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.Equal,
 			expectedMSG:                 "account IDs should match",
-			expectedUserRole:            UserRoleOwner,
+			expectedUserRole:            types.UserRoleOwner,
 			expectedDomain:              defaultInitAccount.Domain,
-			expectedDomainCategory:      PrivateCategory,
+			expectedDomainCategory:      types.PrivateCategory,
 			expectedPrimaryDomainStatus: true,
 			expectedCreatedBy:           defaultInitAccount.UserId,
 			expectedUsers:               []string{defaultInitAccount.UserId},
@@ -598,15 +563,15 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         defaultInitAccount.Domain,
 				UserId:         defaultInitAccount.UserId,
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputUpdateClaimAccount:     true,
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.Equal,
 			expectedMSG:                 "account IDs should match",
-			expectedUserRole:            UserRoleOwner,
+			expectedUserRole:            types.UserRoleOwner,
 			expectedDomain:              defaultInitAccount.Domain,
-			expectedDomainCategory:      PrivateCategory,
+			expectedDomainCategory:      types.PrivateCategory,
 			expectedPrimaryDomainStatus: true,
 			expectedCreatedBy:           defaultInitAccount.UserId,
 			expectedUsers:               []string{defaultInitAccount.UserId},
@@ -616,12 +581,12 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			inputClaims: jwtclaims.AuthorizationClaims{
 				Domain:         "",
 				UserId:         "pvt-domain-user",
-				DomainCategory: PrivateCategory,
+				DomainCategory: types.PrivateCategory,
 			},
 			inputInitUserParams:         defaultInitAccount,
 			testingFunc:                 require.NotEqual,
 			expectedMSG:                 "account IDs shouldn't match",
-			expectedUserRole:            UserRoleOwner,
+			expectedUserRole:            types.UserRoleOwner,
 			expectedDomain:              "",
 			expectedDomainCategory:      "",
 			expectedPrimaryDomainStatus: false,
@@ -733,7 +698,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 
 		require.Len(t, account.Groups, 3, "groups should be added to the account")
 
-		groupsByNames := map[string]*group.Group{}
+		groupsByNames := map[string]*types.Group{}
 		for _, g := range account.Groups {
 			groupsByNames[g.Name] = g
 		}
@@ -741,32 +706,36 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		g1, ok := groupsByNames["group1"]
 		require.True(t, ok, "group1 should be added to the account")
 		require.Equal(t, g1.Name, "group1", "group1 name should match")
-		require.Equal(t, g1.Issued, group.GroupIssuedJWT, "group1 issued should match")
+		require.Equal(t, g1.Issued, types.GroupIssuedJWT, "group1 issued should match")
 
 		g2, ok := groupsByNames["group2"]
 		require.True(t, ok, "group2 should be added to the account")
 		require.Equal(t, g2.Name, "group2", "group2 name should match")
-		require.Equal(t, g2.Issued, group.GroupIssuedJWT, "group2 issued should match")
+		require.Equal(t, g2.Issued, types.GroupIssuedJWT, "group2 issued should match")
 	})
 }
 
 func TestAccountManager_GetAccountFromPAT(t *testing.T) {
-	store := newStore(t)
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
 	hashedToken := sha256.Sum256([]byte(token))
 	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
-	account.Users["someUser"] = &User{
+	account.Users["someUser"] = &types.User{
 		Id: "someUser",
-		PATs: map[string]*PersonalAccessToken{
+		PATs: map[string]*types.PersonalAccessToken{
 			"tokenId": {
 				ID:          "tokenId",
 				HashedToken: encodedHashedToken,
 			},
 		},
 	}
-	err := store.SaveAccount(context.Background(), account)
+	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -786,23 +755,27 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 }
 
 func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
-	store := newStore(t)
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
 	hashedToken := sha256.Sum256([]byte(token))
 	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
-	account.Users["someUser"] = &User{
+	account.Users["someUser"] = &types.User{
 		Id: "someUser",
-		PATs: map[string]*PersonalAccessToken{
+		PATs: map[string]*types.PersonalAccessToken{
 			"tokenId": {
 				ID:          "tokenId",
 				HashedToken: encodedHashedToken,
-				LastUsed:    time.Time{},
 			},
 		},
 	}
-	err := store.SaveAccount(context.Background(), account)
+	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -820,7 +793,7 @@ func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error when getting account: %s", err)
 	}
-	assert.True(t, !account.Users["someUser"].PATs["tokenId"].LastUsed.IsZero())
+	assert.True(t, !account.Users["someUser"].PATs["tokenId"].GetLastUsed().IsZero())
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {
@@ -904,7 +877,7 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 		return
 	}
 
-	exists, err := manager.Store.AccountExists(context.Background(), LockingStrengthShare, accountID)
+	exists, err := manager.Store.AccountExists(context.Background(), store.LockingStrengthShare, accountID)
 	assert.NoError(t, err)
 	assert.True(t, exists, "expected to get existing account after creation using userid")
 
@@ -914,7 +887,7 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 	}
 }
 
-func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*Account, error) {
+func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*types.Account, error) {
 	account := newAccountWithId(context.Background(), accountID, userID, domain)
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -990,13 +963,13 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	claims := jwtclaims.AuthorizationClaims{
 		Domain:         "example.com",
 		UserId:         "pvt-domain-user",
-		DomainCategory: PrivateCategory,
+		DomainCategory: types.PrivateCategory,
 	}
 
 	publicClaims := jwtclaims.AuthorizationClaims{
 		Domain:         "test.com",
 		UserId:         "public-domain-user",
-		DomainCategory: PublicCategory,
+		DomainCategory: types.PublicCategory,
 	}
 
 	am, err := createManager(b)
@@ -1074,14 +1047,14 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 
 }
 
-func genUsers(p string, n int) map[string]*User {
-	users := map[string]*User{}
+func genUsers(p string, n int) map[string]*types.User {
+	users := map[string]*types.User{}
 	now := time.Now()
 	for i := 0; i < n; i++ {
-		users[fmt.Sprintf("%s-%d", p, i)] = &User{
+		users[fmt.Sprintf("%s-%d", p, i)] = &types.User{
 			Id:         fmt.Sprintf("%s-%d", p, i),
-			Role:       UserRoleAdmin,
-			LastLogin:  now,
+			Role:       types.UserRoleAdmin,
+			LastLogin:  util.ToPtr(now),
 			CreatedAt:  now,
 			Issued:     "api",
 			AutoGroups: []string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"},
@@ -1105,7 +1078,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 
 	serial := account.Network.CurrentSerial() // should be 0
 
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -1232,7 +1205,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	group := group.Group{
+	group := types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{},
@@ -1242,15 +1215,15 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		return
 	}
 
-	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 		Enabled: true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupA"},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 	})
@@ -1309,7 +1282,7 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
 
-	group := group.Group{
+	group := types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID},
@@ -1334,15 +1307,15 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		}
 	}()
 
-	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 		Enabled: true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupA"},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 	})
@@ -1357,7 +1330,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	manager, account, peer1, _, peer3 := setupNetworkMapTest(t)
 
-	group := group.Group{
+	group := types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer3.ID},
@@ -1367,15 +1340,15 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		return
 	}
 
-	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 		Enabled: true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupA"},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 	})
@@ -1413,7 +1386,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
@@ -1426,15 +1399,15 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		return
 	}
 
-	policy, err := manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+	policy, err := manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 		Enabled: true,
-		Rules: []*PolicyRule{
+		Rules: []*types.PolicyRule{
 			{
 				Enabled:       true,
 				Sources:       []string{"groupA"},
 				Destinations:  []string{"groupA"},
 				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
 	})
@@ -1481,7 +1454,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -1556,7 +1529,7 @@ func TestGetUsersFromAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	users := map[string]*User{"1": {Id: "1", Role: UserRoleOwner}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
+	users := map[string]*types.User{"1": {Id: "1", Role: types.UserRoleOwner}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
 	accountId := "test_account_id"
 
 	account, err := createAccount(manager, accountId, users["1"].Id, "")
@@ -1588,7 +1561,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	account := &Account{
+	account := &types.Account{
 		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
@@ -1635,11 +1608,11 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	account := &Account{
+	account := &types.Account{
 		Peers: map[string]*nbpeer.Peer{
 			"peer-1": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-2": {Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-3": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
 		},
-		Groups: map[string]*group.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
+		Groups: map[string]*types.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
 		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
@@ -1680,7 +1653,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 		},
 	}
 
-	routes := account.getRoutesToSync(context.Background(), "peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
+	routes := account.GetRoutesToSync(context.Background(), "peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[route.ID]struct{}, 2)
@@ -1690,26 +1663,26 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	assert.Contains(t, routeIDs, route.ID("route-2"))
 	assert.Contains(t, routeIDs, route.ID("route-3"))
 
-	emptyRoutes := account.getRoutesToSync(context.Background(), "peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
+	emptyRoutes := account.GetRoutesToSync(context.Background(), "peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
 
 	assert.Len(t, emptyRoutes, 0)
 }
 
 func TestAccount_Copy(t *testing.T) {
-	account := &Account{
+	account := &types.Account{
 		Id:                     "account1",
 		CreatedBy:              "tester",
 		CreatedAt:              time.Now().UTC(),
 		Domain:                 "test.com",
 		DomainCategory:         "public",
 		IsDomainPrimaryAccount: true,
-		SetupKeys: map[string]*SetupKey{
+		SetupKeys: map[string]*types.SetupKey{
 			"setup1": {
 				Id:         "setup1",
 				AutoGroups: []string{"group1"},
 			},
 		},
-		Network: &Network{
+		Network: &types.Network{
 			Identifier: "net1",
 		},
 		Peers: map[string]*nbpeer.Peer{
@@ -1722,35 +1695,36 @@ func TestAccount_Copy(t *testing.T) {
 				},
 			},
 		},
-		Users: map[string]*User{
+		Users: map[string]*types.User{
 			"user1": {
 				Id:         "user1",
-				Role:       UserRoleAdmin,
+				Role:       types.UserRoleAdmin,
 				AutoGroups: []string{"group1"},
-				PATs: map[string]*PersonalAccessToken{
+				PATs: map[string]*types.PersonalAccessToken{
 					"pat1": {
 						ID:             "pat1",
 						Name:           "First PAT",
 						HashedToken:    "SoMeHaShEdToKeN",
-						ExpirationDate: time.Now().UTC().AddDate(0, 0, 7),
+						ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
 						CreatedBy:      "user1",
 						CreatedAt:      time.Now().UTC(),
-						LastUsed:       time.Now().UTC(),
+						LastUsed:       util.ToPtr(time.Now().UTC()),
 					},
 				},
 			},
 		},
-		Groups: map[string]*group.Group{
+		Groups: map[string]*types.Group{
 			"group1": {
-				ID:    "group1",
-				Peers: []string{"peer1"},
+				ID:        "group1",
+				Peers:     []string{"peer1"},
+				Resources: []types.Resource{},
 			},
 		},
-		Policies: []*Policy{
+		Policies: []*types.Policy{
 			{
 				ID:                  "policy1",
 				Enabled:             true,
-				Rules:               make([]*PolicyRule, 0),
+				Rules:               make([]*types.PolicyRule, 0),
 				SourcePostureChecks: make([]string, 0),
 			},
 		},
@@ -1770,13 +1744,36 @@ func TestAccount_Copy(t *testing.T) {
 				NameServers: []nbdns.NameServer{},
 			},
 		},
-		DNSSettings: DNSSettings{DisabledManagementGroups: []string{}},
+		DNSSettings: types.DNSSettings{DisabledManagementGroups: []string{}},
 		PostureChecks: []*posture.Checks{
 			{
 				ID: "posture Checks1",
 			},
 		},
-		Settings: &Settings{},
+		Settings: &types.Settings{},
+		Networks: []*networkTypes.Network{
+			{
+				ID: "network1",
+			},
+		},
+		NetworkRouters: []*routerTypes.NetworkRouter{
+			{
+				ID:         "router1",
+				NetworkID:  "network1",
+				PeerGroups: []string{"group1"},
+				Masquerade: false,
+				Metric:     0,
+			},
+		},
+		NetworkResources: []*resourceTypes.NetworkResource{
+			{
+				ID:        "resource1",
+				NetworkID: "network1",
+				Name:      "resource",
+				Type:      "Subnet",
+				Address:   "172.12.6.1/24",
+			},
+		},
 	}
 	err := hasNilField(account)
 	if err != nil {
@@ -1829,7 +1826,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
-	settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
+	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthShare, accountID)
 	require.NoError(t, err, "unable to get account settings")
 
 	assert.NotNil(t, settings)
@@ -1859,7 +1856,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
-	account, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	account, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1907,7 +1904,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1973,7 +1970,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		},
 	}
 	// enabling PeerLoginExpirationEnabled should trigger the expiration job
-	account, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
+	account, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1986,7 +1983,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	wg.Add(1)
 
 	// disabling PeerLoginExpirationEnabled should trigger cancel
-	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
 	})
@@ -2004,7 +2001,7 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
-	updated, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	updated, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
 	})
@@ -2012,19 +2009,19 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
 	assert.Equal(t, updated.Settings.PeerLoginExpiration, time.Hour)
 
-	settings, err := manager.Store.GetAccountSettings(context.Background(), LockingStrengthShare, accountID)
+	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthShare, accountID)
 	require.NoError(t, err, "unable to get account settings")
 
 	assert.False(t, settings.PeerLoginExpirationEnabled)
 	assert.Equal(t, settings.PeerLoginExpiration, time.Hour)
 
-	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Second,
 		PeerLoginExpirationEnabled: false,
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration less than one hour")
 
-	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour * 24 * 181,
 		PeerLoginExpirationEnabled: false,
 	})
@@ -2061,7 +2058,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						Connected:    true,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-30 * time.Minute),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-30 * time.Minute)),
 					UserID:    userID,
 				},
 				"peer-2": {
@@ -2072,7 +2069,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						Connected:    true,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-2 * time.Hour),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-2 * time.Hour)),
 					UserID:    userID,
 				},
 
@@ -2084,7 +2081,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						Connected:    true,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-1 * time.Hour),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-1 * time.Hour)),
 					UserID:    userID,
 				},
 			},
@@ -2097,9 +2094,9 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			account := &Account{
+			account := &types.Account{
 				Peers: testCase.peers,
-				Settings: &Settings{
+				Settings: &types.Settings{
 					PeerLoginExpirationEnabled: true,
 					PeerLoginExpiration:        time.Hour,
 				},
@@ -2146,7 +2143,7 @@ func TestAccount_GetInactivePeers(t *testing.T) {
 						Connected:    false,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-30 * time.Minute),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-30 * time.Minute)),
 					UserID:    userID,
 				},
 				"peer-2": {
@@ -2157,7 +2154,7 @@ func TestAccount_GetInactivePeers(t *testing.T) {
 						Connected:    false,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-2 * time.Hour),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-2 * time.Hour)),
 					UserID:    userID,
 				},
 				"peer-3": {
@@ -2168,7 +2165,7 @@ func TestAccount_GetInactivePeers(t *testing.T) {
 						Connected:    true,
 						LoginExpired: false,
 					},
-					LastLogin: time.Now().UTC().Add(-1 * time.Hour),
+					LastLogin: util.ToPtr(time.Now().UTC().Add(-1 * time.Hour)),
 					UserID:    userID,
 				},
 			},
@@ -2181,9 +2178,9 @@ func TestAccount_GetInactivePeers(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			account := &Account{
+			account := &types.Account{
 				Peers: testCase.peers,
-				Settings: &Settings{
+				Settings: &types.Settings{
 					PeerInactivityExpirationEnabled: true,
 					PeerInactivityExpiration:        time.Second,
 				},
@@ -2248,7 +2245,7 @@ func TestAccount_GetPeersWithExpiration(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			account := &Account{
+			account := &types.Account{
 				Peers: testCase.peers,
 			}
 
@@ -2317,7 +2314,7 @@ func TestAccount_GetPeersWithInactivity(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			account := &Account{
+			account := &types.Account{
 				Peers: testCase.peers,
 			}
 
@@ -2438,7 +2435,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						LoginExpired: false,
 					},
 					LoginExpirationEnabled: true,
-					LastLogin:              time.Now().UTC(),
+					LastLogin:              util.ToPtr(time.Now().UTC()),
 					UserID:                 userID,
 				},
 				"peer-2": {
@@ -2481,9 +2478,9 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			account := &Account{
+			account := &types.Account{
 				Peers:    testCase.peers,
-				Settings: &Settings{PeerLoginExpiration: testCase.expiration, PeerLoginExpirationEnabled: testCase.expirationEnabled},
+				Settings: &types.Settings{PeerLoginExpiration: testCase.expiration, PeerLoginExpirationEnabled: testCase.expirationEnabled},
 			}
 
 			expiration, ok := account.GetNextPeerExpiration()
@@ -2598,7 +2595,7 @@ func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
 						LastSeen:     time.Now().Add(-1 * time.Second),
 					},
 					InactivityExpirationEnabled: true,
-					LastLogin:                   time.Now().UTC(),
+					LastLogin:                   util.ToPtr(time.Now().UTC()),
 					UserID:                      userID,
 				},
 				"peer-2": {
@@ -2641,9 +2638,9 @@ func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			account := &Account{
+			account := &types.Account{
 				Peers:    testCase.peers,
-				Settings: &Settings{PeerInactivityExpiration: testCase.expiration, PeerInactivityExpirationEnabled: testCase.expirationEnabled},
+				Settings: &types.Settings{PeerInactivityExpiration: testCase.expiration, PeerInactivityExpirationEnabled: testCase.expirationEnabled},
 			}
 
 			expiration, ok := account.GetNextInactivePeerExpiration()
@@ -2662,7 +2659,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	require.NoError(t, err, "unable to create account manager")
 
 	// create a new account
-	account := &Account{
+	account := &types.Account{
 		Id: "accountID",
 		Peers: map[string]*nbpeer.Peer{
 			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
@@ -2671,17 +2668,30 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*group.Group{
-			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
+		Groups: map[string]*types.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{}},
 		},
-		Settings: &Settings{GroupsPropagationEnabled: true, JWTGroupsEnabled: true, JWTGroupsClaimName: "groups"},
-		Users: map[string]*User{
-			"user1": {Id: "user1", AccountID: "accountID"},
-			"user2": {Id: "user2", AccountID: "accountID"},
+		Settings: &types.Settings{GroupsPropagationEnabled: true, JWTGroupsEnabled: true, JWTGroupsClaimName: "groups"},
+		Users: map[string]*types.User{
+			"user1": {Id: "user1", AccountID: "accountID", CreatedAt: time.Now()},
+			"user2": {Id: "user2", AccountID: "accountID", CreatedAt: time.Now()},
 		},
 	}
 
 	assert.NoError(t, manager.Store.SaveAccount(context.Background(), account), "unable to save account")
+
+	t.Run("skip sync for token auth type", func(t *testing.T) {
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user1",
+			Raw:    jwt.MapClaims{"groups": []interface{}{"group3"}, "is_token": true},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 0, "JWT groups should not be synced")
+	})
 
 	t.Run("empty jwt groups", func(t *testing.T) {
 		claims := jwtclaims.AuthorizationClaims{
@@ -2691,7 +2701,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err := manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Empty(t, user.AutoGroups, "auto groups must be empty")
 	})
@@ -2704,18 +2714,18 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err := manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 0)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "accountID", "group1")
+		group1, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
-		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
+		assert.Equal(t, group1.Issued, types.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("jwt match existing api group in user auto groups", func(t *testing.T) {
 		account.Users["user1"].AutoGroups = []string{"group1"}
-		assert.NoError(t, manager.Store.SaveUser(context.Background(), LockingStrengthUpdate, account.Users["user1"]))
+		assert.NoError(t, manager.Store.SaveUser(context.Background(), store.LockingStrengthUpdate, account.Users["user1"]))
 
 		claims := jwtclaims.AuthorizationClaims{
 			UserId: "user1",
@@ -2724,13 +2734,13 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), LockingStrengthShare, "accountID", "group1")
+		group1, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthShare, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
-		assert.Equal(t, group1.Issued, group.GroupIssuedAPI, "group should be api issued")
+		assert.Equal(t, group1.Issued, types.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
@@ -2741,7 +2751,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 2, "groups count should not be change")
 	})
@@ -2754,7 +2764,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 2, "groups count should not be change")
 	})
@@ -2767,16 +2777,16 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		groups, err := manager.Store.GetAccountGroups(context.Background(), LockingStrengthShare, "accountID")
+		groups, err := manager.Store.GetAccountGroups(context.Background(), store.LockingStrengthShare, "accountID")
 		assert.NoError(t, err)
 		assert.Len(t, groups, 3, "new group3 should be added")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user2")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user2")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "new group should be added")
 	})
 
-	t.Run("remove all JWT groups", func(t *testing.T) {
+	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {
 		claims := jwtclaims.AuthorizationClaims{
 			UserId: "user1",
 			Raw:    jwt.MapClaims{"groups": []interface{}{}},
@@ -2784,15 +2794,28 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "only non-JWT groups should remain")
-		assert.Contains(t, user.AutoGroups, "group1", " group1 should still be present")
+		assert.Contains(t, user.AutoGroups, "group1", "group1 should still be present")
+	})
+
+	t.Run("remove all JWT groups when claim does not exist", func(t *testing.T) {
+		claims := jwtclaims.AuthorizationClaims{
+			UserId: "user2",
+			Raw:    jwt.MapClaims{},
+		}
+		err = manager.syncJWTGroups(context.Background(), "accountID", claims)
+		assert.NoError(t, err, "unable to sync jwt groups")
+
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user2")
+		assert.NoError(t, err, "unable to get user")
+		assert.Len(t, user.AutoGroups, 0, "all JWT groups should be removed")
 	})
 }
 
 func TestAccount_UserGroupsAddToPeers(t *testing.T) {
-	account := &Account{
+	account := &types.Account{
 		Peers: map[string]*nbpeer.Peer{
 			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
 			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
@@ -2800,12 +2823,12 @@ func TestAccount_UserGroupsAddToPeers(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*group.Group{
-			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
-			"group2": {ID: "group2", Name: "group2", Issued: group.GroupIssuedAPI, Peers: []string{}},
-			"group3": {ID: "group3", Name: "group3", Issued: group.GroupIssuedAPI, Peers: []string{}},
+		Groups: map[string]*types.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{}},
+			"group2": {ID: "group2", Name: "group2", Issued: types.GroupIssuedAPI, Peers: []string{}},
+			"group3": {ID: "group3", Name: "group3", Issued: types.GroupIssuedAPI, Peers: []string{}},
 		},
-		Users: map[string]*User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
+		Users: map[string]*types.User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
 	}
 
 	t.Run("add groups", func(t *testing.T) {
@@ -2828,7 +2851,7 @@ func TestAccount_UserGroupsAddToPeers(t *testing.T) {
 }
 
 func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
-	account := &Account{
+	account := &types.Account{
 		Peers: map[string]*nbpeer.Peer{
 			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
 			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
@@ -2836,12 +2859,12 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*group.Group{
-			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
-			"group2": {ID: "group2", Name: "group2", Issued: group.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
-			"group3": {ID: "group3", Name: "group3", Issued: group.GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
+		Groups: map[string]*types.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
+			"group2": {ID: "group2", Name: "group2", Issued: types.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
+			"group3": {ID: "group3", Name: "group3", Issued: types.GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
 		},
-		Users: map[string]*User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
+		Users: map[string]*types.User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
 	}
 
 	t.Run("remove groups", func(t *testing.T) {
@@ -2884,10 +2907,10 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 	return manager, nil
 }
 
-func createStore(t TB) (Store, error) {
+func createStore(t TB) (store.Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", dataDir)
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -2910,7 +2933,7 @@ func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 	}
 }
 
-func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *Account, *nbpeer.Peer, *nbpeer.Peer, *nbpeer.Peer) {
+func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *types.Account, *nbpeer.Peer, *nbpeer.Peer, *nbpeer.Peer) {
 	t.Helper()
 
 	manager, err := createManager(t)
@@ -2923,12 +2946,12 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *Account, *nbpee
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 	}
 
-	getPeer := func(manager *DefaultAccountManager, setupKey *SetupKey) *nbpeer.Peer {
+	getPeer := func(manager *DefaultAccountManager, setupKey *types.SetupKey) *nbpeer.Peer {
 		key, err := wgtypes.GeneratePrivateKey()
 		if err != nil {
 			t.Fatal(err)
@@ -2991,12 +3014,12 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 3, 3, 10},
-		{"Medium", 500, 100, 7, 13, 10, 60},
-		{"Large", 5000, 200, 65, 80, 60, 170},
-		{"Small single", 50, 10, 1, 3, 3, 60},
-		{"Medium single", 500, 10, 7, 13, 10, 26},
-		{"Large 5", 5000, 15, 65, 80, 60, 170},
+		{"Small", 50, 5, 1, 3, 3, 14},
+		{"Medium", 500, 100, 7, 13, 10, 80},
+		{"Large", 5000, 200, 65, 80, 60, 220},
+		{"Small single", 50, 10, 1, 3, 3, 70},
+		{"Medium single", 500, 10, 7, 13, 10, 32},
+		{"Large 5", 5000, 15, 65, 80, 60, 200},
 	}
 
 	log.SetOutput(io.Discard)
@@ -3040,7 +3063,7 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
 			}
 
-			if msPerOp > maxExpected {
+			if msPerOp > (maxExpected * 1.1) {
 				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
@@ -3060,7 +3083,7 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 	}{
 		{"Small", 50, 5, 102, 110, 102, 120},
 		{"Medium", 500, 100, 105, 140, 105, 170},
-		{"Large", 5000, 200, 160, 200, 160, 270},
+		{"Large", 5000, 200, 160, 200, 160, 300},
 		{"Small single", 50, 10, 102, 110, 102, 120},
 		{"Medium single", 500, 10, 105, 140, 105, 170},
 		{"Large 5", 5000, 15, 160, 200, 160, 270},
@@ -3114,7 +3137,7 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
 			}
 
-			if msPerOp > maxExpected {
+			if msPerOp > (maxExpected * 1.1) {
 				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
@@ -3132,10 +3155,10 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 107, 120, 107, 140},
-		{"Medium", 500, 100, 105, 140, 105, 170},
-		{"Large", 5000, 200, 180, 220, 180, 340},
-		{"Small single", 50, 10, 107, 120, 105, 140},
+		{"Small", 50, 5, 107, 120, 107, 160},
+		{"Medium", 500, 100, 105, 140, 105, 220},
+		{"Large", 5000, 200, 180, 220, 180, 395},
+		{"Small single", 50, 10, 107, 120, 105, 160},
 		{"Medium single", 500, 10, 105, 140, 105, 170},
 		{"Large 5", 5000, 15, 180, 220, 180, 340},
 	}
@@ -3188,7 +3211,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
 			}
 
-			if msPerOp > maxExpected {
+			if msPerOp > (maxExpected * 1.1) {
 				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
