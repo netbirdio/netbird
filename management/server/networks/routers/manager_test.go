@@ -101,7 +101,7 @@ func Test_GetRouterReturnsPermissionDenied(t *testing.T) {
 func Test_CreateRouterSuccessfully(t *testing.T) {
 	ctx := context.Background()
 	userID := "allowedUser"
-	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 9999)
+	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 9999, true)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -127,7 +127,7 @@ func Test_CreateRouterSuccessfully(t *testing.T) {
 func Test_CreateRouterFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	userID := "invalidUser"
-	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 9999)
+	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 9999, true)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -191,7 +191,7 @@ func Test_DeleteRouterFailsWithPermissionDenied(t *testing.T) {
 func Test_UpdateRouterSuccessfully(t *testing.T) {
 	ctx := context.Background()
 	userID := "allowedUser"
-	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 1)
+	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 1, true)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -213,7 +213,7 @@ func Test_UpdateRouterSuccessfully(t *testing.T) {
 func Test_UpdateRouterFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	userID := "invalidUser"
-	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 1)
+	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 1, true)
 	if err != nil {
 		require.NoError(t, err)
 	}

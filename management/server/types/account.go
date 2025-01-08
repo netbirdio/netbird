@@ -1288,6 +1288,10 @@ func (a *Account) getNetworkResourceGroups(resourceID string) []*Group {
 func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 	resourcePolicies := make(map[string][]*Policy)
 	for _, resource := range a.NetworkResources {
+		if !resource.Enabled {
+			continue
+		}
+
 		resourceAppliedPolicies := a.GetPoliciesForNetworkResource(resource.ID)
 		resourcePolicies[resource.ID] = resourceAppliedPolicies
 	}
@@ -1301,6 +1305,10 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 	allSourcePeers := make(map[string]struct{}, len(a.Peers))
 
 	for _, resource := range a.NetworkResources {
+		if !resource.Enabled {
+			continue
+		}
+
 		var addSourcePeers bool
 
 		networkRoutingPeers, exists := routers[resource.NetworkID]
@@ -1455,6 +1463,10 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 	routers := make(map[string]map[string]*routerTypes.NetworkRouter)
 
 	for _, router := range a.NetworkRouters {
+		if !router.Enabled {
+			continue
+		}
+
 		if routers[router.NetworkID] == nil {
 			routers[router.NetworkID] = make(map[string]*routerTypes.NetworkRouter)
 		}

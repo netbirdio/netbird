@@ -2388,6 +2388,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				PeerGroups: nil,
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 			{
 				ID:         "router2",
@@ -2395,12 +2396,14 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				PeerGroups: []string{"router1", "router2"},
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 			{
 				ID:         "router3",
 				NetworkID:  "network3",
 				Peer:       "peerE",
 				PeerGroups: []string{},
+				Enabled:    true,
 			},
 			{
 				ID:         "router4",
@@ -2408,6 +2411,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				PeerGroups: []string{"router1"},
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 			{
 				ID:         "router5",
@@ -2415,6 +2419,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Peer:       "peerL",
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 			{
 				ID:         "router6",
@@ -2422,6 +2427,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Peer:       "peerN",
 				Masquerade: false,
 				Metric:     9999,
+				Enabled:    true,
 			},
 		},
 		NetworkResources: []*resourceTypes.NetworkResource{
@@ -2431,6 +2437,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:      "Resource 1",
 				Type:      "subnet",
 				Prefix:    netip.MustParsePrefix("10.10.10.0/24"),
+				Enabled:   true,
 			},
 			{
 				ID:        "resource2",
@@ -2438,6 +2445,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:      "Resource 2",
 				Type:      "subnet",
 				Prefix:    netip.MustParsePrefix("192.168.0.0/16"),
+				Enabled:   true,
 			},
 			{
 				ID:        "resource3",
@@ -2445,6 +2453,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:      "Resource 3",
 				Type:      "domain",
 				Domain:    "example.com",
+				Enabled:   true,
 			},
 			{
 				ID:        "resource4",
@@ -2452,6 +2461,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:      "Resource 4",
 				Type:      "domain",
 				Domain:    "example.com",
+				Enabled:   true,
 			},
 			{
 				ID:        "resource5",
@@ -2459,6 +2469,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:      "Resource 5",
 				Type:      "host",
 				Prefix:    netip.MustParsePrefix("10.12.12.1/32"),
+				Enabled:   true,
 			},
 			{
 				ID:        "resource6",
@@ -2466,6 +2477,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Name:      "Resource 6",
 				Type:      "domain",
 				Domain:    "*.google.com",
+				Enabled:   true,
 			},
 		},
 		Policies: []*types.Policy{

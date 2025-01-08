@@ -305,3 +305,53 @@ func hiddenKey(key string, length int) string {
 	}
 	return prefix + strings.Repeat("*", length)
 }
+
+func MigrateNewField[T any](ctx context.Context, db *gorm.DB, columnName string, defaultValue any) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	err := stmt.Parse(&model)
+	if err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if !tx.Migrator().HasColumn(&model, columnName) {
+			log.WithContext(ctx).Infof("Column %s does not exist in table %s, adding it", columnName, tableName)
+			if err := tx.Migrator().AddColumn(&model, columnName); err != nil {
+				return fmt.Errorf("add column %s: %w", columnName, err)
+			}
+		}
+
+		var rows []map[string]any
+		if err := tx.Table(tableName).
+			Select("id", columnName).
+			Where(columnName + " IS NULL OR " + columnName + " = ''").
+			Find(&rows).Error; err != nil {
+			return fmt.Errorf("failed to find rows with empty %s: %w", columnName, err)
+		}
+
+		if len(rows) == 0 {
+			log.WithContext(ctx).Infof("No rows with empty %s found in table %s, no migration needed", columnName, tableName)
+			return nil
+		}
+
+		for _, row := range rows {
+			if err := tx.Table(tableName).Where("id = ?", row["id"]).Update(columnName, defaultValue).Error; err != nil {
+				return fmt.Errorf("failed to update row with id %v: %w", row["id"], err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("Migration of empty %s to default value in table %s completed", columnName, tableName)
+	return nil
+}
