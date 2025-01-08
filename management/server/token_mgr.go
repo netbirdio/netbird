@@ -159,6 +159,7 @@ func (m *TimeBasedAuthSecretsManager) refreshTURNTokens(ctx context.Context, pee
 			return
 		case <-ticker.C:
 			m.pushNewTURNTokens(ctx, peerID)
+			m.pushNewRelayTokens(ctx, peerID)
 		}
 	}
 }
