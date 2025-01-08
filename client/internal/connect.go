@@ -415,6 +415,11 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		RosenpassPermissive:  config.RosenpassPermissive,
 		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
 		DNSRouteInterval:     config.DNSRouteInterval,
+
+		DisableClientRoutes: config.DisableClientRoutes,
+		DisableServerRoutes: config.DisableServerRoutes,
+		DisableDNS:          config.DisableDNS,
+		DisableFirewall:     config.DisableFirewall,
 	}
 
 	if config.PreSharedKey != "" {

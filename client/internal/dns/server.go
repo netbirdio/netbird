@@ -47,6 +47,7 @@ type registeredHandlerMap map[string]handlerWithStop
 type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
+	disableSys         bool
 	mux                sync.Mutex
 	service            service
 	dnsMuxMap          registeredHandlerMap
@@ -84,7 +85,14 @@ type muxUpdate struct {
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress string, statusRecorder *peer.Status, stateManager *statemanager.Manager) (*DefaultServer, error) {
+func NewDefaultServer(
+	ctx context.Context,
+	wgInterface WGIface,
+	customAddress string,
+	statusRecorder *peer.Status,
+	stateManager *statemanager.Manager,
+	disableSys bool,
+) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
 	if customAddress != "" {
 		parsedAddrPort, err := netip.ParseAddrPort(customAddress)
@@ -101,7 +109,7 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 		dnsService = newServiceViaListener(wgInterface, addrPort)
 	}
 
-	return newDefaultServer(ctx, wgInterface, dnsService, statusRecorder, stateManager), nil
+	return newDefaultServer(ctx, wgInterface, dnsService, statusRecorder, stateManager, disableSys), nil
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
@@ -112,9 +120,10 @@ func NewDefaultServerPermanentUpstream(
 	config nbdns.Config,
 	listener listener.NetworkChangeListener,
 	statusRecorder *peer.Status,
+	disableSys bool,
 ) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
-	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.addHostRootZone()
@@ -131,17 +140,26 @@ func NewDefaultServerIos(
 	wgInterface WGIface,
 	iosDnsManager IosDnsManager,
 	statusRecorder *peer.Status,
+	disableSys bool,
 ) *DefaultServer {
-	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.iosDnsManager = iosDnsManager
 	return ds
 }
 
-func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService service, statusRecorder *peer.Status, stateManager *statemanager.Manager) *DefaultServer {
+func newDefaultServer(
+	ctx context.Context,
+	wgInterface WGIface,
+	dnsService service,
+	statusRecorder *peer.Status,
+	stateManager *statemanager.Manager,
+	disableSys bool,
+) *DefaultServer {
 	ctx, stop := context.WithCancel(ctx)
 	defaultServer := &DefaultServer{
 		ctx:               ctx,
 		ctxCancel:         stop,
+		disableSys:        disableSys,
 		service:           dnsService,
 		handlerChain:      NewHandlerChain(),
 		dnsMuxMap:         make(registeredHandlerMap),
@@ -220,6 +238,13 @@ func (s *DefaultServer) Initialize() (err error) {
 	}
 
 	s.stateManager.RegisterState(&ShutdownState{})
+
+	if s.disableSys {
+		log.Info("system DNS is disabled, not setting up host manager")
+		s.hostManager = &noopHostConfigurator{}
+		return nil
+	}
+
 	s.hostManager, err = s.initialize()
 	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
@@ -268,47 +293,47 @@ func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 
 // UpdateDNSServer processes an update received from the management service
 func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
-	select {
-	case <-s.ctx.Done():
+	if s.ctx.Err() != nil {
 		log.Infof("not updating DNS server as context is closed")
 		return s.ctx.Err()
-	default:
-		if serial < s.updateSerial {
-			return fmt.Errorf("not applying dns update, error: "+
-				"network update is %d behind the last applied update", s.updateSerial-serial)
-		}
-		s.mux.Lock()
-		defer s.mux.Unlock()
+	}
 
-		if s.hostManager == nil {
-			return fmt.Errorf("dns service is not initialized yet")
-		}
+	if serial < s.updateSerial {
+		return fmt.Errorf("not applying dns update, error: "+
+			"network update is %d behind the last applied update", s.updateSerial-serial)
+	}
 
-		hash, err := hashstructure.Hash(update, hashstructure.FormatV2, &hashstructure.HashOptions{
-			ZeroNil:         true,
-			IgnoreZeroValue: true,
-			SlicesAsSets:    true,
-			UseStringer:     true,
-		})
-		if err != nil {
-			log.Errorf("unable to hash the dns configuration update, got error: %s", err)
-		}
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-		if s.previousConfigHash == hash {
-			log.Debugf("not applying the dns configuration update as there is nothing new")
-			s.updateSerial = serial
-			return nil
-		}
+	if s.hostManager == nil {
+		return fmt.Errorf("dns service is not initialized yet")
+	}
 
-		if err := s.applyConfiguration(update); err != nil {
-			return fmt.Errorf("apply configuration: %w", err)
-		}
+	hash, err := hashstructure.Hash(update, hashstructure.FormatV2, &hashstructure.HashOptions{
+		ZeroNil:         true,
+		IgnoreZeroValue: true,
+		SlicesAsSets:    true,
+		UseStringer:     true,
+	})
+	if err != nil {
+		log.Errorf("unable to hash the dns configuration update, got error: %s", err)
+	}
 
+	if s.previousConfigHash == hash {
+		log.Debugf("not applying the dns configuration update as there is nothing new")
 		s.updateSerial = serial
-		s.previousConfigHash = hash
-
 		return nil
 	}
+
+	if err := s.applyConfiguration(update); err != nil {
+		return fmt.Errorf("apply configuration: %w", err)
+	}
+
+	s.updateSerial = serial
+	s.previousConfigHash = hash
+
+	return nil
 }
 
 func (s *DefaultServer) SearchDomains() []string {
@@ -627,8 +652,11 @@ func (s *DefaultServer) upstreamCallbacks(
 			s.currentConfig.RouteAll = true
 			s.registerHandler([]string{nbdns.RootZone}, handler, PriorityDefault)
 		}
-		if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
-			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
+
+		if s.hostManager != nil {
+			if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
+				l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
+			}
 		}
 
 		s.updateNSState(nsGroup, nil, true)
