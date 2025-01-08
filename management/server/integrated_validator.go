@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
@@ -80,11 +78,11 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 
 func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error) {
 	var err error
-	var groups []*nbgroup.Group
+	var groups []*types.Group
 	var peers []*nbpeer.Peer
-	var settings *Settings
+	var settings *types.Settings
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return err
@@ -102,7 +100,7 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 		return nil, err
 	}
 
-	groupsMap := make(map[string]*nbgroup.Group, len(groups))
+	groupsMap := make(map[string]*types.Group, len(groups))
 	for _, group := range groups {
 		groupsMap[group.ID] = group
 	}

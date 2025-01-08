@@ -105,7 +105,7 @@ type AccountManager interface {
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
-	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*nbgroup.Group, error)
+	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
 	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
@@ -438,7 +438,7 @@ func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Con
 	return nil
 }
 
-func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) error {
+func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
 	if newSettings.PeerInactivityExpirationEnabled {
 		if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
 			oldSettings.PeerInactivityExpiration = newSettings.PeerInactivityExpiration
@@ -663,7 +663,7 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userI
 		return "", status.Errorf(status.NotFound, "no valid userID provided")
 	}
 
-	accountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, userID)
+	accountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 			account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
@@ -1448,7 +1448,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		return "", err
 	}
 
-	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, claims.UserId)
+	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, claims.UserId)
 	if handleNotFound(err) != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
 		return "", err
@@ -1495,7 +1495,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 }
 
 func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {
-	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, claims.UserId)
+	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, claims.UserId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
 		return "", err

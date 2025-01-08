@@ -16,7 +16,7 @@ type MockStore struct {
 	account *types.Account
 }
 
-func (s *MockStore) GetAllEphemeralPeers(_ context.Context, _ LockingStrength) ([]*nbpeer.Peer, error) {
+func (s *MockStore) GetAllEphemeralPeers(_ context.Context, _ store.LockingStrength) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
 	for _, v := range s.account.Peers {
 		if v.Ephemeral {

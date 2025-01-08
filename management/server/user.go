@@ -979,7 +979,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		peerIDs = append(peerIDs, peer.ID)
 		peer.MarkLoginExpired(true)
 
-		if err := am.Store.SavePeerStatus(ctx, LockingStrengthUpdate, accountID, peer.ID, *peer.Status); err != nil {
+		if err := am.Store.SavePeerStatus(ctx, store.LockingStrengthUpdate, accountID, peer.ID, *peer.Status); err != nil {
 			return err
 		}
 		am.StoreEvent(

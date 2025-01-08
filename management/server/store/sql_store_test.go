@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -2602,7 +2603,7 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 		SSHEnabled:                  false,
 		LoginExpirationEnabled:      true,
 		InactivityExpirationEnabled: false,
-		LastLogin:                   time.Now().UTC(),
+		LastLogin:                   util.ToPtr(time.Now().UTC()),
 		CreatedAt:                   time.Now().UTC(),
 		Ephemeral:                   true,
 	}
@@ -2623,7 +2624,7 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 	assert.Equal(t, peer.SSHEnabled, storedPeer.SSHEnabled)
 	assert.Equal(t, peer.LoginExpirationEnabled, storedPeer.LoginExpirationEnabled)
 	assert.Equal(t, peer.InactivityExpirationEnabled, storedPeer.InactivityExpirationEnabled)
-	assert.WithinDurationf(t, peer.LastLogin, storedPeer.LastLogin.UTC(), time.Millisecond, "LastLogin should be equal")
+	assert.WithinDurationf(t, peer.GetLastLogin(), storedPeer.GetLastLogin().UTC(), time.Millisecond, "LastLogin should be equal")
 	assert.WithinDurationf(t, peer.CreatedAt, storedPeer.CreatedAt.UTC(), time.Millisecond, "CreatedAt should be equal")
 	assert.Equal(t, peer.Ephemeral, storedPeer.Ephemeral)
 	assert.Equal(t, peer.Status.Connected, storedPeer.Status.Connected)

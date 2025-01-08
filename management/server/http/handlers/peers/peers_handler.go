@@ -72,8 +72,13 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	allGroups, _ := h.accountManager.GetAllGroups(ctx, accountID, userID)
-	groupsInfo := groups.ToGroupsInfo(allGroups, peerID)
+	groupsMap := map[string]*types.Group{}
+	grps, _ := h.accountManager.GetAllGroups(ctx, accountID, userID)
+	for _, group := range grps {
+		groupsMap[group.ID] = group
+	}
+
+	groupsInfo := groups.ToGroupsInfo(groupsMap, peerID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
@@ -122,7 +127,13 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		util.WriteError(ctx, err, w)
 		return
 	}
-	groupMinimumInfo := groups.ToGroupsInfo(peerGroups, peer.ID)
+
+	groupsMap := map[string]*types.Group{}
+	for _, group := range peerGroups {
+		groupsMap[group.ID] = group
+	}
+
+	groupMinimumInfo := groups.ToGroupsInfo(groupsMap, peer.ID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
@@ -193,7 +204,11 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	allGroups, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
+	groupsMap := map[string]*types.Group{}
+	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
+	for _, group := range grps {
+		groupsMap[group.ID] = group
+	}
 
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
@@ -202,7 +217,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
-		groupMinimumInfo := groups.ToGroupsInfo(allGroups, peer.ID)
+		groupMinimumInfo := groups.ToGroupsInfo(groupsMap, peer.ID)
 
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}
@@ -312,32 +327,6 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 		Os:          peer.Meta.OS,
 		UserId:      peer.UserID,
 	}
-}
-
-func toGroupsInfo(groups []*nbgroup.Group, peerID string) []api.GroupMinimum {
-	groupsInfo := []api.GroupMinimum{}
-	groupsChecked := make(map[string]struct{})
-
-	for _, group := range groups {
-		_, ok := groupsChecked[group.ID]
-		if ok {
-			continue
-		}
-
-		groupsChecked[group.ID] = struct{}{}
-		for _, pk := range group.Peers {
-			if pk == peerID {
-				info := api.GroupMinimum{
-					Id:         group.ID,
-					Name:       group.Name,
-					PeersCount: len(group.Peers),
-				}
-				groupsInfo = append(groupsInfo, info)
-				break
-			}
-		}
-	}
-	return groupsInfo
 }
 
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool) *api.Peer {

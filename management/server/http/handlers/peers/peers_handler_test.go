@@ -128,12 +128,12 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 			GetPeersFunc: func(_ context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
-			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*nbgroup.Group, error) {
+			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
 				peersID := make([]string, len(peers))
 				for _, peer := range peers {
 					peersID = append(peersID, peer.ID)
 				}
-				return []*nbgroup.Group{
+				return []*types.Group{
 					{
 						ID:        "group1",
 						AccountID: accountID,
@@ -149,10 +149,10 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
-			GetAccountFunc: func(ctx context.Context, accountID string) (*server.Account, error) {
+			GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
 				return account, nil
 			},
-			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*server.Account, error) {
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
 				return account, nil
 			},
 			HasConnectedChannelFunc: func(peerID string) bool {

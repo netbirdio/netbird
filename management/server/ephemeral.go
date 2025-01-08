@@ -10,7 +10,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -122,7 +121,7 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 }
 
 func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
-	peers, err := e.store.GetAllEphemeralPeers(ctx, LockingStrengthShare)
+	peers, err := e.store.GetAllEphemeralPeers(ctx, store.LockingStrengthShare)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to load ephemeral peers: %s", err)
 		return

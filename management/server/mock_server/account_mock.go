@@ -47,7 +47,7 @@ type MockAccountManager struct {
 	DeleteGroupsFunc                    func(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeerFunc                    func(ctx context.Context, accountID, groupID, peerID string) error
 	GroupDeletePeerFunc                 func(ctx context.Context, accountID, groupID, peerID string) error
-	GetPeerGroupsFunc                   func(ctx context.Context, accountID, peerID string) ([]*group.Group, error)
+	GetPeerGroupsFunc                   func(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	DeleteRuleFunc                      func(ctx context.Context, accountID, ruleID, userID string) error
 	GetPolicyFunc                       func(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
 	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
@@ -843,7 +843,7 @@ func (am *MockAccountManager) GetAccount(ctx context.Context, accountID string) 
 }
 
 // GetPeerGroups mocks GetPeerGroups of the AccountManager interface
-func (am *MockAccountManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*group.Group, error) {
+func (am *MockAccountManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
 	if am.GetPeerGroupsFunc != nil {
 		return am.GetPeerGroupsFunc(ctx, accountID, peerID)
 	}
