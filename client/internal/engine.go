@@ -605,11 +605,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	wCfg := update.GetWiretrusteeConfig()
 	if wCfg != nil {
 		if isTURNMsg(wCfg.GetTurns()) {
-			if err := e.updateTURN(wCfg); err != nil {
+			if err := e.handleTURNCfg(wCfg); err != nil {
 				return err
 			}
 		} else {
-			if err := e.updateRelay(wCfg.GetRelay()); err != nil {
+			if err := e.handleRelayCfg(wCfg.GetRelay()); err != nil {
 				return err
 			}
 		}
@@ -1640,7 +1640,7 @@ func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
 	}
 }
 
-func (e *Engine) updateTURN(wCfg *mgmProto.WiretrusteeConfig) error {
+func (e *Engine) handleTURNCfg(wCfg *mgmProto.WiretrusteeConfig) error {
 	log.Infof("update TURN/STUN configuration")
 	err := e.updateTURNs(wCfg.GetTurns())
 	if err != nil {
@@ -1659,7 +1659,7 @@ func (e *Engine) updateTURN(wCfg *mgmProto.WiretrusteeConfig) error {
 	return nil
 }
 
-func (e *Engine) updateRelay(relayCfg *mgmProto.RelayConfig) error {
+func (e *Engine) handleRelayCfg(relayCfg *mgmProto.RelayConfig) error {
 	log.Infof("update Relay configuration")
 	if relayCfg == nil {
 		e.relayManager.UpdateServerURLs(nil)
