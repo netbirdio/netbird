@@ -201,7 +201,6 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 	update := &proto.SyncResponse{
 		WiretrusteeConfig: &proto.WiretrusteeConfig{
 			Turns: turns,
-			// omit Relay to avoid updates there
 		},
 	}
 
