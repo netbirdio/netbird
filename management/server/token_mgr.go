@@ -158,10 +158,7 @@ func (m *TimeBasedAuthSecretsManager) refreshTURNTokens(ctx context.Context, pee
 			log.WithContext(ctx).Debugf("stopping TURN refresh for %s", peerID)
 			return
 		case <-ticker.C:
-			m.pushNewTURNTokens(ctx, peerID)
-			if m.relayCfg != nil {
-				m.pushNewRelayTokens(ctx, peerID)
-			}
+			m.pushNewTURNAndRelayTokens(ctx, peerID)
 		}
 	}
 }
@@ -181,7 +178,7 @@ func (m *TimeBasedAuthSecretsManager) refreshRelayTokens(ctx context.Context, pe
 	}
 }
 
-func (m *TimeBasedAuthSecretsManager) pushNewTURNTokens(ctx context.Context, peerID string) {
+func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Context, peerID string) {
 	turnToken, err := m.turnHmacToken.GenerateToken(sha1.New)
 	if err != nil {
 		log.Errorf("failed to generate token for peer '%s': %s", peerID, err)
@@ -206,6 +203,21 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNTokens(ctx context.Context, pee
 			Turns: turns,
 			// omit Relay to avoid updates there
 		},
+	}
+
+	// workaround for the case when client is unable to handle turn and relay updates at different time
+	if m.relayCfg != nil {
+		relayToken, err := m.relayHmacToken.GenerateToken()
+		if err != nil {
+			log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
+			return
+		}
+
+		update.WiretrusteeConfig.Relay = &proto.RelayConfig{
+			Urls:           m.relayCfg.Addresses,
+			TokenPayload:   string(relayToken.Payload),
+			TokenSignature: base64.StdEncoding.EncodeToString(relayToken.Signature),
+		}
 	}
 
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
