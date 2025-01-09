@@ -158,7 +158,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Create manager and basic setup
 				manager, _ := Create(&IFaceMock{
 					SetFilterFunc: func(device.PacketFilter) error { return nil },
-				})
+				}, false)
 				defer b.Cleanup(func() {
 					require.NoError(b, manager.Reset(nil))
 				})
@@ -203,7 +203,7 @@ func BenchmarkStateScaling(b *testing.B) {
 		b.Run(fmt.Sprintf("conns_%d", count), func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -251,7 +251,7 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -450,7 +450,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -577,7 +577,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -668,7 +668,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -787,7 +787,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -875,7 +875,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})

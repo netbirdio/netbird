@@ -62,7 +62,7 @@ func TestManagerCreate(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -82,7 +82,7 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -117,7 +117,7 @@ func TestManagerDeleteRule(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -210,7 +210,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			require.NoError(t, err)
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
@@ -263,7 +263,7 @@ func TestManagerReset(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -307,7 +307,7 @@ func TestNotMatchByIP(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -376,7 +376,7 @@ func TestRemovePacketHook(t *testing.T) {
 	}
 
 	// creating manager instance
-	manager, err := Create(iface)
+	manager, err := Create(iface, false)
 	if err != nil {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
@@ -422,7 +422,7 @@ func TestRemovePacketHook(t *testing.T) {
 func TestProcessOutgoingHooks(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	})
+	}, false)
 	require.NoError(t, err)
 
 	manager.wgNetwork = &net.IPNet{
@@ -508,7 +508,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ifaceMock := &IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}
-			manager, err := Create(ifaceMock)
+			manager, err := Create(ifaceMock, false)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
@@ -539,7 +539,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	})
+	}, false)
 	require.NoError(t, err)
 
 	manager.wgNetwork = &net.IPNet{

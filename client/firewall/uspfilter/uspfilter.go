@@ -87,17 +87,22 @@ type decoder struct {
 }
 
 // Create userspace firewall manager constructor
-func Create(iface common.IFaceMapper) (*Manager, error) {
-	return create(iface)
+func Create(iface common.IFaceMapper, disableServerRoutes bool) (*Manager, error) {
+	return create(iface, disableServerRoutes)
 }
 
-func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager) (*Manager, error) {
-	mgr, err := create(iface)
+func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
+	mgr, err := create(iface, disableServerRoutes)
 	if err != nil {
 		return nil, err
 	}
 
 	mgr.nativeFirewall = nativeFirewall
+
+	if disableServerRoutes {
+		// skip native vs userspace router logic altogether
+		return mgr, nil
+	}
 
 	if forceUserspaceRouter, _ := strconv.ParseBool(os.Getenv(EnvForceUserspaceRouter)); forceUserspaceRouter {
 		log.Info("userspace routing is forced")
@@ -125,7 +130,7 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 	return mgr, nil
 }
 
-func create(iface common.IFaceMapper) (*Manager, error) {
+func create(iface common.IFaceMapper, disableServerRoutes bool) (*Manager, error) {
 	disableConntrack, _ := strconv.ParseBool(os.Getenv(EnvDisableConntrack))
 
 	m := &Manager{
@@ -147,6 +152,7 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 		routeRules:     make(map[string]RouteRule),
 		wgIface:        iface,
 		localipmanager: newLocalIPManager(),
+		routingEnabled: false,
 		stateful:       !disableConntrack,
 		// TODO: support changing log level from logrus
 		logger:   nblog.NewFromLogrus(log.StandardLogger()),
@@ -166,29 +172,41 @@ func create(iface common.IFaceMapper) (*Manager, error) {
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger)
 	}
 
-	if disableRouting, _ := strconv.ParseBool(os.Getenv(EnvDisableUserspaceRouting)); disableRouting {
+	disableUspRouting, _ := strconv.ParseBool(os.Getenv(EnvDisableUserspaceRouting))
+	if disableUspRouting || disableServerRoutes {
 		log.Info("userspace routing is disabled")
-		return m, nil
+	} else {
+		m.routingEnabled = true
 	}
 
-	intf := iface.GetWGDevice()
-	if intf == nil {
-		log.Info("forwarding not supported")
-		// Only supported in userspace mode as we need to inject packets back into wireguard directly
-	} else {
-		var err error
-		m.forwarder, err = forwarder.New(iface, m.logger, m.netstack)
-		if err != nil {
-			log.Errorf("failed to create forwarder: %v", err)
-		} else {
-			m.routingEnabled = true
-		}
+	// netstack needs the forwarder for local traffic
+	if m.netstack || m.routingEnabled {
+		m.initForwarder(iface)
 	}
 
 	if err := iface.SetFilter(m); err != nil {
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
 	return m, nil
+}
+
+func (m *Manager) initForwarder(iface common.IFaceMapper) {
+	// Only supported in userspace mode as we need to inject packets back into wireguard directly
+	intf := iface.GetWGDevice()
+	if intf == nil {
+		log.Info("forwarding not supported")
+		m.routingEnabled = false
+		return
+	}
+
+	forwarder, err := forwarder.New(iface, m.logger, m.netstack)
+	if err != nil {
+		log.Errorf("failed to create forwarder: %v", err)
+		m.routingEnabled = false
+		return
+	}
+
+	m.forwarder = forwarder
 }
 
 func (m *Manager) Init(*statemanager.Manager) error {
@@ -509,8 +527,6 @@ func (m *Manager) trackICMPOutbound(d *decoder, srcIP, dstIP net.IP) {
 // dropFilter implements filtering logic for incoming packets.
 // If it returns true, the packet should be dropped.
 func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
-	// TODO: Disable router if --disable-server-router is set
-
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
