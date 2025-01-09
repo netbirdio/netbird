@@ -406,7 +406,7 @@ func (s *SqlStore) SavePeerLocation(ctx context.Context, lockStrength LockingStr
 		return result.Error
 	}
 
-	if result.RowsAffected == 0 && s.storeEngine != MysqlStoreEngine {
+	if result.RowsAffected == 0 {
 		return status.Errorf(status.NotFound, peerNotFoundFMT, peerWithLocation.ID)
 	}
 

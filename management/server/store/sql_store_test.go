@@ -424,7 +424,7 @@ func TestSqlite_GetAccount(t *testing.T) {
 }
 
 func TestSqlStore_SavePeer(t *testing.T) {
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -433,12 +433,13 @@ func TestSqlStore_SavePeer(t *testing.T) {
 
 	// save status of non-existing peer
 	peer := &nbpeer.Peer{
-		Key:    "peerkey",
-		ID:     "testpeer",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Key:       "peerkey",
+		ID:        "testpeer",
+		IP:        net.IP{127, 0, 0, 1},
+		Meta:      nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
+		Name:      "peer name",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		CreatedAt: time.Now().UTC(),
 	}
 	ctx := context.Background()
 	err = store.SavePeer(ctx, LockingStrengthUpdate, account.Id, peer)
@@ -472,7 +473,7 @@ func TestSqlStore_SavePeer(t *testing.T) {
 }
 
 func TestSqlStore_SavePeerStatus(t *testing.T) {
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -528,7 +529,7 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 }
 
 func TestSqlStore_SavePeerLocation(t *testing.T) {
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "testdata/store.sql", t.TempDir())
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
@@ -544,7 +545,8 @@ func TestSqlStore_SavePeerLocation(t *testing.T) {
 			CityName:     "City",
 			GeoNameID:    1,
 		},
-		Meta: nbpeer.PeerSystemMeta{},
+		CreatedAt: time.Now().UTC(),
+		Meta:      nbpeer.PeerSystemMeta{},
 	}
 	// error is expected as peer is not in store yet
 	err = store.SavePeerLocation(context.Background(), LockingStrengthUpdate, account.Id, peer)
@@ -2517,7 +2519,7 @@ func TestSqlStore_AddAndRemoveResourceFromGroup(t *testing.T) {
 }
 
 func TestSqlStore_AddPeerToGroup(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2539,7 +2541,7 @@ func TestSqlStore_AddPeerToGroup(t *testing.T) {
 }
 
 func TestSqlStore_AddPeerToAllGroup(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2570,7 +2572,7 @@ func TestSqlStore_AddPeerToAllGroup(t *testing.T) {
 }
 
 func TestSqlStore_AddPeerToAccount(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_policy_migrate.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2634,7 +2636,7 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 }
 
 func TestSqlStore_GetAccountPeers(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2671,7 +2673,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 }
 
 func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2707,7 +2709,7 @@ func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
 }
 
 func TestSqlStore_GetAccountPeersWithInactivity(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2743,7 +2745,7 @@ func TestSqlStore_GetAccountPeersWithInactivity(t *testing.T) {
 }
 
 func TestSqlStore_GetAllEphemeralPeers(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/storev1.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/storev1.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2754,7 +2756,7 @@ func TestSqlStore_GetAllEphemeralPeers(t *testing.T) {
 }
 
 func TestSqlStore_GetUserPeers(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -2806,7 +2808,7 @@ func TestSqlStore_GetUserPeers(t *testing.T) {
 }
 
 func TestSqlStore_DeletePeer(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/store_with_expired_peers.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
