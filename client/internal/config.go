@@ -66,6 +66,8 @@ type ConfigInput struct {
 	DisableServerRoutes *bool
 	DisableDNS          *bool
 	DisableFirewall     *bool
+
+	BlockLANAccess *bool
 }
 
 // Config Configuration type
@@ -88,6 +90,8 @@ type Config struct {
 	DisableServerRoutes bool
 	DisableDNS          bool
 	DisableFirewall     bool
+
+	BlockLANAccess bool
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
@@ -452,6 +456,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("enabling firewall configuration")
 		}
 		config.DisableFirewall = *input.DisableFirewall
+		updated = true
+	}
+
+	if input.BlockLANAccess != nil && *input.BlockLANAccess != config.BlockLANAccess {
+		if *input.BlockLANAccess {
+			log.Infof("blocking LAN access")
+		} else {
+			log.Infof("allowing LAN access")
+		}
+		config.BlockLANAccess = *input.BlockLANAccess
 		updated = true
 	}
 
