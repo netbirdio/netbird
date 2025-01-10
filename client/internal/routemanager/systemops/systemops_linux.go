@@ -266,7 +266,7 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !isOpErr(err) {
 		return fmt.Errorf("netlink add route: %w", err)
 	}
 
@@ -289,7 +289,7 @@ func addUnreachableRoute(prefix netip.Prefix, tableID int) error {
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !isOpErr(err) {
 		return fmt.Errorf("netlink add unreachable route: %w", err)
 	}
 
@@ -312,7 +312,7 @@ func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
 	if err := netlink.RouteDel(route); err != nil &&
 		!errors.Is(err, syscall.ESRCH) &&
 		!errors.Is(err, syscall.ENOENT) &&
-		!errors.Is(err, syscall.EAFNOSUPPORT) {
+		!isOpErr(err) {
 		return fmt.Errorf("netlink remove unreachable route: %w", err)
 	}
 
@@ -338,7 +338,7 @@ func removeRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !isOpErr(err) {
 		return fmt.Errorf("netlink remove route: %w", err)
 	}
 
@@ -362,7 +362,7 @@ func flushRoutes(tableID, family int) error {
 				routes[i].Dst = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 128)}
 			}
 		}
-		if err := netlink.RouteDel(&routes[i]); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+		if err := netlink.RouteDel(&routes[i]); err != nil && !isOpErr(err) {
 			result = multierror.Append(result, fmt.Errorf("failed to delete route %v from table %d: %w", routes[i], tableID, err))
 		}
 	}
@@ -450,7 +450,7 @@ func addRule(params ruleParams) error {
 	rule.Invert = params.invert
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, syscall.EEXIST) && !isOpErr(err) {
 		return fmt.Errorf("add routing rule: %w", err)
 	}
 
@@ -467,7 +467,7 @@ func removeRule(params ruleParams) error {
 	rule.Priority = params.priority
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.ENOENT) && !isOpErr(err) {
 		return fmt.Errorf("remove routing rule: %w", err)
 	}
 
@@ -508,4 +508,14 @@ func hasSeparateRouting() ([]netip.Prefix, error) {
 		return GetRoutesFromTable()
 	}
 	return nil, ErrRoutingIsSeparate
+}
+
+func isOpErr(err error) bool {
+	// EAFTNOSUPPORT when ipv6 is disabled via sysctl, EOPNOTSUPP when disabled in boot options or otherwise not supported
+	if errors.Is(err, syscall.EAFNOSUPPORT) || errors.Is(err, syscall.EOPNOTSUPP) {
+		log.Debugf("route operation not supported: %v", err)
+		return true
+	}
+
+	return false
 }
