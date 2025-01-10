@@ -17,9 +17,10 @@ type NetworkRouter struct {
 	PeerGroups []string `gorm:"serializer:json"`
 	Masquerade bool
 	Metric     int
+	Enabled    bool
 }
 
-func NewNetworkRouter(accountID string, networkID string, peer string, peerGroups []string, masquerade bool, metric int) (*NetworkRouter, error) {
+func NewNetworkRouter(accountID string, networkID string, peer string, peerGroups []string, masquerade bool, metric int, enabled bool) (*NetworkRouter, error) {
 	if peer != "" && len(peerGroups) > 0 {
 		return nil, errors.New("peer and peerGroups cannot be set at the same time")
 	}
@@ -32,6 +33,7 @@ func NewNetworkRouter(accountID string, networkID string, peer string, peerGroup
 		PeerGroups: peerGroups,
 		Masquerade: masquerade,
 		Metric:     metric,
+		Enabled:    enabled,
 	}, nil
 }
 
@@ -42,6 +44,7 @@ func (n *NetworkRouter) ToAPIResponse() *api.NetworkRouter {
 		PeerGroups: &n.PeerGroups,
 		Masquerade: n.Masquerade,
 		Metric:     n.Metric,
+		Enabled:    n.Enabled,
 	}
 }
 
@@ -56,6 +59,7 @@ func (n *NetworkRouter) FromAPIRequest(req *api.NetworkRouterRequest) {
 
 	n.Masquerade = req.Masquerade
 	n.Metric = req.Metric
+	n.Enabled = req.Enabled
 }
 
 func (n *NetworkRouter) Copy() *NetworkRouter {
@@ -67,6 +71,7 @@ func (n *NetworkRouter) Copy() *NetworkRouter {
 		PeerGroups: n.PeerGroups,
 		Masquerade: n.Masquerade,
 		Metric:     n.Metric,
+		Enabled:    n.Enabled,
 	}
 }
 

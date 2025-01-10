@@ -800,15 +800,18 @@ components:
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv797"
+            sourceResource:
+              description: Policy rule source resource that the rule is applied to
+              $ref: '#/components/schemas/Resource'
             destinations:
               description: Policy rule destination group IDs
               type: array
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9h7v7m0"
-          required:
-            - sources
-            - destinations
+            destinationResource:
+              description: Policy rule destination resource that the rule is applied to
+              $ref: '#/components/schemas/Resource'
 
     PolicyRuleCreate:
       allOf:
@@ -1325,9 +1328,14 @@ components:
           description: Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
           type: string
           example: "1.1.1.1"
+        enabled:
+          description: Network resource status
+          type: boolean
+          example: true
       required:
         - name
         - address
+        - enabled
     NetworkResourceRequest:
       allOf:
         - $ref: '#/components/schemas/NetworkResourceMinimum'
@@ -1390,12 +1398,17 @@ components:
           description: Indicate if peer should masquerade traffic to this route's prefix
           type: boolean
           example: true
+        enabled:
+          description: Network router status
+          type: boolean
+          example: true
       required:
         # Only one property has to be set
         #- peer
         #- peer_groups
         - metric
         - masquerade
+        - enabled
     NetworkRouter:
       allOf:
         - type: object
