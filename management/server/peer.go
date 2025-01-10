@@ -1095,9 +1095,9 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 	peers := account.GetPeers()
 
-	approvedPeersMap, err := am.GetValidatedPeers(ctx, account.Id)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to validate peer: %v", err)
+		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to get validate peers: %v", err)
 		return
 	}
 
