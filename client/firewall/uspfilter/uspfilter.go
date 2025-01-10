@@ -144,10 +144,40 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 
 	m.determineRouting(iface, disableServerRoutes)
 
+	if err := m.blockInvalidRouted(iface); err != nil {
+		log.Errorf("failed to block invalid routed traffic: %v", err)
+	}
+
 	if err := iface.SetFilter(m); err != nil {
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
 	return m, nil
+}
+
+func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) error {
+	if m.forwarder == nil {
+		return nil
+	}
+	wgPrefix, err := netip.ParsePrefix(iface.Address().Network.String())
+	if err != nil {
+		return fmt.Errorf("parse wireguard network: %w", err)
+	}
+	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
+
+	if _, err := m.AddRouteFiltering(
+		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
+		wgPrefix,
+		firewall.ProtocolALL,
+		nil,
+		nil,
+		firewall.ActionDrop,
+	); err != nil {
+		return fmt.Errorf("block wg nte : %w", err)
+	}
+
+	// TODO: Block networks that we're a client of
+
+	return nil
 }
 
 func (m *Manager) determineRouting(iface common.IFaceMapper, disableServerRoutes bool) {
