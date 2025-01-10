@@ -136,6 +136,28 @@ func readZitadelError(body io.ReadCloser) error {
 	return errors.New(strings.Join(errsOut, " "))
 }
 
+// verifyJWTConfig ensures necessary values are set in the ZitadelClientConfig for JWTs to be generated.
+func verifyJWTConfig(config ZitadelClientConfig) error {
+
+	if config.ClientID == "" {
+		return fmt.Errorf("zitadel IdP configuration is incomplete, clientID is missing")
+	}
+
+	if config.ClientSecret == "" {
+		return fmt.Errorf("zitadel IdP configuration is incomplete, ClientSecret is missing")
+	}
+
+	if config.TokenEndpoint == "" {
+		return fmt.Errorf("zitadel IdP configuration is incomplete, TokenEndpoint is missing")
+	}
+
+	if config.GrantType == "" {
+		return fmt.Errorf("zitadel IdP configuration is incomplete, GrantType is missing")
+	}
+
+	return nil
+}
+
 // NewZitadelManager creates a new instance of the ZitadelManager.
 func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -147,24 +169,16 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 	}
 	helper := JsonParser{}
 
-	if config.ClientID == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, clientID is missing")
-	}
-
-	if config.ClientSecret == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ClientSecret is missing")
-	}
-
-	if config.TokenEndpoint == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, TokenEndpoint is missing")
+	hasPAT := config.PAT != ""
+	if !hasPAT {
+		jwtErr := verifyJWTConfig(config)
+		if jwtErr != nil {
+			return nil, jwtErr
+		}
 	}
 
 	if config.ManagementEndpoint == "" {
 		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ManagementEndpoint is missing")
-	}
-
-	if config.GrantType == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, GrantType is missing")
 	}
 
 	credentials := &ZitadelCredentials{
