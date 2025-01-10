@@ -101,7 +101,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resource, err = types.NewNetworkResource(resource.AccountID, resource.NetworkID, resource.Name, resource.Description, resource.Address, resource.GroupIDs)
+	resource, err = types.NewNetworkResource(resource.AccountID, resource.NetworkID, resource.Name, resource.Description, resource.Address, resource.GroupIDs, resource.Enabled)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new network resource: %w", err)
 	}

@@ -11,6 +11,7 @@ func TestNewNetworkRouter(t *testing.T) {
 		peerGroups    []string
 		masquerade    bool
 		metric        int
+		enabled       bool
 		expectedError bool
 	}{
 		// Valid cases
@@ -22,6 +23,7 @@ func TestNewNetworkRouter(t *testing.T) {
 			peerGroups:    nil,
 			masquerade:    true,
 			metric:        100,
+			enabled:       true,
 			expectedError: false,
 		},
 		{
@@ -32,6 +34,7 @@ func TestNewNetworkRouter(t *testing.T) {
 			peerGroups:    []string{"group-1", "group-2"},
 			masquerade:    false,
 			metric:        200,
+			enabled:       false,
 			expectedError: false,
 		},
 		{
@@ -42,6 +45,7 @@ func TestNewNetworkRouter(t *testing.T) {
 			peerGroups:    nil,
 			masquerade:    true,
 			metric:        300,
+			enabled:       true,
 			expectedError: false,
 		},
 
@@ -54,13 +58,14 @@ func TestNewNetworkRouter(t *testing.T) {
 			peerGroups:    []string{"group-3"},
 			masquerade:    false,
 			metric:        400,
+			enabled:       false,
 			expectedError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router, err := NewNetworkRouter(tt.accountID, tt.networkID, tt.peer, tt.peerGroups, tt.masquerade, tt.metric)
+			router, err := NewNetworkRouter(tt.accountID, tt.networkID, tt.peer, tt.peerGroups, tt.masquerade, tt.metric, tt.enabled)
 
 			if tt.expectedError && err == nil {
 				t.Fatalf("Expected an error, got nil")
@@ -93,6 +98,10 @@ func TestNewNetworkRouter(t *testing.T) {
 
 				if router.Metric != tt.metric {
 					t.Errorf("Expected Metric %d, got %d", tt.metric, router.Metric)
+				}
+
+				if router.Enabled != tt.enabled {
+					t.Errorf("Expected Enabled %v, got %v", tt.enabled, router.Enabled)
 				}
 			}
 		})

@@ -288,6 +288,12 @@ func getMigrations(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.MigrateSetupKeyToHashedSetupKey[types.SetupKey](ctx, db)
 		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[resourceTypes.NetworkResource](ctx, db, "enabled", true)
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[routerTypes.NetworkRouter](ctx, db, "enabled", true)
+		},
 	}
 }
 
