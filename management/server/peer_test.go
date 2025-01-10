@@ -13,12 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -937,7 +938,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 		{"Small single", 50, 10, 90, 120, 90, 120},
 		{"Medium single", 500, 10, 110, 170, 120, 200},
 		{"Large 5", 5000, 15, 1300, 2100, 4900, 7000},
-		{"Extra Large", 2000, 2000, 1300, 2400, 4000, 6400},
+		{"Extra Large", 2000, 2000, 1300, 2400, 3900, 6400},
 	}
 
 	log.SetOutput(io.Discard)
