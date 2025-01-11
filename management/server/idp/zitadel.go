@@ -34,6 +34,7 @@ type ZitadelClientConfig struct {
 	GrantType          string
 	TokenEndpoint      string
 	ManagementEndpoint string
+	PAT                string
 }
 
 // ZitadelCredentials zitadel authentication information.
@@ -135,6 +136,28 @@ func readZitadelError(body io.ReadCloser) error {
 	return errors.New(strings.Join(errsOut, " "))
 }
 
+// verifyJWTConfig ensures necessary values are set in the ZitadelClientConfig for JWTs to be generated.
+func verifyJWTConfig(config ZitadelClientConfig) error {
+
+	if config.ClientID == "" {
+		return fmt.Errorf("zitadel IdP configuration is incomplete, clientID is missing")
+	}
+
+	if config.ClientSecret == "" {
+		return fmt.Errorf("zitadel IdP configuration is incomplete, ClientSecret is missing")
+	}
+
+	if config.TokenEndpoint == "" {
+		return fmt.Errorf("zitadel IdP configuration is incomplete, TokenEndpoint is missing")
+	}
+
+	if config.GrantType == "" {
+		return fmt.Errorf("zitadel IdP configuration is incomplete, GrantType is missing")
+	}
+
+	return nil
+}
+
 // NewZitadelManager creates a new instance of the ZitadelManager.
 func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -146,24 +169,16 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 	}
 	helper := JsonParser{}
 
-	if config.ClientID == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, clientID is missing")
-	}
-
-	if config.ClientSecret == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ClientSecret is missing")
-	}
-
-	if config.TokenEndpoint == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, TokenEndpoint is missing")
+	hasPAT := config.PAT != ""
+	if !hasPAT {
+		jwtErr := verifyJWTConfig(config)
+		if jwtErr != nil {
+			return nil, jwtErr
+		}
 	}
 
 	if config.ManagementEndpoint == "" {
 		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ManagementEndpoint is missing")
-	}
-
-	if config.GrantType == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, GrantType is missing")
 	}
 
 	credentials := &ZitadelCredentials{
@@ -254,6 +269,20 @@ func (zc *ZitadelCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JW
 	return jwtToken, nil
 }
 
+// generatePATToken creates a functional JWTToken instance which will pass the
+// PAT to the API directly and skip requesting a token.
+func (zc *ZitadelCredentials) generatePATToken() (JWTToken, error) {
+	tok := JWTToken{
+		AccessToken: zc.clientConfig.PAT,
+		Scope:       "openid",
+		ExpiresIn:   9999,
+		TokenType:   "PAT",
+	}
+	tok.expiresInTime = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
+	zc.jwtToken = tok
+	return tok, nil
+}
+
 // Authenticate retrieves access token to use the Zitadel Management API.
 func (zc *ZitadelCredentials) Authenticate(ctx context.Context) (JWTToken, error) {
 	zc.mux.Lock()
@@ -267,6 +296,10 @@ func (zc *ZitadelCredentials) Authenticate(ctx context.Context) (JWTToken, error
 	// and if expiry time is sufficient time available to make a request.
 	if zc.jwtStillValid() {
 		return zc.jwtToken, nil
+	}
+
+	if zc.clientConfig.PAT != "" {
+		return zc.generatePATToken()
 	}
 
 	resp, err := zc.requestJWTToken(ctx)
