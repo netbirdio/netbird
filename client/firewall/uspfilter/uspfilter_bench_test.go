@@ -1,9 +1,12 @@
+//go:build uspbench
+
 package uspfilter
 
 import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/netip"
 	"os"
 	"strings"
 	"testing"
@@ -155,7 +158,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Create manager and basic setup
 				manager, _ := Create(&IFaceMock{
 					SetFilterFunc: func(device.PacketFilter) error { return nil },
-				})
+				}, false)
 				defer b.Cleanup(func() {
 					require.NoError(b, manager.Reset(nil))
 				})
@@ -200,7 +203,7 @@ func BenchmarkStateScaling(b *testing.B) {
 		b.Run(fmt.Sprintf("conns_%d", count), func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -248,7 +251,7 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -447,7 +450,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -574,7 +577,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -665,7 +668,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -784,7 +787,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -872,7 +875,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Reset(nil))
 			})
@@ -995,4 +998,73 @@ func generateTCPPacketWithFlags(b *testing.B, srcIP, dstIP net.IP, srcPort, dstP
 	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
 	require.NoError(b, gopacket.SerializeLayers(buf, opts, ipv4, tcp, gopacket.Payload("test")))
 	return buf.Bytes()
+}
+
+func BenchmarkRouteACLs(b *testing.B) {
+	manager := setupRoutedManager(b, "10.10.0.100/16")
+
+	// Add several route rules to simulate real-world scenario
+	rules := []struct {
+		sources []netip.Prefix
+		dest    netip.Prefix
+		proto   fw.Protocol
+		port    *fw.Port
+	}{
+		{
+			sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+			dest:    netip.MustParsePrefix("192.168.1.0/24"),
+			proto:   fw.ProtocolTCP,
+			port:    &fw.Port{Values: []int{80, 443}},
+		},
+		{
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("172.16.0.0/12"),
+				netip.MustParsePrefix("10.0.0.0/8"),
+			},
+			dest:  netip.MustParsePrefix("0.0.0.0/0"),
+			proto: fw.ProtocolICMP,
+		},
+		{
+			sources: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+			dest:    netip.MustParsePrefix("192.168.0.0/16"),
+			proto:   fw.ProtocolUDP,
+			port:    &fw.Port{Values: []int{53}},
+		},
+	}
+
+	for _, r := range rules {
+		_, err := manager.AddRouteFiltering(
+			r.sources,
+			r.dest,
+			r.proto,
+			nil,
+			r.port,
+			fw.ActionAccept,
+		)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	// Test cases that exercise different matching scenarios
+	cases := []struct {
+		srcIP   string
+		dstIP   string
+		proto   fw.Protocol
+		dstPort uint16
+	}{
+		{"100.10.0.1", "192.168.1.100", fw.ProtocolTCP, 443}, // Match first rule
+		{"172.16.0.1", "8.8.8.8", fw.ProtocolICMP, 0},        // Match second rule
+		{"1.1.1.1", "192.168.1.53", fw.ProtocolUDP, 53},      // Match third rule
+		{"192.168.1.1", "10.0.0.1", fw.ProtocolTCP, 8080},    // No match
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, tc := range cases {
+			srcIP := net.ParseIP(tc.srcIP)
+			dstIP := net.ParseIP(tc.dstIP)
+			manager.routeACLsPass(srcIP, dstIP, tc.proto, 0, tc.dstPort)
+		}
+	}
 }

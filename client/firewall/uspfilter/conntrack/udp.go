@@ -4,6 +4,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 const (
@@ -20,6 +22,7 @@ type UDPConnTrack struct {
 
 // UDPTracker manages UDP connection states
 type UDPTracker struct {
+	logger        *nblog.Logger
 	connections   map[ConnKey]*UDPConnTrack
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
@@ -29,12 +32,13 @@ type UDPTracker struct {
 }
 
 // NewUDPTracker creates a new UDP connection tracker
-func NewUDPTracker(timeout time.Duration) *UDPTracker {
+func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
 	if timeout == 0 {
 		timeout = DefaultUDPTimeout
 	}
 
 	tracker := &UDPTracker{
+		logger:        logger,
 		connections:   make(map[ConnKey]*UDPConnTrack),
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
@@ -49,7 +53,6 @@ func NewUDPTracker(timeout time.Duration) *UDPTracker {
 // TrackOutbound records an outbound UDP connection
 func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
-	now := time.Now().UnixNano()
 
 	t.mutex.Lock()
 	conn, exists := t.connections[key]
@@ -67,13 +70,14 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 				DestPort:   dstPort,
 			},
 		}
-		conn.lastSeen.Store(now)
-		conn.established.Store(true)
+		conn.UpdateLastSeen()
 		t.connections[key] = conn
+
+		t.logger.Trace("New UDP connection: %v", conn)
 	}
 	t.mutex.Unlock()
 
-	conn.lastSeen.Store(now)
+	conn.UpdateLastSeen()
 }
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
@@ -92,8 +96,7 @@ func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 		return false
 	}
 
-	return conn.IsEstablished() &&
-		ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
+	return ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
 		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
 		conn.DestPort == srcPort &&
 		conn.SourcePort == dstPort
@@ -120,6 +123,8 @@ func (t *UDPTracker) cleanup() {
 			t.ipPool.Put(conn.SourceIP)
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
+
+			t.logger.Trace("Removed UDP connection %v (timeout)", conn)
 		}
 	}
 }
