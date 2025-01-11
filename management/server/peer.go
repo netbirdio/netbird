@@ -202,7 +202,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if peer.SSHEnabled != update.SSHEnabled {
+	sshEnabledUpdated := peer.SSHEnabled != update.SSHEnabled
+	if sshEnabledUpdated {
 		peer.SSHEnabled = update.SSHEnabled
 		event := activity.PeerSSHEnabled
 		if !update.SSHEnabled {
@@ -273,7 +274,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if peerLabelUpdated || requiresPeerUpdates {
+	if sshEnabledUpdated || peerLabelUpdated || requiresPeerUpdates {
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
