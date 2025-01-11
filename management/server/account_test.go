@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+
 	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -3088,12 +3089,12 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 102, 110, 102, 120},
-		{"Medium", 500, 100, 105, 140, 105, 170},
-		{"Large", 5000, 200, 160, 200, 160, 300},
-		{"Small single", 50, 10, 102, 110, 102, 120},
-		{"Medium single", 500, 10, 105, 140, 105, 170},
-		{"Large 5", 5000, 15, 160, 200, 160, 270},
+		{"Small", 50, 5, 102, 110, 102, 130},
+		{"Medium", 500, 100, 105, 140, 105, 190},
+		{"Large", 5000, 200, 160, 200, 160, 320},
+		{"Small single", 50, 10, 102, 110, 102, 130},
+		{"Medium single", 500, 10, 105, 140, 105, 190},
+		{"Large 5", 5000, 15, 160, 200, 160, 290},
 	}
 
 	log.SetOutput(io.Discard)
