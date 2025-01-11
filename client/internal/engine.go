@@ -767,12 +767,13 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		}
 	}
 
-	e.statusRecorder.UpdateLocalPeerState(peer.LocalPeerState{
-		IP:              e.config.WgAddr,
-		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
-		KernelInterface: device.WireGuardModuleIsLoaded(),
-		FQDN:            conf.GetFqdn(),
-	})
+	state := e.statusRecorder.GetLocalPeerState()
+	state.IP = e.config.WgAddr
+	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
+	state.KernelInterface = device.WireGuardModuleIsLoaded()
+	state.FQDN = conf.GetFqdn()
+
+	e.statusRecorder.UpdateLocalPeerState(state)
 
 	return nil
 }

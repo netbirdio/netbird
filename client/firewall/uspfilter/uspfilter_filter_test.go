@@ -713,6 +713,56 @@ func TestRouteACLFiltering(t *testing.T) {
 			},
 			shouldPass: true,
 		},
+		{
+			name:    "Drop TCP traffic to specific destination",
+			srcIP:   "100.10.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolTCP,
+			srcPort: 12345,
+			dstPort: 443,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				proto:   fw.ProtocolTCP,
+				dstPort: &fw.Port{Values: []int{443}},
+				action:  fw.ActionDrop,
+			},
+			shouldPass: false,
+		},
+		{
+			name:    "Drop all traffic to specific destination",
+			srcIP:   "100.10.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolTCP,
+			srcPort: 12345,
+			dstPort: 80,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				proto:   fw.ProtocolALL,
+				action:  fw.ActionDrop,
+			},
+			shouldPass: false,
+		},
+		{
+			name:    "Drop traffic from multiple source networks",
+			srcIP:   "172.16.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolTCP,
+			srcPort: 12345,
+			dstPort: 80,
+			rule: rule{
+				sources: []netip.Prefix{
+					netip.MustParsePrefix("100.10.0.0/16"),
+					netip.MustParsePrefix("172.16.0.0/16"),
+				},
+				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				proto:   fw.ProtocolTCP,
+				dstPort: &fw.Port{Values: []int{80}},
+				action:  fw.ActionDrop,
+			},
+			shouldPass: false,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -739,6 +789,193 @@ func TestRouteACLFiltering(t *testing.T) {
 			// to the forwarder
 			isAllowed := manager.routeACLsPass(srcIP, dstIP, tc.proto, tc.srcPort, tc.dstPort)
 			require.Equal(t, tc.shouldPass, isAllowed)
+		})
+	}
+}
+
+
+func TestRouteACLOrder(t *testing.T) {
+	manager := setupRoutedManager(t, "10.10.0.100/16")
+
+	type testCase struct {
+		name  string
+		rules []struct {
+			sources []netip.Prefix
+			dest    netip.Prefix
+			proto   fw.Protocol
+			srcPort *fw.Port
+			dstPort *fw.Port
+			action  fw.Action
+		}
+		packets []struct {
+			srcIP      string
+			dstIP      string
+			proto      fw.Protocol
+			srcPort    uint16
+			dstPort    uint16
+			shouldPass bool
+		}
+	}
+
+	testCases := []testCase{
+		{
+			name: "Drop rules take precedence over accept",
+			rules: []struct {
+				sources []netip.Prefix
+				dest    netip.Prefix
+				proto   fw.Protocol
+				srcPort *fw.Port
+				dstPort *fw.Port
+				action  fw.Action
+			}{
+				{
+					// Accept rule added first
+					sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+					dest:    netip.MustParsePrefix("192.168.1.0/24"),
+					proto:   fw.ProtocolTCP,
+					dstPort: &fw.Port{Values: []int{80, 443}},
+					action:  fw.ActionAccept,
+				},
+				{
+					// Drop rule added second but should be evaluated first
+					sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+					dest:    netip.MustParsePrefix("192.168.1.0/24"),
+					proto:   fw.ProtocolTCP,
+					dstPort: &fw.Port{Values: []int{443}},
+					action:  fw.ActionDrop,
+				},
+			},
+			packets: []struct {
+				srcIP      string
+				dstIP      string
+				proto      fw.Protocol
+				srcPort    uint16
+				dstPort    uint16
+				shouldPass bool
+			}{
+				{
+					// Should be dropped by the drop rule
+					srcIP:      "100.10.0.1",
+					dstIP:      "192.168.1.100",
+					proto:      fw.ProtocolTCP,
+					srcPort:    12345,
+					dstPort:    443,
+					shouldPass: false,
+				},
+				{
+					// Should be allowed by the accept rule (port 80 not in drop rule)
+					srcIP:      "100.10.0.1",
+					dstIP:      "192.168.1.100",
+					proto:      fw.ProtocolTCP,
+					srcPort:    12345,
+					dstPort:    80,
+					shouldPass: true,
+				},
+			},
+		},
+		{
+			name: "Multiple drop rules take precedence",
+			rules: []struct {
+				sources []netip.Prefix
+				dest    netip.Prefix
+				proto   fw.Protocol
+				srcPort *fw.Port
+				dstPort *fw.Port
+				action  fw.Action
+			}{
+				{
+					// Accept all
+					sources: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+					dest:    netip.MustParsePrefix("0.0.0.0/0"),
+					proto:   fw.ProtocolALL,
+					action:  fw.ActionAccept,
+				},
+				{
+					// Drop specific port
+					sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+					dest:    netip.MustParsePrefix("192.168.1.0/24"),
+					proto:   fw.ProtocolTCP,
+					dstPort: &fw.Port{Values: []int{443}},
+					action:  fw.ActionDrop,
+				},
+				{
+					// Drop different port
+					sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+					dest:    netip.MustParsePrefix("192.168.1.0/24"),
+					proto:   fw.ProtocolTCP,
+					dstPort: &fw.Port{Values: []int{80}},
+					action:  fw.ActionDrop,
+				},
+			},
+			packets: []struct {
+				srcIP      string
+				dstIP      string
+				proto      fw.Protocol
+				srcPort    uint16
+				dstPort    uint16
+				shouldPass bool
+			}{
+				{
+					// Should be dropped by first drop rule
+					srcIP:      "100.10.0.1",
+					dstIP:      "192.168.1.100",
+					proto:      fw.ProtocolTCP,
+					srcPort:    12345,
+					dstPort:    443,
+					shouldPass: false,
+				},
+				{
+					// Should be dropped by second drop rule
+					srcIP:      "100.10.0.1",
+					dstIP:      "192.168.1.100",
+					proto:      fw.ProtocolTCP,
+					srcPort:    12345,
+					dstPort:    80,
+					shouldPass: false,
+				},
+				{
+					// Should be allowed by the accept rule (different port)
+					srcIP:      "100.10.0.1",
+					dstIP:      "192.168.1.100",
+					proto:      fw.ProtocolTCP,
+					srcPort:    12345,
+					dstPort:    8080,
+					shouldPass: true,
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var rules []fw.Rule
+			for _, r := range tc.rules {
+				rule, err := manager.AddRouteFiltering(
+					r.sources,
+					r.dest,
+					r.proto,
+					r.srcPort,
+					r.dstPort,
+					r.action,
+				)
+				require.NoError(t, err)
+				require.NotNil(t, rule)
+				rules = append(rules, rule)
+			}
+
+			t.Cleanup(func() {
+				for _, rule := range rules {
+					require.NoError(t, manager.DeleteRouteRule(rule))
+				}
+			})
+
+			for i, p := range tc.packets {
+				srcIP := net.ParseIP(p.srcIP)
+				dstIP := net.ParseIP(p.dstIP)
+
+				isAllowed := manager.routeACLsPass(srcIP, dstIP, p.proto, p.srcPort, p.dstPort)
+				require.Equal(t, p.shouldPass, isAllowed, "packet %d failed", i)
+			}
 		})
 	}
 }
