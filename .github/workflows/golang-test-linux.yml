@@ -183,7 +183,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && github.repository == github.head.repo.full_name
+        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || github.head_ref == "")
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USER }}
@@ -243,7 +243,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && github.repository == github.head.repo.full_name
+        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || github.head_ref == "")
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USER }}
@@ -303,7 +303,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && github.repository == github.head.repo.full_name
+        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || github.head_ref == "")
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USER }}
