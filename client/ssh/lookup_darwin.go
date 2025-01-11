@@ -12,6 +12,10 @@ import (
 )
 
 func userNameLookup(username string) (*user.User, error) {
+	if username == "" || (username == "root" && !isRoot()) {
+		return user.Current()
+	}
+
 	var userObject *user.User
 	userObject, err := user.Lookup(username)
 	if err != nil && err.Error() == user.UnknownUserError(username).Error() {
