@@ -76,8 +76,41 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 	return true, nil
 }
 
-func (am *DefaultAccountManager) GetValidatedPeers(account *types.Account) (map[string]struct{}, error) {
-	return am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
+func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error) {
+	var err error
+	var groups []*types.Group
+	var peers []*nbpeer.Peer
+	var settings *types.Settings
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+		if err != nil {
+			return err
+		}
+
+		peers, err = transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID)
+		if err != nil {
+			return err
+		}
+
+		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	groupsMap := make(map[string]*types.Group, len(groups))
+	for _, group := range groups {
+		groupsMap[group.ID] = group
+	}
+
+	peersMap := make(map[string]*nbpeer.Peer, len(peers))
+	for _, peer := range peers {
+		peersMap[peer.ID] = peer
+	}
+
+	return am.integratedPeerValidator.GetValidatedPeers(accountID, groupsMap, peersMap, settings.Extra)
 }
 
 type MocIntegratedValidator struct {
