@@ -2,11 +2,12 @@ package ssh
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/util"
 	"net"
 	"net/netip"
 	"os/exec"
 	"runtime"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 func getLoginCmd(user string, remoteAddr net.Addr) (loginPath string, args []string, err error) {
@@ -20,17 +21,17 @@ func getLoginCmd(user string, remoteAddr net.Addr) (loginPath string, args []str
 		return "", nil, err
 	}
 
-	if runtime.GOOS == "linux" {
-
+	switch runtime.GOOS {
+	case "linux":
 		if util.FileExists("/etc/arch-release") && !util.FileExists("/etc/pam.d/remote") {
-			// detect if Arch Linux
 			return loginPath, []string{"-f", user, "-p"}, nil
 		}
-
 		return loginPath, []string{"-f", user, "-h", addrPort.Addr().String(), "-p"}, nil
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		return loginPath, []string{"-fp", "-h", addrPort.Addr().String(), user}, nil
+	case "freebsd":
+		return loginPath, []string{"-f", user, "-h", addrPort.Addr().String(), "-p"}, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
-
-	return "", nil, fmt.Errorf("unsupported platform")
 }
