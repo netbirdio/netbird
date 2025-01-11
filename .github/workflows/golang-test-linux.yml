@@ -13,12 +13,7 @@ concurrency:
 jobs:
   build-cache:
     runs-on: ubuntu-22.04
-    steps:
-      - name: Dump GitHub context
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: echo "$GITHUB_CONTEXT"
-        
+    steps:        
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -188,7 +183,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && github.event.repository.fork == false
+        if: matrix.store == 'mysql' && github.repository == github.head.repo.full_name
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USER }}
@@ -248,7 +243,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && github.event.repository.fork == false
+        if: matrix.store == 'mysql' && github.repository == github.head.repo.full_name
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USER }}
@@ -308,7 +303,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && github.event.repository.fork == false
+        if: matrix.store == 'mysql' && github.repository == github.head.repo.full_name
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USER }}
