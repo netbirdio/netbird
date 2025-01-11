@@ -293,6 +293,13 @@ func (s *Server) addCommonConfigFields(configContent *strings.Builder) {
 	}
 	configContent.WriteString(fmt.Sprintf("DisableAutoConnect: %v\n", s.config.DisableAutoConnect))
 	configContent.WriteString(fmt.Sprintf("DNSRouteInterval: %s\n", s.config.DNSRouteInterval))
+
+	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", s.config.DisableClientRoutes))
+	configContent.WriteString(fmt.Sprintf("DisableServerRoutes: %v\n", s.config.DisableServerRoutes))
+	configContent.WriteString(fmt.Sprintf("DisableDNS: %v\n", s.config.DisableDNS))
+	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", s.config.DisableFirewall))
+
+	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", s.config.BlockLANAccess))
 }
 
 func (s *Server) addRoutes(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {

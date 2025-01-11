@@ -16,12 +16,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/pion/ice/v3"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/proto"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
@@ -113,6 +115,8 @@ type EngineConfig struct {
 	DisableServerRoutes bool
 	DisableDNS          bool
 	DisableFirewall     bool
+
+	BlockLANAccess bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -481,6 +485,10 @@ func (e *Engine) initFirewall() error {
 		}
 	}
 
+	if e.config.BlockLANAccess {
+		e.blockLanAccess()
+	}
+
 	if e.rpManager == nil || !e.config.RosenpassEnabled {
 		return nil
 	}
@@ -506,6 +514,70 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
+}
+
+func (e *Engine) blockLanAccess() {
+	// TODO: keep this updated
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		log.Errorf("failed to get network interfaces for blocking lan access: %v", err)
+		return
+	}
+
+	var toBlock []netip.Prefix
+	var merr *multierror.Error
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("get addresses for interface %s: %w", iface.Name, err))
+			continue
+		}
+
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				merr = multierror.Append(merr, fmt.Errorf("cast address to IPNet: %v", addr))
+				continue
+			}
+			ones, _ := ipNet.Mask.Size()
+			addr, ok := netip.AddrFromSlice(ipNet.IP)
+			if !ok {
+				merr = multierror.Append(merr, fmt.Errorf("cast IPNet to netip.Addr: %v", ipNet.IP))
+				continue
+			}
+			addr = addr.Unmap()
+			prefix := netip.PrefixFrom(addr, ones)
+			prefix = prefix.Masked()
+			ip := prefix.Addr()
+
+			// TODO: add IPv6
+			if !ip.Is4() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				continue
+			}
+
+			toBlock = append(toBlock, prefix)
+		}
+	}
+
+	log.Infof("blocking route LAN access for networks: %v", toBlock)
+	v4 := netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+	for _, network := range toBlock {
+		if _, err := e.firewall.AddRouteFiltering(
+			[]netip.Prefix{v4},
+			network,
+			manager.ProtocolALL,
+			nil,
+			nil,
+			manager.ActionDrop,
+		); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add fw rule for network %s: %w", network, err))
+		}
+	}
+
+	if merr != nil {
+		log.Warnf("encountered errors blocking IPs to block LAN access: %v", nberrors.FormatErrorOrNil(merr))
+	}
 }
 
 // modifyPeers updates peers that have been modified (e.g. IP address has been changed).

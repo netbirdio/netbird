@@ -48,6 +48,7 @@ func init() {
 	)
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
+	upCmd.PersistentFlags().BoolVar(&blockLANAccess, blockLANAccessFlag, false, "Block access to local networks (LAN) when using this peer as a router or exit node")
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -158,6 +159,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 	if cmd.Flag(disableFirewallFlag).Changed {
 		ic.DisableFirewall = &disableFirewall
+	}
+
+	if cmd.Flag(blockLANAccessFlag).Changed {
+		ic.BlockLANAccess = &blockLANAccess
 	}
 
 	providedSetupKey, err := getSetupKey()
@@ -288,6 +293,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 	if cmd.Flag(disableFirewallFlag).Changed {
 		loginRequest.DisableFirewall = &disableFirewall
+	}
+
+	if cmd.Flag(blockLANAccessFlag).Changed {
+		loginRequest.BlockLanAccess = &blockLANAccess
 	}
 
 	var loginErr error

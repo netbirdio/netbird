@@ -416,6 +416,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
 	}
 
+	if msg.BlockLanAccess != nil {
+		inputConfig.BlockLANAccess = msg.BlockLanAccess
+		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
+	}
+
 	s.mutex.Unlock()
 
 	if msg.OptionalPreSharedKey != nil {
