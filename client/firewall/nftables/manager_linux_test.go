@@ -116,7 +116,7 @@ func TestNftablesManager(t *testing.T) {
 			Kind: expr.VerdictAccept,
 		},
 	}
-	require.ElementsMatch(t, rules[0].Exprs, expectedExprs1, "expected the same expressions")
+	compareExprsIgnoringCounters(t, rules[0].Exprs, expectedExprs1)
 
 	ipToAdd, _ := netip.AddrFromSlice(ip)
 	add := ipToAdd.Unmap()
@@ -328,4 +328,19 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 
 	stdout, stderr = runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
+}
+
+func compareExprsIgnoringCounters(t *testing.T, got, want []expr.Any) {
+	t.Helper()
+	require.Equal(t, len(got), len(want), "expression count mismatch")
+
+	for i := range got {
+		if _, isCounter := got[i].(*expr.Counter); isCounter {
+			_, wantIsCounter := want[i].(*expr.Counter)
+			require.True(t, wantIsCounter, "expected Counter at index %d", i)
+			continue
+		}
+
+		require.Equal(t, got[i], want[i], "expression mismatch at index %d", i)
+	}
 }
