@@ -69,7 +69,6 @@ type Manager interface {
 		proto Protocol,
 		sPort *Port,
 		dPort *Port,
-		direction RuleDirection,
 		action Action,
 		ipsetName string,
 		comment string,

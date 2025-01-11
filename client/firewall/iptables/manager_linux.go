@@ -100,15 +100,14 @@ func (m *Manager) AddPeerFiltering(
 	protocol firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
-	direction firewall.RuleDirection,
 	action firewall.Action,
 	ipsetName string,
-	comment string,
+	_ string,
 ) ([]firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.aclMgr.AddPeerFiltering(ip, protocol, sPort, dPort, direction, action, ipsetName)
+	return m.aclMgr.AddPeerFiltering(ip, protocol, sPort, dPort, action, ipsetName)
 }
 
 func (m *Manager) AddRouteFiltering(
@@ -201,7 +200,6 @@ func (m *Manager) AllowNetbird() error {
 		"all",
 		nil,
 		nil,
-		firewall.RuleDirectionIN,
 		firewall.ActionAccept,
 		"",
 		"",
