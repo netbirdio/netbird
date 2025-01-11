@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
@@ -705,12 +706,16 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			}
 			// start SSH server if it wasn't running
 			if isNil(e.sshServer) {
+				listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
+				if netstack.IsEnabled() {
+					listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
+				}
 				// nil sshServer means it has not yet been started
 				var err error
-				e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
-					fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
+				e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
+
 				if err != nil {
-					return err
+					return fmt.Errorf("create ssh server: %w", err)
 				}
 				go func() {
 					// blocking
@@ -759,7 +764,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	if conf.GetSshConfig() != nil {
 		err := e.updateSSH(conf.GetSshConfig())
 		if err != nil {
-			log.Warnf("failed handling SSH server setup %v", err)
+			log.Warnf("failed handling SSH server setup: %v", err)
 		}
 	}
 

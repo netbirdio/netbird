@@ -71,7 +71,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestEngine_SSH(t *testing.T) {
-	// todo resolve test execution on freebsd
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping TestEngine_SSH")
 	}
