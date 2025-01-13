@@ -324,7 +324,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	if peerLabelChanged || requiresPeerUpdates {
 		am.UpdateAccountPeers(ctx, accountID)
 	} else if sshChanged {
-		am.UpdateAccountPeer(ctx, account, peer)
+		am.UpdateAccountPeer(ctx, accountID, peer.ID)
 	}
 
 	return peer, nil
@@ -1095,8 +1095,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		}
 	}()
 
-	peers := account.GetPeers()
-
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to get validate peers: %v", err)
@@ -1111,7 +1109,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	for _, peer := range peers {
+	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
@@ -1140,15 +1138,27 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 // UpdateAccountPeer updates a single peer that belongs to an account.
 // Should be called when changes need to be synced to a specific peer only.
-func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, account *types.Account, peer *nbpeer.Peer) {
-	if !am.peersUpdateManager.HasChannel(peer.ID) {
-		log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
+func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) {
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send out updates to peer %s. failed to get account: %v", peerId, err)
 		return
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(account)
+	peer := account.GetPeer(peerId)
+	if peer == nil {
+		log.WithContext(ctx).Tracef("peer %s  doesn't exists in account %s", peerId, accountId)
+		return
+	}
+
+	if !am.peersUpdateManager.HasChannel(peerId) {
+		log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peerId)
+		return
+	}
+
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to validate peers: %v", peer.ID, err)
+		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to validate peers: %v", peerId, err)
 		return
 	}
 
@@ -1157,13 +1167,13 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, account 
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	postureChecks, err := am.getPeerPostureChecks(account, peerId)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to get posture checks: %v", peer.ID, err)
+		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to get posture checks: %v", peerId, err)
 		return
 	}
 
-	remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+	remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
 	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled)
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
