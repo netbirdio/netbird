@@ -3082,12 +3082,12 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 102, 110, 102, 130},
-		{"Medium", 500, 100, 105, 140, 105, 190},
-		{"Large", 5000, 200, 160, 200, 160, 320},
-		{"Small single", 50, 10, 102, 110, 102, 130},
-		{"Medium single", 500, 10, 105, 140, 105, 190},
-		{"Large 5", 5000, 15, 160, 200, 160, 290},
+		{"Small", 50, 5, 102, 110, 3, 20},
+		{"Medium", 500, 100, 105, 140, 20, 90},
+		{"Large", 5000, 200, 160, 200, 120, 260},
+		{"Small single", 50, 10, 102, 110, 5, 40},
+		{"Medium single", 500, 10, 105, 140, 10, 60},
+		{"Large 5", 5000, 15, 160, 200, 60, 140},
 	}
 
 	log.SetOutput(io.Discard)
@@ -3156,12 +3156,12 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 107, 120, 107, 160},
-		{"Medium", 500, 100, 105, 140, 105, 220},
-		{"Large", 5000, 200, 180, 220, 180, 395},
-		{"Small single", 50, 10, 107, 120, 105, 160},
-		{"Medium single", 500, 10, 105, 140, 105, 170},
-		{"Large 5", 5000, 15, 180, 220, 180, 340},
+		{"Small", 50, 5, 107, 120, 10, 50},
+		{"Medium", 500, 100, 105, 140, 30, 140},
+		{"Large", 5000, 200, 180, 220, 150, 300},
+		{"Small single", 50, 10, 107, 120, 10, 60},
+		{"Medium single", 500, 10, 105, 140, 20, 60},
+		{"Large 5", 5000, 15, 180, 220, 80, 200},
 	}
 
 	log.SetOutput(io.Discard)
