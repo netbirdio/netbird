@@ -323,6 +323,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 	if peerLabelChanged || requiresPeerUpdates {
 		am.UpdateAccountPeers(ctx, accountID)
+	} else if sshChanged {
+		am.UpdateAccountPeer(ctx, account, peer)
 	}
 
 	return peer, nil
@@ -1134,6 +1136,36 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	}
 
 	wg.Wait()
+}
+
+// UpdateAccountPeer updates a single peer that belongs to an account.
+// Should be called when changes need to be synced to a specific peer only.
+func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, account *types.Account, peer *nbpeer.Peer) {
+	if !am.peersUpdateManager.HasChannel(peer.ID) {
+		log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
+		return
+	}
+
+	approvedPeersMap, err := am.GetValidatedPeers(account)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to validate peers: %v", peer.ID, err)
+		return
+	}
+
+	dnsCache := &DNSConfigCache{}
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+
+	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to get posture checks: %v", peer.ID, err)
+		return
+	}
+
+	remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled)
+	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.

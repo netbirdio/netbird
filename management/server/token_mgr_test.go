@@ -133,11 +133,14 @@ loop:
 			}
 		}
 		if relay := update.Update.GetWiretrusteeConfig().GetRelay(); relay != nil {
-			relayUpdates++
-			if relayUpdates == 1 {
-				firstRelayUpdate = relay
-			} else {
-				secondRelayUpdate = relay
+			// avoid updating on turn updates since they also send relay credentials
+			if update.Update.GetWiretrusteeConfig().GetTurns() == nil {
+				relayUpdates++
+				if relayUpdates == 1 {
+					firstRelayUpdate = relay
+				} else {
+					secondRelayUpdate = relay
+				}
 			}
 		}
 	}
