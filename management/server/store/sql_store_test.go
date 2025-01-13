@@ -2635,6 +2635,27 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 	assert.WithinDurationf(t, peer.Status.LastSeen, storedPeer.Status.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
 }
 
+func TestSqlStore_GetPeerGroups(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	peerID := "cfefqs706sqkneg59g4g"
+
+	groups, err := store.GetPeerGroups(context.Background(), LockingStrengthShare, accountID, peerID)
+	require.NoError(t, err)
+	assert.Len(t, groups, 1)
+	assert.Equal(t, groups[0].Name, "All")
+
+	err = store.AddPeerToGroup(context.Background(), LockingStrengthUpdate, accountID, peerID, "cfefqs706sqkneg59g4h")
+	require.NoError(t, err)
+
+	groups, err = store.GetPeerGroups(context.Background(), LockingStrengthShare, accountID, peerID)
+	require.NoError(t, err)
+	assert.Len(t, groups, 2)
+}
+
 func TestSqlStore_GetAccountPeers(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
 	t.Cleanup(cleanup)
