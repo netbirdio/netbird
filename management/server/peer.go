@@ -953,7 +953,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(ctx, account.Id)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1313,29 +1313,12 @@ func (am *DefaultAccountManager) getInactivePeers(ctx context.Context, accountID
 
 // GetPeerGroups returns groups that the peer is part of.
 func (am *DefaultAccountManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
-	return getPeerGroups(ctx, am.Store, accountID, peerID)
-}
-
-// getPeerGroups returns the IDs of the groups that the peer is part of.
-func getPeerGroups(ctx context.Context, transaction store.Store, accountID, peerID string) ([]*types.Group, error) {
-	groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	peerGroups := make([]*types.Group, 0)
-	for _, group := range groups {
-		if slices.Contains(group.Peers, peerID) {
-			peerGroups = append(peerGroups, group)
-		}
-	}
-
-	return peerGroups, nil
+	return am.Store.GetPeerGroups(ctx, store.LockingStrengthShare, accountID, peerID)
 }
 
 // getPeerGroupIDs returns the IDs of the groups that the peer is part of.
 func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID string, peerID string) ([]string, error) {
-	groups, err := getPeerGroups(ctx, transaction, accountID, peerID)
+	groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthShare, accountID, peerID)
 	if err != nil {
 		return nil, err
 	}

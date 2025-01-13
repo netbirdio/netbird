@@ -1218,6 +1218,19 @@ func (s *SqlStore) RemoveResourceFromGroup(ctx context.Context, accountId string
 	return nil
 }
 
+// GetPeerGroups retrieves all groups assigned to a specific peer in a given account.
+func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]*types.Group, error) {
+	var groups []*types.Group
+	query := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&groups, "account_id = ? AND peers LIKE ?", accountId, fmt.Sprintf(`%%"%s"%%`, peerId))
+
+	if query.Error != nil {
+		return nil, query.Error
+	}
+
+	return groups, nil
+}
+
 // GetAccountPeers retrieves peers for an account.
 func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
