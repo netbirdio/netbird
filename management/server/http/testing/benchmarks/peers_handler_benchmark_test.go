@@ -35,14 +35,14 @@ var benchCasesPeers = map[string]testing_tools.BenchmarkCase{
 
 func BenchmarkUpdatePeer(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 1300, MaxMsPerOpCICD: 5000},
+		"Peers - XS":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 2000},
 		"Peers - S":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 80, MaxMsPerOpCICD: 200},
-		"Peers - M":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 150, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 500},
-		"Peers - L":      {MinMsPerOpLocal: 230, MaxMsPerOpLocal: 270, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 1000},
-		"Groups - L":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 700, MaxMsPerOpCICD: 4000},
-		"Users - L":      {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 350, MaxMsPerOpCICD: 1500},
-		"Setup Keys - L": {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 350, MaxMsPerOpCICD: 1100},
-		"Peers - XL":     {MinMsPerOpLocal: 600, MaxMsPerOpLocal: 1000, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 3000},
+		"Peers - M":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 150, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
+		"Peers - L":      {MinMsPerOpLocal: 230, MaxMsPerOpLocal: 270, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 500},
+		"Groups - L":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 650, MaxMsPerOpCICD: 100},
+		"Users - L":      {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 350, MaxMsPerOpCICD: 600},
+		"Setup Keys - L": {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 350, MaxMsPerOpCICD: 600},
+		"Peers - XL":     {MinMsPerOpLocal: 600, MaxMsPerOpLocal: 1000, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 2000},
 	}
 
 	log.SetOutput(io.Discard)
@@ -77,14 +77,14 @@ func BenchmarkUpdatePeer(b *testing.B) {
 
 func BenchmarkGetOnePeer(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 60, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 300},
+		"Peers - XS":     {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 60, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 200},
 		"Peers - S":      {MinMsPerOpLocal: 1, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 30},
 		"Peers - M":      {MinMsPerOpLocal: 9, MaxMsPerOpLocal: 18, MinMsPerOpCICD: 15, MaxMsPerOpCICD: 50},
-		"Peers - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
-		"Groups - L":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 150, MaxMsPerOpCICD: 800},
-		"Users - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
-		"Setup Keys - L": {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
-		"Peers - XL":     {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 1500},
+		"Peers - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
+		"Groups - L":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 150, MaxMsPerOpCICD: 400},
+		"Users - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
+		"Setup Keys - L": {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
+		"Peers - XL":     {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 200, MaxMsPerOpCICD: 600},
 	}
 
 	log.SetOutput(io.Discard)
@@ -111,14 +111,14 @@ func BenchmarkGetOnePeer(b *testing.B) {
 
 func BenchmarkGetAllPeers(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 70, MinMsPerOpCICD: 70, MaxMsPerOpCICD: 2000},
+		"Peers - XS":     {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 70, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 150},
 		"Peers - S":      {MinMsPerOpLocal: 2, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 30},
-		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 40, MaxMsPerOpCICD: 90},
-		"Peers - L":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 150, MaxMsPerOpCICD: 350},
+		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 20, MaxMsPerOpCICD: 70},
+		"Peers - L":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 200},
 		"Groups - L":     {MinMsPerOpLocal: 4800, MaxMsPerOpLocal: 5300, MinMsPerOpCICD: 7000, MaxMsPerOpCICD: 15000},
-		"Users - L":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 700},
-		"Setup Keys - L": {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 700},
-		"Peers - XL":     {MinMsPerOpLocal: 900, MaxMsPerOpLocal: 1300, MinMsPerOpCICD: 1100, MaxMsPerOpCICD: 2200},
+		"Users - L":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
+		"Setup Keys - L": {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
+		"Peers - XL":     {MinMsPerOpLocal: 900, MaxMsPerOpLocal: 1300, MinMsPerOpCICD: 800, MaxMsPerOpCICD: 1500},
 	}
 
 	log.SetOutput(io.Discard)
@@ -145,14 +145,14 @@ func BenchmarkGetAllPeers(b *testing.B) {
 
 func BenchmarkDeletePeer(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 30, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 8},
-		"Peers - S":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 30, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 8},
-		"Peers - M":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 30, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 8},
-		"Peers - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 30, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 8},
-		"Groups - L":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 30, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 8},
-		"Users - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 30, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 8},
-		"Setup Keys - L": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 30, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 8},
-		"Peers - XL":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 30, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 8},
+		"Peers - XS":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
+		"Peers - S":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
+		"Peers - M":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
+		"Peers - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
+		"Groups - L":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
+		"Users - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
+		"Setup Keys - L": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
+		"Peers - XL":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
 	}
 
 	log.SetOutput(io.Discard)
