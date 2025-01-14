@@ -319,7 +319,7 @@ func TestNotMatchByIP(t *testing.T) {
 
 	ip := net.ParseIP("0.0.0.0")
 	proto := fw.ProtocolUDP
-	direction := fw.RuleDirectionOUT
+	direction := fw.RuleDirectionIN
 	action := fw.ActionAccept
 	comment := "Test rule"
 
@@ -357,7 +357,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if m.dropFilter(buf.Bytes(), m.outgoingRules) {
+	if m.dropFilter(buf.Bytes()) {
 		t.Errorf("expected packet to be accepted")
 		return
 	}
@@ -669,7 +669,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	for _, cp := range checkPoints {
 		time.Sleep(cp.sleep)
 
-		drop = manager.dropFilter(inboundBuf.Bytes(), manager.incomingRules)
+		drop = manager.dropFilter(inboundBuf.Bytes())
 		require.Equal(t, cp.shouldAllow, !drop, cp.description)
 
 		// If the connection should still be valid, verify it exists
@@ -740,7 +740,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the invalid packet is dropped
-			drop = manager.dropFilter(testBuf.Bytes(), manager.incomingRules)
+			drop = manager.dropFilter(testBuf.Bytes())
 			require.True(t, drop, tc.description)
 		})
 	}

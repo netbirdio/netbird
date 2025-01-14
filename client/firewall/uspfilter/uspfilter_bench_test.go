@@ -188,7 +188,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Measure inbound packet processing
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
-					manager.dropFilter(inbound, manager.incomingRules)
+					manager.dropFilter(inbound)
 				}
 			})
 		}
@@ -231,7 +231,7 @@ func BenchmarkStateScaling(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				manager.dropFilter(testIn, manager.incomingRules)
+				manager.dropFilter(testIn)
 			}
 		})
 	}
@@ -272,7 +272,7 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				manager.dropFilter(inbound, manager.incomingRules)
+				manager.dropFilter(inbound)
 			}
 		})
 	}
@@ -475,7 +475,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 					manager.processOutgoingHooks(syn)
 					// SYN-ACK
 					synack := generateTCPPacketWithFlags(b, dstIP, srcIP, 80, 1024, uint16(conntrack.TCPSyn|conntrack.TCPAck))
-					manager.dropFilter(synack, manager.incomingRules)
+					manager.dropFilter(synack)
 					// ACK
 					ack := generateTCPPacketWithFlags(b, srcIP, dstIP, 1024, 80, uint16(conntrack.TCPAck))
 					manager.processOutgoingHooks(ack)
@@ -484,7 +484,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				manager.dropFilter(inbound, manager.incomingRules)
+				manager.dropFilter(inbound)
 			}
 		})
 	}
@@ -621,7 +621,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 				// SYN-ACK
 				synack := generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
 					80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck))
-				manager.dropFilter(synack, manager.incomingRules)
+				manager.dropFilter(synack)
 
 				// ACK
 				ack := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
@@ -649,7 +649,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 				// First outbound data
 				manager.processOutgoingHooks(outPackets[connIdx])
 				// Then inbound response - this is what we're actually measuring
-				manager.dropFilter(inPackets[connIdx], manager.incomingRules)
+				manager.dropFilter(inPackets[connIdx])
 			}
 		})
 	}
@@ -757,17 +757,17 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 
 				// Connection establishment
 				manager.processOutgoingHooks(p.syn)
-				manager.dropFilter(p.synAck, manager.incomingRules)
+				manager.dropFilter(p.synAck)
 				manager.processOutgoingHooks(p.ack)
 
 				// Data transfer
 				manager.processOutgoingHooks(p.request)
-				manager.dropFilter(p.response, manager.incomingRules)
+				manager.dropFilter(p.response)
 
 				// Connection teardown
 				manager.processOutgoingHooks(p.finClient)
-				manager.dropFilter(p.ackServer, manager.incomingRules)
-				manager.dropFilter(p.finServer, manager.incomingRules)
+				manager.dropFilter(p.ackServer)
+				manager.dropFilter(p.finServer)
 				manager.processOutgoingHooks(p.ackClient)
 			}
 		})
@@ -828,7 +828,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 
 				synack := generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
 					80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck))
-				manager.dropFilter(synack, manager.incomingRules)
+				manager.dropFilter(synack)
 
 				ack := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
 					uint16(1024+i), 80, uint16(conntrack.TCPAck))
@@ -855,7 +855,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 
 					// Simulate bidirectional traffic
 					manager.processOutgoingHooks(outPackets[connIdx])
-					manager.dropFilter(inPackets[connIdx], manager.incomingRules)
+					manager.dropFilter(inPackets[connIdx])
 				}
 			})
 		})
@@ -952,15 +952,15 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 
 					// Full connection lifecycle
 					manager.processOutgoingHooks(p.syn)
-					manager.dropFilter(p.synAck, manager.incomingRules)
+					manager.dropFilter(p.synAck)
 					manager.processOutgoingHooks(p.ack)
 
 					manager.processOutgoingHooks(p.request)
-					manager.dropFilter(p.response, manager.incomingRules)
+					manager.dropFilter(p.response)
 
 					manager.processOutgoingHooks(p.finClient)
-					manager.dropFilter(p.ackServer, manager.incomingRules)
-					manager.dropFilter(p.finServer, manager.incomingRules)
+					manager.dropFilter(p.ackServer)
+					manager.dropFilter(p.finServer)
 					manager.processOutgoingHooks(p.ackClient)
 				}
 			})

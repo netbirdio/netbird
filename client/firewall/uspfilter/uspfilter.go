@@ -34,6 +34,10 @@ const (
 
 	// EnvForceUserspaceRouter forces userspace routing even if native routing is available.
 	EnvForceUserspaceRouter = "NB_FORCE_USERSPACE_ROUTER"
+
+	// EnvEnableNetstackLocalForwarding enables forwarding of local traffic to the native stack when running netstack
+	// Leaving this on by default introduces a security risk as sockets on listening on localhost only will be accessible
+	EnvEnableNetstackLocalForwarding = "NB_ENABLE_NETSTACK_LOCAL_FORWARDING"
 )
 
 // RuleSet is a set of rules grouped by a string key
@@ -59,6 +63,8 @@ type Manager struct {
 	stateful bool
 	// indicates whether wireguards runs in netstack mode
 	netstack bool
+	// indicates whether we forward local traffic to the native stack
+	localForwarding bool
 
 	localipmanager *localIPManager
 
@@ -101,7 +107,14 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 }
 
 func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
-	disableConntrack, _ := strconv.ParseBool(os.Getenv(EnvDisableConntrack))
+	disableConntrack, err := strconv.ParseBool(os.Getenv(EnvDisableConntrack))
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvDisableConntrack, err)
+	}
+	enableLocalForwarding, err := strconv.ParseBool(os.Getenv(EnvEnableNetstackLocalForwarding))
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvEnableNetstackLocalForwarding, err)
+	}
 
 	m := &Manager{
 		decoders: sync.Pool{
@@ -127,6 +140,8 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		stateful:       !disableConntrack,
 		logger:         nblog.NewFromLogrus(log.StandardLogger()),
 		netstack:       netstack.IsEnabled(),
+		// default true for non-netstack, for netstack only if explicitly enabled
+		localForwarding: !netstack.IsEnabled() || enableLocalForwarding,
 	}
 
 	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
@@ -220,7 +235,7 @@ func (m *Manager) determineRouting(iface common.IFaceMapper, disableServerRoutes
 	}
 
 	// netstack needs the forwarder for local traffic
-	if m.netstack ||
+	if m.netstack && m.localForwarding ||
 		m.routingEnabled && !m.nativeRouter {
 
 		m.initForwarder(iface)
@@ -436,7 +451,7 @@ func (m *Manager) DropOutgoing(packetData []byte) bool {
 
 // DropIncoming filter incoming packets
 func (m *Manager) DropIncoming(packetData []byte) bool {
-	return m.dropFilter(packetData, m.incomingRules)
+	return m.dropFilter(packetData)
 }
 
 // UpdateLocalIPs updates the list of local IPs
@@ -564,7 +579,7 @@ func (m *Manager) trackICMPOutbound(d *decoder, srcIP, dstIP net.IP) {
 
 // dropFilter implements filtering logic for incoming packets.
 // If it returns true, the packet should be dropped.
-func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
+func (m *Manager) dropFilter(packetData []byte) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -588,27 +603,37 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet) bool {
 		return false
 	}
 
-	// Handle local traffic - apply peer ACLs
 	if m.localipmanager.IsLocalIP(dstIP) {
-		if m.peerACLsBlock(srcIP, packetData, rules, d) {
-			m.logger.Trace("Dropping local packet: src=%s dst=%s rules=denied",
-				srcIP, dstIP)
-			return true
-		}
-
-		// if running in netstack mode we need to pass this to the forwarder
-		if m.netstack {
-			m.handleNetstackLocalTraffic(packetData)
-			// don't process this packet further
-			return true
-		}
-
-		return false
+		return m.handleLocalTraffic(d, srcIP, dstIP, packetData)
 	}
 
 	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData)
 }
 
+// handleLocalTraffic handles local traffic.
+// If it returns true, the packet should be dropped.
+func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
+	if !m.localForwarding {
+		m.logger.Trace("Dropping local packet (local forwarding disabled): src=%s dst=%s", srcIP, dstIP)
+		return true
+	}
+
+	if m.peerACLsBlock(srcIP, packetData, m.incomingRules, d) {
+		m.logger.Trace("Dropping local packet (ACL denied): src=%s dst=%s",
+			srcIP, dstIP)
+		return true
+	}
+
+	// if running in netstack mode we need to pass this to the forwarder
+	if m.netstack {
+		m.handleNetstackLocalTraffic(packetData)
+
+		// don't process this packet further
+		return true
+	}
+
+	return false
+}
 func (m *Manager) handleNetstackLocalTraffic(packetData []byte) {
 	if m.forwarder == nil {
 		return
@@ -619,6 +644,8 @@ func (m *Manager) handleNetstackLocalTraffic(packetData []byte) {
 	}
 }
 
+// handleRoutedTraffic handles routed traffic.
+// If it returns true, the packet should be dropped.
 func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
 	// Drop if routing is disabled
 	if !m.routingEnabled {
