@@ -100,18 +100,7 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 		return nil, err
 	}
 
-	groupsMap := make(map[string]*types.Group, len(groups))
-
-	for _, group := range groups {
-		groupsMap[group.ID] = group
-	}
-
-	peersMap := make(map[string]*nbpeer.Peer, len(peers))
-	for _, peer := range peers {
-		peersMap[peer.ID] = peer
-	}
-
-	return am.integratedPeerValidator.GetValidatedPeers(accountID, groupsMap, peersMap, settings.Extra)
+	return am.integratedPeerValidator.GetValidatedPeers(accountID, groups, peers, settings.Extra)
 }
 
 type MocIntegratedValidator struct {
@@ -128,7 +117,7 @@ func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.P
 	}
 	return update, false, nil
 }
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*types.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}
