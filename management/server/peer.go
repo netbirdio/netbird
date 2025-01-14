@@ -335,6 +335,15 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return err
+	}
+
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
+	}
+
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthShare, peerID)
 	if err != nil {
 		return err
@@ -1139,6 +1148,11 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 // UpdateAccountPeer updates a single peer that belongs to an account.
 // Should be called when changes need to be synced to a specific peer only.
 func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) {
+	if !am.peersUpdateManager.HasChannel(peerId) {
+		log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peerId)
+		return
+	}
+
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peer %s. failed to get account: %v", peerId, err)
@@ -1148,11 +1162,6 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 	peer := account.GetPeer(peerId)
 	if peer == nil {
 		log.WithContext(ctx).Tracef("peer %s  doesn't exists in account %s", peerId, accountId)
-		return
-	}
-
-	if !am.peersUpdateManager.HasChannel(peerId) {
-		log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peerId)
 		return
 	}
 
@@ -1185,7 +1194,7 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with expiration: %v", err)
-		return 0, false
+		return peerSchedulerRetryInterval, true
 	}
 
 	if len(peersWithExpiry) == 0 {
@@ -1195,7 +1204,7 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
-		return 0, false
+		return peerSchedulerRetryInterval, true
 	}
 
 	var nextExpiry *time.Duration
@@ -1229,7 +1238,7 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with inactivity: %v", err)
-		return 0, false
+		return peerSchedulerRetryInterval, true
 	}
 
 	if len(peersWithInactivity) == 0 {
@@ -1239,7 +1248,7 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
-		return 0, false
+		return peerSchedulerRetryInterval, true
 	}
 
 	var nextExpiry *time.Duration
