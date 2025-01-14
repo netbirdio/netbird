@@ -46,8 +46,6 @@ type WorkerICE struct {
 	hasRelayOnLocally bool
 	conn              WorkerICECallbacks
 
-	selectedPriority ConnPriority
-
 	agent    *ice.Agent
 	muxAgent sync.Mutex
 
@@ -95,10 +93,8 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	var preferredCandidateTypes []ice.CandidateType
 	if w.hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
-		w.selectedPriority = connPriorityICEP2P
 		preferredCandidateTypes = icemaker.CandidateTypesP2P()
 	} else {
-		w.selectedPriority = connPriorityICETurn
 		preferredCandidateTypes = icemaker.CandidateTypes()
 	}
 
@@ -159,7 +155,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}
 	w.log.Debugf("on ICE conn read to use ready")
-	go w.conn.OnConnReady(w.selectedPriority, ci)
+	go w.conn.OnConnReady(selectedPriority(pair), ci)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -268,7 +264,13 @@ func (w *WorkerICE) closeAgent(cancel context.CancelFunc) {
 func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
 	// wait local endpoint configuration
 	time.Sleep(time.Second)
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", pair.Remote.Address(), remoteWgPort))
+	addrString := pair.Remote.Address()
+	parsed, err := netip.ParseAddr(addrString)
+	if (err == nil) && (parsed.Is6()) {
+		addrString = fmt.Sprintf("[%s]", addrString)
+		//IPv6 Literals need to be wrapped in brackets for Resolve*Addr()
+	}
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", addrString, remoteWgPort))
 	if err != nil {
 		w.log.Warnf("got an error while resolving the udp address, err: %s", err)
 		return
@@ -393,4 +395,12 @@ func isRelayed(pair *ice.CandidatePair) bool {
 		return true
 	}
 	return false
+}
+
+func selectedPriority(pair *ice.CandidatePair) ConnPriority {
+	if isRelayed(pair) {
+		return connPriorityICETurn
+	} else {
+		return connPriorityICEP2P
+	}
 }

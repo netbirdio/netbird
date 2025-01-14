@@ -46,11 +46,59 @@ func TestAnonymizeIP(t *testing.T) {
 
 func TestAnonymizeDNSLogLine(t *testing.T) {
 	anonymizer := anonymize.NewAnonymizer(netip.Addr{}, netip.Addr{})
-	testLog := `2024-04-23T20:01:11+02:00 TRAC client/internal/dns/local.go:25: received question: dns.Question{Name:"example.com", Qtype:0x1c, Qclass:0x1}`
+	tests := []struct {
+		name     string
+		input    string
+		original string
+		expect   string
+	}{
+		{
+			name:     "Basic domain with trailing content",
+			input:    "received DNS request for DNS forwarder: domain=example.com: something happened with code=123",
+			original: "example.com",
+			expect:   `received DNS request for DNS forwarder: domain=anon-[a-zA-Z0-9]+\.domain: something happened with code=123`,
+		},
+		{
+			name:     "Domain with trailing dot",
+			input:    "domain=example.com. processing request with status=pending",
+			original: "example.com",
+			expect:   `domain=anon-[a-zA-Z0-9]+\.domain\. processing request with status=pending`,
+		},
+		{
+			name:     "Multiple domains in log",
+			input:    "forward domain=first.com status=ok, redirect to domain=second.com port=443",
+			original: "first.com", // testing just one is sufficient as AnonymizeDomain is tested separately
+			expect:   `forward domain=anon-[a-zA-Z0-9]+\.domain status=ok, redirect to domain=anon-[a-zA-Z0-9]+\.domain port=443`,
+		},
+		{
+			name:     "Already anonymized domain",
+			input:    "got request domain=anon-xyz123.domain from=client1 to=server2",
+			original: "", // nothing should be anonymized
+			expect:   `got request domain=anon-xyz123\.domain from=client1 to=server2`,
+		},
+		{
+			name:     "Subdomain with trailing dot",
+			input:    "domain=sub.example.com. next_hop=10.0.0.1 proto=udp",
+			original: "example.com",
+			expect:   `domain=sub\.anon-[a-zA-Z0-9]+\.domain\. next_hop=10\.0\.0\.1 proto=udp`,
+		},
+		{
+			name:     "Handler chain pattern log",
+			input:    "pattern: domain=example.com. original: domain=*.example.com. wildcard=true priority=100",
+			original: "example.com",
+			expect:   `pattern: domain=anon-[a-zA-Z0-9]+\.domain\. original: domain=\*\.anon-[a-zA-Z0-9]+\.domain\. wildcard=true priority=100`,
+		},
+	}
 
-	result := anonymizer.AnonymizeDNSLogLine(testLog)
-	require.NotEqual(t, testLog, result)
-	assert.NotContains(t, result, "example.com")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := anonymizer.AnonymizeDNSLogLine(tc.input)
+			if tc.original != "" {
+				assert.NotContains(t, result, tc.original)
+			}
+			assert.Regexp(t, tc.expect, result)
+		})
+	}
 }
 
 func TestAnonymizeDomain(t *testing.T) {
@@ -68,15 +116,33 @@ func TestAnonymizeDomain(t *testing.T) {
 			true,
 		},
 		{
+			"Domain with Trailing Dot",
+			"example.com.",
+			`^anon-[a-zA-Z0-9]+\.domain.$`,
+			true,
+		},
+		{
 			"Subdomain",
 			"sub.example.com",
 			`^sub\.anon-[a-zA-Z0-9]+\.domain$`,
 			true,
 		},
 		{
+			"Subdomain with Trailing Dot",
+			"sub.example.com.",
+			`^sub\.anon-[a-zA-Z0-9]+\.domain.$`,
+			true,
+		},
+		{
 			"Protected Domain",
 			"netbird.io",
 			`^netbird\.io$`,
+			false,
+		},
+		{
+			"Protected Domain with Trailing Dot",
+			"netbird.io.",
+			`^netbird\.io.$`,
 			false,
 		},
 	}
@@ -140,8 +206,16 @@ func TestAnonymizeSchemeURI(t *testing.T) {
 		expect string
 	}{
 		{"STUN URI in text", "Connection made via stun:example.com", `Connection made via stun:anon-[a-zA-Z0-9]+\.domain`},
+		{"STUNS URI in message", "Secure connection to stuns:example.com:443", `Secure connection to stuns:anon-[a-zA-Z0-9]+\.domain:443`},
 		{"TURN URI in log", "Failed attempt turn:some.example.com:3478?transport=tcp: retrying", `Failed attempt turn:some.anon-[a-zA-Z0-9]+\.domain:3478\?transport=tcp: retrying`},
+		{"TURNS URI in message", "Secure connection to turns:example.com:5349", `Secure connection to turns:anon-[a-zA-Z0-9]+\.domain:5349`},
+		{"HTTP URI in text", "Visit http://example.com for more", `Visit http://anon-[a-zA-Z0-9]+\.domain for more`},
+		{"HTTPS URI in CAPS", "Visit HTTPS://example.com for more", `Visit https://anon-[a-zA-Z0-9]+\.domain for more`},
 		{"HTTPS URI in message", "Visit https://example.com for more", `Visit https://anon-[a-zA-Z0-9]+\.domain for more`},
+		{"WS URI in log", "Connection established to ws://example.com:8080", `Connection established to ws://anon-[a-zA-Z0-9]+\.domain:8080`},
+		{"WSS URI in message", "Secure connection to wss://example.com", `Secure connection to wss://anon-[a-zA-Z0-9]+\.domain`},
+		{"Rel URI in text", "Relaying to rel://example.com", `Relaying to rel://anon-[a-zA-Z0-9]+\.domain`},
+		{"Rels URI in message", "Relaying to rels://example.com", `Relaying to rels://anon-[a-zA-Z0-9]+\.domain`},
 	}
 
 	for _, tc := range tests {

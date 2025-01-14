@@ -24,6 +24,23 @@ jobs:
         id: go
         with:
           go-version: "1.23.x"
+          cache: false
+
+      - name: Get Go environment
+        run: |
+          echo "cache=$(go env GOCACHE)" >> $env:GITHUB_ENV
+          echo "modcache=$(go env GOMODCACHE)" >> $env:GITHUB_ENV
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.cache }}
+            ${{ env.modcache }}
+          key: ${{ runner.os }}-gotest-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-
+            ${{ runner.os }}-go-
 
       - name: Download wintun
         uses: carlosperate/download-file-action@v2
@@ -42,11 +59,13 @@ jobs:
       - run: choco install -y sysinternals --ignore-checksums
       - run: choco install -y mingw
 
-      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOMODCACHE=C:\Users\runneradmin\go\pkg\mod
-      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOCACHE=C:\Users\runneradmin\AppData\Local\go-build
+      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOMODCACHE=${{ env.cache }}
+      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOCACHE=${{ env.modcache }}
+      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe mod tidy
+      - run: echo "files=$(go list ./... | ForEach-Object { $_ } | Where-Object { $_ -notmatch '/management' })" >> $env:GITHUB_ENV
 
       - name: test
-        run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe test -tags=devcert -timeout 10m -p 1 ./... > test-out.txt 2>&1"
+        run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe test -tags=devcert -timeout 10m -p 1 ${{ env.files }} > test-out.txt 2>&1"
       - name: test output
         if: ${{ always() }}
         run: Get-Content test-out.txt

@@ -17,6 +17,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
@@ -57,30 +58,30 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 				return nexthop, refcounter.ErrIgnore
 			}
 
-			r.updateState(stateManager)
-
 			return nexthop, err
 		},
-		func(prefix netip.Prefix, nexthop Nexthop) error {
-			// remove from state even if we have trouble removing it from the route table
-			// it could be already gone
-			r.updateState(stateManager)
-
-			return r.removeFromRouteTable(prefix, nexthop)
-		},
+		r.removeFromRouteTable,
 	)
+
+	if netstack.IsEnabled() {
+		refCounter = refcounter.New(
+			func(netip.Prefix, struct{}) (Nexthop, error) {
+				return Nexthop{}, refcounter.ErrIgnore
+			},
+			func(netip.Prefix, Nexthop) error {
+				return nil
+			},
+		)
+	}
 
 	r.refCounter = refCounter
 
-	return r.setupHooks(initAddresses)
+	return r.setupHooks(initAddresses, stateManager)
 }
 
+// updateState updates state on every change so it will be persisted regularly
 func (r *SysOps) updateState(stateManager *statemanager.Manager) {
-	state := getState(stateManager)
-
-	state.Counter = r.refCounter
-
-	if err := stateManager.UpdateState(state); err != nil {
+	if err := stateManager.UpdateState((*ShutdownState)(r.refCounter)); err != nil {
 		log.Errorf("failed to update state: %v", err)
 	}
 }
@@ -336,7 +337,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	return r.removeFromRouteTable(prefix, nextHop)
 }
 
-func (r *SysOps) setupHooks(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
 		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {
@@ -347,12 +348,16 @@ func (r *SysOps) setupHooks(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.Re
 			return fmt.Errorf("adding route reference: %v", err)
 		}
 
+		r.updateState(stateManager)
+
 		return nil
 	}
 	afterHook := func(connID nbnet.ConnectionID) error {
 		if err := r.refCounter.DecrementWithID(string(connID)); err != nil {
 			return fmt.Errorf("remove route reference: %w", err)
 		}
+
+		r.updateState(stateManager)
 
 		return nil
 	}
@@ -531,15 +536,4 @@ func isVpnRoute(addr netip.Addr, vpnRoutes []netip.Prefix, localRoutes []netip.P
 
 	// Return true if the longest matching prefix is from vpnRoutes
 	return isVpn, longestPrefix
-}
-
-func getState(stateManager *statemanager.Manager) *ShutdownState {
-	var shutdownState *ShutdownState
-	if state := stateManager.GetState(shutdownState); state != nil {
-		shutdownState = state.(*ShutdownState)
-	} else {
-		shutdownState = &ShutdownState{}
-	}
-
-	return shutdownState
 }

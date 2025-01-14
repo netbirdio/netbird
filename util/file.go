@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,19 @@ import (
 
 	log "github.com/sirupsen/logrus"
 )
+
+func WriteBytesWithRestrictedPermission(ctx context.Context, file string, bs []byte) error {
+	configDir, configFileName, err := prepareConfigFileDir(file)
+	if err != nil {
+		return fmt.Errorf("prepare config file dir: %w", err)
+	}
+
+	if err = EnforcePermission(file); err != nil {
+		return fmt.Errorf("enforce permission: %w", err)
+	}
+
+	return writeBytes(ctx, file, err, configDir, configFileName, bs)
+}
 
 // WriteJsonWithRestrictedPermission writes JSON config object to a file. Enforces permission on the parent directory
 func WriteJsonWithRestrictedPermission(ctx context.Context, file string, obj interface{}) error {
@@ -82,29 +96,44 @@ func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
 func writeJson(ctx context.Context, file string, obj interface{}, configDir string, configFileName string) error {
 	// Check context before expensive operations
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return fmt.Errorf("write json start: %w", ctx.Err())
 	}
 
 	// make it pretty
 	bs, err := json.MarshalIndent(obj, "", "    ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal: %w", err)
 	}
 
+	return writeBytes(ctx, file, err, configDir, configFileName, bs)
+}
+
+func writeBytes(ctx context.Context, file string, err error, configDir string, configFileName string, bs []byte) error {
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return fmt.Errorf("write bytes start: %w", ctx.Err())
 	}
 
 	tempFile, err := os.CreateTemp(configDir, ".*"+configFileName)
 	if err != nil {
-		return err
+		return fmt.Errorf("create temp: %w", err)
 	}
 
 	tempFileName := tempFile.Name()
-	// closing file ops as windows doesn't allow to move it
-	err = tempFile.Close()
+
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := tempFile.SetDeadline(deadline); err != nil && !errors.Is(err, os.ErrNoDeadline) {
+			log.Warnf("failed to set deadline: %v", err)
+		}
+	}
+
+	_, err = tempFile.Write(bs)
 	if err != nil {
-		return err
+		_ = tempFile.Close()
+		return fmt.Errorf("write: %w", err)
+	}
+
+	if err = tempFile.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", tempFileName, err)
 	}
 
 	defer func() {
@@ -114,19 +143,13 @@ func writeJson(ctx context.Context, file string, obj interface{}, configDir stri
 		}
 	}()
 
-	err = os.WriteFile(tempFileName, bs, 0600)
-	if err != nil {
-		return err
-	}
-
 	// Check context again
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return fmt.Errorf("after temp file: %w", ctx.Err())
 	}
 
-	err = os.Rename(tempFileName, file)
-	if err != nil {
-		return err
+	if err = os.Rename(tempFileName, file); err != nil {
+		return fmt.Errorf("move %s to %s: %w", tempFileName, file, err)
 	}
 
 	return nil

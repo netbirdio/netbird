@@ -19,10 +19,34 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+const (
+	errStateNotRegistered = "state %s not registered"
+	errLoadStateFile      = "load state file: %w"
+)
+
 // State interface defines the methods that all state types must implement
 type State interface {
 	Name() string
+}
+
+// CleanableState interface extends State with cleanup capability
+type CleanableState interface {
+	State
 	Cleanup() error
+}
+
+// RawState wraps raw JSON data for unregistered states
+type RawState struct {
+	data json.RawMessage
+}
+
+func (r *RawState) Name() string {
+	return "" // This is a placeholder implementation
+}
+
+// MarshalJSON implements json.Marshaler to preserve the original JSON
+func (r *RawState) MarshalJSON() ([]byte, error) {
+	return r.data, nil
 }
 
 // Manager handles the persistence and management of various states
@@ -74,15 +98,15 @@ func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.cancel != nil {
-		m.cancel()
+	if m.cancel == nil {
+		return nil
+	}
+	m.cancel()
 
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-m.done:
-			return nil
-		}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-m.done:
 	}
 
 	return nil
@@ -140,13 +164,70 @@ func (m *Manager) setState(name string, state State) error {
 	defer m.mu.Unlock()
 
 	if _, exists := m.states[name]; !exists {
-		return fmt.Errorf("state %s not registered", name)
+		return fmt.Errorf(errStateNotRegistered, name)
 	}
 
 	m.states[name] = state
 	m.dirty[name] = struct{}{}
 
 	return nil
+}
+
+// DeleteStateByName handles deletion of states without cleanup.
+// It doesn't require the state to be registered.
+func (m *Manager) DeleteStateByName(stateName string) error {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	rawStates, err := m.loadStateFile(false)
+	if err != nil {
+		return fmt.Errorf(errLoadStateFile, err)
+	}
+	if rawStates == nil {
+		return nil
+	}
+
+	if _, exists := rawStates[stateName]; !exists {
+		return fmt.Errorf("state %s not found", stateName)
+	}
+
+	// Mark state as deleted by setting it to nil and marking it dirty
+	m.states[stateName] = nil
+	m.dirty[stateName] = struct{}{}
+
+	return nil
+}
+
+// DeleteAllStates removes all states.
+func (m *Manager) DeleteAllStates() (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	rawStates, err := m.loadStateFile(false)
+	if err != nil {
+		return 0, fmt.Errorf(errLoadStateFile, err)
+	}
+	if rawStates == nil {
+		return 0, nil
+	}
+
+	count := len(rawStates)
+
+	// Mark all states as deleted and dirty
+	for name := range rawStates {
+		m.states[name] = nil
+		m.dirty[name] = struct{}{}
+	}
+
+	return count, nil
 }
 
 func (m *Manager) periodicStateSave(ctx context.Context) {
@@ -179,14 +260,18 @@ func (m *Manager) PersistState(ctx context.Context) error {
 		return nil
 	}
 
+	bs, err := marshalWithPanicRecovery(m.states)
+	if err != nil {
+		return fmt.Errorf("marshal states: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	done := make(chan error, 1)
-
 	start := time.Now()
 	go func() {
-		done <- util.WriteJsonWithRestrictedPermission(ctx, m.filePath, m.states)
+		done <- util.WriteBytesWithRestrictedPermission(ctx, m.filePath, bs)
 	}()
 
 	select {
@@ -198,63 +283,175 @@ func (m *Manager) PersistState(ctx context.Context) error {
 		}
 	}
 
-	log.Debugf("persisted shutdown states: %v, took %v", maps.Keys(m.dirty), time.Since(start))
+	log.Debugf("persisted states: %v, took %v", maps.Keys(m.dirty), time.Since(start))
 
 	clear(m.dirty)
 
 	return nil
 }
 
-// loadState loads the existing state from the state file
-func (m *Manager) loadState() error {
+// loadStateFile reads and unmarshals the state file into a map of raw JSON messages
+func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage, error) {
 	data, err := os.ReadFile(m.filePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			log.Debug("state file does not exist")
-			return nil
+			return nil, nil // nolint:nilnil
 		}
-		return fmt.Errorf("read state file: %w", err)
+		return nil, fmt.Errorf("read state file: %w", err)
 	}
 
 	var rawStates map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawStates); err != nil {
-		log.Warn("State file appears to be corrupted, attempting to delete it")
-		if err := os.Remove(m.filePath); err != nil {
-			log.Errorf("Failed to delete corrupted state file: %v", err)
-		} else {
-			log.Info("State file deleted")
+		if deleteCorrupt {
+			log.Warn("State file appears to be corrupted, attempting to delete it", err)
+			if err := os.Remove(m.filePath); err != nil {
+				log.Errorf("Failed to delete corrupted state file: %v", err)
+			} else {
+				log.Info("State file deleted")
+			}
 		}
-		return fmt.Errorf("unmarshal states: %w", err)
+		return nil, fmt.Errorf("unmarshal states: %w", err)
 	}
 
-	var merr *multierror.Error
+	return rawStates, nil
+}
 
-	for name, rawState := range rawStates {
-		stateType, ok := m.stateTypes[name]
-		if !ok {
-			merr = multierror.Append(merr, fmt.Errorf("unknown state type: %s", name))
-			continue
-		}
+// loadSingleRawState unmarshals a raw state into a concrete state object
+func (m *Manager) loadSingleRawState(name string, rawState json.RawMessage) (State, error) {
+	stateType, ok := m.stateTypes[name]
+	if !ok {
+		return nil, fmt.Errorf(errStateNotRegistered, name)
+	}
 
-		if string(rawState) == "null" {
-			continue
-		}
+	if string(rawState) == "null" {
+		return nil, nil //nolint:nilnil
+	}
 
-		statePtr := reflect.New(stateType).Interface().(State)
-		if err := json.Unmarshal(rawState, statePtr); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("unmarshal state %s: %w", name, err))
-			continue
-		}
+	statePtr := reflect.New(stateType).Interface().(State)
+	if err := json.Unmarshal(rawState, statePtr); err != nil {
+		return nil, fmt.Errorf("unmarshal state %s: %w", name, err)
+	}
 
-		m.states[name] = statePtr
+	return statePtr, nil
+}
+
+// LoadState loads a specific state from the state file
+func (m *Manager) LoadState(state State) error {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	rawStates, err := m.loadStateFile(false)
+	if err != nil {
+		return err
+	}
+	if rawStates == nil {
+		return nil
+	}
+
+	name := state.Name()
+	rawState, exists := rawStates[name]
+	if !exists {
+		return nil
+	}
+
+	loadedState, err := m.loadSingleRawState(name, rawState)
+	if err != nil {
+		return err
+	}
+
+	m.states[name] = loadedState
+	if loadedState != nil {
 		log.Debugf("loaded state: %s", name)
 	}
 
-	return nberrors.FormatErrorOrNil(merr)
+	return nil
 }
 
-// PerformCleanup retrieves all states from the state file for the registered states and calls Cleanup on them.
-// If the cleanup is successful, the state is marked for deletion.
+// cleanupSingleState handles the cleanup of a specific state and returns any error.
+// The caller must hold the mutex.
+func (m *Manager) cleanupSingleState(name string, rawState json.RawMessage) error {
+	// For unregistered states, preserve the raw JSON
+	if _, registered := m.stateTypes[name]; !registered {
+		m.states[name] = &RawState{data: rawState}
+		return nil
+	}
+
+	// Load the state
+	loadedState, err := m.loadSingleRawState(name, rawState)
+	if err != nil {
+		return err
+	}
+
+	if loadedState == nil {
+		return nil
+	}
+
+	// Check if state supports cleanup
+	cleanableState, isCleanable := loadedState.(CleanableState)
+	if !isCleanable {
+		// If it doesn't support cleanup, keep it as-is
+		m.states[name] = loadedState
+		return nil
+	}
+
+	// Perform cleanup
+	log.Infof("cleaning up state %s", name)
+	if err := cleanableState.Cleanup(); err != nil {
+		// On cleanup error, preserve the state
+		m.states[name] = loadedState
+		return fmt.Errorf("cleanup state: %w", err)
+	}
+
+	// Successfully cleaned up - mark for deletion
+	m.states[name] = nil
+	m.dirty[name] = struct{}{}
+	return nil
+}
+
+// CleanupStateByName loads and cleans up a specific state by name if it implements CleanableState.
+// Returns an error if the state doesn't exist, isn't registered, or cleanup fails.
+func (m *Manager) CleanupStateByName(name string) error {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if state is registered
+	if _, registered := m.stateTypes[name]; !registered {
+		return fmt.Errorf(errStateNotRegistered, name)
+	}
+
+	// Load raw states from file
+	rawStates, err := m.loadStateFile(false)
+	if err != nil {
+		return err
+	}
+	if rawStates == nil {
+		return nil
+	}
+
+	// Check if state exists in file
+	rawState, exists := rawStates[name]
+	if !exists {
+		return nil
+	}
+
+	if err := m.cleanupSingleState(name, rawState); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+
+	return nil
+}
+
+// PerformCleanup retrieves all states from the state file and calls Cleanup on registered states that support it.
+// Unregistered states are preserved in their original state.
 func (m *Manager) PerformCleanup() error {
 	if m == nil {
 		return nil
@@ -263,26 +460,63 @@ func (m *Manager) PerformCleanup() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := m.loadState(); err != nil {
-		log.Warnf("Failed to load state during cleanup: %v", err)
+	// Load raw states from file
+	rawStates, err := m.loadStateFile(true)
+	if err != nil {
+		return fmt.Errorf(errLoadStateFile, err)
+	}
+	if rawStates == nil {
+		return nil
 	}
 
 	var merr *multierror.Error
-	for name, state := range m.states {
-		if state == nil {
-			// If no state was found in the state file, we don't mark the state dirty nor return an error
-			continue
-		}
 
-		log.Infof("client was not shut down properly, cleaning up %s", name)
-		if err := state.Cleanup(); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("cleanup state for %s: %w", name, err))
-		} else {
-			// mark for deletion on cleanup success
-			m.states[name] = nil
-			m.dirty[name] = struct{}{}
+	// Process each state in the file
+	for name, rawState := range rawStates {
+		if err := m.cleanupSingleState(name, rawState); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("%s: %w", name, err))
 		}
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// GetSavedStateNames returns all state names that are currently saved in the state file.
+func (m *Manager) GetSavedStateNames() ([]string, error) {
+	if m == nil {
+		return nil, nil
+	}
+
+	rawStates, err := m.loadStateFile(false)
+	if err != nil {
+		return nil, fmt.Errorf(errLoadStateFile, err)
+	}
+	if rawStates == nil {
+		return nil, nil
+	}
+
+	var states []string
+	for name, state := range rawStates {
+		if len(state) != 0 && string(state) != "null" {
+			states = append(states, name)
+		}
+	}
+
+	return states, nil
+}
+
+func marshalWithPanicRecovery(v any) ([]byte, error) {
+	var bs []byte
+	var err error
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during marshal: %v", r)
+			}
+		}()
+		bs, err = json.Marshal(v)
+	}()
+
+	return bs, err
 }
