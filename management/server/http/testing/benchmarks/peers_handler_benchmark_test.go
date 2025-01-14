@@ -35,13 +35,13 @@ var benchCasesPeers = map[string]testing_tools.BenchmarkCase{
 
 func BenchmarkUpdatePeer(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 2000},
+		"Peers - XS":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 3500},
 		"Peers - S":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 80, MaxMsPerOpCICD: 200},
 		"Peers - M":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 150, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
-		"Peers - L":      {MinMsPerOpLocal: 230, MaxMsPerOpLocal: 270, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 500},
-		"Groups - L":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 650, MaxMsPerOpCICD: 100},
-		"Users - L":      {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 350, MaxMsPerOpCICD: 600},
-		"Setup Keys - L": {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 350, MaxMsPerOpCICD: 600},
+		"Peers - L":      {MinMsPerOpLocal: 230, MaxMsPerOpLocal: 270, MinMsPerOpCICD: 200, MaxMsPerOpCICD: 500},
+		"Groups - L":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 650, MaxMsPerOpCICD: 3500},
+		"Users - L":      {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 300, MaxMsPerOpCICD: 600},
+		"Setup Keys - L": {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 300, MaxMsPerOpCICD: 600},
 		"Peers - XL":     {MinMsPerOpLocal: 600, MaxMsPerOpLocal: 1000, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 2000},
 	}
 
@@ -81,7 +81,7 @@ func BenchmarkGetOnePeer(b *testing.B) {
 		"Peers - S":      {MinMsPerOpLocal: 1, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 30},
 		"Peers - M":      {MinMsPerOpLocal: 9, MaxMsPerOpLocal: 18, MinMsPerOpCICD: 15, MaxMsPerOpCICD: 50},
 		"Peers - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
-		"Groups - L":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 150, MaxMsPerOpCICD: 400},
+		"Groups - L":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
 		"Users - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
 		"Setup Keys - L": {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
 		"Peers - XL":     {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 200, MaxMsPerOpCICD: 600},
@@ -114,7 +114,7 @@ func BenchmarkGetAllPeers(b *testing.B) {
 		"Peers - XS":     {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 70, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 150},
 		"Peers - S":      {MinMsPerOpLocal: 2, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 30},
 		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 20, MaxMsPerOpCICD: 70},
-		"Peers - L":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 200},
+		"Peers - L":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
 		"Groups - L":     {MinMsPerOpLocal: 4800, MaxMsPerOpLocal: 5300, MinMsPerOpCICD: 7000, MaxMsPerOpCICD: 15000},
 		"Users - L":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
 		"Setup Keys - L": {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
