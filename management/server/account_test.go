@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+
 	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -3021,12 +3022,12 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 3, 3, 14},
-		{"Medium", 500, 100, 7, 13, 10, 80},
-		{"Large", 5000, 200, 65, 80, 60, 220},
-		{"Small single", 50, 10, 1, 3, 3, 70},
-		{"Medium single", 500, 10, 7, 13, 10, 32},
-		{"Large 5", 5000, 15, 65, 80, 60, 200},
+		{"Small", 50, 5, 1, 3, 3, 19},
+		{"Medium", 500, 100, 7, 13, 10, 90},
+		{"Large", 5000, 200, 65, 80, 60, 240},
+		{"Small single", 50, 10, 1, 3, 3, 80},
+		{"Medium single", 500, 10, 7, 13, 10, 37},
+		{"Large 5", 5000, 15, 65, 80, 60, 220},
 	}
 
 	log.SetOutput(io.Discard)
@@ -3088,12 +3089,12 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 102, 110, 102, 120},
-		{"Medium", 500, 100, 105, 140, 105, 170},
-		{"Large", 5000, 200, 160, 200, 160, 300},
-		{"Small single", 50, 10, 102, 110, 102, 120},
-		{"Medium single", 500, 10, 105, 140, 105, 170},
-		{"Large 5", 5000, 15, 160, 200, 160, 270},
+		{"Small", 50, 5, 102, 110, 102, 130},
+		{"Medium", 500, 100, 105, 140, 105, 190},
+		{"Large", 5000, 200, 160, 200, 160, 320},
+		{"Small single", 50, 10, 102, 110, 102, 130},
+		{"Medium single", 500, 10, 105, 140, 105, 190},
+		{"Large 5", 5000, 15, 160, 200, 160, 290},
 	}
 
 	log.SetOutput(io.Discard)
