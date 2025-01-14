@@ -85,7 +85,7 @@ func (h *routersHandler) createRouter(w http.ResponseWriter, r *http.Request) {
 
 	router.NetworkID = networkID
 	router.AccountID = accountID
-
+	router.Enabled = true
 	router, err = h.routersManager.CreateRouter(r.Context(), userID, router)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
