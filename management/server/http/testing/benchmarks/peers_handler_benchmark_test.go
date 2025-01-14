@@ -77,11 +77,11 @@ func BenchmarkUpdatePeer(b *testing.B) {
 
 func BenchmarkGetOnePeer(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 60, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 200},
+		"Peers - XS":     {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 60, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 70},
 		"Peers - S":      {MinMsPerOpLocal: 1, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 30},
 		"Peers - M":      {MinMsPerOpLocal: 9, MaxMsPerOpLocal: 18, MinMsPerOpCICD: 15, MaxMsPerOpCICD: 50},
 		"Peers - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
-		"Groups - L":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
+		"Groups - L":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 100},
 		"Users - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
 		"Setup Keys - L": {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 130},
 		"Peers - XL":     {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 200, MaxMsPerOpCICD: 750},
@@ -115,7 +115,7 @@ func BenchmarkGetAllPeers(b *testing.B) {
 		"Peers - S":      {MinMsPerOpLocal: 2, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 30},
 		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 20, MaxMsPerOpCICD: 70},
 		"Peers - L":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
-		"Groups - L":     {MinMsPerOpLocal: 4800, MaxMsPerOpLocal: 5300, MinMsPerOpCICD: 7000, MaxMsPerOpCICD: 15000},
+		"Groups - L":     {MinMsPerOpLocal: 4800, MaxMsPerOpLocal: 5300, MinMsPerOpCICD: 5000, MaxMsPerOpCICD: 8000},
 		"Users - L":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
 		"Setup Keys - L": {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
 		"Peers - XL":     {MinMsPerOpLocal: 900, MaxMsPerOpLocal: 1300, MinMsPerOpCICD: 800, MaxMsPerOpCICD: 2300},
