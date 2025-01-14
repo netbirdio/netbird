@@ -101,6 +101,7 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 	}
 
 	groupsMap := make(map[string]*types.Group, len(groups))
+
 	for _, group := range groups {
 		groupsMap[group.ID] = group
 	}
@@ -127,6 +128,7 @@ func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.P
 	}
 	return update, false, nil
 }
+
 func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*types.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
