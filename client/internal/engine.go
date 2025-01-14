@@ -517,47 +517,12 @@ func (e *Engine) initFirewall() error {
 }
 
 func (e *Engine) blockLanAccess() {
-	// TODO: keep this updated
-
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		log.Errorf("failed to get network interfaces for blocking lan access: %v", err)
-		return
-	}
-
-	var toBlock []netip.Prefix
 	var merr *multierror.Error
-	for _, iface := range ifaces {
-		addrs, err := iface.Addrs()
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("get addresses for interface %s: %w", iface.Name, err))
-			continue
-		}
 
-		for _, addr := range addrs {
-			ipNet, ok := addr.(*net.IPNet)
-			if !ok {
-				merr = multierror.Append(merr, fmt.Errorf("cast address to IPNet: %v", addr))
-				continue
-			}
-			ones, _ := ipNet.Mask.Size()
-			addr, ok := netip.AddrFromSlice(ipNet.IP)
-			if !ok {
-				merr = multierror.Append(merr, fmt.Errorf("cast IPNet to netip.Addr: %v", ipNet.IP))
-				continue
-			}
-			addr = addr.Unmap()
-			prefix := netip.PrefixFrom(addr, ones)
-			prefix = prefix.Masked()
-			ip := prefix.Addr()
-
-			// TODO: add IPv6
-			if !ip.Is4() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				continue
-			}
-
-			toBlock = append(toBlock, prefix)
-		}
+	// TODO: keep this updated
+	toBlock, err := getInterfacePrefixes()
+	if err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("get local addresses: %w", err))
 	}
 
 	log.Infof("blocking route LAN access for networks: %v", toBlock)
@@ -1756,4 +1721,46 @@ func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
 		return slices.Equal(checks.Files, oChecks.Files)
 	})
+}
+
+func getInterfacePrefixes() ([]netip.Prefix, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("get interfaces: %w", err)
+	}
+
+	var prefixes []netip.Prefix
+	var merr *multierror.Error
+
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("get addresses for interface %s: %w", iface.Name, err))
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				merr = multierror.Append(merr, fmt.Errorf("cast address to IPNet: %v", addr))
+				continue
+			}
+			addr, ok := netip.AddrFromSlice(ipNet.IP)
+			if !ok {
+				merr = multierror.Append(merr, fmt.Errorf("cast IPNet to netip.Addr: %v", ipNet.IP))
+				continue
+			}
+			ones, _ := ipNet.Mask.Size()
+			prefix := netip.PrefixFrom(addr.Unmap(), ones).Masked()
+			ip := prefix.Addr()
+
+			// TODO: add IPv6
+			if !ip.Is4() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				continue
+			}
+
+			prefixes = append(prefixes, prefix)
+		}
+	}
+
+	return prefixes, nberrors.FormatErrorOrNil(merr)
 }
