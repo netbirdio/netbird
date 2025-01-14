@@ -45,6 +45,7 @@ import (
 const (
 	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
+	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
 )
@@ -469,7 +470,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 
 		expiredPeers, err := am.getExpiredPeers(ctx, accountID)
 		if err != nil {
-			return 0, false
+			return peerSchedulerRetryInterval, true
 		}
 
 		var peerIDs []string
@@ -481,7 +482,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 
 		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
 			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", accountID)
-			return 0, false
+			return peerSchedulerRetryInterval, true
 		}
 
 		return am.getNextPeerExpiration(ctx, accountID)
@@ -504,7 +505,7 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 		inactivePeers, err := am.getInactivePeers(ctx, accountID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed getting inactive peers for account %s", accountID)
-			return 0, false
+			return peerSchedulerRetryInterval, true
 		}
 
 		var peerIDs []string
@@ -516,7 +517,7 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 		if err := am.expireAndUpdatePeers(ctx, accountID, inactivePeers); err != nil {
 			log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
-			return 0, false
+			return peerSchedulerRetryInterval, true
 		}
 
 		return am.getNextInactivePeerExpiration(ctx, accountID)

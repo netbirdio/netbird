@@ -72,13 +72,8 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	groupsMap := map[string]*types.Group{}
-	grps, _ := h.accountManager.GetAllGroups(ctx, accountID, userID)
-	for _, group := range grps {
-		groupsMap[group.ID] = group
-	}
-
-	groupsInfo := groups.ToGroupsInfo(groupsMap, peerID)
+	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
+	groupsInfo := groups.ToGroupsInfo(grps, peerID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
@@ -128,12 +123,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		return
 	}
 
-	groupsMap := map[string]*types.Group{}
-	for _, group := range peerGroups {
-		groupsMap[group.ID] = group
-	}
-
-	groupMinimumInfo := groups.ToGroupsInfo(groupsMap, peer.ID)
+	groupMinimumInfo := groups.ToGroupsInfo(peerGroups, peer.ID)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
@@ -204,11 +194,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	dnsDomain := h.accountManager.GetDNSDomain()
 
-	groupsMap := map[string]*types.Group{}
 	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
-	for _, group := range grps {
-		groupsMap[group.ID] = group
-	}
 
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
@@ -217,7 +203,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
-		groupMinimumInfo := groups.ToGroupsInfo(groupsMap, peer.ID)
+		groupMinimumInfo := groups.ToGroupsInfo(grps, peer.ID)
 
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}

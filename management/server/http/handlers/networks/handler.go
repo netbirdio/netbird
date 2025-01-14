@@ -82,7 +82,7 @@ func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := h.groupsManager.GetAllGroups(r.Context(), accountID, userID)
+	groups, err := h.groupsManager.GetAllGroupsMap(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -267,7 +267,7 @@ func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, ne
 		return nil, nil, 0, fmt.Errorf("failed to get routers in network: %w", err)
 	}
 
-	groups, err := h.groupsManager.GetAllGroups(ctx, accountID, userID)
+	groups, err := h.groupsManager.GetAllGroupsMap(ctx, accountID, userID)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("failed to get groups: %w", err)
 	}

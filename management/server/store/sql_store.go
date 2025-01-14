@@ -332,7 +332,7 @@ func (s *SqlStore) SavePeer(ctx context.Context, lockStrength LockingStrength, a
 
 		result = tx.Model(&nbpeer.Peer{}).Where(accountAndIDQueryCondition, accountID, peer.ID).Save(peerCopy)
 		if result.Error != nil {
-			return result.Error
+			return status.Errorf(status.Internal, "failed to save peer to store: %v", result.Error)
 		}
 
 		return nil
@@ -358,7 +358,7 @@ func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID 
 		Where(idQueryCondition, accountID).
 		Updates(&accountCopy)
 	if result.Error != nil {
-		return result.Error
+		return status.Errorf(status.Internal, "failed to update account domain attributes to store: %v", result.Error)
 	}
 
 	if result.RowsAffected == 0 {
@@ -381,7 +381,7 @@ func (s *SqlStore) SavePeerStatus(ctx context.Context, lockStrength LockingStren
 		Where(accountAndIDQueryCondition, accountID, peerID).
 		Updates(&peerCopy)
 	if result.Error != nil {
-		return result.Error
+		return status.Errorf(status.Internal, "failed to save peer status to store: %v", result.Error)
 	}
 
 	if result.RowsAffected == 0 {
@@ -403,7 +403,7 @@ func (s *SqlStore) SavePeerLocation(ctx context.Context, lockStrength LockingStr
 		Updates(peerCopy)
 
 	if result.Error != nil {
-		return result.Error
+		return status.Errorf(status.Internal, "failed to save peer locations to store: %v", result.Error)
 	}
 
 	if result.RowsAffected == 0 {
