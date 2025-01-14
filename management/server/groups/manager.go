@@ -13,7 +13,8 @@ import (
 )
 
 type Manager interface {
-	GetAllGroups(ctx context.Context, accountID, userID string) (map[string]*types.Group, error)
+	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
+	GetAllGroupsMap(ctx context.Context, accountID, userID string) (map[string]*types.Group, error)
 	GetResourceGroupsInTransaction(ctx context.Context, transaction store.Store, lockingStrength store.LockingStrength, accountID, resourceID string) ([]*types.Group, error)
 	AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error
 	AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID string, resourceID *types.Resource) (func(), error)
@@ -37,7 +38,7 @@ func NewManager(store store.Store, permissionsManager permissions.Manager, accou
 	}
 }
 
-func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string) (map[string]*types.Group, error) {
+func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Groups, permissions.Read)
 	if err != nil {
 		return nil, err
@@ -49,6 +50,15 @@ func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string
 	groups, err := m.store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting account groups: %w", err)
+	}
+
+	return groups, nil
+}
+
+func (m *managerImpl) GetAllGroupsMap(ctx context.Context, accountID, userID string) (map[string]*types.Group, error) {
+	groups, err := m.GetAllGroups(ctx, accountID, userID)
+	if err != nil {
+		return nil, err
 	}
 
 	groupsMap := make(map[string]*types.Group)
@@ -130,7 +140,7 @@ func (m *managerImpl) GetResourceGroupsInTransaction(ctx context.Context, transa
 	return transaction.GetResourceGroups(ctx, lockingStrength, accountID, resourceID)
 }
 
-func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum {
+func ToGroupsInfo(groups []*types.Group, id string) []api.GroupMinimum {
 	groupsInfo := []api.GroupMinimum{}
 	groupsChecked := make(map[string]struct{})
 	for _, group := range groups {
@@ -167,7 +177,11 @@ func ToGroupsInfo(groups map[string]*types.Group, id string) []api.GroupMinimum 
 	return groupsInfo
 }
 
-func (m *mockManager) GetAllGroups(ctx context.Context, accountID, userID string) (map[string]*types.Group, error) {
+func (m *mockManager) GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
+	return []*types.Group{}, nil
+}
+
+func (m *mockManager) GetAllGroupsMap(ctx context.Context, accountID, userID string) (map[string]*types.Group, error) {
 	return map[string]*types.Group{}, nil
 }
 
