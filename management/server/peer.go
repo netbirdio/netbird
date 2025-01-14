@@ -101,7 +101,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(ctx, accountID)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(accountID, account.Groups, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -1057,12 +1057,12 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(ctx, accountID)
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(accountID, account.Groups, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
