@@ -28,6 +28,7 @@ const (
 	arraySymbol                         = "* "
 	digitSymbol                         = "# "
 	scutilPath                          = "/usr/sbin/scutil"
+	dscacheutilPath                     = "/usr/bin/dscacheutil"
 	searchSuffix                        = "Search"
 	matchSuffix                         = "Match"
 	localSuffix                         = "Local"
@@ -106,6 +107,10 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 		return fmt.Errorf("add search domains: %w", err)
 	}
 
+	if err := s.flushDNSCache(); err != nil {
+		log.Errorf("failed to flush DNS cache: %v", err)
+	}
+
 	return nil
 }
 
@@ -121,6 +126,10 @@ func (s *systemConfigurator) restoreHostDNS() error {
 		if err != nil {
 			log.Errorf("failed to remove %s domains from system: %s", keyType, err)
 		}
+	}
+
+	if err := s.flushDNSCache(); err != nil {
+		log.Errorf("failed to flush DNS cache: %v", err)
 	}
 
 	return nil
@@ -314,6 +323,21 @@ func (s *systemConfigurator) getPrimaryService() (string, string, error) {
 	}
 
 	return primaryService, router, nil
+}
+
+func (s *systemConfigurator) flushDNSCache() error {
+	cmd := exec.Command(dscacheutilPath, "-flushcache")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("flush DNS cache: %w, output: %s", err, out)
+	}
+
+	cmd = exec.Command("killall", "-HUP", "mDNSResponder")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("restart mDNSResponder: %w, output: %s", err, out)
+	}
+
+	log.Info("flushed DNS cache")
+	return nil
 }
 
 func (s *systemConfigurator) restoreUncleanShutdownDNS() error {
