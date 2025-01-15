@@ -94,7 +94,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			setupFunc: func(m *Manager) {
 				// Single rule allowing all traffic
 				_, err := m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolALL, nil, nil,
-					fw.RuleDirectionIN, fw.ActionAccept, "", "allow all")
+					fw.ActionAccept, "", "allow all")
 				require.NoError(b, err)
 			},
 			desc: "Baseline: Single 'allow all' rule without connection tracking",
@@ -117,7 +117,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 					_, err := m.AddPeerFiltering(ip, fw.ProtocolTCP,
 						&fw.Port{Values: []int{1024 + i}},
 						&fw.Port{Values: []int{80}},
-						fw.RuleDirectionIN, fw.ActionAccept, "", "explicit return")
+						fw.ActionAccept, "", "explicit return")
 					require.NoError(b, err)
 				}
 			},
@@ -129,7 +129,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			setupFunc: func(m *Manager) {
 				// Add some basic rules but rely on state for established connections
 				_, err := m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP, nil, nil,
-					fw.RuleDirectionIN, fw.ActionDrop, "", "default drop")
+					fw.ActionDrop, "", "default drop")
 				require.NoError(b, err)
 			},
 			desc: "Connection tracking with established connections",
@@ -593,7 +593,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
 					&fw.Port{Values: []int{80}},
 					nil,
-					fw.RuleDirectionIN, fw.ActionAccept, "", "return traffic")
+					fw.ActionAccept, "", "return traffic")
 				require.NoError(b, err)
 			}
 
@@ -684,7 +684,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
 					&fw.Port{Values: []int{80}},
 					nil,
-					fw.RuleDirectionIN, fw.ActionAccept, "", "return traffic")
+					fw.ActionAccept, "", "return traffic")
 				require.NoError(b, err)
 			}
 
@@ -802,7 +802,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
 					&fw.Port{Values: []int{80}},
 					nil,
-					fw.RuleDirectionIN, fw.ActionAccept, "", "return traffic")
+					fw.ActionAccept, "", "return traffic")
 				require.NoError(b, err)
 			}
 
@@ -889,7 +889,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
 					&fw.Port{Values: []int{80}},
 					nil,
-					fw.RuleDirectionIN, fw.ActionAccept, "", "return traffic")
+					fw.ActionAccept, "", "return traffic")
 				require.NoError(b, err)
 			}
 

@@ -45,7 +45,9 @@ type RuleSet map[string]PeerRule
 
 // Manager userspace firewall manager
 type Manager struct {
-	outgoingRules  map[string]RuleSet
+	// outgoingRules is used for hooks only
+	outgoingRules map[string]RuleSet
+	// incomingRules is used for filtering and hooks
 	incomingRules  map[string]RuleSet
 	routeRules     map[string]RouteRule
 	wgNetwork      *net.IPNet
@@ -297,9 +299,8 @@ func (m *Manager) AddPeerFiltering(
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
-	direction firewall.RuleDirection,
 	action firewall.Action,
-	ipsetName string,
+	_ string,
 	comment string,
 ) ([]firewall.Rule, error) {
 	r := PeerRule{
@@ -307,7 +308,6 @@ func (m *Manager) AddPeerFiltering(
 		ip:        ip,
 		ipLayer:   layers.LayerTypeIPv6,
 		matchByIP: true,
-		direction: direction,
 		drop:      action == firewall.ActionDrop,
 		comment:   comment,
 	}
@@ -343,17 +343,10 @@ func (m *Manager) AddPeerFiltering(
 	}
 
 	m.mutex.Lock()
-	if direction == firewall.RuleDirectionIN {
-		if _, ok := m.incomingRules[r.ip.String()]; !ok {
-			m.incomingRules[r.ip.String()] = make(RuleSet)
-		}
-		m.incomingRules[r.ip.String()][r.id] = r
-	} else {
-		if _, ok := m.outgoingRules[r.ip.String()]; !ok {
-			m.outgoingRules[r.ip.String()] = make(RuleSet)
-		}
-		m.outgoingRules[r.ip.String()][r.id] = r
+	if _, ok := m.incomingRules[r.ip.String()]; !ok {
+		m.incomingRules[r.ip.String()] = make(RuleSet)
 	}
+	m.incomingRules[r.ip.String()][r.id] = r
 	m.mutex.Unlock()
 	return []firewall.Rule{&r}, nil
 }
@@ -416,19 +409,10 @@ func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
 		return fmt.Errorf("delete rule: invalid rule type: %T", rule)
 	}
 
-	if r.direction == firewall.RuleDirectionIN {
-		_, ok := m.incomingRules[r.ip.String()][r.id]
-		if !ok {
-			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
-		}
-		delete(m.incomingRules[r.ip.String()], r.id)
-	} else {
-		_, ok := m.outgoingRules[r.ip.String()][r.id]
-		if !ok {
-			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
-		}
-		delete(m.outgoingRules[r.ip.String()], r.id)
+	if _, ok := m.incomingRules[r.ip.String()][r.id]; !ok {
+		return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
 	}
+	delete(m.incomingRules[r.ip.String()], r.id)
 
 	return nil
 }
@@ -918,7 +902,6 @@ func (m *Manager) AddUDPPacketHook(
 		protoLayer: layers.LayerTypeUDP,
 		dPort:      dPort,
 		ipLayer:    layers.LayerTypeIPv6,
-		direction:  firewall.RuleDirectionOUT,
 		comment:    fmt.Sprintf("UDP Hook direction: %v, ip:%v, dport:%d", in, ip, dPort),
 		udpHook:    hook,
 	}
@@ -929,7 +912,6 @@ func (m *Manager) AddUDPPacketHook(
 
 	m.mutex.Lock()
 	if in {
-		r.direction = firewall.RuleDirectionIN
 		if _, ok := m.incomingRules[r.ip.String()]; !ok {
 			m.incomingRules[r.ip.String()] = make(map[string]PeerRule)
 		}
@@ -948,19 +930,22 @@ func (m *Manager) AddUDPPacketHook(
 
 // RemovePacketHook removes packet hook by given ID
 func (m *Manager) RemovePacketHook(hookID string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	for _, arr := range m.incomingRules {
 		for _, r := range arr {
 			if r.id == hookID {
-				rule := r
-				return m.DeletePeerRule(&rule)
+				delete(arr, r.id)
+				return nil
 			}
 		}
 	}
 	for _, arr := range m.outgoingRules {
 		for _, r := range arr {
 			if r.id == hookID {
-				rule := r
-				return m.DeletePeerRule(&rule)
+				delete(arr, r.id)
+				return nil
 			}
 		}
 	}
