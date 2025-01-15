@@ -420,6 +420,8 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DisableServerRoutes: config.DisableServerRoutes,
 		DisableDNS:          config.DisableDNS,
 		DisableFirewall:     config.DisableFirewall,
+
+		BlockLANAccess: config.BlockLANAccess,
 	}
 
 	if config.PreSharedKey != "" {
