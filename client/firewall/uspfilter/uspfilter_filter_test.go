@@ -149,7 +149,6 @@ func TestPeerACLFiltering(t *testing.T) {
 				tc.ruleProto,
 				tc.ruleSrcPort,
 				tc.ruleDstPort,
-				fw.RuleDirectionIN,
 				tc.ruleAction,
 				"",
 				tc.name,
