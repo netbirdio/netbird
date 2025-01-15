@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/google/gopacket"
@@ -43,13 +45,28 @@ const (
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
+type RouteRules []RouteRule
+
+func (r RouteRules) Sort() {
+	slices.SortStableFunc(r, func(a, b RouteRule) int {
+		// Deny rules come first
+		if a.action == firewall.ActionDrop && b.action != firewall.ActionDrop {
+			return -1
+		}
+		if a.action != firewall.ActionDrop && b.action == firewall.ActionDrop {
+			return 1
+		}
+		return strings.Compare(a.id, b.id)
+	})
+}
+
 // Manager userspace firewall manager
 type Manager struct {
 	// outgoingRules is used for hooks only
 	outgoingRules map[string]RuleSet
 	// incomingRules is used for filtering and hooks
 	incomingRules  map[string]RuleSet
-	routeRules     map[string]RouteRule
+	routeRules     RouteRules
 	wgNetwork      *net.IPNet
 	decoders       sync.Pool
 	wgIface        common.IFaceMapper
@@ -135,7 +152,6 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		nativeFirewall: nativeFirewall,
 		outgoingRules:  make(map[string]RuleSet),
 		incomingRules:  make(map[string]RuleSet),
-		routeRules:     make(map[string]RouteRule),
 		wgIface:        iface,
 		localipmanager: newLocalIPManager(),
 		routingEnabled: false,
@@ -377,7 +393,8 @@ func (m *Manager) AddRouteFiltering(
 		action:      action,
 	}
 
-	m.routeRules[ruleID] = rule
+	m.routeRules = append(m.routeRules, rule)
+	m.routeRules.Sort()
 
 	return &rule, nil
 }
@@ -391,11 +408,14 @@ func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
 	defer m.mutex.Unlock()
 
 	ruleID := rule.GetRuleID()
-	if _, exists := m.routeRules[ruleID]; !exists {
+	idx := slices.IndexFunc(m.routeRules, func(r RouteRule) bool {
+		return r.id == ruleID
+	})
+	if idx < 0 {
 		return fmt.Errorf("route rule not found: %s", ruleID)
 	}
 
-	delete(m.routeRules, ruleID)
+	m.routeRules = slices.Delete(m.routeRules, idx, idx+1)
 	return nil
 }
 
