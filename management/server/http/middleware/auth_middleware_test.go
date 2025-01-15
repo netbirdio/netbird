@@ -36,7 +36,7 @@ var testAccount = &types.Account{
 		userID: {
 			Id:        userID,
 			AccountID: accountID,
-			PATs: map[string]*server.PersonalAccessToken{
+			PATs: map[string]*types.PersonalAccessToken{
 				tokenID: {
 					ID:             tokenID,
 					Name:           "My first token",

@@ -1043,7 +1043,7 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
 	defer unlockAccount()
 
-	newUser := NewRegularUser(claims.UserId)
+	newUser := types.NewRegularUser(claims.UserId)
 	newUser.AccountID = domainAccountID
 	err := am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser)
 	if err != nil {
@@ -1121,14 +1121,14 @@ func (am *DefaultAccountManager) GetAccountInfoFromPAT(ctx context.Context, toke
 }
 
 // extractPATFromToken validates the token structure and retrieves associated User and PAT.
-func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token string) (*User, *PersonalAccessToken, error) {
-	if len(token) != PATLength {
+func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, error) {
+	if len(token) != types.PATLength {
 		return nil, nil, fmt.Errorf("token has incorrect length")
 	}
 
 	prefix := token[:len(types.PATPrefix)]
 	if prefix != types.PATPrefix {
-		return nil, nil, nil, fmt.Errorf("token has wrong prefix")
+		return nil, nil, fmt.Errorf("token has wrong prefix")
 	}
 	secret := token[len(types.PATPrefix) : len(types.PATPrefix)+types.PATSecretLength]
 	encodedChecksum := token[len(types.PATPrefix)+types.PATSecretLength : len(types.PATPrefix)+types.PATSecretLength+types.PATChecksumLength]
@@ -1146,10 +1146,10 @@ func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token 
 	hashedToken := sha256.Sum256([]byte(token))
 	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
 
-	var user *User
-	var pat *PersonalAccessToken
+	var user *types.User
+	var pat *types.PersonalAccessToken
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthShare, encodedHashedToken)
 		if err != nil {
 			return err
@@ -1308,7 +1308,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error getting user peers: %w", err)
 			}
 
-			updatedGroups, err := am.updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
+			updatedGroups, err := updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
 			if err != nil {
 				return fmt.Errorf("error modifying user peers in groups: %w", err)
 			}

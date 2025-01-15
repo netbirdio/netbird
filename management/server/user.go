@@ -139,7 +139,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	newUser := &types.User{
 		Id:                   idpUser.ID,
 		AccountID:            accountID,
-		Role:                 StrRoleToUserRole(invite.Role),
+		Role:                 types.StrRoleToUserRole(invite.Role),
 		AutoGroups:           invite.AutoGroups,
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
@@ -489,20 +489,20 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	var updateAccountPeers bool
 	var peersToExpire []*nbpeer.Peer
 	var addUserEvents []func()
-	var usersToSave = make([]*User, 0, len(updates))
-	var updatedUsersInfo = make([]*UserInfo, 0, len(updates))
+	var usersToSave = make([]*types.User, 0, len(updates))
+	var updatedUsersInfo = make([]*types.UserInfo, 0, len(updates))
 
 	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting account groups: %w", err)
 	}
 
-	groupsMap := make(map[string]*nbgroup.Group, len(groups))
+	groupsMap := make(map[string]*types.Group, len(groups))
 	for _, group := range groups {
 		groupsMap[group.ID] = group
 	}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		for _, update := range updates {
 			if update == nil {
 				return status.Errorf(status.InvalidArgument, "provided user update is nil")
@@ -550,14 +550,14 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if err = am.Store.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
-		am.updateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return updatedUsersInfo, nil
 }
 
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
-func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, groupsMap map[string]*types.Group, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool) []func() {
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool) []func() {
 	var eventsToStore []func()
 
 	if oldUser.IsBlocked() != newUser.IsBlocked() {
@@ -586,36 +586,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, gr
 	return eventsToStore
 }
 
-func (am *DefaultAccountManager) prepareUserGroupsEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *types.User, account *types.Account, peerGroupsAdded, peerGroupsRemoved map[string][]string) []func() {
-	var eventsToStore []func()
-	if newUser.AutoGroups != nil {
-		removedGroups := utildifference(oldUser.AutoGroups, newUser.AutoGroups)
-		addedGroups := utildifference(newUser.AutoGroups, oldUser.AutoGroups)
-		for _, g := range removedGroups {
-			group, ok := groupsMap[g]
-			if ok {
-				eventsToStore = append(eventsToStore, func() {
-					meta := map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName}
-					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
-				})
-			} else {
-				log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, accountID)
-			}
-		}
-		for _, g := range addedGroups {
-			group, ok := groupsMap[g]
-			if ok {
-				eventsToStore = append(eventsToStore, func() {
-					meta := map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName}
-					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
-				})
-			}
-		}
-	}
-	return eventsToStore
-}
-
-func processUserUpdate(ctx context.Context, am *DefaultAccountManager, transaction Store, groupsMap map[string]*types.Group,
+func processUserUpdate(ctx context.Context, am *DefaultAccountManager, transaction store.Store, groupsMap map[string]*types.Group,
 	initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
 
 	if update == nil {
@@ -658,8 +629,8 @@ func processUserUpdate(ctx context.Context, am *DefaultAccountManager, transacti
 	}
 
 	if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
-		removedGroups := util.difference(oldUser.AutoGroups, update.AutoGroups)
-		updatedGroups, err := am.updateUserPeersInGroups(groupsMap, userPeers, update.AutoGroups, removedGroups)
+		removedGroups := util.Difference(oldUser.AutoGroups, update.AutoGroups)
+		updatedGroups, err := updateUserPeersInGroups(groupsMap, userPeers, update.AutoGroups, removedGroups)
 		if err != nil {
 			return false, nil, nil, nil, fmt.Errorf("error modifying user peers in groups: %w", err)
 		}
@@ -670,13 +641,13 @@ func processUserUpdate(ctx context.Context, am *DefaultAccountManager, transacti
 	}
 
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, groupsMap, updatedUser.AccountID, initiatorUser.Id, oldUser, updatedUser, transferredOwnerRole)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUser.Id, oldUser, updatedUser, transferredOwnerRole)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
 
 // getUserOrCreateIfNotExists retrieves the existing user or creates a new one if it doesn't exist.
-func getUserOrCreateIfNotExists(ctx context.Context, transaction Store, update *User, addIfNotExists bool) (*User, error) {
+func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, update *types.User, addIfNotExists bool) (*types.User, error) {
 	existingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, update.Id)
 	if err != nil {
 		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
@@ -690,8 +661,8 @@ func getUserOrCreateIfNotExists(ctx context.Context, transaction Store, update *
 	return existingUser, nil
 }
 
-func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initiatorUser, update *User) (bool, error) {
-	if initiatorUser.Role == UserRoleOwner && initiatorUser.Id != update.Id && update.Role == UserRoleOwner {
+func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initiatorUser, update *types.User) (bool, error) {
+	if initiatorUser.Role == types.UserRoleOwner && initiatorUser.Id != update.Id && update.Role == types.UserRoleOwner {
 		newInitiatorUser := initiatorUser.Copy()
 		newInitiatorUser.Role = types.UserRoleAdmin
 
@@ -713,6 +684,7 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, transaction st
 	}
 
 	if !isNil(am.idpManager) && !user.IsServiceUser {
+		// TODO: Run lookupUserInCache with transaction
 		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
@@ -818,7 +790,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range accountUsers {
-			if user.Issued == UserIssuedIntegration {
+			if user.Issued == types.UserIssuedIntegration {
 				key := user.IntegrationReference.CacheKey(accountID, user.Id)
 				info, err := am.externalCacheManager.Get(am.ctx, key)
 				if err != nil {
@@ -1059,7 +1031,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 	var addPeerRemovedEvents []func()
 	var updateAccountPeers bool
-	var targetUser *User
+	var targetUser *types.User
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		targetUser, err = transaction.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
@@ -1100,9 +1072,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 }
 
 // updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
-func (am *DefaultAccountManager) updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbpeer.Peer, groupsToAdd,
-	groupsToRemove []string) (groupsToUpdate []*types.Group, err error) {
-
+func updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbpeer.Peer, groupsToAdd, groupsToRemove []string) (groupsToUpdate []*types.Group, err error) {
 	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
 		return
 	}

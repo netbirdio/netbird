@@ -2916,16 +2916,16 @@ func TestSqlStore_SaveUser(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	user := &User{
+	user := &types.User{
 		Id:            "user-id",
 		AccountID:     accountID,
-		Role:          UserRoleAdmin,
+		Role:          types.UserRoleAdmin,
 		IsServiceUser: false,
 		AutoGroups:    []string{"groupA", "groupB"},
 		Blocked:       false,
-		LastLogin:     time.Now().UTC(),
+		LastLogin:     util.ToPtr(time.Now().UTC()),
 		CreatedAt:     time.Now().UTC().Add(-time.Hour),
-		Issued:        UserIssuedIntegration,
+		Issued:        types.UserIssuedIntegration,
 	}
 	err = store.SaveUser(context.Background(), LockingStrengthUpdate, user)
 	require.NoError(t, err)
@@ -2936,7 +2936,7 @@ func TestSqlStore_SaveUser(t *testing.T) {
 	require.Equal(t, user.AccountID, saveUser.AccountID)
 	require.Equal(t, user.Role, saveUser.Role)
 	require.Equal(t, user.AutoGroups, saveUser.AutoGroups)
-	require.WithinDurationf(t, user.LastLogin, saveUser.LastLogin.UTC(), time.Millisecond, "LastLogin should be equal")
+	require.WithinDurationf(t, user.GetLastLogin(), saveUser.LastLogin.UTC(), time.Millisecond, "LastLogin should be equal")
 	require.WithinDurationf(t, user.CreatedAt, saveUser.CreatedAt.UTC(), time.Millisecond, "CreatedAt should be equal")
 	require.Equal(t, user.Issued, saveUser.Issued)
 	require.Equal(t, user.Blocked, saveUser.Blocked)
@@ -2954,7 +2954,7 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, accountUsers, 2)
 
-	users := []*User{
+	users := []*types.User{
 		{
 			Id:         "user-1",
 			AccountID:  accountID,
@@ -3087,15 +3087,15 @@ func TestSqlStore_SavePAT(t *testing.T) {
 
 	userID := "edafee4e-63fb-11ec-90d6-0242ac120003"
 
-	pat := &PersonalAccessToken{
+	pat := &types.PersonalAccessToken{
 		ID:             "pat-id",
 		UserID:         userID,
 		Name:           "token",
 		HashedToken:    "SoMeHaShEdToKeN",
-		ExpirationDate: time.Now().UTC().Add(12 * time.Hour),
+		ExpirationDate: util.ToPtr(time.Now().UTC().Add(12 * time.Hour)),
 		CreatedBy:      userID,
 		CreatedAt:      time.Now().UTC().Add(time.Hour),
-		LastUsed:       time.Now().UTC().Add(-15 * time.Minute),
+		LastUsed:       util.ToPtr(time.Now().UTC().Add(-15 * time.Minute)),
 	}
 	err = store.SavePAT(context.Background(), LockingStrengthUpdate, pat)
 	require.NoError(t, err)
@@ -3106,9 +3106,9 @@ func TestSqlStore_SavePAT(t *testing.T) {
 	require.Equal(t, pat.UserID, savePAT.UserID)
 	require.Equal(t, pat.HashedToken, savePAT.HashedToken)
 	require.Equal(t, pat.CreatedBy, savePAT.CreatedBy)
-	require.WithinDurationf(t, pat.ExpirationDate, savePAT.ExpirationDate.UTC(), time.Millisecond, "ExpirationDate should be equal")
+	require.WithinDurationf(t, pat.GetExpirationDate(), savePAT.ExpirationDate.UTC(), time.Millisecond, "ExpirationDate should be equal")
 	require.WithinDurationf(t, pat.CreatedAt, savePAT.CreatedAt.UTC(), time.Millisecond, "CreatedAt should be equal")
-	require.WithinDurationf(t, pat.LastUsed, savePAT.LastUsed.UTC(), time.Millisecond, "LastUsed should be equal")
+	require.WithinDurationf(t, pat.GetLastUsed(), savePAT.LastUsed.UTC(), time.Millisecond, "LastUsed should be equal")
 }
 
 func TestSqlStore_DeletePAT(t *testing.T) {
