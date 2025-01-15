@@ -13,7 +13,7 @@ import (
 type localIPManager struct {
 	mu sync.RWMutex
 
-	// Use bitmap for IPv4 (32 bits * 2^16 = 8KB memory)
+	// Use bitmap for IPv4 (32 bits * 2^16 = 256KB memory)
 	ipv4Bitmap [1 << 16]uint32
 }
 

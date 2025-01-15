@@ -12,6 +12,7 @@ import (
 	"github.com/mitchellh/hashstructure/v2"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -239,7 +240,10 @@ func (s *DefaultServer) Initialize() (err error) {
 
 	s.stateManager.RegisterState(&ShutdownState{})
 
-	if s.disableSys {
+	// use noop host manager if requested or running in netstack mode.
+	// Netstack mode currently doesn't have a way to receive DNS requests.
+	// TODO: Use listener on localhost in netstack mode when running as root.
+	if s.disableSys || netstack.IsEnabled() {
 		log.Info("system DNS is disabled, not setting up host manager")
 		s.hostManager = &noopHostConfigurator{}
 		return nil

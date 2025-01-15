@@ -91,11 +91,10 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []int{80}}
-	direction := fw.RuleDirectionOUT
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	rule, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
+	rule, err := m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -126,35 +125,13 @@ func TestManagerDeleteRule(t *testing.T) {
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []int{80}}
-	direction := fw.RuleDirectionOUT
 	action := fw.ActionDrop
-	comment := "Test rule"
+	comment := "Test rule 2"
 
-	rule, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
+	rule2, err := m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
-	}
-
-	ip = net.ParseIP("192.168.1.1")
-	proto = fw.ProtocolTCP
-	port = &fw.Port{Values: []int{80}}
-	direction = fw.RuleDirectionIN
-	action = fw.ActionDrop
-	comment = "Test rule 2"
-
-	rule2, err := m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
-	if err != nil {
-		t.Errorf("failed to add filtering: %v", err)
-		return
-	}
-
-	for _, r := range rule {
-		err = m.DeletePeerRule(r)
-		if err != nil {
-			t.Errorf("failed to delete rule: %v", err)
-			return
-		}
 	}
 
 	for _, r := range rule2 {
@@ -246,10 +223,6 @@ func TestAddUDPPacketHook(t *testing.T) {
 				t.Errorf("expected protoLayer %s, got %s", layers.LayerTypeUDP, addedRule.protoLayer)
 				return
 			}
-			if tt.expDir != addedRule.direction {
-				t.Errorf("expected direction %d, got %d", tt.expDir, addedRule.direction)
-				return
-			}
 			if addedRule.udpHook == nil {
 				t.Errorf("expected udpHook to be set")
 				return
@@ -272,11 +245,10 @@ func TestManagerReset(t *testing.T) {
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []int{80}}
-	direction := fw.RuleDirectionOUT
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	_, err = m.AddPeerFiltering(ip, proto, nil, port, direction, action, "", comment)
+	_, err = m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -319,11 +291,10 @@ func TestNotMatchByIP(t *testing.T) {
 
 	ip := net.ParseIP("0.0.0.0")
 	proto := fw.ProtocolUDP
-	direction := fw.RuleDirectionOUT
 	action := fw.ActionAccept
 	comment := "Test rule"
 
-	_, err = m.AddPeerFiltering(ip, proto, nil, nil, direction, action, "", comment)
+	_, err = m.AddPeerFiltering(ip, proto, nil, nil, action, "", comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -357,7 +328,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if m.dropFilter(buf.Bytes(), m.outgoingRules) {
+	if m.dropFilter(buf.Bytes()) {
 		t.Errorf("expected packet to be accepted")
 		return
 	}
@@ -523,11 +494,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []int{1000 + i}}
-				if i%2 == 0 {
-					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
-				} else {
-					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
-				}
+				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
 
 				require.NoError(t, err, "failed to add rule")
 			}
@@ -669,7 +636,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	for _, cp := range checkPoints {
 		time.Sleep(cp.sleep)
 
-		drop = manager.dropFilter(inboundBuf.Bytes(), manager.incomingRules)
+		drop = manager.dropFilter(inboundBuf.Bytes())
 		require.Equal(t, cp.shouldAllow, !drop, cp.description)
 
 		// If the connection should still be valid, verify it exists
@@ -740,7 +707,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the invalid packet is dropped
-			drop = manager.dropFilter(testBuf.Bytes(), manager.incomingRules)
+			drop = manager.dropFilter(testBuf.Bytes())
 			require.True(t, drop, tc.description)
 		})
 	}

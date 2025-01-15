@@ -310,8 +310,10 @@ func (m *Manager) buildConntrackStateMessage(d *decoder) string {
 }
 
 func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP net.IP) bool {
-	if !m.localipmanager.IsLocalIP(dstIP) {
-		return false
+	if !m.localForwarding {
+		trace.AddResult(StageRouting, "Local forwarding disabled", false)
+		trace.AddResult(StageCompleted, "Packet dropped - local forwarding disabled", false)
+		return true
 	}
 
 	trace.AddResult(StageRouting, "Packet destined for local delivery", true)

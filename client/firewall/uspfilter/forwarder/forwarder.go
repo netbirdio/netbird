@@ -64,12 +64,12 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwar
 		return nil, fmt.Errorf("failed to create NIC: %v", err)
 	}
 
-	_, bits := iface.Address().Network.Mask.Size()
+	ones, _ := iface.Address().Network.Mask.Size()
 	protoAddr := tcpip.ProtocolAddress{
 		Protocol: ipv4.ProtocolNumber,
 		AddressWithPrefix: tcpip.AddressWithPrefix{
 			Address:   tcpip.AddrFromSlice(iface.Address().IP.To4()),
-			PrefixLen: bits,
+			PrefixLen: ones,
 		},
 	}
 

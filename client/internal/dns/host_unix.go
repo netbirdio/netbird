@@ -48,11 +48,17 @@ type restoreHostManager interface {
 func newHostManager(wgInterface string) (hostManager, error) {
 	osManager, err := getOSDNSManagerType()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get os dns manager type: %w", err)
 	}
 
 	log.Infof("System DNS manager discovered: %s", osManager)
-	return newHostManagerFromType(wgInterface, osManager)
+	mgr, err := newHostManagerFromType(wgInterface, osManager)
+	// need to explicitly return nil mgr on error to avoid returning a non-nil interface containing a nil value
+	if err != nil {
+		return nil, fmt.Errorf("create host manager: %w", err)
+	}
+
+	return mgr, nil
 }
 
 func newHostManagerFromType(wgInterface string, osManager osManagerType) (restoreHostManager, error) {

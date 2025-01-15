@@ -16,7 +16,6 @@ type PeerRule struct {
 	ipLayer    gopacket.LayerType
 	matchByIP  bool
 	protoLayer gopacket.LayerType
-	direction  firewall.RuleDirection
 	sPort      uint16
 	dPort      uint16
 	drop       bool
