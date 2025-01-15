@@ -101,7 +101,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(accountID, account.Groups, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(accountID, account.GroupsG, account.PeersG, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +404,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		groups[groupID] = group.Peers
 	}
 
-	validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
+	validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.GroupsG, account.PeersG, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -962,7 +962,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.GroupsG, account.PeersG, account.Settings.Extra)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1071,7 +1071,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(accountID, account.Groups, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(accountID, account.GroupsG, account.PeersG, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -1104,7 +1104,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		}
 	}()
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.GroupsG, account.PeersG, account.Settings.Extra)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to get validate peers: %v", err)
 		return
@@ -1165,7 +1165,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.GroupsG, account.PeersG, account.Settings.Extra)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to validate peers: %v", peerId, err)
 		return

@@ -221,7 +221,7 @@ func generateAccountSQLTypes(account *types.Account) {
 
 	for id, peer := range account.Peers {
 		peer.ID = id
-		account.PeersG = append(account.PeersG, *peer)
+		account.PeersG = append(account.PeersG, peer)
 	}
 
 	for id, user := range account.Users {
@@ -235,7 +235,7 @@ func generateAccountSQLTypes(account *types.Account) {
 
 	for id, group := range account.Groups {
 		group.ID = id
-		account.GroupsG = append(account.GroupsG, *group)
+		account.GroupsG = append(account.GroupsG, group)
 	}
 
 	for id, route := range account.Routes {
