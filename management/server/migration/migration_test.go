@@ -147,7 +147,7 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 
 	err = db.Save(&types.Account{
 		Id: "1234",
-		PeersG: []nbpeer.Peer{
+		PeersG: []*nbpeer.Peer{
 			{Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
 		}},
 	).Error
