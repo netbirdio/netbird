@@ -10,6 +10,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
+	"github.com/netbirdio/netbird/relay/client/dialer"
+	"github.com/netbirdio/netbird/relay/client/dialer/quic"
 	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
@@ -95,8 +97,6 @@ func (cc *connContainer) writeMsg(msg Msg) {
 		msg.Free()
 	default:
 		msg.Free()
-		cc.log.Infof("message queue is full")
-		// todo consider to close the connection
 	}
 }
 
@@ -179,8 +179,7 @@ func (c *Client) Connect() error {
 		return nil
 	}
 
-	err := c.connect()
-	if err != nil {
+	if err := c.connect(); err != nil {
 		return err
 	}
 
@@ -264,14 +263,14 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := ws.Dial(c.connectionURL)
+	rd := dialer.NewRaceDial(c.log, c.connectionURL, quic.Dialer{}, ws.Dialer{})
+	conn, err := rd.Dial()
 	if err != nil {
 		return err
 	}
 	c.relayConn = conn
 
-	err = c.handShake()
-	if err != nil {
+	if err = c.handShake(); err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
 			c.log.Errorf("failed to close connection: %s", cErr)
@@ -345,7 +344,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			c.log.Infof("start to Relay read loop exit")
 			c.mu.Lock()
 			if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-				c.log.Debugf("failed to read message from relay server: %s", errExit)
+				c.log.Errorf("failed to read message from relay server: %s", errExit)
 			}
 			c.mu.Unlock()
 			c.bufPool.Put(bufPtr)
