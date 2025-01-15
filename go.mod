@@ -233,7 +233,7 @@ require (
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637 // indirect
-	gvisor.dev/gvisor v0.0.0-20231020174304-b8a429915ff1 // indirect
+	gvisor.dev/gvisor v0.0.0-20231020174304-db3d49b921f9 // indirect
 	k8s.io/apimachinery v0.26.2 // indirect
 )
 
