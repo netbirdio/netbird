@@ -13,6 +13,7 @@ type StoreMetrics struct {
 	globalLockAcquisitionDurationMs    metric.Int64Histogram
 	persistenceDurationMicro           metric.Int64Histogram
 	persistenceDurationMs              metric.Int64Histogram
+	transactionDurationMs              metric.Int64Histogram
 	ctx                                context.Context
 }
 
@@ -40,11 +41,17 @@ func NewStoreMetrics(ctx context.Context, meter metric.Meter) (*StoreMetrics, er
 		return nil, err
 	}
 
+	transactionDurationMs, err := meter.Int64Histogram("management.store.transaction.duration.ms")
+	if err != nil {
+		return nil, err
+	}
+
 	return &StoreMetrics{
 		globalLockAcquisitionDurationMicro: globalLockAcquisitionDurationMicro,
 		globalLockAcquisitionDurationMs:    globalLockAcquisitionDurationMs,
 		persistenceDurationMicro:           persistenceDurationMicro,
 		persistenceDurationMs:              persistenceDurationMs,
+		transactionDurationMs:              transactionDurationMs,
 		ctx:                                ctx,
 	}, nil
 }
@@ -59,4 +66,9 @@ func (metrics *StoreMetrics) CountGlobalLockAcquisitionDuration(duration time.Du
 func (metrics *StoreMetrics) CountPersistenceDuration(duration time.Duration) {
 	metrics.persistenceDurationMicro.Record(metrics.ctx, duration.Microseconds())
 	metrics.persistenceDurationMs.Record(metrics.ctx, duration.Milliseconds())
+}
+
+// CountTransactionDuration counts the duration of a store persistence operation
+func (metrics *StoreMetrics) CountTransactionDuration(duration time.Duration) {
+	metrics.transactionDurationMs.Record(metrics.ctx, duration.Milliseconds())
 }

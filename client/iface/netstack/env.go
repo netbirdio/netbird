@@ -15,6 +15,10 @@ func IsEnabled() bool {
 
 func ListenAddr() string {
 	sPort := os.Getenv("NB_SOCKS5_LISTENER_PORT")
+	if sPort == "" {
+		return listenAddr(DefaultSocks5Port)
+	}
+
 	port, err := strconv.Atoi(sPort)
 	if err != nil {
 		log.Warnf("invalid socks5 listener port, unable to convert it to int, falling back to default: %d", DefaultSocks5Port)

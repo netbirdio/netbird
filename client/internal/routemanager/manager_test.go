@@ -424,9 +424,14 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
-			routeManager := NewManager(ctx, localPeerKey, 0, wgInterface, statusRecorder, nil, nil)
+			routeManager := NewManager(ManagerConfig{
+				Context:        ctx,
+				PublicKey:      localPeerKey,
+				WGInterface:    wgInterface,
+				StatusRecorder: statusRecorder,
+			})
 
-			_, _, err = routeManager.Init(nil)
+			_, _, err = routeManager.Init()
 
 			require.NoError(t, err, "should init route manager")
 			defer routeManager.Stop(nil)
@@ -436,11 +441,11 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			}
 
 			if len(testCase.inputInitRoutes) > 0 {
-				_, _, err = routeManager.UpdateRoutes(testCase.inputSerial, testCase.inputRoutes)
+				_ = routeManager.UpdateRoutes(testCase.inputSerial, testCase.inputRoutes, false)
 				require.NoError(t, err, "should update routes with init routes")
 			}
 
-			_, _, err = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), testCase.inputRoutes)
+			_ = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), testCase.inputRoutes, false)
 			require.NoError(t, err, "should update routes")
 
 			expectedWatchers := testCase.clientNetworkWatchersExpected
@@ -450,8 +455,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			require.Len(t, routeManager.clientNetworks, expectedWatchers, "client networks size should match")
 
 			if runtime.GOOS == "linux" && routeManager.serverRouter != nil {
-				sr := routeManager.serverRouter.(*defaultServerRouter)
-				require.Len(t, sr.routes, testCase.serverRoutesExpected, "server networks size should match")
+				require.Len(t, routeManager.serverRouter.routes, testCase.serverRoutesExpected, "server networks size should match")
 			}
 		})
 	}

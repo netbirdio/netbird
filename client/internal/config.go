@@ -46,6 +46,7 @@ type ConfigInput struct {
 	ManagementURL       string
 	AdminURL            string
 	ConfigPath          string
+	StateFilePath       string
 	PreSharedKey        *string
 	ServerSSHAllowed    *bool
 	NATExternalIPs      []string
@@ -60,6 +61,11 @@ type ConfigInput struct {
 	DNSRouteInterval    *time.Duration
 	ClientCertPath      string
 	ClientCertKeyPath   string
+
+	DisableClientRoutes *bool
+	DisableServerRoutes *bool
+	DisableDNS          *bool
+	DisableFirewall     *bool
 }
 
 // Config Configuration type
@@ -77,6 +83,12 @@ type Config struct {
 	RosenpassEnabled     bool
 	RosenpassPermissive  bool
 	ServerSSHAllowed     *bool
+
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
+
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
 
@@ -105,10 +117,10 @@ type Config struct {
 
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
-	//Path to a certificate used for mTLS authentication
+	// Path to a certificate used for mTLS authentication
 	ClientCertPath string
 
-	//Path to corresponding private key of ClientCertPath
+	// Path to corresponding private key of ClientCertPath
 	ClientCertKeyPath string
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
@@ -116,7 +128,7 @@ type Config struct {
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
 func ReadConfig(configPath string) (*Config, error) {
-	if configFileIsExists(configPath) {
+	if fileExists(configPath) {
 		err := util.EnforcePermission(configPath)
 		if err != nil {
 			log.Errorf("failed to enforce permission on config dir: %v", err)
@@ -149,7 +161,7 @@ func ReadConfig(configPath string) (*Config, error) {
 
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
-	if !configFileIsExists(input.ConfigPath) {
+	if !fileExists(input.ConfigPath) {
 		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
 	}
 
@@ -158,13 +170,13 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 
 // UpdateOrCreateConfig reads existing config or generates a new one
 func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
-	if !configFileIsExists(input.ConfigPath) {
+	if !fileExists(input.ConfigPath) {
 		log.Infof("generating new config %s", input.ConfigPath)
 		cfg, err := createNewConfig(input)
 		if err != nil {
 			return nil, err
 		}
-		err = util.WriteJsonWithRestrictedPermission(input.ConfigPath, cfg)
+		err = util.WriteJsonWithRestrictedPermission(context.Background(), input.ConfigPath, cfg)
 		return cfg, err
 	}
 
@@ -185,7 +197,7 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 
 // WriteOutConfig write put the prepared config to the given path
 func WriteOutConfig(path string, config *Config) error {
-	return util.WriteJson(path, config)
+	return util.WriteJson(context.Background(), path, config)
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
@@ -215,7 +227,7 @@ func update(input ConfigInput) (*Config, error) {
 	}
 
 	if updated {
-		if err := util.WriteJson(input.ConfigPath, config); err != nil {
+		if err := util.WriteJson(context.Background(), input.ConfigPath, config); err != nil {
 			return nil, err
 		}
 	}
@@ -401,7 +413,46 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.DNSRouteInterval = dynamic.DefaultInterval
 		log.Infof("using default DNS route interval %s", config.DNSRouteInterval)
 		updated = true
+	}
 
+	if input.DisableClientRoutes != nil && *input.DisableClientRoutes != config.DisableClientRoutes {
+		if *input.DisableClientRoutes {
+			log.Infof("disabling client routes")
+		} else {
+			log.Infof("enabling client routes")
+		}
+		config.DisableClientRoutes = *input.DisableClientRoutes
+		updated = true
+	}
+
+	if input.DisableServerRoutes != nil && *input.DisableServerRoutes != config.DisableServerRoutes {
+		if *input.DisableServerRoutes {
+			log.Infof("disabling server routes")
+		} else {
+			log.Infof("enabling server routes")
+		}
+		config.DisableServerRoutes = *input.DisableServerRoutes
+		updated = true
+	}
+
+	if input.DisableDNS != nil && *input.DisableDNS != config.DisableDNS {
+		if *input.DisableDNS {
+			log.Infof("disabling DNS configuration")
+		} else {
+			log.Infof("enabling DNS configuration")
+		}
+		config.DisableDNS = *input.DisableDNS
+		updated = true
+	}
+
+	if input.DisableFirewall != nil && *input.DisableFirewall != config.DisableFirewall {
+		if *input.DisableFirewall {
+			log.Infof("disabling firewall configuration")
+		} else {
+			log.Infof("enabling firewall configuration")
+		}
+		config.DisableFirewall = *input.DisableFirewall
+		updated = true
 	}
 
 	if input.ClientCertKeyPath != "" {
@@ -472,9 +523,17 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 	return false
 }
 
-func configFileIsExists(path string) bool {
+func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+func createFile(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }
 
 // UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.

@@ -17,6 +17,11 @@ import (
 	relayClient "github.com/netbirdio/netbird/relay/client"
 )
 
+type ResolvedDomainInfo struct {
+	Prefixes     []netip.Prefix
+	ParentDomain domain.Domain
+}
+
 // State contains the latest state of a peer
 type State struct {
 	Mux                        *sync.RWMutex
@@ -79,6 +84,12 @@ type LocalPeerState struct {
 	Routes          map[string]struct{}
 }
 
+// Clone returns a copy of the LocalPeerState
+func (l LocalPeerState) Clone() LocalPeerState {
+	l.Routes = maps.Clone(l.Routes)
+	return l
+}
+
 // SignalState contains the latest state of a signal connection
 type SignalState struct {
 	URL       string
@@ -138,7 +149,7 @@ type Status struct {
 	rosenpassEnabled      bool
 	rosenpassPermissive   bool
 	nsGroupStates         []NSGroupState
-	resolvedDomainsStates map[domain.Domain][]netip.Prefix
+	resolvedDomainsStates map[domain.Domain]ResolvedDomainInfo
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -156,7 +167,7 @@ func NewRecorder(mgmAddress string) *Status {
 		offlinePeers:          make([]State, 0),
 		notifier:              newNotifier(),
 		mgmAddress:            mgmAddress,
-		resolvedDomainsStates: make(map[domain.Domain][]netip.Prefix),
+		resolvedDomainsStates: map[domain.Domain]ResolvedDomainInfo{},
 	}
 }
 
@@ -496,7 +507,7 @@ func (d *Status) GetPeerStateChangeNotifier(peer string) <-chan struct{} {
 func (d *Status) GetLocalPeerState() LocalPeerState {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	return d.localPeer
+	return d.localPeer.Clone()
 }
 
 // UpdateLocalPeerState updates local peer status
@@ -591,16 +602,27 @@ func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
 	d.nsGroupStates = dnsStates
 }
 
-func (d *Status) UpdateResolvedDomainsStates(domain domain.Domain, prefixes []netip.Prefix) {
+func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resolvedDomain domain.Domain, prefixes []netip.Prefix) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	d.resolvedDomainsStates[domain] = prefixes
+
+	// Store both the original domain pattern and resolved domain
+	d.resolvedDomainsStates[resolvedDomain] = ResolvedDomainInfo{
+		Prefixes:     prefixes,
+		ParentDomain: originalDomain,
+	}
 }
 
 func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	delete(d.resolvedDomainsStates, domain)
+
+	// Remove all entries that have this domain as their parent
+	for k, v := range d.resolvedDomainsStates {
+		if v.ParentDomain == domain {
+			delete(d.resolvedDomainsStates, k)
+		}
+	}
 }
 
 func (d *Status) GetRosenpassState() RosenpassState {
@@ -676,25 +698,23 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	// extend the list of stun, turn servers with relay address
 	relayStates := slices.Clone(d.relayStates)
 
-	var relayState relay.ProbeResult
-
 	// if the server connection is not established then we will use the general address
 	// in case of connection we will use the instance specific address
 	instanceAddr, err := d.relayMgr.RelayInstanceAddress()
 	if err != nil {
 		// TODO add their status
-		if errors.Is(err, relayClient.ErrRelayClientNotConnected) {
-			for _, r := range d.relayMgr.ServerURLs() {
-				relayStates = append(relayStates, relay.ProbeResult{
-					URI: r,
-				})
-			}
-			return relayStates
+		for _, r := range d.relayMgr.ServerURLs() {
+			relayStates = append(relayStates, relay.ProbeResult{
+				URI: r,
+				Err: err,
+			})
 		}
-		relayState.Err = err
+		return relayStates
 	}
 
-	relayState.URI = instanceAddr
+	relayState := relay.ProbeResult{
+		URI: instanceAddr,
+	}
 	return append(relayStates, relayState)
 }
 
@@ -704,7 +724,7 @@ func (d *Status) GetDNSStates() []NSGroupState {
 	return d.nsGroupStates
 }
 
-func (d *Status) GetResolvedDomainsStates() map[domain.Domain][]netip.Prefix {
+func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	return maps.Clone(d.resolvedDomainsStates)

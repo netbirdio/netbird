@@ -332,17 +332,11 @@ func (m *aclManager) createDefaultChains() error {
 
 // The OUTPUT chain gets an extra rule to allow traffic to any set up routes, the return traffic is handled by the INPUT related/established rule.
 func (m *aclManager) seedInitialEntries() {
-
 	established := getConntrackEstablished()
 
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
 	m.appendToEntries("INPUT", append([]string{"-i", m.wgIface.Name()}, established...))
-
-	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-j", "DROP"})
-	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-j", chainNameOutputRules})
-	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "!", "-d", m.wgIface.Address().String(), "-j", "ACCEPT"})
-	m.appendToEntries("OUTPUT", append([]string{"-o", m.wgIface.Name()}, established...))
 
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName})

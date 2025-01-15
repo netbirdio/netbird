@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const anonTLD = ".domain"
+
 type Anonymizer struct {
 	ipAnonymizer     map[netip.Addr]netip.Addr
 	domainAnonymizer map[string]string
@@ -19,6 +21,8 @@ type Anonymizer struct {
 	currentAnonIPv6  netip.Addr
 	startAnonIPv4    netip.Addr
 	startAnonIPv6    netip.Addr
+
+	domainKeyRegex *regexp.Regexp
 }
 
 func DefaultAddresses() (netip.Addr, netip.Addr) {
@@ -34,6 +38,8 @@ func NewAnonymizer(startIPv4, startIPv6 netip.Addr) *Anonymizer {
 		currentAnonIPv6:  startIPv6,
 		startAnonIPv4:    startIPv4,
 		startAnonIPv6:    startIPv6,
+
+		domainKeyRegex: regexp.MustCompile(`\bdomain=([^\s,:"]+)`),
 	}
 }
 
@@ -83,29 +89,39 @@ func (a *Anonymizer) AnonymizeIPString(ip string) string {
 }
 
 func (a *Anonymizer) AnonymizeDomain(domain string) string {
-	if strings.HasSuffix(domain, "netbird.io") ||
-		strings.HasSuffix(domain, "netbird.selfhosted") ||
-		strings.HasSuffix(domain, "netbird.cloud") ||
-		strings.HasSuffix(domain, "netbird.stage") ||
-		strings.HasSuffix(domain, ".domain") {
+	baseDomain := domain
+	hasDot := strings.HasSuffix(domain, ".")
+	if hasDot {
+		baseDomain = domain[:len(domain)-1]
+	}
+
+	if strings.HasSuffix(baseDomain, "netbird.io") ||
+		strings.HasSuffix(baseDomain, "netbird.selfhosted") ||
+		strings.HasSuffix(baseDomain, "netbird.cloud") ||
+		strings.HasSuffix(baseDomain, "netbird.stage") ||
+		strings.HasSuffix(baseDomain, anonTLD) {
 		return domain
 	}
 
-	parts := strings.Split(domain, ".")
+	parts := strings.Split(baseDomain, ".")
 	if len(parts) < 2 {
 		return domain
 	}
 
-	baseDomain := parts[len(parts)-2] + "." + parts[len(parts)-1]
+	baseForLookup := parts[len(parts)-2] + "." + parts[len(parts)-1]
 
-	anonymized, ok := a.domainAnonymizer[baseDomain]
+	anonymized, ok := a.domainAnonymizer[baseForLookup]
 	if !ok {
-		anonymizedBase := "anon-" + generateRandomString(5) + ".domain"
-		a.domainAnonymizer[baseDomain] = anonymizedBase
+		anonymizedBase := "anon-" + generateRandomString(5) + anonTLD
+		a.domainAnonymizer[baseForLookup] = anonymizedBase
 		anonymized = anonymizedBase
 	}
 
-	return strings.Replace(domain, baseDomain, anonymized, 1)
+	result := strings.Replace(baseDomain, baseForLookup, anonymized, 1)
+	if hasDot {
+		result += "."
+	}
+	return result
 }
 
 func (a *Anonymizer) AnonymizeURI(uri string) string {
@@ -152,27 +168,22 @@ func (a *Anonymizer) AnonymizeString(str string) string {
 	return str
 }
 
-// AnonymizeSchemeURI finds and anonymizes URIs with stun, stuns, turn, and turns schemes.
+// AnonymizeSchemeURI finds and anonymizes URIs with ws, wss, rel, rels, stun, stuns, turn, and turns schemes.
 func (a *Anonymizer) AnonymizeSchemeURI(text string) string {
-	re := regexp.MustCompile(`(?i)\b(stuns?:|turns?:|https?://)\S+\b`)
+	re := regexp.MustCompile(`(?i)\b(wss?://|rels?://|stuns?:|turns?:|https?://)\S+\b`)
 
 	return re.ReplaceAllStringFunc(text, a.AnonymizeURI)
 }
 
-// AnonymizeDNSLogLine anonymizes domain names in DNS log entries by replacing them with a random string.
 func (a *Anonymizer) AnonymizeDNSLogLine(logEntry string) string {
-	domainPattern := `dns\.Question{Name:"([^"]+)",`
-	domainRegex := regexp.MustCompile(domainPattern)
-
-	return domainRegex.ReplaceAllStringFunc(logEntry, func(match string) string {
-		parts := strings.Split(match, `"`)
+	return a.domainKeyRegex.ReplaceAllStringFunc(logEntry, func(match string) string {
+		parts := strings.SplitN(match, "=", 2)
 		if len(parts) >= 2 {
 			domain := parts[1]
-			if strings.HasSuffix(domain, ".domain") {
+			if strings.HasSuffix(domain, anonTLD) {
 				return match
 			}
-			randomDomain := generateRandomString(10) + ".domain"
-			return strings.Replace(match, domain, randomDomain, 1)
+			return "domain=" + a.AnonymizeDomain(domain)
 		}
 		return match
 	})

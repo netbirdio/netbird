@@ -40,6 +40,8 @@ type ConnectClient struct {
 	statusRecorder *peer.Status
 	engine         *Engine
 	engineMutex    sync.Mutex
+
+	persistNetworkMap bool
 }
 
 func NewConnectClient(
@@ -89,6 +91,7 @@ func (c *ConnectClient) RunOniOS(
 	fileDescriptor int32,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
+	stateFilePath string,
 ) error {
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
 	debug.SetGCPercent(5)
@@ -97,6 +100,7 @@ func (c *ConnectClient) RunOniOS(
 		FileDescriptor:        fileDescriptor,
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
+		StateFilePath:         stateFilePath,
 	}
 	return c.run(mobileDependency, nil, nil)
 }
@@ -157,7 +161,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		engineCtx, cancel := context.WithCancel(c.ctx)
 		defer func() {
-			c.statusRecorder.MarkManagementDisconnected(state.err)
+			_, err := state.Status()
+			c.statusRecorder.MarkManagementDisconnected(err)
 			c.statusRecorder.CleanLocalPeerState()
 			cancel()
 		}()
@@ -231,6 +236,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		relayURLs, token := parseRelayInfo(loginResp)
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
 				if err := relayManager.UpdateToken(token); err != nil {
@@ -241,9 +247,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 			log.Infof("connecting to the Relay service(s): %s", strings.Join(relayURLs, ", "))
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
-				return wrapErr(err)
 			}
-			c.statusRecorder.SetRelayMgr(relayManager)
 		}
 
 		peerConfig := loginResp.GetPeerConfig()
@@ -258,7 +262,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 
 		c.engineMutex.Lock()
 		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
-
+		c.engine.SetNetworkMapPersistence(c.persistNetworkMap)
 		c.engineMutex.Unlock()
 
 		if err := c.engine.Start(); err != nil {
@@ -336,6 +340,19 @@ func (c *ConnectClient) Engine() *Engine {
 	return e
 }
 
+// Status returns the current client status
+func (c *ConnectClient) Status() StatusType {
+	if c == nil {
+		return StatusIdle
+	}
+	status, err := CtxGetState(c.ctx).Status()
+	if err != nil {
+		return StatusIdle
+	}
+
+	return status
+}
+
 func (c *ConnectClient) Stop() error {
 	if c == nil {
 		return nil
@@ -362,6 +379,21 @@ func (c *ConnectClient) isContextCancelled() bool {
 	}
 }
 
+// SetNetworkMapPersistence enables or disables network map persistence.
+// When enabled, the last received network map will be stored and can be retrieved
+// through the Engine's getLatestNetworkMap method. When disabled, any stored
+// network map will be cleared.
+func (c *ConnectClient) SetNetworkMapPersistence(enabled bool) {
+	c.engineMutex.Lock()
+	c.persistNetworkMap = enabled
+	c.engineMutex.Unlock()
+
+	engine := c.Engine()
+	if engine != nil {
+		engine.SetNetworkMapPersistence(enabled)
+	}
+}
+
 // createEngineConfig converts configuration received from Management Service to EngineConfig
 func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
 	nm := false
@@ -383,6 +415,11 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		RosenpassPermissive:  config.RosenpassPermissive,
 		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
 		DNSRouteInterval:     config.DNSRouteInterval,
+
+		DisableClientRoutes: config.DisableClientRoutes,
+		DisableServerRoutes: config.DisableServerRoutes,
+		DisableDNS:          config.DisableDNS,
+		DisableFirewall:     config.DisableFirewall,
 	}
 
 	if config.PreSharedKey != "" {

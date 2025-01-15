@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/management/server/util"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -28,10 +29,10 @@ const (
 	wrongToken     = "wrongToken"
 )
 
-var testAccount = &server.Account{
+var testAccount = &types.Account{
 	Id:     accountID,
 	Domain: domain,
-	Users: map[string]*server.User{
+	Users: map[string]*types.User{
 		userID: {
 			Id:        userID,
 			AccountID: accountID,
@@ -40,17 +41,17 @@ var testAccount = &server.Account{
 					ID:             tokenID,
 					Name:           "My first token",
 					HashedToken:    "someHash",
-					ExpirationDate: time.Now().UTC().AddDate(0, 0, 7),
+					ExpirationDate: util.ToPtr(time.Now().UTC().AddDate(0, 0, 7)),
 					CreatedBy:      userID,
 					CreatedAt:      time.Now().UTC(),
-					LastUsed:       time.Now().UTC(),
+					LastUsed:       util.ToPtr(time.Now().UTC()),
 				},
 			},
 		},
 	},
 }
 
-func mockGetAccountInfoFromPAT(_ context.Context, token string) (user *server.User, pat *server.PersonalAccessToken, domain string, category string, err error) {
+func mockGetAccountInfoFromPAT(_ context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error) {
 	if token == PAT {
 		return testAccount.Users[userID], testAccount.Users[userID].PATs[tokenID], testAccount.Domain, testAccount.DomainCategory, nil
 	}
