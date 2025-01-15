@@ -306,7 +306,7 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("validate version: %w", err)
 	}
 
-	msgType, err := messages.DetermineServerMessageType(buf[messages.SizeOfVersionByte:n])
+	msgType, err := messages.DetermineServerMessageType(buf[:n])
 	if err != nil {
 		c.log.Errorf("failed to determine message type: %s", err)
 		return err
@@ -317,7 +317,7 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("unexpected message type")
 	}
 
-	addr, err := messages.UnmarshalAuthResponse(buf[messages.SizeOfProtoHeader:n])
+	addr, err := messages.UnmarshalAuthResponse(buf[:n])
 	if err != nil {
 		return err
 	}
@@ -348,24 +348,27 @@ func (c *Client) readLoop(relayConn net.Conn) {
 				c.log.Debugf("failed to read message from relay server: %s", errExit)
 			}
 			c.mu.Unlock()
+			c.bufPool.Put(bufPtr)
 			break
 		}
 
-		_, err := messages.ValidateVersion(buf[:n])
+		buf = buf[:n]
+
+		_, err := messages.ValidateVersion(buf)
 		if err != nil {
 			c.log.Errorf("failed to validate protocol version: %s", err)
 			c.bufPool.Put(bufPtr)
 			continue
 		}
 
-		msgType, err := messages.DetermineServerMessageType(buf[messages.SizeOfVersionByte:n])
+		msgType, err := messages.DetermineServerMessageType(buf)
 		if err != nil {
 			c.log.Errorf("failed to determine message type: %s", err)
 			c.bufPool.Put(bufPtr)
 			continue
 		}
 
-		if !c.handleMsg(msgType, buf[messages.SizeOfProtoHeader:n], bufPtr, hc, internallyStoppedFlag) {
+		if !c.handleMsg(msgType, buf, bufPtr, hc, internallyStoppedFlag) {
 			break
 		}
 	}
