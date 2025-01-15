@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"nhooyr.io/websocket"
@@ -15,10 +17,10 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func Dial(address string) (net.Conn, error) {
+func Dial(address string) (net.Conn, time.Duration, error) {
 	wsURL, err := prepareURL(address)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	opts := &websocket.DialOptions{
@@ -27,21 +29,26 @@ func Dial(address string) (net.Conn, error) {
 
 	parsedURL, err := url.Parse(wsURL)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	parsedURL.Path = ws.URLPath
 
-	wsConn, resp, err := websocket.Dial(context.Background(), parsedURL.String(), opts)
+	var connStart, firstByte time.Time
+	ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+		ConnectStart:         func(network, addr string) { connStart = time.Now() },
+		GotFirstResponseByte: func() { firstByte = time.Now() },
+	})
+	wsConn, resp, err := websocket.Dial(ctx, parsedURL.String(), opts)
 	if err != nil {
 		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)
-		return nil, err
+		return nil, 0, err
 	}
 	if resp.Body != nil {
 		_ = resp.Body.Close()
 	}
 
 	conn := NewConn(wsConn, address)
-	return conn, nil
+	return conn, firstByte.Sub(connStart), nil
 }
 
 func prepareURL(address string) (string, error) {
