@@ -71,7 +71,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: 2 * time.Second}
 	secret := "some_secret"
 	peersManager := NewPeersUpdateManager(nil)
-	peer := "some_peer"
+	peer := "some_peer_SetupRefresh"
 	updateChannel := peersManager.CreateChannel(context.Background(), peer)
 
 	rc := &Relay{
@@ -169,7 +169,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
 	peersManager := NewPeersUpdateManager(nil)
-	peer := "some_peer"
+	peer := "some_peer_CancelRefresh"
 
 	rc := &Relay{
 		Addresses:      []string{"localhost:0"},
