@@ -14,11 +14,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/util"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -2809,7 +2810,7 @@ func TestSqlStore_GetUserPeers(t *testing.T) {
 			name:          "should retrieve peers for another valid account ID and user ID",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 			userID:        "edafee4e-63fb-11ec-90d6-0242ac120003",
-			expectedCount: 2,
+			expectedCount: 3,
 		},
 		{
 			name:          "should return no peers for existing account ID with empty user ID",
