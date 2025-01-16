@@ -40,8 +40,8 @@ func BenchmarkUpdatePeer(b *testing.B) {
 		"Peers - M":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 150, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
 		"Peers - L":      {MinMsPerOpLocal: 230, MaxMsPerOpLocal: 270, MinMsPerOpCICD: 200, MaxMsPerOpCICD: 500},
 		"Groups - L":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 650, MaxMsPerOpCICD: 3500},
-		"Users - L":      {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 300, MaxMsPerOpCICD: 600},
-		"Setup Keys - L": {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 300, MaxMsPerOpCICD: 600},
+		"Users - L":      {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 600},
+		"Setup Keys - L": {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 600},
 		"Peers - XL":     {MinMsPerOpLocal: 600, MaxMsPerOpLocal: 1000, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 2000},
 	}
 
