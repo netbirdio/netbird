@@ -140,41 +140,36 @@ func (m *managerImpl) GetResourceGroupsInTransaction(ctx context.Context, transa
 	return transaction.GetResourceGroups(ctx, lockingStrength, accountID, resourceID)
 }
 
-func ToGroupsInfo(groups []*types.Group, id string) []api.GroupMinimum {
-	groupsInfo := []api.GroupMinimum{}
-	groupsChecked := make(map[string]struct{})
+func ToGroupsInfoMap(groups []*types.Group, idCount int) map[string][]api.GroupMinimum {
+	groupsInfoMap := make(map[string][]api.GroupMinimum, idCount)
+	groupsChecked := make(map[string]struct{}, len(groups)) // not sure why this is needed (left over from old implementation)
 	for _, group := range groups {
 		_, ok := groupsChecked[group.ID]
 		if ok {
 			continue
 		}
+
 		groupsChecked[group.ID] = struct{}{}
 		for _, pk := range group.Peers {
-			if pk == id {
-				info := api.GroupMinimum{
-					Id:             group.ID,
-					Name:           group.Name,
-					PeersCount:     len(group.Peers),
-					ResourcesCount: len(group.Resources),
-				}
-				groupsInfo = append(groupsInfo, info)
-				break
+			info := api.GroupMinimum{
+				Id:             group.ID,
+				Name:           group.Name,
+				PeersCount:     len(group.Peers),
+				ResourcesCount: len(group.Resources),
 			}
+			groupsInfoMap[pk] = append(groupsInfoMap[pk], info)
 		}
 		for _, rk := range group.Resources {
-			if rk.ID == id {
-				info := api.GroupMinimum{
-					Id:             group.ID,
-					Name:           group.Name,
-					PeersCount:     len(group.Peers),
-					ResourcesCount: len(group.Resources),
-				}
-				groupsInfo = append(groupsInfo, info)
-				break
+			info := api.GroupMinimum{
+				Id:             group.ID,
+				Name:           group.Name,
+				PeersCount:     len(group.Peers),
+				ResourcesCount: len(group.Resources),
 			}
+			groupsInfoMap[rk.ID] = append(groupsInfoMap[rk.ID], info)
 		}
 	}
-	return groupsInfo
+	return groupsInfoMap
 }
 
 func (m *mockManager) GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error) {

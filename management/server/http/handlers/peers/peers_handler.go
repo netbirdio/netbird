@@ -73,7 +73,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	dnsDomain := h.accountManager.GetDNSDomain()
 
 	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
-	groupsInfo := groups.ToGroupsInfo(grps, peerID)
+	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
@@ -83,7 +83,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	}
 
 	_, valid := validPeers[peer.ID]
-	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, valid))
+	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, grpsInfoMap[peerID], dnsDomain, valid))
 }
 
 func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -123,7 +123,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		return
 	}
 
-	groupMinimumInfo := groups.ToGroupsInfo(peerGroups, peer.ID)
+	grpsInfoMap := groups.ToGroupsInfoMap(peerGroups, 0)
 
 	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
@@ -134,7 +134,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 
 	_, valid := validPeers[peer.ID]
 
-	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, valid))
+	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid))
 }
 
 func (h *Handler) deletePeer(ctx context.Context, accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -196,6 +196,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 
+	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
 		peerToReturn, err := h.checkPeerStatus(peer)
@@ -203,9 +204,8 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
-		groupMinimumInfo := groups.ToGroupsInfo(grps, peer.ID)
 
-		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
+		respBody = append(respBody, toPeerListItemResponse(peerToReturn, grpsInfoMap[peer.ID], dnsDomain, 0))
 	}
 
 	validPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
