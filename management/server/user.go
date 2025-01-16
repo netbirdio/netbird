@@ -107,7 +107,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	}
 
 	// inviterUser is the one who is inviting the new user
-	inviterUser, err := am.lookupUserInCache(ctx, inviterID, accountID)
+	inviterUser, err := am.lookupUserInCache(ctx, am.Store, inviterID, accountID)
 	if err != nil {
 		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
 	}
@@ -292,7 +292,7 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 	}
 
 	// check if the user is already registered with this ID
-	user, err := am.lookupUserInCache(ctx, targetUserID, accountID)
+	user, err := am.lookupUserInCache(ctx, am.Store, targetUserID, accountID)
 	if err != nil {
 		return err
 	}
@@ -508,8 +508,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 				return status.Errorf(status.InvalidArgument, "provided user update is nil")
 			}
 
-			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := processUserUpdate(
-				ctx, am, transaction, groupsMap, initiatorUser, update, addIfNotExists, settings,
+			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
+				ctx, transaction, groupsMap, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to process user update: %w", err)
@@ -586,7 +586,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 	return eventsToStore
 }
 
-func processUserUpdate(ctx context.Context, am *DefaultAccountManager, transaction store.Store, groupsMap map[string]*types.Group,
+func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transaction store.Store, groupsMap map[string]*types.Group,
 	initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
 
 	if update == nil {
@@ -684,8 +684,7 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, transaction st
 	}
 
 	if !isNil(am.idpManager) && !user.IsServiceUser {
-		// TODO: Run lookupUserInCache with transaction
-		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
+		userData, err := am.lookupUserInCache(ctx, transaction, user.Id, accountID)
 		if err != nil {
 			return nil, err
 		}
@@ -721,7 +720,7 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 			return status.Errorf(status.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
 				newGroupID, update.Id)
 		}
-		if group.Name == "All" {
+		if group.IsGroupAll() {
 			return status.Errorf(status.InvalidArgument, "can't add All group to the user")
 		}
 	}
