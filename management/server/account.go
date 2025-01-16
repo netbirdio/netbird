@@ -524,6 +524,9 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 // checkAndSchedulePeerInactivityExpiration periodically checks for inactive peers to end their sessions
 func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx context.Context, accountID string) {
+	if am.peerInactivityExpiry.IsJobRunning(accountID) {
+		return
+	}
 	am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
 	if nextRun, ok := am.getNextInactivePeerExpiration(ctx, accountID); ok {
 		go am.peerInactivityExpiry.Schedule(ctx, nextRun, accountID, am.peerInactivityExpirationJob(ctx, accountID))
