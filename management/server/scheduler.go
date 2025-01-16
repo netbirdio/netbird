@@ -40,7 +40,7 @@ func (mock *MockScheduler) Schedule(ctx context.Context, in time.Duration, ID st
 }
 
 func (mock *MockScheduler) IsJobRunning(_ string) bool {
-	return true
+	return false
 }
 
 // DefaultScheduler is a generic structure that allows to schedule jobs (functions) to run in the future and cancel them.
