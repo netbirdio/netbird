@@ -1140,8 +1140,8 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestSqlite_GetAccountUsers(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+func TestSqlStore_GetAccountUsers(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
 		t.Fatal(err)
