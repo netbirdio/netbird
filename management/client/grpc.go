@@ -540,5 +540,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Platform: info.Environment.Platform,
 		},
 		Files: files,
+
+		Flags: &proto.Flags{
+			RosenpassEnabled:    info.RosenpassEnabled,
+			RosenpassPermissive: info.RosenpassPermissive,
+			ServerSSHAllowed:    info.ServerSSHAllowed,
+			DisableClientRoutes: info.DisableClientRoutes,
+			DisableServerRoutes: info.DisableServerRoutes,
+			DisableDNS:          info.DisableDNS,
+			DisableFirewall:     info.DisableFirewall,
+		},
 	}
 }

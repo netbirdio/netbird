@@ -162,7 +162,7 @@ func (a *Auth) login(urlOpener URLOpener) error {
 
 	// check if we need to generate JWT token
 	err := a.withBackOff(a.ctx, func() (err error) {
-		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config.SSHKey)
+		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config)
 		return
 	})
 	if err != nil {

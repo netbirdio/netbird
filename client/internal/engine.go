@@ -716,6 +716,15 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		log.Warnf("failed to get system info with checks: %v", err)
 		info = system.GetInfo(e.ctx)
 	}
+	info.SetFlags(
+		e.config.RosenpassEnabled,
+		e.config.RosenpassPermissive,
+		&e.config.ServerSSHAllowed,
+		e.config.DisableClientRoutes,
+		e.config.DisableServerRoutes,
+		e.config.DisableDNS,
+		e.config.DisableFirewall,
+	)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		log.Errorf("could not sync meta: error %s", err)
@@ -824,6 +833,15 @@ func (e *Engine) receiveManagementEvents() {
 			log.Warnf("failed to get system info with checks: %v", err)
 			info = system.GetInfo(e.ctx)
 		}
+		info.SetFlags(
+			e.config.RosenpassEnabled,
+			e.config.RosenpassPermissive,
+			&e.config.ServerSSHAllowed,
+			e.config.DisableClientRoutes,
+			e.config.DisableServerRoutes,
+			e.config.DisableDNS,
+			e.config.DisableFirewall,
+		)
 
 		// err = e.mgmClient.Sync(info, e.handleSync)
 		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
@@ -1354,6 +1372,16 @@ func (e *Engine) close() {
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	info := system.GetInfo(e.ctx)
+	info.SetFlags(
+		e.config.RosenpassEnabled,
+		e.config.RosenpassPermissive,
+		&e.config.ServerSSHAllowed,
+		e.config.DisableClientRoutes,
+		e.config.DisableServerRoutes,
+		e.config.DisableDNS,
+		e.config.DisableFirewall,
+	)
+
 	netMap, err := e.mgmClient.GetNetworkMap(info)
 	if err != nil {
 		return nil, nil, err
