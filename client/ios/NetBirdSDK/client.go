@@ -207,7 +207,7 @@ func (c *Client) IsLoginRequired() bool {
 		ConfigPath: c.cfgFile,
 	})
 
-	needsLogin, _ := internal.IsLoginRequired(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg.SSHKey)
+	needsLogin, _ := internal.IsLoginRequired(ctx, cfg)
 	return needsLogin
 }
 
