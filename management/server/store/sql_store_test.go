@@ -2670,7 +2670,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 		{
 			name:          "should retrieve peers for an existing account ID",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
-			expectedCount: 4,
+			expectedCount: 5,
 		},
 		{
 			name:          "should return no peers for a non-existing account ID",
