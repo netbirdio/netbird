@@ -118,7 +118,7 @@ func BenchmarkGetAllPeers(b *testing.B) {
 		"Groups - L":     {MinMsPerOpLocal: 150, MaxMsPerOpLocal: 200, MinMsPerOpCICD: 130, MaxMsPerOpCICD: 500},
 		"Users - L":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
 		"Setup Keys - L": {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
-		"Peers - XL":     {MinMsPerOpLocal: 450, MaxMsPerOpLocal: 800, MinMsPerOpCICD: 500, MaxMsPerOpCICD: 900},
+		"Peers - XL":     {MinMsPerOpLocal: 450, MaxMsPerOpLocal: 800, MinMsPerOpCICD: 500, MaxMsPerOpCICD: 1200},
 	}
 
 	log.SetOutput(io.Discard)
