@@ -143,12 +143,6 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		return err
 	}
 
-	if expired {
-		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
-		// the expired one. Here we notify them that connection is now allowed again.
-		am.UpdateAccountPeers(ctx, accountID)
-	}
-
 	if peer.AddedWithSSOLogin() {
 		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
 			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
@@ -157,6 +151,12 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
 			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
+	}
+
+	if expired {
+		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
+		// the expired one. Here we notify them that connection is now allowed again.
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
