@@ -18,11 +18,15 @@ func (s *Server) TracePacket(_ context.Context, req *proto.TracePacketRequest) (
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.connectClient == nil || s.connectClient.Engine() == nil {
+	if s.connectClient == nil {
+		return nil, fmt.Errorf("connect client not initialized")
+	}
+	engine := s.connectClient.Engine()
+	if engine == nil {
 		return nil, fmt.Errorf("engine not initialized")
 	}
 
-	fwManager := s.connectClient.Engine().GetFirewallManager()
+	fwManager := engine.GetFirewallManager()
 	if fwManager == nil {
 		return nil, fmt.Errorf("firewall manager not initialized")
 	}
@@ -34,12 +38,12 @@ func (s *Server) TracePacket(_ context.Context, req *proto.TracePacketRequest) (
 
 	srcIP := net.ParseIP(req.GetSourceIp())
 	if req.GetSourceIp() == "self" {
-		srcIP = s.connectClient.Engine().GetWgAddr()
+		srcIP = engine.GetWgAddr()
 	}
 
 	dstIP := net.ParseIP(req.GetDestinationIp())
 	if req.GetDestinationIp() == "self" {
-		dstIP = s.connectClient.Engine().GetWgAddr()
+		dstIP = engine.GetWgAddr()
 	}
 
 	if srcIP == nil || dstIP == nil {
