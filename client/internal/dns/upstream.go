@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 const (
@@ -217,6 +219,14 @@ func (u *upstreamResolverBase) probeAvailability() {
 	// didn't find a working upstream server, let's disable and try later
 	if !success {
 		u.disable(errors.ErrorOrNil())
+
+		u.statusRecorder.PublishEvent(
+			proto.SystemEvent_WARNING,
+			proto.SystemEvent_DNS,
+			"All upstream servers failed",
+			"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
+			map[string]string{"upstreams": strings.Join(u.upstreamServers, ", ")},
+		)
 	}
 }
 

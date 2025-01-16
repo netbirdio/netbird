@@ -57,6 +57,10 @@ service DaemonService {
 
   // SetNetworkMapPersistence enables or disables network map persistence
   rpc SetNetworkMapPersistence(SetNetworkMapPersistenceRequest) returns (SetNetworkMapPersistenceResponse) {}
+
+  rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
+
+  rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
 }
 
 
@@ -356,3 +360,35 @@ message SetNetworkMapPersistenceRequest {
 }
 
 message SetNetworkMapPersistenceResponse {}
+
+message SubscribeRequest{}
+
+message SystemEvent {
+  enum Severity {
+    INFO = 0;
+    WARNING = 1;
+    ERROR = 2;
+    CRITICAL = 3;
+  }
+
+  enum Category {
+    NETWORK = 0;
+    DNS = 1;
+    AUTHENTICATION = 2;
+    CONNECTIVITY = 3;
+  }
+
+  string id = 1;
+  Severity severity = 2;
+  Category category = 3;
+  string message = 4;
+  string userMessage = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  map<string, string> metadata = 7;
+}
+
+message GetEventsRequest {}
+
+message GetEventsResponse {
+  repeated SystemEvent events = 1;
+}

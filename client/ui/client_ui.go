@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
@@ -93,14 +94,14 @@ func main() {
 	if showSettings || showRoutes {
 		a.Run()
 	} else {
-		running, err := isAnotherProcessRunning()
-		if err != nil {
-			log.Errorf("error while checking process: %v", err)
-		}
-		if running {
-			log.Warn("another process is running")
-			return
-		}
+		//running, err := isAnotherProcessRunning()
+		//if err != nil {
+		//	log.Errorf("error while checking process: %v", err)
+		//}
+		//if running {
+		//	log.Warn("another process is running")
+		//	return
+		//}
 		client.setDefaultFonts()
 		systray.Run(client.onTrayReady, client.onTrayExit)
 	}
@@ -197,6 +198,8 @@ type serviceClient struct {
 	isUpdateIconActive   bool
 	showRoutes           bool
 	wRoutes              fyne.Window
+
+	eventManager *event.Manager
 }
 
 // newServiceClient instance constructor
@@ -403,6 +406,7 @@ func (s *serviceClient) menuUpClick() error {
 		log.Errorf("up service: %v", err)
 		return err
 	}
+
 	return nil
 }
 
@@ -581,6 +585,9 @@ func (s *serviceClient) onTrayReady() {
 			time.Sleep(2 * time.Second)
 		}
 	}()
+
+	s.eventManager = event.NewManager(s.app, s.addr)
+	go s.eventManager.Start(s.ctx)
 
 	go func() {
 		var err error
