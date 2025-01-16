@@ -258,11 +258,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
 	}
 
-	if allErrors != nil {
-		return status.Errorf(status.Internal, "failed to delete groups: %v", allErrors)
-	}
-
-	return nil
+	return allErrors
 }
 
 // GroupAddPeer appends peer to the group
