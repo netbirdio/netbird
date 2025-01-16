@@ -473,12 +473,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 			return peerSchedulerRetryInterval, true
 		}
 
-		var peerIDs []string
-		for _, peer := range expiredPeers {
-			peerIDs = append(peerIDs, peer.ID)
-		}
-
-		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(peerIDs), accountID)
+		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(expiredPeers), accountID)
 
 		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
 			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", accountID)

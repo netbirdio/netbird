@@ -11,10 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+
+	"github.com/netbirdio/netbird/management/server/geolocation"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -120,7 +121,6 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string) error {
 	var peer *nbpeer.Peer
-	var settings *types.Settings
 	var expired bool
 	var err error
 
@@ -130,26 +130,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 			return err
 		}
 
-		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
-
 		expired, err = updatePeerStatusAndLocation(ctx, am.geo, transaction, peer, connected, realIP, accountID)
 		return err
 	})
 	if err != nil {
 		return err
-	}
-
-	if peer.AddedWithSSOLogin() {
-		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
-			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
-		}
-
-		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
-		}
 	}
 
 	if expired {
@@ -1211,8 +1196,7 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 
 	var nextExpiry *time.Duration
 	for _, peer := range peersWithExpiry {
-		// consider only connected peers because others will require login on connecting to the management server
-		if peer.Status.LoginExpired || !peer.Status.Connected {
+		if peer.Status.LoginExpired {
 			continue
 		}
 		_, duration := peer.LoginExpired(settings.PeerLoginExpiration)
