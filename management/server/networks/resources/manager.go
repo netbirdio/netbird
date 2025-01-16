@@ -113,7 +113,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
 		if err == nil {
-			return errors.New("resource already exists")
+			return status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
 		}
 
 		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
@@ -223,7 +223,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 
 		oldResource, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
 		if err == nil && oldResource.ID != resource.ID {
-			return errors.New("new resource name already exists")
+			return status.Errorf(status.InvalidArgument, "new resource name already exists")
 		}
 
 		oldResource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
