@@ -61,6 +61,7 @@ services:
     - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
     ports:
       - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT/udp
     logging:
       driver: "json-file"
       options:
