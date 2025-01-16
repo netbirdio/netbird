@@ -485,6 +485,9 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 }
 
 func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context.Context, accountID string) {
+	if am.peerLoginExpiry.IsJobRunning(accountID) {
+		return
+	}
 	am.peerLoginExpiry.Cancel(ctx, []string{accountID})
 	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
 		go am.peerLoginExpiry.Schedule(ctx, nextRun, accountID, am.peerLoginExpirationJob(ctx, accountID))

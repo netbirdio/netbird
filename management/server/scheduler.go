@@ -12,6 +12,7 @@ import (
 type Scheduler interface {
 	Cancel(ctx context.Context, IDs []string)
 	Schedule(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
+	IsJobRunning(ID string) bool
 }
 
 // MockScheduler is a mock implementation of  Scheduler
@@ -38,18 +39,24 @@ func (mock *MockScheduler) Schedule(ctx context.Context, in time.Duration, ID st
 	log.WithContext(ctx).Errorf("MockScheduler doesn't have Schedule function defined")
 }
 
+func (mock *MockScheduler) IsJobRunning(_ string) bool {
+	return true
+}
+
 // DefaultScheduler is a generic structure that allows to schedule jobs (functions) to run in the future and cancel them.
 type DefaultScheduler struct {
 	// jobs map holds cancellation channels indexed by the job ID
-	jobs map[string]chan struct{}
-	mu   *sync.Mutex
+	jobs         map[string]chan struct{}
+	mu           *sync.Mutex
+	isJobRunning map[string]bool
 }
 
 // NewDefaultScheduler creates an instance of a DefaultScheduler
 func NewDefaultScheduler() *DefaultScheduler {
 	return &DefaultScheduler{
-		jobs: make(map[string]chan struct{}),
-		mu:   &sync.Mutex{},
+		jobs:         make(map[string]chan struct{}),
+		isJobRunning: make(map[string]bool),
+		mu:           &sync.Mutex{},
 	}
 }
 
@@ -87,6 +94,7 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 	}
 
 	ticker := time.NewTicker(in)
+	wm.isJobRunning[ID] = true
 
 	wm.jobs[ID] = cancel
 	log.WithContext(ctx).Debugf("scheduled a job %s to run in %s. There are %d total jobs scheduled.", ID, in.String(), len(wm.jobs))
@@ -98,6 +106,7 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 				case <-cancel:
 					log.WithContext(ctx).Debugf("scheduled job %s was canceled, stop timer", ID)
 					ticker.Stop()
+					wm.isJobRunning[ID] = false
 					return
 				default:
 					log.WithContext(ctx).Debugf("time to do a scheduled job %s", ID)
@@ -109,6 +118,7 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 					delete(wm.jobs, ID)
 					log.WithContext(ctx).Debugf("job %s is not scheduled to run again", ID)
 					ticker.Stop()
+					wm.isJobRunning[ID] = false
 					return
 				}
 				// we need this comparison to avoid resetting the ticker with the same duration and missing the current elapsesed time
@@ -123,4 +133,8 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 		}
 
 	}()
+}
+
+func (wm *DefaultScheduler) IsJobRunning(ID string) bool {
+	return wm.isJobRunning[ID]
 }

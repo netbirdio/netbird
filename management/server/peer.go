@@ -122,10 +122,16 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string) error {
 	var peer *nbpeer.Peer
 	var expired bool
+	var settings *types.Settings
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
+		if err != nil {
+			return err
+		}
+
+		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return err
 		}
@@ -141,6 +147,16 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
 		am.UpdateAccountPeers(ctx, accountID)
+	}
+
+	if peer.AddedWithSSOLogin() {
+		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
+			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
+		}
+
+		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		}
 	}
 
 	return nil
