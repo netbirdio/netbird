@@ -17,8 +17,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/geolocation"
 
-	"github.com/netbirdio/netbird/management/server/util"
-
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
