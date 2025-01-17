@@ -861,4 +861,13 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) 
 	}
 
 	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
+
+	for i, event := range overview.Events {
+		overview.Events[i].Message = a.AnonymizeString(event.Message)
+		overview.Events[i].UserMessage = a.AnonymizeString(event.UserMessage)
+
+		for k, v := range event.Metadata {
+			event.Metadata[k] = a.AnonymizeString(v)
+		}
+	}
 }
