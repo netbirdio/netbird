@@ -42,6 +42,7 @@ type testSuite struct {
 }
 
 func setupTest(t *testing.T) *testSuite {
+	t.Helper()
 	level, _ := log.ParseLevel("Debug")
 	log.SetLevel(level)
 
@@ -81,6 +82,7 @@ func setupTest(t *testing.T) *testSuite {
 }
 
 func tearDownTest(t *testing.T, ts *testSuite) {
+	t.Helper()
 	ts.grpcServer.Stop()
 	if err := ts.conn.Close(); err != nil {
 		t.Fatalf("failed to close client connection: %v", err)
@@ -96,6 +98,7 @@ func loginPeerWithValidSetupKey(
 	key wgtypes.Key,
 	client mgmtProto.ManagementServiceClient,
 ) *mgmtProto.LoginResponse {
+	t.Helper()
 	meta := &mgmtProto.PeerSystemMeta{
 		Hostname:           key.PublicKey().String(),
 		GoOS:               runtime.GOOS,
@@ -128,6 +131,7 @@ func loginPeerWithValidSetupKey(
 }
 
 func createRawClient(t *testing.T, addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -151,6 +155,7 @@ func startServer(
 	dataDir string,
 	testFile string,
 ) (*grpc.Server, net.Listener) {
+	t.Helper()
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("failed to listen on a random port: %v", err)
@@ -206,7 +211,8 @@ func startServer(
 
 	go func() {
 		if err := s.Serve(lis); err != nil {
-			t.Fatalf("failed to serve gRPC: %v", err)
+			t.Errorf("failed to serve gRPC: %v", err)
+			return
 		}
 	}()
 
