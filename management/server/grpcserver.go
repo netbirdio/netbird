@@ -205,8 +205,6 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
 	}
 
-	log.WithContext(ctx).Debugf("Sync: took %s", time.Since(reqStart))
-
 	unlock()
 	unlock = nil
 

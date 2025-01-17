@@ -120,11 +120,6 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string) error {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("MarkPeerConnected: took %s", time.Since(start))
-	}()
-
 	var peer *nbpeer.Peer
 	var settings *types.Settings
 	var expired bool
@@ -664,11 +659,6 @@ func getFreeIP(ctx context.Context, transaction store.Store, accountID string) (
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("SyncPeer: took %s", time.Since(start))
-	}()
-
 	var peer *nbpeer.Peer
 	var peerNotValid bool
 	var isStatusChanged bool
