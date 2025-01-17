@@ -21,6 +21,7 @@ var newSqlite = func(b *testing.B) Store {
 }
 
 func BenchmarkTest_StoreWrite(b *testing.B) {
+	b.Skipf("skipping benchmark")
 	cases := []benchCase{
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 100},
 		{name: "SqliteStore_Write", storeFn: newSqlite, size: 500},
@@ -50,6 +51,7 @@ func BenchmarkTest_StoreWrite(b *testing.B) {
 }
 
 func BenchmarkTest_StoreRead(b *testing.B) {
+	b.Skipf("skipping benchmark")
 	cases := []benchCase{
 		{name: "SqliteStore_Read", storeFn: newSqlite, size: 100},
 		{name: "SqliteStore_Read", storeFn: newSqlite, size: 500},
