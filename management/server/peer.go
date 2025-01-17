@@ -335,13 +335,15 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
-	if err != nil {
-		return err
-	}
+	if userID != activity.SystemInitiator {
+		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+		if err != nil {
+			return err
+		}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+		if user.AccountID != accountID {
+			return status.NewUserNotPartOfAccountError()
+		}
 	}
 
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthShare, peerID)
