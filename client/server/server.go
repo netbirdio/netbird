@@ -705,6 +705,7 @@ func (s *Server) Status(
 
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
+		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
 		statusResponse.FullStatus = pbFullStatus
 	}
 

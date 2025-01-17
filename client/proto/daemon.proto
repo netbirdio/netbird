@@ -257,6 +257,8 @@ message FullStatus {
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
   repeated NSGroupState dns_servers = 6;
+
+  repeated SystemEvent events = 7;
 }
 
 message ListNetworksRequest {

@@ -770,14 +770,6 @@ func (s *serviceClient) getSrvConfig() {
 	s.RosenpassPermissive = cfg.RosenpassPermissive
 	s.interfaceName = cfg.InterfaceName
 	s.interfacePort = int(cfg.WireguardPort)
-	if cfg.DisableNotifications {
-		s.mNotifications.Uncheck()
-	} else {
-		s.mNotifications.Check()
-	}
-	if s.eventManager != nil {
-		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
-	}
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -791,8 +783,20 @@ func (s *serviceClient) getSrvConfig() {
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
 		}
-
 	}
+
+	if s.mNotifications == nil {
+		return
+	}
+	if cfg.DisableNotifications {
+		s.mNotifications.Uncheck()
+	} else {
+		s.mNotifications.Check()
+	}
+	if s.eventManager != nil {
+		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	}
+
 }
 
 func (s *serviceClient) onUpdateAvailable() {
