@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -58,15 +59,15 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 
 	tlsConfigQUIC, err := quictls.ServerQUICTLSConfig(cfg.TLSConfig)
 	if err != nil {
-		return err
-	}
+		log.Warnf("Not starting QUIC listener: %v", err)
+	} else {
+		quicListener := &quic.Listener{
+			Address:   cfg.Address,
+			TLSConfig: tlsConfigQUIC,
+		}
 
-	quicListener := &quic.Listener{
-		Address:   cfg.Address,
-		TLSConfig: tlsConfigQUIC,
+		r.listeners = append(r.listeners, quicListener)
 	}
-
-	r.listeners = append(r.listeners, quicListener)
 
 	errChan := make(chan error, len(r.listeners))
 	wg := sync.WaitGroup{}
