@@ -256,10 +256,11 @@ func TestClient_Sync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ch := make(chan *mgmtProto.SyncResponse, 1)
+	ch := make(chan *mgmtProto.SyncResponse, 5)
 
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		err = client.Sync(context.Background(), info, func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(ctx, info, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
@@ -289,6 +290,8 @@ func TestClient_Sync(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for test to finish")
 	}
+
+	cancel()
 }
 
 func Test_SystemMetaDataFromClient(t *testing.T) {
