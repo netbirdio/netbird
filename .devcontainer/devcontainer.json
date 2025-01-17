@@ -7,7 +7,7 @@
 	"features": {
 		"ghcr.io/devcontainers/features/docker-in-docker:2": {},
 		"ghcr.io/devcontainers/features/go:1": {
-			"version": "1.21"
+			"version": "1.23"
 		}
 	},
 	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",

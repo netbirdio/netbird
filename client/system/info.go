@@ -61,6 +61,14 @@ type Info struct {
 	Files              []File // for posture checks
 }
 
+// StaticInfo is an object that contains machine information that does not change
+type StaticInfo struct {
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
+	Environment        Environment
+}
+
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
 func extractUserAgent(ctx context.Context) string {
 	md, hasMeta := metadata.FromOutgoingContext(ctx)

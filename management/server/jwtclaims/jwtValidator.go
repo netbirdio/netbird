@@ -72,13 +72,19 @@ type JSONWebKey struct {
 	X5c []string `json:"x5c"`
 }
 
-// JWTValidator struct to handle token validation and parsing
-type JWTValidator struct {
+type JWTValidator interface {
+	ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error)
+}
+
+// jwtValidatorImpl struct to handle token validation and parsing
+type jwtValidatorImpl struct {
 	options Options
 }
 
+var keyNotFound = errors.New("unable to find appropriate key")
+
 // NewJWTValidator constructor
-func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (*JWTValidator, error) {
+func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (JWTValidator, error) {
 	keys, err := getPemKeys(ctx, keysLocation)
 	if err != nil {
 		return nil, err
@@ -124,12 +130,18 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 			}
 
 			publicKey, err := getPublicKey(ctx, token, keys)
-			if err != nil {
-				log.WithContext(ctx).Errorf("getPublicKey error: %s", err)
-				return nil, err
+			if err == nil {
+				return publicKey, nil
 			}
 
-			return publicKey, nil
+			msg := fmt.Sprintf("getPublicKey error: %s", err)
+			if errors.Is(err, keyNotFound) && !idpSignkeyRefreshEnabled {
+				msg = fmt.Sprintf("getPublicKey error: %s. You can enable key refresh by setting HttpServerConfig.IdpSignKeyRefreshEnabled to true in your management.json file and restart the service", err)
+			}
+
+			log.WithContext(ctx).Error(msg)
+
+			return nil, err
 		},
 		EnableAuthOnOptions: false,
 	}
@@ -138,13 +150,13 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 		options.UserProperty = "user"
 	}
 
-	return &JWTValidator{
+	return &jwtValidatorImpl{
 		options: options,
 	}, nil
 }
 
 // ValidateAndParse validates the token and returns the parsed token
-func (m *JWTValidator) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+func (m *jwtValidatorImpl) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// Check if it was required
@@ -229,7 +241,7 @@ func getPublicKey(ctx context.Context, token *jwt.Token, jwks *Jwks) (interface{
 		log.WithContext(ctx).Debugf("Key Type: %s not yet supported, please raise ticket!", jwks.Keys[k].Kty)
 	}
 
-	return nil, errors.New("unable to find appropriate key")
+	return nil, keyNotFound
 }
 
 func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err error) {
@@ -309,5 +321,29 @@ func getMaxAgeFromCacheHeader(ctx context.Context, cacheControl string) int {
 	}
 
 	return 0
+}
+
+type JwtValidatorMock struct{}
+
+func (j *JwtValidatorMock) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+	claimMaps := jwt.MapClaims{}
+
+	switch token {
+	case "testUserId", "testAdminId", "testOwnerId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
+		claimMaps[UserIDClaim] = token
+		claimMaps[AccountIDSuffix] = "testAccountId"
+		claimMaps[DomainIDSuffix] = "test.com"
+		claimMaps[DomainCategorySuffix] = "private"
+	case "otherUserId":
+		claimMaps[UserIDClaim] = "otherUserId"
+		claimMaps[AccountIDSuffix] = "otherAccountId"
+		claimMaps[DomainIDSuffix] = "other.com"
+		claimMaps[DomainCategorySuffix] = "private"
+	case "invalidToken":
+		return nil, errors.New("invalid token")
+	}
+
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
+	return jwtToken, nil
 }
 

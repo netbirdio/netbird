@@ -1,10 +1,3 @@
-<p align="center">
- <strong>:hatching_chick: New Release! Device Posture Checks.</strong>
-  <a href="https://docs.netbird.io/how-to/manage-posture-checks">
-       Learn more
-     </a>   
-</p>
-<br/>
 <div align="center">
 <p align="center">
   <img width="234" src="docs/media/logo-full.png"/>
@@ -17,8 +10,12 @@
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
      </a> 
     <br>
-    <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-2p5zwhm4g-8fHollzrQa5y4PZF5AEpvQ">
+    <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-2utg2ncdz-W7LEB6toRBLE1Jca37dYpg">
         <img src="https://img.shields.io/badge/slack-@netbird-red.svg?logo=slack"/>
+     </a>  
+     <br>
+    <a href="https://gurubase.io/g/netbird">
+        <img src="https://img.shields.io/badge/Gurubase-Ask%20NetBird%20Guru-006BFF"/>
      </a>    
   </p>
 </div>
@@ -30,7 +27,7 @@
   <br/>
   See <a href="https://netbird.io/docs/">Documentation</a>
   <br/>
-   Join our <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-2p5zwhm4g-8fHollzrQa5y4PZF5AEpvQ">Slack channel</a>
+   Join our <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-2utg2ncdz-W7LEB6toRBLE1Jca37dYpg">Slack channel</a>
   <br/>
  
 </strong>

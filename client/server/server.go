@@ -68,6 +68,8 @@ type Server struct {
 	relayProbe  *internal.Probe
 	wgProbe     *internal.Probe
 	lastProbe   time.Time
+
+	persistNetworkMap bool
 }
 
 type oauthAuthFlow struct {
@@ -89,6 +91,8 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		signalProbe: internal.NewProbe(),
 		relayProbe:  internal.NewProbe(),
 		wgProbe:     internal.NewProbe(),
+
+		persistNetworkMap: true,
 	}
 }
 
@@ -196,6 +200,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	runOperation := func() error {
 		log.Tracef("running client connection")
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+		s.connectClient.SetNetworkMapPersistence(s.persistNetworkMap)
 
 		probes := internal.ProbeHolder{
 			MgmProbe:    s.mgmProbe,
@@ -392,6 +397,23 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		duration := msg.DnsRouteInterval.AsDuration()
 		inputConfig.DNSRouteInterval = &duration
 		s.latestConfigInput.DNSRouteInterval = &duration
+	}
+
+	if msg.DisableClientRoutes != nil {
+		inputConfig.DisableClientRoutes = msg.DisableClientRoutes
+		s.latestConfigInput.DisableClientRoutes = msg.DisableClientRoutes
+	}
+	if msg.DisableServerRoutes != nil {
+		inputConfig.DisableServerRoutes = msg.DisableServerRoutes
+		s.latestConfigInput.DisableServerRoutes = msg.DisableServerRoutes
+	}
+	if msg.DisableDns != nil {
+		inputConfig.DisableDNS = msg.DisableDns
+		s.latestConfigInput.DisableDNS = msg.DisableDns
+	}
+	if msg.DisableFirewall != nil {
+		inputConfig.DisableFirewall = msg.DisableFirewall
+		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
 	}
 
 	s.mutex.Unlock()
@@ -769,7 +791,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
-	pbFullStatus.LocalPeerState.Routes = maps.Keys(fullStatus.LocalPeerState.Routes)
+	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{
@@ -788,7 +810,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			BytesRx:                    peerState.BytesRx,
 			BytesTx:                    peerState.BytesTx,
 			RosenpassEnabled:           peerState.RosenpassEnabled,
-			Routes:                     maps.Keys(peerState.GetRoutes()),
+			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)

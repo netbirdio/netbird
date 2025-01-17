@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -94,6 +95,7 @@ type Route struct {
 	NetID               NetID
 	Description         string
 	Peer                string
+	PeerID              string   `gorm:"-"`
 	PeerGroups          []string `gorm:"serializer:json"`
 	NetworkType         NetworkType
 	Masquerade          bool
@@ -112,7 +114,6 @@ func (r *Route) EventMeta() map[string]any {
 func (r *Route) Copy() *Route {
 	route := &Route{
 		ID:                  r.ID,
-		AccountID:           r.AccountID,
 		Description:         r.Description,
 		NetID:               r.NetID,
 		Network:             r.Network,
@@ -120,6 +121,7 @@ func (r *Route) Copy() *Route {
 		KeepRoute:           r.KeepRoute,
 		NetworkType:         r.NetworkType,
 		Peer:                r.Peer,
+		PeerID:              r.PeerID,
 		PeerGroups:          slices.Clone(r.PeerGroups),
 		Metric:              r.Metric,
 		Masquerade:          r.Masquerade,
@@ -146,6 +148,7 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.KeepRoute == r.KeepRoute &&
 		other.NetworkType == r.NetworkType &&
 		other.Peer == r.Peer &&
+		other.PeerID == r.PeerID &&
 		other.Metric == r.Metric &&
 		other.Masquerade == r.Masquerade &&
 		other.Enabled == r.Enabled &&
@@ -169,6 +172,11 @@ func (r *Route) GetHAUniqueID() HAUniqueID {
 		return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, domains))
 	}
 	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.Network.String()))
+}
+
+// GetResourceID returns the Networks Resource ID from a route ID
+func (r *Route) GetResourceID() string {
+	return strings.Split(string(r.ID), ":")[0]
 }
 
 // ParseNetwork Parses a network prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6

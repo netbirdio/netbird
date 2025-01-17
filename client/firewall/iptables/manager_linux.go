@@ -83,9 +83,11 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	// persist early to ensure cleanup of chains
-	if err := stateManager.PersistState(context.Background()); err != nil {
-		log.Errorf("failed to persist state: %v", err)
-	}
+	go func() {
+		if err := stateManager.PersistState(context.Background()); err != nil {
+			log.Errorf("failed to persist state: %v", err)
+		}
+	}()
 
 	return nil
 }
@@ -195,7 +197,7 @@ func (m *Manager) AllowNetbird() error {
 	}
 
 	_, err := m.AddPeerFiltering(
-		net.ParseIP("0.0.0.0"),
+		net.IP{0, 0, 0, 0},
 		"all",
 		nil,
 		nil,
@@ -205,19 +207,9 @@ func (m *Manager) AllowNetbird() error {
 		"",
 	)
 	if err != nil {
-		return fmt.Errorf("failed to allow netbird interface traffic: %w", err)
+		return fmt.Errorf("allow netbird interface traffic: %w", err)
 	}
-	_, err = m.AddPeerFiltering(
-		net.ParseIP("0.0.0.0"),
-		"all",
-		nil,
-		nil,
-		firewall.RuleDirectionOUT,
-		firewall.ActionAccept,
-		"",
-		"",
-	)
-	return err
+	return nil
 }
 
 // Flush doesn't need to be implemented for this manager

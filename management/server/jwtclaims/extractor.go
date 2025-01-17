@@ -22,6 +22,8 @@ const (
 	LastLoginSuffix = "nb_last_login"
 	// Invited claim indicates that an incoming JWT is from a user that just accepted an invitation
 	Invited = "nb_invited"
+	// IsToken claim indicates that auth type from the user is a token
+	IsToken = "is_token"
 )
 
 // ExtractClaims Extract function type

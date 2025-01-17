@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/store"
 )
 
 const (
@@ -32,7 +33,7 @@ type ephemeralPeer struct {
 // EphemeralManager keep a list of ephemeral peers. After ephemeralLifeTime inactivity the peer will be deleted
 // automatically. Inactivity means the peer disconnected from the Management server.
 type EphemeralManager struct {
-	store          Store
+	store          store.Store
 	accountManager AccountManager
 
 	headPeer  *ephemeralPeer
@@ -42,7 +43,7 @@ type EphemeralManager struct {
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
-func NewEphemeralManager(store Store, accountManager AccountManager) *EphemeralManager {
+func NewEphemeralManager(store store.Store, accountManager AccountManager) *EphemeralManager {
 	return &EphemeralManager{
 		store:          store,
 		accountManager: accountManager,
@@ -120,22 +121,18 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 }
 
 func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
-	peers, err := e.store.GetAllEphemeralPeers(ctx, LockingStrengthShare)
+	peers, err := e.store.GetAllEphemeralPeers(ctx, store.LockingStrengthShare)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to load ephemeral peers: %s", err)
 		return
 	}
 
 	t := newDeadLine()
-	count := 0
 	for _, p := range peers {
-		if p.Ephemeral {
-			count++
-			e.addPeer(p.AccountID, p.ID, t)
-		}
+		e.addPeer(p.AccountID, p.ID, t)
 	}
 
-	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", count)
+	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", len(peers))
 }
 
 func (e *EphemeralManager) cleanup(ctx context.Context) {

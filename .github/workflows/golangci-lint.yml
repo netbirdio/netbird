@@ -19,7 +19,7 @@ jobs:
       - name: codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          ignore_words_list: erro,clienta,hastable,iif,groupd
+          ignore_words_list: erro,clienta,hastable,iif,groupd,testin
           skip: go.mod,go.sum
           only_warn: 1
   golangci:
@@ -46,7 +46,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev libpcap-dev
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v4
         with:
           version: latest
-          args: --timeout=12m
+          args: --timeout=12m --out-format colored-line-number

@@ -19,8 +19,6 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
-	"github.com/hashicorp/go-multierror"
-	"github.com/miekg/dns"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -29,31 +27,27 @@ import (
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
 
 const (
-	PublicCategory                  = "public"
-	PrivateCategory                 = "private"
-	UnknownCategory                 = "unknown"
-	CacheExpirationMax              = 7 * 24 * 3600 * time.Second // 7 days
-	CacheExpirationMin              = 3 * 24 * 3600 * time.Second // 3 days
-	DefaultPeerLoginExpiration      = 24 * time.Hour
-	DefaultPeerInactivityExpiration = 10 * time.Minute
-	emptyUserID                     = "empty user ID in claims"
-	errorGettingDomainAccIDFmt      = "error getting account ID by private domain: %v"
+	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
+	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
+	peerSchedulerRetryInterval = 3 * time.Second
+	emptyUserID                = "empty user ID in claims"
+	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
 )
 
 type userLoggedInOnce bool
@@ -66,57 +60,57 @@ func cacheEntryExpiration() time.Duration {
 }
 
 type AccountManager interface {
-	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*Account, error)
-	GetAccount(ctx context.Context, accountID string) (*Account, error)
-	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
-		autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error)
-	SaveSetupKey(ctx context.Context, accountID string, key *SetupKey, userID string) (*SetupKey, error)
-	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *UserInfo) (*UserInfo, error)
+	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*types.Account, error)
+	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration,
+		autoGroups []string, usageLimit int, userID string, ephemeral bool) (*types.SetupKey, error)
+	SaveSetupKey(ctx context.Context, accountID string, key *types.SetupKey, userID string) (*types.SetupKey, error)
+	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *types.UserInfo) (*types.UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
 	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
-	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*SetupKey, error)
-	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *User) (*UserInfo, error)
-	SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error)
-	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
-	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
-	GetAccountByID(ctx context.Context, accountID string, userID string) (*Account, error)
+	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error)
+	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error)
+	SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *types.User, addIfNotExists bool) (*types.UserInfo, error)
+	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*types.User, addIfNotExists bool) ([]*types.UserInfo, error)
+	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error)
+	GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error)
 	AccountExists(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
-	GetAccountInfoFromPAT(ctx context.Context, token string) (*User, *PersonalAccessToken, string, string, error)
+	GetAccountInfoFromPAT(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, string, string, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	MarkPATUsed(ctx context.Context, tokenID string) error
-	GetUserByID(ctx context.Context, id string) (*User, error)
-	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*User, error)
-	ListUsers(ctx context.Context, accountID string) ([]*User, error)
+	GetUserByID(ctx context.Context, id string) (*types.User, error)
+	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error)
+	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
-	GetNetworkMap(ctx context.Context, peerID string) (*NetworkMap, error)
-	GetPeerNetwork(ctx context.Context, peerID string) (*Network, error)
-	AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
-	CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
+	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
+	GetPeerNetwork(ctx context.Context, peerID string) (*types.Network, error)
+	AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error)
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
-	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
-	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
-	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*UserInfo, error)
-	GetGroup(ctx context.Context, accountId, groupID, userID string) (*nbgroup.Group, error)
-	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)
-	GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error)
-	SaveGroup(ctx context.Context, accountID, userID string, group *nbgroup.Group) error
-	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error
+	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error)
+	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error)
+	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*types.UserInfo, error)
+	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
+	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
+	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
+	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group) error
+	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
-	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*nbgroup.Group, error)
-	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error)
-	SavePolicy(ctx context.Context, accountID, userID string, policy *Policy) (*Policy, error)
+	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
+	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
+	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
-	ListPolicies(ctx context.Context, accountID, userID string) ([]*Policy, error)
+	ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
 	CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
 	SaveRoute(ctx context.Context, accountID, userID string, route *route.Route) error
@@ -130,12 +124,12 @@ type AccountManager interface {
 	GetDNSDomain() string
 	StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error)
-	GetDNSSettings(ctx context.Context, accountID string, userID string) (*DNSSettings, error)
-	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *DNSSettings) error
+	GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error)
+	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *types.DNSSettings) error
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
-	SyncPeer(ctx context.Context, sync PeerSync, accountID string) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) // used by peer gRPC API
+	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error)
+	LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
+	SyncPeer(ctx context.Context, sync PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
@@ -147,17 +141,18 @@ type AccountManager interface {
 	UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
 	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error)
-	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
+	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
-	GetAccountSettings(ctx context.Context, accountID string, userID string) (*Settings, error)
+	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
+	UpdateAccountPeers(ctx context.Context, accountID string)
 }
 
 type DefaultAccountManager struct {
-	Store Store
+	Store store.Store
 	// cacheMux and cacheLoading helps to make sure that only a single cache reload runs at a time per accountID
 	cacheMux sync.Mutex
 	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
@@ -168,7 +163,7 @@ type DefaultAccountManager struct {
 	externalCacheManager ExternalCacheManager
 	ctx                  context.Context
 	eventStore           activity.Store
-	geo                  *geolocation.Geolocation
+	geo                  geolocation.Geolocation
 
 	requestBuffer *AccountRequestBuffer
 
@@ -192,763 +187,40 @@ type DefaultAccountManager struct {
 	metrics telemetry.AppMetrics
 }
 
-// Settings represents Account settings structure that can be modified via API and Dashboard
-type Settings struct {
-	// PeerLoginExpirationEnabled globally enables or disables peer login expiration
-	PeerLoginExpirationEnabled bool
-
-	// PeerLoginExpiration is a setting that indicates when peer login expires.
-	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
-	PeerLoginExpiration time.Duration
-
-	// PeerInactivityExpirationEnabled globally enables or disables peer inactivity expiration
-	PeerInactivityExpirationEnabled bool
-
-	// PeerInactivityExpiration is a setting that indicates when peer inactivity expires.
-	// Applies to all peers that have Peer.PeerInactivityExpirationEnabled set to true.
-	PeerInactivityExpiration time.Duration
-
-	// RegularUsersViewBlocked allows to block regular users from viewing even their own peers and some UI elements
-	RegularUsersViewBlocked bool
-
-	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
-	GroupsPropagationEnabled bool
-
-	// JWTGroupsEnabled allows extract groups from JWT claim, which name defined in the JWTGroupsClaimName
-	// and add it to account groups.
-	JWTGroupsEnabled bool
-
-	// JWTGroupsClaimName from which we extract groups name to add it to account groups
-	JWTGroupsClaimName string
-
-	// JWTAllowGroups list of groups to which users are allowed access
-	JWTAllowGroups []string `gorm:"serializer:json"`
-
-	// Extra is a dictionary of Account settings
-	Extra *account.ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
-}
-
-// Copy copies the Settings struct
-func (s *Settings) Copy() *Settings {
-	settings := &Settings{
-		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
-		PeerLoginExpiration:        s.PeerLoginExpiration,
-		JWTGroupsEnabled:           s.JWTGroupsEnabled,
-		JWTGroupsClaimName:         s.JWTGroupsClaimName,
-		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
-		JWTAllowGroups:             s.JWTAllowGroups,
-		RegularUsersViewBlocked:    s.RegularUsersViewBlocked,
-
-		PeerInactivityExpirationEnabled: s.PeerInactivityExpirationEnabled,
-		PeerInactivityExpiration:        s.PeerInactivityExpiration,
-	}
-	if s.Extra != nil {
-		settings.Extra = s.Extra.Copy()
-	}
-	return settings
-}
-
-// Account represents a unique account of the system
-type Account struct {
-	// we have to name column to aid as it collides with Network.Id when work with associations
-	Id string `gorm:"primaryKey"`
-
-	// User.Id it was created by
-	CreatedBy              string
-	CreatedAt              time.Time
-	Domain                 string `gorm:"index"`
-	DomainCategory         string
-	IsDomainPrimaryAccount bool
-	SetupKeys              map[string]*SetupKey              `gorm:"-"`
-	SetupKeysG             []SetupKey                        `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Network                *Network                          `gorm:"embedded;embeddedPrefix:network_"`
-	Peers                  map[string]*nbpeer.Peer           `gorm:"-"`
-	PeersG                 []nbpeer.Peer                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Users                  map[string]*User                  `gorm:"-"`
-	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Groups                 map[string]*nbgroup.Group         `gorm:"-"`
-	GroupsG                []nbgroup.Group                   `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
-	Routes                 map[route.ID]*route.Route         `gorm:"-"`
-	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
-	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
-	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
-	// Settings is a dictionary of Account settings
-	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
-}
-
-// Subclass used in gorm to only load settings and not whole account
-type AccountSettings struct {
-	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
-}
-
-// Subclass used in gorm to only load network and not whole account
-type AccountNetwork struct {
-	Network *Network `gorm:"embedded;embeddedPrefix:network_"`
-}
-
-// AccountDNSSettings used in gorm to only load dns settings and not whole account
-type AccountDNSSettings struct {
-	DNSSettings DNSSettings `gorm:"embedded;embeddedPrefix:dns_settings_"`
-}
-
-type UserPermissions struct {
-	DashboardView string `json:"dashboard_view"`
-}
-
-type UserInfo struct {
-	ID                   string                                     `json:"id"`
-	Email                string                                     `json:"email"`
-	Name                 string                                     `json:"name"`
-	Role                 string                                     `json:"role"`
-	AutoGroups           []string                                   `json:"auto_groups"`
-	Status               string                                     `json:"-"`
-	IsServiceUser        bool                                       `json:"is_service_user"`
-	IsBlocked            bool                                       `json:"is_blocked"`
-	NonDeletable         bool                                       `json:"non_deletable"`
-	LastLogin            time.Time                                  `json:"last_login"`
-	Issued               string                                     `json:"issued"`
-	IntegrationReference integration_reference.IntegrationReference `json:"-"`
-	Permissions          UserPermissions                            `json:"permissions"`
-}
-
-// getRoutesToSync returns the enabled routes for the peer ID and the routes
-// from the ACL peers that have distribution groups associated with the peer ID.
-// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-func (a *Account) getRoutesToSync(ctx context.Context, peerID string, aclPeers []*nbpeer.Peer) []*route.Route {
-	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(ctx, peerID)
-	peerRoutesMembership := make(lookupMap)
-	for _, r := range append(routes, peerDisabledRoutes...) {
-		peerRoutesMembership[string(r.GetHAUniqueID())] = struct{}{}
-	}
-
-	groupListMap := a.getPeerGroups(peerID)
-	for _, peer := range aclPeers {
-		activeRoutes, _ := a.getRoutingPeerRoutes(ctx, peer.ID)
-		groupFilteredRoutes := a.filterRoutesByGroups(activeRoutes, groupListMap)
-		filteredRoutes := a.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
-		routes = append(routes, filteredRoutes...)
-	}
-
-	return routes
-}
-
-// filterRoutesFromPeersOfSameHAGroup filters and returns a list of routes that don't share the same HA route membership
-func (a *Account) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships lookupMap) []*route.Route {
-	var filteredRoutes []*route.Route
-	for _, r := range routes {
-		_, found := peerMemberships[string(r.GetHAUniqueID())]
-		if !found {
-			filteredRoutes = append(filteredRoutes, r)
-		}
-	}
-	return filteredRoutes
-}
-
-// filterRoutesByGroups returns a list with routes that have distribution groups in the group's map
-func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap lookupMap) []*route.Route {
-	var filteredRoutes []*route.Route
-	for _, r := range routes {
-		for _, groupID := range r.Groups {
-			_, found := groupListMap[groupID]
-			if found {
-				filteredRoutes = append(filteredRoutes, r)
-				break
-			}
-		}
-	}
-	return filteredRoutes
-}
-
-// getRoutingPeerRoutes returns the enabled and disabled lists of routes that the given routing peer serves
-// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-// If the given is not a routing peer, then the lists are empty.
-func (a *Account) getRoutingPeerRoutes(ctx context.Context, peerID string) (enabledRoutes []*route.Route, disabledRoutes []*route.Route) {
-
-	peer := a.GetPeer(peerID)
-	if peer == nil {
-		log.WithContext(ctx).Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
-		return enabledRoutes, disabledRoutes
-	}
-
-	// currently we support only linux routing peers
-	if peer.Meta.GoOS != "linux" {
-		return enabledRoutes, disabledRoutes
-	}
-
-	seenRoute := make(map[route.ID]struct{})
-
-	takeRoute := func(r *route.Route, id string) {
-		if _, ok := seenRoute[r.ID]; ok {
-			return
-		}
-		seenRoute[r.ID] = struct{}{}
-
-		if r.Enabled {
-			r.Peer = peer.Key
-			enabledRoutes = append(enabledRoutes, r)
-			return
-		}
-		disabledRoutes = append(disabledRoutes, r)
-	}
-
-	for _, r := range a.Routes {
-		for _, groupID := range r.PeerGroups {
-			group := a.GetGroup(groupID)
-			if group == nil {
-				log.WithContext(ctx).Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
-				continue
-			}
-			for _, id := range group.Peers {
-				if id != peerID {
-					continue
-				}
-
-				newPeerRoute := r.Copy()
-				newPeerRoute.Peer = id
-				newPeerRoute.PeerGroups = nil
-				newPeerRoute.ID = route.ID(string(r.ID) + ":" + id) // we have to provide unique route id when distribute network map
-				takeRoute(newPeerRoute, id)
-				break
-			}
-		}
-		if r.Peer == peerID {
-			takeRoute(r.Copy(), peerID)
-		}
-	}
-
-	return enabledRoutes, disabledRoutes
-}
-
-// GetRoutesByPrefixOrDomains return list of routes by account and route prefix
-func (a *Account) GetRoutesByPrefixOrDomains(prefix netip.Prefix, domains domain.List) []*route.Route {
-	var routes []*route.Route
-	for _, r := range a.Routes {
-		dynamic := r.IsDynamic()
-		if dynamic && r.Domains.PunycodeString() == domains.PunycodeString() ||
-			!dynamic && r.Network.String() == prefix.String() {
-			routes = append(routes, r)
-		}
-	}
-
-	return routes
-}
-
-// GetGroup returns a group by ID if exists, nil otherwise
-func (a *Account) GetGroup(groupID string) *nbgroup.Group {
-	return a.Groups[groupID]
-}
-
-// GetPeerNetworkMap returns the networkmap for the given peer ID.
-func (a *Account) GetPeerNetworkMap(
-	ctx context.Context,
-	peerID string,
-	peersCustomZone nbdns.CustomZone,
-	validatedPeersMap map[string]struct{},
-	metrics *telemetry.AccountManagerMetrics,
-) *NetworkMap {
-	start := time.Now()
-
-	peer := a.Peers[peerID]
-	if peer == nil {
-		return &NetworkMap{
-			Network: a.Network.Copy(),
-		}
-	}
-
-	if _, ok := validatedPeersMap[peerID]; !ok {
-		return &NetworkMap{
-			Network: a.Network.Copy(),
-		}
-	}
-
-	aclPeers, firewallRules := a.getPeerConnectionResources(ctx, peerID, validatedPeersMap)
-	// exclude expired peers
-	var peersToConnect []*nbpeer.Peer
-	var expiredPeers []*nbpeer.Peer
-	for _, p := range aclPeers {
-		expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
-		if a.Settings.PeerLoginExpirationEnabled && expired {
-			expiredPeers = append(expiredPeers, p)
-			continue
-		}
-		peersToConnect = append(peersToConnect, p)
-	}
-
-	routesUpdate := a.getRoutesToSync(ctx, peerID, peersToConnect)
-	routesFirewallRules := a.getPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
-
-	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
-	dnsUpdate := nbdns.Config{
-		ServiceEnable: dnsManagementStatus,
-	}
-
-	if dnsManagementStatus {
-		var zones []nbdns.CustomZone
-
-		if peersCustomZone.Domain != "" {
-			zones = append(zones, peersCustomZone)
-		}
-		dnsUpdate.CustomZones = zones
-		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
-	}
-
-	nm := &NetworkMap{
-		Peers:               peersToConnect,
-		Network:             a.Network.Copy(),
-		Routes:              routesUpdate,
-		DNSConfig:           dnsUpdate,
-		OfflinePeers:        expiredPeers,
-		FirewallRules:       firewallRules,
-		RoutesFirewallRules: routesFirewallRules,
-	}
-
-	if metrics != nil {
-		objectCount := int64(len(peersToConnect) + len(expiredPeers) + len(routesUpdate) + len(firewallRules))
-		metrics.CountNetworkMapObjects(objectCount)
-		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
-
-		if objectCount > 5000 {
-			log.WithContext(ctx).Tracef("account: %s has a total resource count of %d objects, "+
-				"peers to connect: %d, expired peers: %d, routes: %d, firewall rules: %d",
-				a.Id, objectCount, len(peersToConnect), len(expiredPeers), len(routesUpdate), len(firewallRules))
-		}
-	}
-
-	return nm
-}
-
-func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
-	var merr *multierror.Error
-
-	if dnsDomain == "" {
-		log.WithContext(ctx).Error("no dns domain is set, returning empty zone")
-		return nbdns.CustomZone{}
-	}
-
-	customZone := nbdns.CustomZone{
-		Domain:  dns.Fqdn(dnsDomain),
-		Records: make([]nbdns.SimpleRecord, 0, len(a.Peers)),
-	}
-
-	domainSuffix := "." + dnsDomain
-
-	var sb strings.Builder
-	for _, peer := range a.Peers {
-		if peer.DNSLabel == "" {
-			merr = multierror.Append(merr, fmt.Errorf("peer %s has an empty DNS label", peer.Name))
-			continue
-		}
-
-		sb.Grow(len(peer.DNSLabel) + len(domainSuffix))
-		sb.WriteString(peer.DNSLabel)
-		sb.WriteString(domainSuffix)
-
-		customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-			Name:  sb.String(),
-			Type:  int(dns.TypeA),
-			Class: nbdns.DefaultClass,
-			TTL:   defaultTTL,
-			RData: peer.IP.String(),
-		})
-
-		sb.Reset()
-	}
-
-	go func() {
-		if merr != nil {
-			log.WithContext(ctx).Errorf("error generating custom zone for account %s: %v", a.Id, merr)
-		}
-	}()
-
-	return customZone
-}
-
-// GetExpiredPeers returns peers that have been expired
-func (a *Account) GetExpiredPeers() []*nbpeer.Peer {
-	var peers []*nbpeer.Peer
-	for _, peer := range a.GetPeersWithExpiration() {
-		expired, _ := peer.LoginExpired(a.Settings.PeerLoginExpiration)
-		if expired {
-			peers = append(peers, peer)
-		}
-	}
-
-	return peers
-}
-
-// GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
-// If there is no peer that expires this function returns false and a duration of 0.
-// This function only considers peers that haven't been expired yet and that are connected.
-func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
-	peersWithExpiry := a.GetPeersWithExpiration()
-	if len(peersWithExpiry) == 0 {
-		return 0, false
-	}
-	var nextExpiry *time.Duration
-	for _, peer := range peersWithExpiry {
-		// consider only connected peers because others will require login on connecting to the management server
-		if peer.Status.LoginExpired || !peer.Status.Connected {
-			continue
-		}
-		_, duration := peer.LoginExpired(a.Settings.PeerLoginExpiration)
-		if nextExpiry == nil || duration < *nextExpiry {
-			// if expiration is below 1s return 1s duration
-			// this avoids issues with ticker that can't be set to < 0
-			if duration < time.Second {
-				return time.Second, true
-			}
-			nextExpiry = &duration
-		}
-	}
-
-	if nextExpiry == nil {
-		return 0, false
-	}
-
-	return *nextExpiry, true
-}
-
-// GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true and that were added by a user
-func (a *Account) GetPeersWithExpiration() []*nbpeer.Peer {
-	peers := make([]*nbpeer.Peer, 0)
-	for _, peer := range a.Peers {
-		if peer.LoginExpirationEnabled && peer.AddedWithSSOLogin() {
-			peers = append(peers, peer)
-		}
-	}
-	return peers
-}
-
-// GetInactivePeers returns peers that have been expired by inactivity
-func (a *Account) GetInactivePeers() []*nbpeer.Peer {
-	var peers []*nbpeer.Peer
-	for _, inactivePeer := range a.GetPeersWithInactivity() {
-		inactive, _ := inactivePeer.SessionExpired(a.Settings.PeerInactivityExpiration)
-		if inactive {
-			peers = append(peers, inactivePeer)
-		}
-	}
-	return peers
-}
-
-// GetNextInactivePeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
-// If there is no peer that expires this function returns false and a duration of 0.
-// This function only considers peers that haven't been expired yet and that are not connected.
-func (a *Account) GetNextInactivePeerExpiration() (time.Duration, bool) {
-	peersWithExpiry := a.GetPeersWithInactivity()
-	if len(peersWithExpiry) == 0 {
-		return 0, false
-	}
-	var nextExpiry *time.Duration
-	for _, peer := range peersWithExpiry {
-		if peer.Status.LoginExpired || peer.Status.Connected {
-			continue
-		}
-		_, duration := peer.SessionExpired(a.Settings.PeerInactivityExpiration)
-		if nextExpiry == nil || duration < *nextExpiry {
-			// if expiration is below 1s return 1s duration
-			// this avoids issues with ticker that can't be set to < 0
-			if duration < time.Second {
-				return time.Second, true
-			}
-			nextExpiry = &duration
-		}
-	}
-
-	if nextExpiry == nil {
-		return 0, false
-	}
-
-	return *nextExpiry, true
-}
-
-// GetPeersWithInactivity eturns a list of peers that have Peer.InactivityExpirationEnabled set to true and that were added by a user
-func (a *Account) GetPeersWithInactivity() []*nbpeer.Peer {
-	peers := make([]*nbpeer.Peer, 0)
-	for _, peer := range a.Peers {
-		if peer.InactivityExpirationEnabled && peer.AddedWithSSOLogin() {
-			peers = append(peers, peer)
-		}
-	}
-	return peers
-}
-
-// GetPeers returns a list of all Account peers
-func (a *Account) GetPeers() []*nbpeer.Peer {
-	var peers []*nbpeer.Peer
-	for _, peer := range a.Peers {
-		peers = append(peers, peer)
-	}
-	return peers
-}
-
-// UpdateSettings saves new account settings
-func (a *Account) UpdateSettings(update *Settings) *Account {
-	a.Settings = update.Copy()
-	return a
-}
-
-// UpdatePeer saves new or replaces existing peer
-func (a *Account) UpdatePeer(update *nbpeer.Peer) {
-	a.Peers[update.ID] = update
-}
-
-// DeletePeer deletes peer from the account cleaning up all the references
-func (a *Account) DeletePeer(peerID string) {
-	// delete peer from groups
-	for _, g := range a.Groups {
-		for i, pk := range g.Peers {
-			if pk == peerID {
-				g.Peers = append(g.Peers[:i], g.Peers[i+1:]...)
-				break
-			}
-		}
-	}
-
-	for _, r := range a.Routes {
-		if r.Peer == peerID {
-			r.Enabled = false
-			r.Peer = ""
-		}
-	}
-
-	delete(a.Peers, peerID)
-	a.Network.IncSerial()
-}
-
-// FindPeerByPubKey looks for a Peer by provided WireGuard public key in the Account or returns error if it wasn't found.
-// It will return an object copy of the peer.
-func (a *Account) FindPeerByPubKey(peerPubKey string) (*nbpeer.Peer, error) {
-	for _, peer := range a.Peers {
-		if peer.Key == peerPubKey {
-			return peer.Copy(), nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "peer with the public key %s not found", peerPubKey)
-}
-
-// FindUserPeers returns a list of peers that user owns (created)
-func (a *Account) FindUserPeers(userID string) ([]*nbpeer.Peer, error) {
-	peers := make([]*nbpeer.Peer, 0)
-	for _, peer := range a.Peers {
-		if peer.UserID == userID {
-			peers = append(peers, peer)
-		}
-	}
-
-	return peers, nil
-}
-
-// FindUser looks for a given user in the Account or returns error if user wasn't found.
-func (a *Account) FindUser(userID string) (*User, error) {
-	user := a.Users[userID]
-	if user == nil {
-		return nil, status.Errorf(status.NotFound, "user %s not found", userID)
-	}
-
-	return user, nil
-}
-
-// FindGroupByName looks for a given group in the Account by name or returns error if the group wasn't found.
-func (a *Account) FindGroupByName(groupName string) (*nbgroup.Group, error) {
-	for _, group := range a.Groups {
-		if group.Name == groupName {
-			return group, nil
-		}
-	}
-	return nil, status.Errorf(status.NotFound, "group %s not found", groupName)
-}
-
-// FindSetupKey looks for a given SetupKey in the Account or returns error if it wasn't found.
-func (a *Account) FindSetupKey(setupKey string) (*SetupKey, error) {
-	key := a.SetupKeys[setupKey]
-	if key == nil {
-		return nil, status.Errorf(status.NotFound, "setup key not found")
-	}
-
-	return key, nil
-}
-
-// GetPeerGroupsList return with the list of groups ID.
-func (a *Account) GetPeerGroupsList(peerID string) []string {
-	var grps []string
-	for groupID, group := range a.Groups {
-		for _, id := range group.Peers {
-			if id == peerID {
-				grps = append(grps, groupID)
-				break
-			}
-		}
-	}
-	return grps
-}
-
-func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
-	peerGroups := a.getPeerGroups(peerID)
-	enabled := true
-	for _, groupID := range a.DNSSettings.DisabledManagementGroups {
-		_, found := peerGroups[groupID]
-		if found {
-			enabled = false
-			break
-		}
-	}
-	return enabled
-}
-
-func (a *Account) getPeerGroups(peerID string) lookupMap {
-	groupList := make(lookupMap)
-	for groupID, group := range a.Groups {
-		for _, id := range group.Peers {
-			if id == peerID {
-				groupList[groupID] = struct{}{}
-				break
-			}
-		}
-	}
-	return groupList
-}
-
-func (a *Account) getTakenIPs() []net.IP {
-	var takenIps []net.IP
-	for _, existingPeer := range a.Peers {
-		takenIps = append(takenIps, existingPeer.IP)
-	}
-
-	return takenIps
-}
-
-func (a *Account) getPeerDNSLabels() lookupMap {
-	existingLabels := make(lookupMap)
-	for _, peer := range a.Peers {
-		if peer.DNSLabel != "" {
-			existingLabels[peer.DNSLabel] = struct{}{}
-		}
-	}
-	return existingLabels
-}
-
-func (a *Account) Copy() *Account {
-	peers := map[string]*nbpeer.Peer{}
-	for id, peer := range a.Peers {
-		peers[id] = peer.Copy()
-	}
-
-	users := map[string]*User{}
-	for id, user := range a.Users {
-		users[id] = user.Copy()
-	}
-
-	setupKeys := map[string]*SetupKey{}
-	for id, key := range a.SetupKeys {
-		setupKeys[id] = key.Copy()
-	}
-
-	groups := map[string]*nbgroup.Group{}
-	for id, group := range a.Groups {
-		groups[id] = group.Copy()
-	}
-
-	policies := []*Policy{}
-	for _, policy := range a.Policies {
-		policies = append(policies, policy.Copy())
-	}
-
-	routes := map[route.ID]*route.Route{}
-	for id, r := range a.Routes {
-		routes[id] = r.Copy()
-	}
-
-	nsGroups := map[string]*nbdns.NameServerGroup{}
-	for id, nsGroup := range a.NameServerGroups {
-		nsGroups[id] = nsGroup.Copy()
-	}
-
-	dnsSettings := a.DNSSettings.Copy()
-
-	var settings *Settings
-	if a.Settings != nil {
-		settings = a.Settings.Copy()
-	}
-
-	postureChecks := []*posture.Checks{}
-	for _, postureCheck := range a.PostureChecks {
-		postureChecks = append(postureChecks, postureCheck.Copy())
-	}
-
-	return &Account{
-		Id:                     a.Id,
-		CreatedBy:              a.CreatedBy,
-		CreatedAt:              a.CreatedAt,
-		Domain:                 a.Domain,
-		DomainCategory:         a.DomainCategory,
-		IsDomainPrimaryAccount: a.IsDomainPrimaryAccount,
-		SetupKeys:              setupKeys,
-		Network:                a.Network.Copy(),
-		Peers:                  peers,
-		Users:                  users,
-		Groups:                 groups,
-		Policies:               policies,
-		Routes:                 routes,
-		NameServerGroups:       nsGroups,
-		DNSSettings:            dnsSettings,
-		PostureChecks:          postureChecks,
-		Settings:               settings,
-	}
-}
-
-func (a *Account) GetGroupAll() (*nbgroup.Group, error) {
-	for _, g := range a.Groups {
-		if g.Name == "All" {
-			return g, nil
-		}
-	}
-	return nil, fmt.Errorf("no group ALL found")
-}
-
-// GetPeer looks up a Peer by ID
-func (a *Account) GetPeer(peerID string) *nbpeer.Peer {
-	return a.Peers[peerID]
-}
-
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
 // Returns a bool indicating if there are changes in the JWT group membership, the updated user AutoGroups,
 // newly groups to create and an error if any occurred.
-func (am *DefaultAccountManager) getJWTGroupsChanges(user *User, groups []*nbgroup.Group, groupNames []string) (bool, []string, []*nbgroup.Group, error) {
-	existedGroupsByName := make(map[string]*nbgroup.Group)
+func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []*types.Group, groupNames []string) (bool, []string, []*types.Group, error) {
+	existedGroupsByName := make(map[string]*types.Group)
 	for _, group := range groups {
 		existedGroupsByName[group.Name] = group
 	}
 
 	newUserAutoGroups, jwtGroupsMap := separateGroups(user.AutoGroups, groups)
 
-	groupsToAdd := difference(groupNames, maps.Keys(jwtGroupsMap))
-	groupsToRemove := difference(maps.Keys(jwtGroupsMap), groupNames)
+	groupsToAdd := util.Difference(groupNames, maps.Keys(jwtGroupsMap))
+	groupsToRemove := util.Difference(maps.Keys(jwtGroupsMap), groupNames)
 
 	// If no groups are added or removed, we should not sync account
 	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
 		return false, nil, nil, nil
 	}
 
-	newGroupsToCreate := make([]*nbgroup.Group, 0)
+	newGroupsToCreate := make([]*types.Group, 0)
 
 	var modified bool
 	for _, name := range groupsToAdd {
 		group, exists := existedGroupsByName[name]
 		if !exists {
-			group = &nbgroup.Group{
+			group = &types.Group{
 				ID:        xid.New().String(),
 				AccountID: user.AccountID,
 				Name:      name,
-				Issued:    nbgroup.GroupIssuedJWT,
+				Issued:    types.GroupIssuedJWT,
 			}
 			newGroupsToCreate = append(newGroupsToCreate, group)
 		}
-		if group.Issued == nbgroup.GroupIssuedJWT {
+		if group.Issued == types.GroupIssuedJWT {
 			newUserAutoGroups = append(newUserAutoGroups, group.ID)
 			modified = true
 		}
@@ -965,68 +237,16 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(user *User, groups []*nbgro
 	return modified, newUserAutoGroups, newGroupsToCreate, nil
 }
 
-// UserGroupsAddToPeers adds groups to all peers of user
-func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
-	userPeers := make(map[string]struct{})
-	for pid, peer := range a.Peers {
-		if peer.UserID == userID {
-			userPeers[pid] = struct{}{}
-		}
-	}
-
-	for _, gid := range groups {
-		group, ok := a.Groups[gid]
-		if !ok {
-			continue
-		}
-
-		groupPeers := make(map[string]struct{})
-		for _, pid := range group.Peers {
-			groupPeers[pid] = struct{}{}
-		}
-
-		for pid := range userPeers {
-			groupPeers[pid] = struct{}{}
-		}
-
-		group.Peers = group.Peers[:0]
-		for pid := range groupPeers {
-			group.Peers = append(group.Peers, pid)
-		}
-	}
-}
-
-// UserGroupsRemoveFromPeers removes groups from all peers of user
-func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
-	for _, gid := range groups {
-		group, ok := a.Groups[gid]
-		if !ok || group.Name == "All" {
-			continue
-		}
-		update := make([]string, 0, len(group.Peers))
-		for _, pid := range group.Peers {
-			peer, ok := a.Peers[pid]
-			if !ok {
-				continue
-			}
-			if peer.UserID != userID {
-				update = append(update, pid)
-			}
-		}
-		group.Peers = update
-	}
-}
-
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(
 	ctx context.Context,
-	store Store,
+	store store.Store,
 	peersUpdateManager *PeersUpdateManager,
 	idpManager idp.Manager,
 	singleAccountModeDomain string,
 	dnsDomain string,
 	eventStore activity.Store,
-	geo *geolocation.Geolocation,
+	geo geolocation.Geolocation,
 	userDeleteFromIDPEnabled bool,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
@@ -1122,7 +342,7 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
 // Returns an updated Account
-func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *Settings) (*Account, error) {
+func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error) {
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -1171,9 +391,25 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 	}
 
+	updateAccountPeers := false
+	if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled {
+		if newSettings.RoutingPeerDNSResolutionEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
+		}
+		updateAccountPeers = true
+		account.Network.Serial++
+	}
+
 	err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err != nil {
 		return nil, err
+	}
+
+	err = am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("groups propagation failed: %w", err)
 	}
 
 	updatedAccount := account.UpdateSettings(newSettings)
@@ -1183,24 +419,45 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
+	if updateAccountPeers {
+		go am.UpdateAccountPeers(ctx, accountID)
+	}
+
 	return updatedAccount, nil
 }
 
-func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *Settings, userID, accountID string) error {
-	if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
-		event := activity.AccountPeerInactivityExpirationEnabled
-		if !newSettings.PeerInactivityExpirationEnabled {
-			event = activity.AccountPeerInactivityExpirationDisabled
-			am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
+	if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled {
+		if newSettings.GroupsPropagationEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationEnabled, nil)
+			// Todo: retroactively add user groups to all peers
 		} else {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationDisabled, nil)
 		}
-		am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 	}
 
-	if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
-		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+	return nil
+}
+
+func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
+	if newSettings.PeerInactivityExpirationEnabled {
+		if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
+			oldSettings.PeerInactivityExpiration = newSettings.PeerInactivityExpiration
+
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
+			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+		}
+	} else {
+		if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
+			event := activity.AccountPeerInactivityExpirationEnabled
+			if !newSettings.PeerInactivityExpirationEnabled {
+				event = activity.AccountPeerInactivityExpirationDisabled
+				am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+			} else {
+				am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+			}
+			am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
+		}
 	}
 
 	return nil
@@ -1208,9 +465,12 @@ func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
+		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+		defer unlock()
+
 		expiredPeers, err := am.getExpiredPeers(ctx, accountID)
 		if err != nil {
-			return 0, false
+			return peerSchedulerRetryInterval, true
 		}
 
 		var peerIDs []string
@@ -1222,7 +482,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 
 		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
 			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", accountID)
-			return 0, false
+			return peerSchedulerRetryInterval, true
 		}
 
 		return am.getNextPeerExpiration(ctx, accountID)
@@ -1239,10 +499,13 @@ func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context
 // peerInactivityExpirationJob marks login expired for all inactive peers and returns the minimum duration in which the next peer of the account will expire by inactivity if found
 func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
+		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+		defer unlock()
+
 		inactivePeers, err := am.getInactivePeers(ctx, accountID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed getting inactive peers for account %s", accountID)
-			return 0, false
+			return peerSchedulerRetryInterval, true
 		}
 
 		var peerIDs []string
@@ -1254,7 +517,7 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 		if err := am.expireAndUpdatePeers(ctx, accountID, inactivePeers); err != nil {
 			log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
-			return 0, false
+			return peerSchedulerRetryInterval, true
 		}
 
 		return am.getNextInactivePeerExpiration(ctx, accountID)
@@ -1271,7 +534,7 @@ func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx co
 
 // newAccount creates a new Account with a generated ID and generated default setup keys.
 // If ID is already in use (due to collision) we try one more time before returning error
-func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain string) (*Account, error) {
+func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain string) (*types.Account, error) {
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
@@ -1351,7 +614,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
 	}
 
-	if user.Role != UserRoleOwner {
+	if user.Role != types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
 	for _, otherUser := range account.Users {
@@ -1389,7 +652,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 
 // AccountExists checks if an account exists.
 func (am *DefaultAccountManager) AccountExists(ctx context.Context, accountID string) (bool, error) {
-	return am.Store.AccountExists(ctx, LockingStrengthShare, accountID)
+	return am.Store.AccountExists(ctx, store.LockingStrengthShare, accountID)
 }
 
 // GetAccountIDByUserID retrieves the account ID based on the userID provided.
@@ -1401,7 +664,7 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userI
 		return "", status.Errorf(status.NotFound, "no valid userID provided")
 	}
 
-	accountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, userID)
+	accountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 			account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
@@ -1427,7 +690,7 @@ func isNil(i idp.Manager) bool {
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
 		// user can be nil if it wasn't found (e.g., just created)
-		user, err := am.lookupUserInCache(ctx, userID, accountID)
+		user, err := am.lookupUserInCache(ctx, am.Store, userID, accountID)
 		if err != nil {
 			return err
 		}
@@ -1503,8 +766,8 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(ctx context.Context, e
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
-func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID string, accountID string) (*idp.UserData, error) {
-	accountUsers, err := am.Store.GetAccountUsers(ctx, LockingStrengthShare, accountID)
+func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, transaction store.Store, userID string, accountID string) (*idp.UserData, error) {
+	accountUsers, err := transaction.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -1515,10 +778,10 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 		if user.IsServiceUser {
 			continue
 		}
-		if user.Issued == UserIssuedIntegration {
+		if user.Issued == types.UserIssuedIntegration {
 			continue
 		}
-		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
+		users[user.Id] = userLoggedInOnce(!user.GetLastLogin().IsZero())
 	}
 	log.WithContext(ctx).Debugf("looking up user %s of account %s in cache", userID, accountID)
 	userData, err := am.lookupCache(ctx, users, accountID)
@@ -1534,7 +797,7 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 
 	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
 	// or it didn't have its metadata updated with am.addAccountIDToIDPAppMeta
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+	user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, accountID)
 		return nil, err
@@ -1685,7 +948,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx 
 	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlockAccount()
 
-	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, accountID)
+	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting account domain and category: %v", err)
 		return err
@@ -1695,7 +958,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx 
 		return nil
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, claims.UserId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting user: %v", err)
 		return err
@@ -1780,9 +1043,9 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
 	defer unlockAccount()
 
-	newUser := NewRegularUser(claims.UserId)
+	newUser := types.NewRegularUser(claims.UserId)
 	newUser.AccountID = domainAccountID
-	err := am.Store.SaveUser(ctx, LockingStrengthUpdate, newUser)
+	err := am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser)
 	if err != nil {
 		return "", err
 	}
@@ -1805,7 +1068,7 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 		return nil
 	}
 
-	user, err := am.lookupUserInCache(ctx, userID, accountID)
+	user, err := am.lookupUserInCache(ctx, am.Store, userID, accountID)
 	if err != nil {
 		return err
 	}
@@ -1834,22 +1097,22 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 
 // MarkPATUsed marks a personal access token as used
 func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string) error {
-	return am.Store.MarkPATUsed(ctx, LockingStrengthUpdate, tokenID)
+	return am.Store.MarkPATUsed(ctx, store.LockingStrengthUpdate, tokenID)
 }
 
 // GetAccount returns an account associated with this account ID.
-func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID string) (*Account, error) {
+func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
 	return am.Store.GetAccount(ctx, accountID)
 }
 
 // GetAccountInfoFromPAT retrieves user, personal access token, domain, and category details from a personal access token.
-func (am *DefaultAccountManager) GetAccountInfoFromPAT(ctx context.Context, token string) (user *User, pat *PersonalAccessToken, domain string, category string, err error) {
+func (am *DefaultAccountManager) GetAccountInfoFromPAT(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error) {
 	user, pat, err = am.extractPATFromToken(ctx, token)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
 
-	domain, category, err = am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, user.AccountID)
+	domain, category, err = am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, user.AccountID)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
@@ -1858,18 +1121,17 @@ func (am *DefaultAccountManager) GetAccountInfoFromPAT(ctx context.Context, toke
 }
 
 // extractPATFromToken validates the token structure and retrieves associated User and PAT.
-func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token string) (*User, *PersonalAccessToken, error) {
-	if len(token) != PATLength {
+func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, error) {
+	if len(token) != types.PATLength {
 		return nil, nil, fmt.Errorf("token has incorrect length")
 	}
 
-	prefix := token[:len(PATPrefix)]
-	if prefix != PATPrefix {
-		return nil, nil, fmt.Errorf("token has incorrect prefix")
+	prefix := token[:len(types.PATPrefix)]
+	if prefix != types.PATPrefix {
+		return nil, nil, fmt.Errorf("token has wrong prefix")
 	}
-
-	secret := token[len(PATPrefix) : len(PATPrefix)+PATSecretLength]
-	encodedChecksum := token[len(PATPrefix)+PATSecretLength : len(PATPrefix)+PATSecretLength+PATChecksumLength]
+	secret := token[len(types.PATPrefix) : len(types.PATPrefix)+types.PATSecretLength]
+	encodedChecksum := token[len(types.PATPrefix)+types.PATSecretLength : len(types.PATPrefix)+types.PATSecretLength+types.PATChecksumLength]
 
 	verificationChecksum, err := base62.Decode(encodedChecksum)
 	if err != nil {
@@ -1884,16 +1146,16 @@ func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token 
 	hashedToken := sha256.Sum256([]byte(token))
 	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
 
-	var user *User
-	var pat *PersonalAccessToken
+	var user *types.User
+	var pat *types.PersonalAccessToken
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		pat, err = transaction.GetPATByHashedToken(ctx, LockingStrengthShare, encodedHashedToken)
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthShare, encodedHashedToken)
 		if err != nil {
 			return err
 		}
 
-		user, err = transaction.GetUserByPATID(ctx, LockingStrengthShare, pat.ID)
+		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthShare, pat.ID)
 		return err
 	})
 	if err != nil {
@@ -1904,8 +1166,8 @@ func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token 
 }
 
 // GetAccountByID returns an account associated with this account ID.
-func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID string, userID string) (*Account, error) {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1926,7 +1188,7 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 		// This section is mostly related to self-hosted installations.
 		// We override incoming domain claims to group users under a single account.
 		claims.Domain = am.singleAccountModeDomain
-		claims.DomainCategory = PrivateCategory
+		claims.DomainCategory = types.PrivateCategory
 		log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	}
 
@@ -1935,7 +1197,7 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 		return "", "", err
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, claims.UserId)
 	if err != nil {
 		// this is not really possible because we got an account by user ID
 		return "", "", status.Errorf(status.NotFound, "user %s not found", claims.UserId)
@@ -1962,7 +1224,13 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
 // and propagates changes to peers if group propagation is enabled.
 func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID string, claims jwtclaims.AuthorizationClaims) error {
-	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	if claim, exists := claims.Raw[jwtclaims.IsToken]; exists {
+		if isToken, ok := claim.(bool); ok && isToken {
+			return nil
+		}
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}
@@ -1988,14 +1256,14 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	var addNewGroups []string
 	var removeOldGroups []string
 	var hasChanges bool
-	var user *User
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
-		user, err = transaction.GetUserByUserID(ctx, LockingStrengthShare, claims.UserId)
+	var user *types.User
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		user, err = transaction.GetUserByUserID(ctx, store.LockingStrengthShare, claims.UserId)
 		if err != nil {
 			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		groups, err := transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
+		groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return fmt.Errorf("error getting account groups: %w", err)
 		}
@@ -2011,45 +1279,45 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 			return nil
 		}
 
-		if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, newGroupsToCreate); err != nil {
+		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, newGroupsToCreate); err != nil {
 			return fmt.Errorf("error saving groups: %w", err)
 		}
 
-		addNewGroups = difference(updatedAutoGroups, user.AutoGroups)
-		removeOldGroups = difference(user.AutoGroups, updatedAutoGroups)
+		addNewGroups = util.Difference(updatedAutoGroups, user.AutoGroups)
+		removeOldGroups = util.Difference(user.AutoGroups, updatedAutoGroups)
 
 		user.AutoGroups = updatedAutoGroups
-		if err = transaction.SaveUser(ctx, LockingStrengthUpdate, user); err != nil {
+		if err = transaction.SaveUser(ctx, store.LockingStrengthUpdate, user); err != nil {
 			return fmt.Errorf("error saving user: %w", err)
 		}
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			groups, err = transaction.GetAccountGroups(ctx, LockingStrengthShare, accountID)
+			groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 			if err != nil {
 				return fmt.Errorf("error getting account groups: %w", err)
 			}
 
-			groupsMap := make(map[string]*nbgroup.Group, len(groups))
+			groupsMap := make(map[string]*types.Group, len(groups))
 			for _, group := range groups {
 				groupsMap[group.ID] = group
 			}
 
-			peers, err := transaction.GetUserPeers(ctx, LockingStrengthShare, accountID, claims.UserId)
+			peers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, accountID, claims.UserId)
 			if err != nil {
 				return fmt.Errorf("error getting user peers: %w", err)
 			}
 
-			updatedGroups, err := am.updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
+			updatedGroups, err := updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
 			if err != nil {
 				return fmt.Errorf("error modifying user peers in groups: %w", err)
 			}
 
-			if err = transaction.SaveGroups(ctx, LockingStrengthUpdate, updatedGroups); err != nil {
+			if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, updatedGroups); err != nil {
 				return fmt.Errorf("error saving groups: %w", err)
 			}
 
-			if err = transaction.IncrementNetworkSerial(ctx, LockingStrengthUpdate, accountID); err != nil {
+			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
@@ -2067,7 +1335,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range addNewGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
+		group, err := am.Store.GetGroupByID(ctx, store.LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {
@@ -2080,7 +1348,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range removeOldGroups {
-		group, err := am.Store.GetGroupByID(ctx, LockingStrengthShare, accountID, g)
+		group, err := am.Store.GetGroupByID(ctx, store.LockingStrengthShare, accountID, g)
 		if err != nil {
 			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
 		} else {
@@ -2105,7 +1373,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			am.updateAccountPeers(ctx, accountID)
+			am.UpdateAccountPeers(ctx, accountID)
 		}
 	}
 
@@ -2138,7 +1406,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		return "", errors.New(emptyUserID)
 	}
 
-	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
+	if claims.DomainCategory != types.PrivateCategory || !isDomainValid(claims.Domain) {
 		return am.GetAccountIDByUserID(ctx, claims.UserId, claims.Domain)
 	}
 
@@ -2155,7 +1423,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		return "", err
 	}
 
-	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, claims.UserId)
+	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, claims.UserId)
 	if handleNotFound(err) != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
 		return "", err
@@ -2176,7 +1444,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	return am.addNewPrivateAccount(ctx, domainAccountID, claims)
 }
 func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Context, domain string) (string, context.CancelFunc, error) {
-	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
+	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, domain)
 	if handleNotFound(err) != nil {
 
 		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
@@ -2191,7 +1459,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 	cancel := am.Store.AcquireGlobalLock(ctx)
 
 	// check again if the domain has a primary account because of simultaneous requests
-	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, domain)
+	domainAccountID, err = am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, domain)
 	if handleNotFound(err) != nil {
 		cancel()
 		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
@@ -2202,7 +1470,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 }
 
 func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {
-	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, LockingStrengthShare, claims.UserId)
+	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, claims.UserId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
 		return "", err
@@ -2212,7 +1480,7 @@ func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context
 		return "", fmt.Errorf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
 	}
 
-	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, LockingStrengthShare, claims.AccountId)
+	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, claims.AccountId)
 	if handleNotFound(err) != nil {
 		log.WithContext(ctx).Errorf("error getting account domain and category: %v", err)
 		return "", err
@@ -2223,7 +1491,7 @@ func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context
 	}
 
 	// We checked if the domain has a primary account already
-	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, LockingStrengthShare, claims.Domain)
+	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, claims.Domain)
 	if handleNotFound(err) != nil {
 		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
 		return "", err
@@ -2250,10 +1518,10 @@ func handleNotFound(err error) error {
 }
 
 func domainIsUpToDate(domain string, domainCategory string, claims jwtclaims.AuthorizationClaims) bool {
-	return domainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory || domain != claims.Domain
+	return domainCategory == types.PrivateCategory || claims.DomainCategory != types.PrivateCategory || domain != claims.Domain
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer accountUnlock()
 	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
@@ -2280,7 +1548,7 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 
 	err := am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID)
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
+		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
 
 	return nil
@@ -2295,6 +1563,9 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 
 	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer unlock()
+
+	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer unlockPeer()
 
 	_, _, _, err = am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
 	if err != nil {
@@ -2332,7 +1603,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context,
 		return err
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}
@@ -2354,7 +1625,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context,
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	am.updateAccountPeers(ctx, accountID)
+	am.UpdateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
@@ -2365,8 +1636,8 @@ func (am *DefaultAccountManager) GetAccountIDForPeerKey(ctx context.Context, pee
 	return am.Store.GetAccountIDByPeerPubKey(ctx, peerKey)
 }
 
-func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction Store, peer *nbpeer.Peer, settings *Settings) (bool, error) {
-	user, err := transaction.GetUserByUserID(ctx, LockingStrengthShare, peer.UserID)
+func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction store.Store, peer *nbpeer.Peer, settings *types.Settings) (bool, error) {
+	user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, peer.UserID)
 	if err != nil {
 		return false, err
 	}
@@ -2387,14 +1658,14 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction
 	return false, nil
 }
 
-func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, store Store, accountID string, peerHostName string) (string, error) {
-	existingLabels, err := store.GetPeerLabelsInAccount(ctx, LockingStrengthShare, accountID)
+func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, s store.Store, accountID string, peerHostName string) (string, error) {
+	existingLabels, err := s.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
 	}
 
 	labelMap := ConvertSliceToMap(existingLabels)
-	newLabel, err := getPeerHostLabel(peerHostName, labelMap)
+	newLabel, err := types.GetPeerHostLabel(peerHostName, labelMap)
 	if err != nil {
 		return "", fmt.Errorf("failed to get new host label: %w", err)
 	}
@@ -2406,8 +1677,8 @@ func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, store Stor
 	return newLabel, nil
 }
 
-func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*Settings, error) {
-	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, userID)
+func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -2416,70 +1687,70 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
 	}
 
-	return am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
+	return am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 }
 
 // addAllGroup to account object if it doesn't exist
-func addAllGroup(account *Account) error {
+func addAllGroup(account *types.Account) error {
 	if len(account.Groups) == 0 {
-		allGroup := &nbgroup.Group{
+		allGroup := &types.Group{
 			ID:     xid.New().String(),
 			Name:   "All",
-			Issued: nbgroup.GroupIssuedAPI,
+			Issued: types.GroupIssuedAPI,
 		}
 		for _, peer := range account.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
 		}
-		account.Groups = map[string]*nbgroup.Group{allGroup.ID: allGroup}
+		account.Groups = map[string]*types.Group{allGroup.ID: allGroup}
 
 		id := xid.New().String()
 
-		defaultPolicy := &Policy{
+		defaultPolicy := &types.Policy{
 			ID:          id,
-			Name:        DefaultRuleName,
-			Description: DefaultRuleDescription,
+			Name:        types.DefaultRuleName,
+			Description: types.DefaultRuleDescription,
 			Enabled:     true,
-			Rules: []*PolicyRule{
+			Rules: []*types.PolicyRule{
 				{
 					ID:            id,
-					Name:          DefaultRuleName,
-					Description:   DefaultRuleDescription,
+					Name:          types.DefaultRuleName,
+					Description:   types.DefaultRuleDescription,
 					Enabled:       true,
 					Sources:       []string{allGroup.ID},
 					Destinations:  []string{allGroup.ID},
 					Bidirectional: true,
-					Protocol:      PolicyRuleProtocolALL,
-					Action:        PolicyTrafficActionAccept,
+					Protocol:      types.PolicyRuleProtocolALL,
+					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
 		}
 
-		account.Policies = []*Policy{defaultPolicy}
+		account.Policies = []*types.Policy{defaultPolicy}
 	}
 	return nil
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Account {
+func newAccountWithId(ctx context.Context, accountID, userID, domain string) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
 
-	network := NewNetwork()
+	network := types.NewNetwork()
 	peers := make(map[string]*nbpeer.Peer)
-	users := make(map[string]*User)
+	users := make(map[string]*types.User)
 	routes := make(map[route.ID]*route.Route)
-	setupKeys := map[string]*SetupKey{}
+	setupKeys := map[string]*types.SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 
-	owner := NewOwnerUser(userID)
+	owner := types.NewOwnerUser(userID)
 	owner.AccountID = accountID
 	users[userID] = owner
 
-	dnsSettings := DNSSettings{
+	dnsSettings := types.DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}
 	log.WithContext(ctx).Debugf("created new account %s", accountID)
 
-	acc := &Account{
+	acc := &types.Account{
 		Id:               accountID,
 		CreatedAt:        time.Now().UTC(),
 		SetupKeys:        setupKeys,
@@ -2491,14 +1762,15 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Ac
 		Routes:           routes,
 		NameServerGroups: nameServersGroups,
 		DNSSettings:      dnsSettings,
-		Settings: &Settings{
+		Settings: &types.Settings{
 			PeerLoginExpirationEnabled: true,
-			PeerLoginExpiration:        DefaultPeerLoginExpiration,
+			PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
 			GroupsPropagationEnabled:   true,
 			RegularUsersViewBlocked:    true,
 
 			PeerInactivityExpirationEnabled: false,
-			PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
+			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
+			RoutingPeerDNSResolutionEnabled: true,
 		},
 	}
 
@@ -2544,18 +1816,18 @@ func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
 // separateGroups separates user's auto groups into non-JWT and JWT groups.
 // Returns the list of standard auto groups and a map of JWT auto groups,
 // where the keys are the group names and the values are the group IDs.
-func separateGroups(autoGroups []string, allGroups []*nbgroup.Group) ([]string, map[string]string) {
+func separateGroups(autoGroups []string, allGroups []*types.Group) ([]string, map[string]string) {
 	newAutoGroups := make([]string, 0)
 	jwtAutoGroups := make(map[string]string) // map of group name to group ID
 
-	allGroupsMap := make(map[string]*nbgroup.Group, len(allGroups))
+	allGroupsMap := make(map[string]*types.Group, len(allGroups))
 	for _, group := range allGroups {
 		allGroupsMap[group.ID] = group
 	}
 
 	for _, id := range autoGroups {
 		if group, ok := allGroupsMap[id]; ok {
-			if group.Issued == nbgroup.GroupIssuedJWT {
+			if group.Issued == types.GroupIssuedJWT {
 				jwtAutoGroups[group.Name] = id
 			} else {
 				newAutoGroups = append(newAutoGroups, id)
