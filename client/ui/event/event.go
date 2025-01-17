@@ -21,9 +21,10 @@ type Manager struct {
 	app  fyne.App
 	addr string
 
-	mu     sync.Mutex
-	ctx    context.Context
-	cancel context.CancelFunc
+	mu      sync.Mutex
+	ctx     context.Context
+	cancel  context.CancelFunc
+	enabled bool
 }
 
 func NewManager(app fyne.App, addr string) *Manager {
@@ -90,7 +91,21 @@ func (e *Manager) Stop() {
 	}
 }
 
+func (e *Manager) SetNotificationsEnabled(enabled bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.enabled = enabled
+}
+
 func (e *Manager) handleEvent(event *proto.SystemEvent) {
+	e.mu.Lock()
+	enabled := e.enabled
+	e.mu.Unlock()
+
+	if !enabled {
+		return
+	}
+
 	title := e.getEventTitle(event)
 	e.app.SendNotification(fyne.NewNotification(title, event.UserMessage))
 }

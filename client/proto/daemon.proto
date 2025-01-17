@@ -118,6 +118,8 @@ message LoginRequest {
   optional bool disable_firewall = 23;
 
   optional bool block_lan_access = 24;
+
+  optional bool disable_notifications = 25;
 }
 
 message LoginResponse {
@@ -183,6 +185,8 @@ message GetConfigResponse {
   bool rosenpassEnabled = 11;
 
   bool rosenpassPermissive = 12;
+
+  bool disable_notifications = 13;
 }
 
 // PeerState contains the latest state of a peer

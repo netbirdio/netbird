@@ -68,6 +68,8 @@ type ConfigInput struct {
 	DisableFirewall     *bool
 
 	BlockLANAccess *bool
+
+	DisableNotifications *bool
 }
 
 // Config Configuration type
@@ -92,6 +94,8 @@ type Config struct {
 	DisableFirewall     bool
 
 	BlockLANAccess bool
+
+	DisableNotifications bool
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
@@ -466,6 +470,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("allowing LAN access")
 		}
 		config.BlockLANAccess = *input.BlockLANAccess
+		updated = true
+	}
+
+	if input.DisableNotifications != nil && *input.DisableNotifications != config.DisableNotifications {
+		if *input.DisableNotifications {
+			log.Infof("disabling notifications")
+		} else {
+			log.Infof("enabling notifications")
+		}
+		config.DisableNotifications = *input.DisableNotifications
 		updated = true
 	}
 
