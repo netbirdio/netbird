@@ -106,32 +106,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		inviterID = createdBy
 	}
 
-	// inviterUser is the one who is inviting the new user
-	inviterUser, err := am.lookupUserInCache(ctx, am.Store, inviterID, accountID)
-	if err != nil {
-		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
-	}
-
-	// check if the user is already registered with this email => reject
-	user, err := am.lookupUserInCacheByEmail(ctx, invite.Email, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	if user != nil {
-		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
-	}
-
-	users, err := am.idpManager.GetUserByEmail(ctx, invite.Email)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(users) > 0 {
-		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
-	}
-
-	idpUser, err := am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviterUser.Email)
+	idpUser, err := am.createNewIdpUser(ctx, accountID, inviterID, invite)
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +138,36 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	am.StoreEvent(ctx, userID, newUser.Id, accountID, activity.UserInvited, nil)
 
 	return newUser.ToUserInfo(idpUser, settings)
+}
+
+// createNewIdpUser validates the invite and creates a new user in the IdP
+func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID string, inviterID string, invite *types.UserInfo) (*idp.UserData, error) {
+	// inviterUser is the one who is inviting the new user
+	inviterUser, err := am.lookupUserInCache(ctx, am.Store, inviterID, accountID)
+	if err != nil {
+		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
+	}
+
+	// check if the user is already registered with this email => reject
+	user, err := am.lookupUserInCacheByEmail(ctx, invite.Email, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user != nil {
+		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
+	}
+
+	users, err := am.idpManager.GetUserByEmail(ctx, invite.Email)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(users) > 0 {
+		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
+	}
+
+	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviterUser.Email)
 }
 
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
