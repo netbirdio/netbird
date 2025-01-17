@@ -10,12 +10,11 @@ import (
 
 // BaseConnTrack provides common fields and locking for all connection types
 type BaseConnTrack struct {
-	SourceIP    net.IP
-	DestIP      net.IP
-	SourcePort  uint16
-	DestPort    uint16
-	lastSeen    atomic.Int64 // Unix nano for atomic access
-	established atomic.Bool
+	SourceIP   net.IP
+	DestIP     net.IP
+	SourcePort uint16
+	DestPort   uint16
+	lastSeen   atomic.Int64 // Unix nano for atomic access
 }
 
 // these small methods will be inlined by the compiler
@@ -23,16 +22,6 @@ type BaseConnTrack struct {
 // UpdateLastSeen safely updates the last seen timestamp
 func (b *BaseConnTrack) UpdateLastSeen() {
 	b.lastSeen.Store(time.Now().UnixNano())
-}
-
-// IsEstablished safely checks if connection is established
-func (b *BaseConnTrack) IsEstablished() bool {
-	return b.established.Load()
-}
-
-// SetEstablished safely sets the established state
-func (b *BaseConnTrack) SetEstablished(state bool) {
-	b.established.Store(state)
 }
 
 // GetLastSeen safely gets the last seen timestamp
