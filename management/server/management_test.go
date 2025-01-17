@@ -316,9 +316,6 @@ var _ = Describe("Management service", func() {
 				initialPeers := 10
 				additionalPeers := 10
 
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-
 				var peers []wgtypes.Key
 				for i := 0; i < initialPeers; i++ {
 					key, _ := wgtypes.GenerateKey()
@@ -326,7 +323,6 @@ var _ = Describe("Management service", func() {
 					peers = append(peers, key)
 				}
 
-				time.Sleep(3 * time.Second)
 				wg := sync2.WaitGroup{}
 				wgCounter := initialPeers + initialPeers*additionalPeers
 				wg.Add(wgCounter)
@@ -340,14 +336,12 @@ var _ = Describe("Management service", func() {
 						Expect(err).NotTo(HaveOccurred())
 
 						// open stream
-						sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{
+						sync, err := client.Sync(context.Background(), &mgmtProto.EncryptedMessage{
 							WgPubKey: peer.PublicKey().String(),
 							Body:     encryptedBytes,
 						})
 						Expect(err).NotTo(HaveOccurred())
 						clients = append(clients, sync)
-
-						time.Sleep(1 * time.Second)
 
 						// receive stream
 						go func() {
@@ -364,11 +358,8 @@ var _ = Describe("Management service", func() {
 								err = pb.Unmarshal(decryptedBytes, resp)
 								Expect(err).NotTo(HaveOccurred())
 								if len(resp.GetRemotePeers()) > 0 {
-									log.Println("Received Sync response in tests")
 									// only consider peer updates
 									wg.Done()
-								} else {
-									log.Println("Received empty Sync response in tests")
 								}
 							}
 						}()

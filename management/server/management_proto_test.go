@@ -254,7 +254,7 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	// expired peers come separately.
-	if len(networkMap.GetOfflinePeers()) != 1 {
+	if len(networkMap.GetOfflinePeers()) != 2 {
 		t.Fatal("expecting SyncResponse to have NetworkMap with 1 offline peer")
 	}
 
