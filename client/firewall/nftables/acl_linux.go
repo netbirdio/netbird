@@ -240,10 +240,10 @@ func (m *AclManager) Flush() error {
 		return err
 	}
 
-	if err := m.refreshRuleHandles(m.chainInputRules); err != nil {
+	if err := m.refreshRuleHandles(m.chainInputRules, false); err != nil {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
 	}
-	if err := m.refreshRuleHandles(m.chainPrerouting); err != nil {
+	if err := m.refreshRuleHandles(m.chainPrerouting, true); err != nil {
 		log.Errorf("failed to refresh rule handles prerouting chain: %v", err)
 	}
 
@@ -398,8 +398,7 @@ func (m *AclManager) createPreroutingRule(expressions []expr.Any, userData []byt
 		return nil
 	}
 
-	preroutingExprs := make([]expr.Any, len(expressions))
-	copy(preroutingExprs, expressions)
+	preroutingExprs := slices.Clone(expressions)
 
 	// interface
 	preroutingExprs = append([]expr.Any{
@@ -685,7 +684,7 @@ func (m *AclManager) flushWithBackoff() (err error) {
 	return
 }
 
-func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
+func (m *AclManager) refreshRuleHandles(chain *nftables.Chain, mangle bool) error {
 	if m.workTable == nil || chain == nil {
 		return nil
 	}
@@ -702,7 +701,11 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
 		split := bytes.Split(rule.UserData, []byte(" "))
 		r, ok := m.rules[string(split[0])]
 		if ok {
-			*r.nftRule = *rule
+			if mangle {
+				*r.mangleRule = *rule
+			} else {
+				*r.nftRule = *rule
+			}
 		}
 	}
 
