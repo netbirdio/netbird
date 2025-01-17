@@ -317,6 +317,7 @@ var _ = Describe("Management service", func() {
 				additionalPeers := 10
 
 				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
 
 				var peers []wgtypes.Key
 				for i := 0; i < initialPeers; i++ {
@@ -379,7 +380,6 @@ var _ = Describe("Management service", func() {
 				}
 
 				wg.Wait()
-				cancel()
 
 				for _, syncClient := range clients {
 					err := syncClient.CloseSend()
