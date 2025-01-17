@@ -239,8 +239,9 @@ func (h *handler) deleteGroup(w http.ResponseWriter, r *http.Request) {
 
 	err = h.accountManager.DeleteGroup(r.Context(), accountID, userID, groupID)
 	if err != nil {
-		_, ok := err.(*server.GroupLinkError)
-		if ok {
+		wrappedErr, ok := err.(interface{ Unwrap() []error })
+		if ok && len(wrappedErr.Unwrap()) > 0 {
+			err = wrappedErr.Unwrap()[0]
 			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
 			return
 		}

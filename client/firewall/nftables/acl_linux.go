@@ -22,8 +22,7 @@ import (
 const (
 
 	// rules chains contains the effective ACL rules
-	chainNameInputRules  = "netbird-acl-input-rules"
-	chainNameOutputRules = "netbird-acl-output-rules"
+	chainNameInputRules = "netbird-acl-input-rules"
 
 	// filter chains contains the rules that jump to the rules chains
 	chainNameInputFilter   = "netbird-acl-input-filter"
@@ -45,9 +44,8 @@ type AclManager struct {
 	wgIface            iFaceMapper
 	routingFwChainName string
 
-	workTable        *nftables.Table
-	chainInputRules  *nftables.Chain
-	chainOutputRules *nftables.Chain
+	workTable       *nftables.Table
+	chainInputRules *nftables.Chain
 
 	ipsetStore *ipsetStore
 	rules      map[string]*Rule
@@ -89,7 +87,6 @@ func (m *AclManager) AddPeerFiltering(
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
-	direction firewall.RuleDirection,
 	action firewall.Action,
 	ipsetName string,
 	comment string,
@@ -104,7 +101,7 @@ func (m *AclManager) AddPeerFiltering(
 	}
 
 	newRules := make([]firewall.Rule, 0, 2)
-	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, direction, action, ipset, comment)
+	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, action, ipset, comment)
 	if err != nil {
 		return nil, err
 	}
@@ -214,38 +211,6 @@ func (m *AclManager) createDefaultAllowRules() error {
 		Exprs:    expIn,
 	})
 
-	expOut := []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
-		},
-		// mask
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            4,
-			Mask:           []byte{0, 0, 0, 0},
-			Xor:            []byte{0, 0, 0, 0},
-		},
-		// net address
-		&expr.Cmp{
-			Register: 1,
-			Data:     []byte{0, 0, 0, 0},
-		},
-		&expr.Verdict{
-			Kind: expr.VerdictAccept,
-		},
-	}
-
-	_ = m.rConn.InsertRule(&nftables.Rule{
-		Table:    m.workTable,
-		Chain:    m.chainOutputRules,
-		Position: 0,
-		Exprs:    expOut,
-	})
-
 	if err := m.rConn.Flush(); err != nil {
 		return fmt.Errorf(flushError, err)
 	}
@@ -264,15 +229,19 @@ func (m *AclManager) Flush() error {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
 	}
 
-	if err := m.refreshRuleHandles(m.chainOutputRules); err != nil {
-		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
-	}
-
 	return nil
 }
 
-func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, ipset *nftables.Set, comment string) (*Rule, error) {
-	ruleId := generatePeerRuleId(ip, sPort, dPort, direction, action, ipset)
+func (m *AclManager) addIOFiltering(
+	ip net.IP,
+	proto firewall.Protocol,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	action firewall.Action,
+	ipset *nftables.Set,
+	comment string,
+) (*Rule, error) {
+	ruleId := generatePeerRuleId(ip, sPort, dPort, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
 		return &Rule{
 			r.nftRule,
@@ -310,9 +279,6 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	if !bytes.HasPrefix(anyIP, rawIP) {
 		// source address position
 		addrOffset := uint32(12)
-		if direction == firewall.RuleDirectionOUT {
-			addrOffset += 4 // is ipv4 address length
-		}
 
 		expressions = append(expressions,
 			&expr.Payload{
@@ -383,12 +349,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 
 	userData := []byte(strings.Join([]string{ruleId, comment}, " "))
 
-	var chain *nftables.Chain
-	if direction == firewall.RuleDirectionIN {
-		chain = m.chainInputRules
-	} else {
-		chain = m.chainOutputRules
-	}
+	chain := m.chainInputRules
 	nftRule := m.rConn.AddRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    chain,
@@ -418,15 +379,6 @@ func (m *AclManager) createDefaultChains() (err error) {
 		return fmt.Errorf(flushError, err)
 	}
 	m.chainInputRules = chain
-
-	// chainNameOutputRules
-	chain = m.createChain(chainNameOutputRules)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
-		return err
-	}
-	m.chainOutputRules = chain
 
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
@@ -720,15 +672,8 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
 	return nil
 }
 
-func generatePeerRuleId(
-	ip net.IP,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-	ipset *nftables.Set,
-) string {
-	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
+func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action, ipset *nftables.Set) string {
+	rulesetID := ":"
 	if sPort != nil {
 		rulesetID += sPort.String()
 	}

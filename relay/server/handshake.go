@@ -68,12 +68,14 @@ func (h *handshake) handshakeReceive() ([]byte, error) {
 		return nil, fmt.Errorf("read from %s: %w", h.conn.RemoteAddr(), err)
 	}
 
-	_, err = messages.ValidateVersion(buf[:n])
+	buf = buf[:n]
+
+	_, err = messages.ValidateVersion(buf)
 	if err != nil {
 		return nil, fmt.Errorf("validate version from %s: %w", h.conn.RemoteAddr(), err)
 	}
 
-	msgType, err := messages.DetermineClientMessageType(buf[messages.SizeOfVersionByte:n])
+	msgType, err := messages.DetermineClientMessageType(buf)
 	if err != nil {
 		return nil, fmt.Errorf("determine message type from %s: %w", h.conn.RemoteAddr(), err)
 	}
@@ -85,10 +87,10 @@ func (h *handshake) handshakeReceive() ([]byte, error) {
 	switch msgType {
 	//nolint:staticcheck
 	case messages.MsgTypeHello:
-		bytePeerID, peerID, err = h.handleHelloMsg(buf[messages.SizeOfProtoHeader:n])
+		bytePeerID, peerID, err = h.handleHelloMsg(buf)
 	case messages.MsgTypeAuth:
 		h.handshakeMethodAuth = true
-		bytePeerID, peerID, err = h.handleAuthMsg(buf[messages.SizeOfProtoHeader:n])
+		bytePeerID, peerID, err = h.handleAuthMsg(buf)
 	default:
 		return nil, fmt.Errorf("invalid message type %d from %s", msgType, h.conn.RemoteAddr())
 	}

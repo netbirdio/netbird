@@ -16,17 +16,20 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/pion/ice/v3"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/proto"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
@@ -113,6 +116,8 @@ type EngineConfig struct {
 	DisableServerRoutes bool
 	DisableDNS          bool
 	DisableFirewall     bool
+
+	BlockLANAccess bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -481,6 +486,10 @@ func (e *Engine) initFirewall() error {
 		}
 	}
 
+	if e.config.BlockLANAccess {
+		e.blockLanAccess()
+	}
+
 	if e.rpManager == nil || !e.config.RosenpassEnabled {
 		return nil
 	}
@@ -494,7 +503,6 @@ func (e *Engine) initFirewall() error {
 		manager.ProtocolUDP,
 		nil,
 		&port,
-		manager.RuleDirectionIN,
 		manager.ActionAccept,
 		"",
 		"",
@@ -506,6 +514,35 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
+}
+
+func (e *Engine) blockLanAccess() {
+	var merr *multierror.Error
+
+	// TODO: keep this updated
+	toBlock, err := getInterfacePrefixes()
+	if err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("get local addresses: %w", err))
+	}
+
+	log.Infof("blocking route LAN access for networks: %v", toBlock)
+	v4 := netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+	for _, network := range toBlock {
+		if _, err := e.firewall.AddRouteFiltering(
+			[]netip.Prefix{v4},
+			network,
+			manager.ProtocolALL,
+			nil,
+			nil,
+			manager.ActionDrop,
+		); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add fw rule for network %s: %w", network, err))
+		}
+	}
+
+	if merr != nil {
+		log.Warnf("encountered errors blocking IPs to block LAN access: %v", nberrors.FormatErrorOrNil(merr))
+	}
 }
 
 // modifyPeers updates peers that have been modified (e.g. IP address has been changed).
@@ -679,6 +716,15 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		log.Warnf("failed to get system info with checks: %v", err)
 		info = system.GetInfo(e.ctx)
 	}
+	info.SetFlags(
+		e.config.RosenpassEnabled,
+		e.config.RosenpassPermissive,
+		&e.config.ServerSSHAllowed,
+		e.config.DisableClientRoutes,
+		e.config.DisableServerRoutes,
+		e.config.DisableDNS,
+		e.config.DisableFirewall,
+	)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		log.Errorf("could not sync meta: error %s", err)
@@ -699,18 +745,22 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	} else {
 
 		if sshConf.GetSshEnabled() {
-			if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
+			if runtime.GOOS == "windows" {
 				log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
 				return nil
 			}
 			// start SSH server if it wasn't running
 			if isNil(e.sshServer) {
+				listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
+				if netstack.IsEnabled() {
+					listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
+				}
 				// nil sshServer means it has not yet been started
 				var err error
-				e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
-					fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
+				e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
+
 				if err != nil {
-					return err
+					return fmt.Errorf("create ssh server: %w", err)
 				}
 				go func() {
 					// blocking
@@ -759,7 +809,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	if conf.GetSshConfig() != nil {
 		err := e.updateSSH(conf.GetSshConfig())
 		if err != nil {
-			log.Warnf("failed handling SSH server setup %v", err)
+			log.Warnf("failed handling SSH server setup: %v", err)
 		}
 	}
 
@@ -783,6 +833,15 @@ func (e *Engine) receiveManagementEvents() {
 			log.Warnf("failed to get system info with checks: %v", err)
 			info = system.GetInfo(e.ctx)
 		}
+		info.SetFlags(
+			e.config.RosenpassEnabled,
+			e.config.RosenpassPermissive,
+			&e.config.ServerSSHAllowed,
+			e.config.DisableClientRoutes,
+			e.config.DisableServerRoutes,
+			e.config.DisableDNS,
+			e.config.DisableFirewall,
+		)
 
 		// err = e.mgmClient.Sync(info, e.handleSync)
 		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
@@ -1313,6 +1372,16 @@ func (e *Engine) close() {
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	info := system.GetInfo(e.ctx)
+	info.SetFlags(
+		e.config.RosenpassEnabled,
+		e.config.RosenpassPermissive,
+		&e.config.ServerSSHAllowed,
+		e.config.DisableClientRoutes,
+		e.config.DisableServerRoutes,
+		e.config.DisableDNS,
+		e.config.DisableFirewall,
+	)
+
 	netMap, err := e.mgmClient.GetNetworkMap(info)
 	if err != nil {
 		return nil, nil, err
@@ -1684,4 +1753,46 @@ func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
 		return slices.Equal(checks.Files, oChecks.Files)
 	})
+}
+
+func getInterfacePrefixes() ([]netip.Prefix, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("get interfaces: %w", err)
+	}
+
+	var prefixes []netip.Prefix
+	var merr *multierror.Error
+
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("get addresses for interface %s: %w", iface.Name, err))
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				merr = multierror.Append(merr, fmt.Errorf("cast address to IPNet: %v", addr))
+				continue
+			}
+			addr, ok := netip.AddrFromSlice(ipNet.IP)
+			if !ok {
+				merr = multierror.Append(merr, fmt.Errorf("cast IPNet to netip.Addr: %v", ipNet.IP))
+				continue
+			}
+			ones, _ := ipNet.Mask.Size()
+			prefix := netip.PrefixFrom(addr.Unmap(), ones).Masked()
+			ip := prefix.Addr()
+
+			// TODO: add IPv6
+			if !ip.Is4() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				continue
+			}
+
+			prefixes = append(prefixes, prefix)
+		}
+	}
+
+	return prefixes, nberrors.FormatErrorOrNil(merr)
 }
