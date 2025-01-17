@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/util"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -111,6 +112,11 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, account *types.Account) error {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("MarkPeerConnected: took %v", time.Since(start))
+	}()
+
 	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
 		return fmt.Errorf("failed to find peer by pub key: %w", err)
@@ -654,6 +660,11 @@ func (am *DefaultAccountManager) getFreeIP(ctx context.Context, s store.Store, a
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, account *types.Account) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("SyncPeer: took %v", time.Since(start))
+	}()
+
 	peer, err := account.FindPeerByPubKey(sync.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, nil, status.NewPeerNotRegisteredError()
