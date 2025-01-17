@@ -103,14 +103,14 @@ func main() {
 	if showSettings || showRoutes {
 		a.Run()
 	} else {
-		//running, err := isAnotherProcessRunning()
-		//if err != nil {
-		//	log.Errorf("error while checking process: %v", err)
-		//}
-		//if running {
-		//	log.Warn("another process is running")
-		//	return
-		//}
+		running, err := isAnotherProcessRunning()
+		if err != nil {
+			log.Errorf("error while checking process: %v", err)
+		}
+		if running {
+			log.Warn("another process is running")
+			return
+		}
 		client.setDefaultFonts()
 		systray.Run(client.onTrayReady, client.onTrayExit)
 	}
