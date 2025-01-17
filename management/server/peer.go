@@ -136,11 +136,6 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 			return err
 		}
 
-		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
-
 		expired, err = updatePeerStatusAndLocation(ctx, am.geo, transaction, peer, connected, realIP, accountID)
 		return err
 	})
@@ -149,6 +144,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	}
 
 	if peer.AddedWithSSOLogin() {
+		settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+		if err != nil {
+			return err
+		}
+
 		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
 			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 		}
@@ -676,6 +676,11 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	var err error
 	var postureChecks []*posture.Checks
 
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, sync.WireGuardPubKey)
 		if err != nil {
@@ -691,11 +696,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 			if err = checkIfPeerOwnerIsBlocked(peer, user); err != nil {
 				return err
 			}
-		}
-
-		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
 		}
 
 		if peerLoginExpired(ctx, peer, settings) {
@@ -790,16 +790,17 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	var isPeerUpdated bool
 	var postureChecks []*posture.Checks
 
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
 		if err != nil {
 			return err
 		}
 
-		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
 		// this flag prevents unnecessary calls to the persistent store.
 		shouldStorePeer := false
 
