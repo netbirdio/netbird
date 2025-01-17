@@ -1548,6 +1548,11 @@ func domainIsUpToDate(domain string, domainCategory string, claims jwtclaims.Aut
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("SyncAndMarkPeer: took %v", time.Since(start))
+	}()
+
 	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer accountUnlock()
 	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)

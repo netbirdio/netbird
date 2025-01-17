@@ -168,8 +168,12 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 		cmd := exec.Command(loginCmd, loginArgs...)
 		go func() {
 			<-session.Context().Done()
+			if cmd.Process == nil {
+				return
+			}
 			err := cmd.Process.Kill()
 			if err != nil {
+				log.Debugf("failed killing SSH process %v", err)
 				return
 			}
 		}()
@@ -185,7 +189,7 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 		log.Debugf("Login command: %s", cmd.String())
 		file, err := pty.Start(cmd)
 		if err != nil {
-			log.Errorf("failed starting SSH server %v", err)
+			log.Errorf("failed starting SSH server: %v", err)
 		}
 
 		go func() {

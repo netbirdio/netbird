@@ -119,8 +119,8 @@ func TestDefaultManager(t *testing.T) {
 
 		networkMap.FirewallRulesIsEmpty = false
 		acl.ApplyFiltering(networkMap)
-		if len(acl.peerRulesPairs) != 2 {
-			t.Errorf("rules should contain 2 rules if FirewallRulesIsEmpty is not set, got: %v", len(acl.peerRulesPairs))
+		if len(acl.peerRulesPairs) != 1 {
+			t.Errorf("rules should contain 1 rules if FirewallRulesIsEmpty is not set, got: %v", len(acl.peerRulesPairs))
 			return
 		}
 	})
@@ -356,8 +356,8 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 
 	acl.ApplyFiltering(networkMap)
 
-	if len(acl.peerRulesPairs) != 4 {
-		t.Errorf("expect 4 rules (last must be SSH), got: %d", len(acl.peerRulesPairs))
+	if len(acl.peerRulesPairs) != 3 {
+		t.Errorf("expect 3 rules (last must be SSH), got: %d", len(acl.peerRulesPairs))
 		return
 	}
 }

@@ -128,6 +128,16 @@ message File {
   bool processIsRunning = 3;
 }
 
+message Flags {
+  bool rosenpassEnabled = 1;
+  bool rosenpassPermissive = 2;
+  bool serverSSHAllowed = 3;
+  bool disableClientRoutes = 4;
+  bool disableServerRoutes = 5;
+  bool disableDNS = 6;
+  bool disableFirewall = 7;
+}
+
 // PeerSystemMeta is machine meta data like OS and version.
 message PeerSystemMeta {
   string hostname = 1;
@@ -146,6 +156,7 @@ message PeerSystemMeta {
   string sysManufacturer = 14;
   Environment environment = 15;
   repeated File files = 16;
+  Flags flags = 17;
 }
 
 message LoginResponse {

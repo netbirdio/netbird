@@ -39,6 +39,9 @@ func GetInfo(ctx context.Context) *Info {
 		WiretrusteeVersion: version.NetbirdVersion(),
 		UIVersion:          extractUIVersion(ctx),
 		KernelVersion:      kernelVersion,
+		SystemSerialNumber: serial(),
+		SystemProductName:  productModel(),
+		SystemManufacturer: productManufacturer(),
 	}
 
 	return gio
@@ -49,13 +52,42 @@ func checkFileAndProcess(paths []string) ([]File, error) {
 	return []File{}, nil
 }
 
+func serial() string {
+	// try to fetch serial ID using different properties
+	properties := []string{"ril.serialnumber", "ro.serialno", "ro.boot.serialno", "sys.serialnumber"}
+	var value string
+
+	for _, property := range properties {
+		value = getprop(property)
+		if len(value) > 0 {
+			return value
+		}
+	}
+
+	// unable to get serial ID, fallback to ANDROID_ID
+	return androidId()
+}
+
+func androidId() string {
+	// this is a uniq id defined on first initialization, id will be a new one if user wipes his device
+	return run("/system/bin/settings", "get", "secure", "android_id")
+}
+
+func productModel() string {
+	return getprop("ro.product.model")
+}
+
+func productManufacturer() string {
+	return getprop("ro.product.manufacturer")
+}
+
 func uname() []string {
 	res := run("/system/bin/uname", "-a")
 	return strings.Split(res, " ")
 }
 
 func osVersion() string {
-	return run("/system/bin/getprop", "ro.build.version.release")
+	return getprop("ro.build.version.release")
 }
 
 func extractUIVersion(ctx context.Context) string {
@@ -64,6 +96,10 @@ func extractUIVersion(ctx context.Context) string {
 		return ""
 	}
 	return v
+}
+
+func getprop(arg ...string) string {
+	return run("/system/bin/getprop", arg...)
 }
 
 func run(name string, arg ...string) string {
