@@ -326,47 +326,52 @@ var _ = Describe("Management service", func() {
 					peers = append(peers, key)
 				}
 
+				time.Sleep(3 * time.Second)
 				wg := sync2.WaitGroup{}
 				wgCounter := initialPeers + initialPeers*additionalPeers
 				wg.Add(wgCounter)
 
 				var clients []mgmtProto.ManagementService_SyncClient
 				for _, peer := range peers {
-					messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
-					Expect(err).NotTo(HaveOccurred())
-					encryptedBytes, err := encryption.Encrypt(messageBytes, serverPubKey, peer)
-					Expect(err).NotTo(HaveOccurred())
-
-					// open stream
-					sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{
-						WgPubKey: peer.PublicKey().String(),
-						Body:     encryptedBytes,
-					})
-					Expect(err).NotTo(HaveOccurred())
-					clients = append(clients, sync)
-
-					// receive stream
 					go func() {
-						for {
-							encryptedResponse := &mgmtProto.EncryptedMessage{}
-							err = sync.RecvMsg(encryptedResponse)
-							if err != nil {
-								break
-							}
-							decryptedBytes, err := encryption.Decrypt(encryptedResponse.Body, serverPubKey, peer)
-							Expect(err).NotTo(HaveOccurred())
+						messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
+						Expect(err).NotTo(HaveOccurred())
+						encryptedBytes, err := encryption.Encrypt(messageBytes, serverPubKey, peer)
+						Expect(err).NotTo(HaveOccurred())
 
-							resp := &mgmtProto.SyncResponse{}
-							err = pb.Unmarshal(decryptedBytes, resp)
-							Expect(err).NotTo(HaveOccurred())
-							log.Println("Received Sync response in tests")
-							if len(resp.GetRemotePeers()) > 0 {
-								// only consider peer updates
-								wg.Done()
-							} else {
-								log.Println("Received empty Sync response in tests")
+						// open stream
+						sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{
+							WgPubKey: peer.PublicKey().String(),
+							Body:     encryptedBytes,
+						})
+						Expect(err).NotTo(HaveOccurred())
+						clients = append(clients, sync)
+
+						time.Sleep(1 * time.Second)
+
+						// receive stream
+						go func() {
+							for {
+								encryptedResponse := &mgmtProto.EncryptedMessage{}
+								err = sync.RecvMsg(encryptedResponse)
+								if err != nil {
+									break
+								}
+								decryptedBytes, err := encryption.Decrypt(encryptedResponse.Body, serverPubKey, peer)
+								Expect(err).NotTo(HaveOccurred())
+
+								resp := &mgmtProto.SyncResponse{}
+								err = pb.Unmarshal(decryptedBytes, resp)
+								Expect(err).NotTo(HaveOccurred())
+								if len(resp.GetRemotePeers()) > 0 {
+									log.Println("Received Sync response in tests")
+									// only consider peer updates
+									wg.Done()
+								} else {
+									log.Println("Received empty Sync response in tests")
+								}
 							}
-						}
+						}()
 					}()
 				}
 
