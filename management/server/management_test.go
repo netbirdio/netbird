@@ -316,6 +316,8 @@ var _ = Describe("Management service", func() {
 				initialPeers := 10
 				additionalPeers := 10
 
+				ctx, cancel := context.WithCancel(context.Background())
+
 				var peers []wgtypes.Key
 				for i := 0; i < initialPeers; i++ {
 					key, _ := wgtypes.GenerateKey()
@@ -335,7 +337,7 @@ var _ = Describe("Management service", func() {
 					Expect(err).NotTo(HaveOccurred())
 
 					// open stream
-					sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+					sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{
 						WgPubKey: peer.PublicKey().String(),
 						Body:     encryptedBytes,
 					})
@@ -377,6 +379,7 @@ var _ = Describe("Management service", func() {
 				}
 
 				wg.Wait()
+				cancel()
 
 				for _, syncClient := range clients {
 					err := syncClient.CloseSend()
