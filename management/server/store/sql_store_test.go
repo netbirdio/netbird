@@ -3128,7 +3128,7 @@ func TestSqlStore_DeletePAT(t *testing.T) {
 }
 
 func TestSqlStore_GetAccountRoutes(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -3164,7 +3164,7 @@ func TestSqlStore_GetAccountRoutes(t *testing.T) {
 }
 
 func TestSqlStore_GetRouteByID(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -3210,7 +3210,7 @@ func TestSqlStore_GetRouteByID(t *testing.T) {
 }
 
 func TestSqlStore_SaveRoute(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
@@ -3239,7 +3239,7 @@ func TestSqlStore_SaveRoute(t *testing.T) {
 }
 
 func TestSqlStore_DeleteRoute(t *testing.T) {
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
