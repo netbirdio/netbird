@@ -473,12 +473,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 			return peerSchedulerRetryInterval, true
 		}
 
-		var peerIDs []string
-		for _, peer := range expiredPeers {
-			peerIDs = append(peerIDs, peer.ID)
-		}
-
-		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(peerIDs), accountID)
+		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(expiredPeers), accountID)
 
 		if err := am.expireAndUpdatePeers(ctx, accountID, expiredPeers); err != nil {
 			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", accountID)
@@ -490,6 +485,9 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 }
 
 func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context.Context, accountID string) {
+	if am.peerLoginExpiry.IsJobRunning(accountID) {
+		return
+	}
 	am.peerLoginExpiry.Cancel(ctx, []string{accountID})
 	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
 		go am.peerLoginExpiry.Schedule(ctx, nextRun, accountID, am.peerLoginExpirationJob(ctx, accountID))
@@ -526,6 +524,9 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 
 // checkAndSchedulePeerInactivityExpiration periodically checks for inactive peers to end their sessions
 func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx context.Context, accountID string) {
+	if am.peerInactivityExpiry.IsJobRunning(accountID) {
+		return
+	}
 	am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
 	if nextRun, ok := am.getNextInactivePeerExpiration(ctx, accountID); ok {
 		go am.peerInactivityExpiry.Schedule(ctx, nextRun, accountID, am.peerInactivityExpirationJob(ctx, accountID))

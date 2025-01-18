@@ -126,8 +126,8 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	}()
 
 	var peer *nbpeer.Peer
-	var settings *types.Settings
 	var expired bool
+	var settings *types.Settings
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1228,8 +1228,7 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 
 	var nextExpiry *time.Duration
 	for _, peer := range peersWithExpiry {
-		// consider only connected peers because others will require login on connecting to the management server
-		if peer.Status.LoginExpired || !peer.Status.Connected {
+		if peer.Status.LoginExpired {
 			continue
 		}
 		_, duration := peer.LoginExpired(settings.PeerLoginExpiration)

@@ -12,6 +12,7 @@ import (
 type Scheduler interface {
 	Cancel(ctx context.Context, IDs []string)
 	Schedule(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
+	IsJobRunning(ID string) bool
 }
 
 // MockScheduler is a mock implementation of  Scheduler
@@ -36,6 +37,10 @@ func (mock *MockScheduler) Schedule(ctx context.Context, in time.Duration, ID st
 		return
 	}
 	log.WithContext(ctx).Errorf("MockScheduler doesn't have Schedule function defined")
+}
+
+func (mock *MockScheduler) IsJobRunning(_ string) bool {
+	return false
 }
 
 // DefaultScheduler is a generic structure that allows to schedule jobs (functions) to run in the future and cancel them.
@@ -123,4 +128,8 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 		}
 
 	}()
+}
+
+func (wm *DefaultScheduler) IsJobRunning(ID string) bool {
+	return wm.jobs[ID] != nil
 }
