@@ -221,6 +221,7 @@ jobs:
           docker run -d \
             -e MYSQL_ROOT_PASSWORD=netbird \
             -e MYSQL_DATABASE=netbird \
+            -e MYSQL_ROOT_HOST=% \
             -p 3306:3306 \
             --name my-mysql \
             mlsmaycon/warmed-mysql:8
@@ -230,9 +231,10 @@ jobs:
         run: |
           for i in {1..10}; do
             if docker exec my-mysql mysqladmin -uroot -pnetbird ping &>/dev/null; then
+              # Connect via socket (no -h, no -P)
               docker exec my-mysql \
-                mysql -h127.0.0.1 -P3306 -uroot -pnetbird -e \
-                "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'netbird' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+                mysql -uroot -pnetbird \
+                -e "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'netbird' WITH GRANT OPTION; FLUSH PRIVILEGES;"
               break
             fi
             echo "Waiting for MySQL..."
