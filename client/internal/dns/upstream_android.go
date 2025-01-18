@@ -27,8 +27,9 @@ func newUpstreamResolver(
 	_ *net.IPNet,
 	statusRecorder *peer.Status,
 	hostsDNSHolder *hostsDNSHolder,
+	domain string,
 ) (*upstreamResolver, error) {
-	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder)
+	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, domain)
 	c := &upstreamResolver{
 		upstreamResolverBase: upstreamResolverBase,
 		hostsDNSHolder:       hostsDNSHolder,
