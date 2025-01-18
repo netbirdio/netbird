@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -334,9 +337,13 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
 	if kind == PostgresStoreEngine {
-		cleanUp, err := testutil.CreatePostgresTestContainer()
-		if err != nil {
-			return nil, nil, err
+		var cleanUp func()
+		if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
+			var err error
+			cleanUp, err = testutil.CreatePostgresTestContainer()
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 
 		dsn, ok := os.LookupEnv(postgresDsnEnv)
@@ -344,18 +351,51 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 		}
 
-		store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
+		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
+		}
+
+		rand.Seed(time.Now().UnixNano())
+		dbName := fmt.Sprintf("test_db_%d", rand.Intn(1e6))
+
+		if err := db.Exec(fmt.Sprintf("CREATE DATABASE %q", dbName)).Error; err != nil {
+			return nil, nil, fmt.Errorf("failed to create database: %v", err)
+		}
+
+		u, err := url.Parse(dsn)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse DSN: %v", err)
+		}
+
+		u.Path = dbName
+
+		dsn = u.String()
+
+		store, err := NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		return store, cleanUp, nil
+		cleanup := func() {
+			db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName))
+			if cleanUp != nil {
+				os.Setenv(postgresDsnEnv, "")
+				cleanUp()
+			}
+		}
+
+		return store, cleanup, nil
 	}
 
 	if kind == MysqlStoreEngine {
-		cleanUp, err := testutil.CreateMysqlTestContainer()
-		if err != nil {
-			return nil, nil, err
+		var cleanUp func()
+		if _, ok := os.LookupEnv(mysqlDsnEnv); !ok {
+			var err error
+			cleanUp, err = testutil.CreateMysqlTestContainer()
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 
 		dsn, ok := os.LookupEnv(mysqlDsnEnv)
@@ -363,7 +403,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 		}
 
-		store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
+		store, err := NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
 		if err != nil {
 			return nil, nil, err
 		}

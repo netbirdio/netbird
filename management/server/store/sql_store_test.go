@@ -24,6 +24,7 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 
 	route2 "github.com/netbirdio/netbird/route"
@@ -759,6 +760,30 @@ func newAccount(store Store, id int) error {
 	}
 
 	return store.SaveAccount(context.Background(), account)
+}
+
+var cleanUp func()
+
+func TestMain(m *testing.M) {
+
+	// Start container once for the entire test suite in this package
+	var err error
+	cleanUp, err = testutil.CreatePostgresTestContainer()
+	if err != nil {
+		// If container fails to start, stop testing immediately
+		os.Exit(1)
+	}
+
+	// run all tests
+	code := m.Run()
+
+	// stop container
+	if cleanUp != nil {
+		cleanUp()
+	}
+
+	// exit with test code
+	os.Exit(code)
 }
 
 func TestPostgresql_NewStore(t *testing.T) {
@@ -2370,6 +2395,7 @@ func TestSqlStore_GetNetworkRouterByID(t *testing.T) {
 }
 
 func TestSqlStore_SaveNetworkRouter(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
