@@ -249,7 +249,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
           go test -tags=devcert -p 1 \
-            -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,NETBIRD_STORE_ENGINE_POSTGRES_DSN, NETBIRD_STORE_ENGINE_MYSQL_DSN" \
+            -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,NETBIRD_STORE_ENGINE_POSTGRES_DSN,NETBIRD_STORE_ENGINE_MYSQL_DSN" \
             -timeout 10m $(go list ./... | grep /management)
 
   benchmark:
