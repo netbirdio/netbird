@@ -16,6 +16,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -338,51 +339,34 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
 	if kind == PostgresStoreEngine {
 		var cleanUp func()
+		removeContainer := false
 		if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
 			var err error
 			cleanUp, err = testutil.CreatePostgresTestContainer()
 			if err != nil {
 				return nil, nil, err
 			}
+			removeContainer = true
 		}
 
 		dsn, ok := os.LookupEnv(postgresDsnEnv)
 		if !ok {
-			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+			return nil, cleanUp, fmt.Errorf("%s is not set", postgresDsnEnv)
 		}
 
 		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
+			return nil, cleanUp, fmt.Errorf("failed to open postgres connection: %v", err)
 		}
 
-		rand.Seed(time.Now().UnixNano())
-		dbName := fmt.Sprintf("test_db_%d", rand.Intn(1e6))
-
-		if err := db.Exec(fmt.Sprintf("CREATE DATABASE %q", dbName)).Error; err != nil {
-			return nil, nil, fmt.Errorf("failed to create database: %v", err)
-		}
-
-		u, err := url.Parse(dsn)
+		newDsn, cleanup, err := createRandomDB(dsn, db, cleanUp, removeContainer)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse DSN: %v", err)
+			return nil, cleanup, err
 		}
 
-		u.Path = dbName
-
-		dsn = u.String()
-
-		store, err := NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
+		store, err := NewPostgresqlStoreFromSqlStore(ctx, store, newDsn, nil)
 		if err != nil {
-			return nil, nil, err
-		}
-
-		cleanup := func() {
-			db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName))
-			if cleanUp != nil {
-				os.Setenv(postgresDsnEnv, "")
-				cleanUp()
-			}
+			return nil, cleanup, err
 		}
 
 		return store, cleanup, nil
@@ -390,12 +374,14 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 
 	if kind == MysqlStoreEngine {
 		var cleanUp func()
+		removeContainer := false
 		if _, ok := os.LookupEnv(mysqlDsnEnv); !ok {
 			var err error
 			cleanUp, err = testutil.CreateMysqlTestContainer()
 			if err != nil {
 				return nil, nil, err
 			}
+			removeContainer = true
 		}
 
 		dsn, ok := os.LookupEnv(mysqlDsnEnv)
@@ -403,12 +389,22 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 		}
 
-		store, err := NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
+		db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), getGormConfig())
+		if err != nil {
+			return nil, cleanUp, fmt.Errorf("failed to open mysql connection: %v", err)
+		}
+
+		newDsn, cleanup, err := createRandomDB(dsn, db, cleanUp, removeContainer)
+		if err != nil {
+			return nil, cleanup, err
+		}
+
+		store, err := NewMysqlStoreFromSqlStore(ctx, store, newDsn, nil)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		return store, cleanUp, nil
+		return store, cleanup, nil
 	}
 
 	closeConnection := func() {
@@ -416,6 +412,32 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 	}
 
 	return store, closeConnection, nil
+}
+
+func createRandomDB(dsn string, db *gorm.DB, cleanUp func(), removeContainer bool) (string, func(), error) {
+	rand.Seed(time.Now().UnixNano())
+	dbName := fmt.Sprintf("test_db_%d", rand.Intn(1e6))
+
+	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
+		return "", cleanUp, fmt.Errorf("failed to create database: %v", err)
+	}
+
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return "", cleanUp, fmt.Errorf("failed to parse DSN: %v", err)
+	}
+
+	u.Path = dbName
+
+	cleanup := func() {
+		db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName))
+		if cleanUp != nil && removeContainer {
+			cleanUp()
+		}
+	}
+
+	return u.String(), cleanup, nil
+
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {

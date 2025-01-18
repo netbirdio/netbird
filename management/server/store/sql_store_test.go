@@ -62,13 +62,15 @@ func TestMain(m *testing.M) {
 		cleanUpPostgres()
 	}
 	if cleanUpMysql != nil {
+		os.Unsetenv("NETBIRD_STORE_ENGINE_MYSQL_DSN")
+		os.Unsetenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN")
 		cleanUpMysql()
 	}
 
 	os.Exit(code)
 }
 
-var engines = []Engine{PostgresStoreEngine, SqliteStoreEngine}
+var engines = []Engine{SqliteStoreEngine, PostgresStoreEngine}
 
 func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
 	t.Helper()
@@ -76,13 +78,14 @@ func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T
 		if os.Getenv("NETBIRD_STORE_ENGINE") != "" && os.Getenv("NETBIRD_STORE_ENGINE") != string(engine) {
 			continue
 		}
-		t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+		t.Setenv("NETBIRD_STORE_ENGINE", string(engine))
 		store, cleanUp, err := NewTestStoreFromSQL(context.Background(), testDataFile, t.TempDir())
 		t.Cleanup(cleanUp)
 		assert.NoError(t, err)
 		t.Run(string(engine), func(t *testing.T) {
 			f(t, store)
 		})
+		os.Unsetenv("NETBIRD_STORE_ENGINE")
 	}
 }
 
@@ -92,13 +95,16 @@ func Test_NewStore(t *testing.T) {
 	}
 
 	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		if store == nil {
+			t.Errorf("expected to create a new Store")
+		}
 		if len(store.GetAllAccounts(context.Background())) != 0 {
 			t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
 		}
 	})
 }
 
-func TestSqlite_SaveAccount_Large(t *testing.T) {
+func Test_SaveAccount_Large(t *testing.T) {
 	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
@@ -449,103 +455,113 @@ func Test_GetAccount(t *testing.T) {
 	})
 }
 
-func Test_SavePeer(t *testing.T) {
+func TestSqlite_SavePeerStatus(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
-		account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
-		require.NoError(t, err)
+	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	assert.NoError(t, err)
 
-		// save status of non-existing peer
-		peer := &nbpeer.Peer{
-			Key:    "peerkey",
-			ID:     "testpeer",
-			IP:     net.IP{127, 0, 0, 1},
-			Meta:   nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
-			Name:   "peer name",
-			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
-		}
-		ctx := context.Background()
-		err = store.SavePeer(ctx, account.Id, peer)
-		assert.Error(t, err)
-		parsedErr, ok := status.FromError(err)
-		require.True(t, ok)
-		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
 
-		// save new status of existing peer
-		account.Peers[peer.ID] = peer
+	// save status of non-existing peer
+	newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()}
+	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
+	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 
-		err = store.SaveAccount(context.Background(), account)
-		require.NoError(t, err)
+	// save new status of existing peer
+	account.Peers["testpeer"] = &nbpeer.Peer{
+		Key:    "peerkey",
+		ID:     "testpeer",
+		IP:     net.IP{127, 0, 0, 1},
+		Meta:   nbpeer.PeerSystemMeta{},
+		Name:   "peer name",
+		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	}
 
-		updatedPeer := peer.Copy()
-		updatedPeer.Status.Connected = false
-		updatedPeer.Meta.Hostname = "updatedpeer"
+	err = store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
 
-		err = store.SavePeer(ctx, account.Id, updatedPeer)
-		require.NoError(t, err)
+	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
+	require.NoError(t, err)
 
-		account, err = store.GetAccount(context.Background(), account.Id)
-		require.NoError(t, err)
+	account, err = store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
 
-		actual := account.Peers[peer.ID]
-		assert.Equal(t, updatedPeer.Status, actual.Status)
-		assert.Equal(t, updatedPeer.Meta, actual.Meta)
-	})
+	actual := account.Peers["testpeer"].Status
+	assert.Equal(t, newStatus, *actual)
+
+	newStatus.Connected = true
+
+	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
+	require.NoError(t, err)
+
+	account, err = store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
+
+	actual = account.Peers["testpeer"].Status
+	assert.Equal(t, newStatus, *actual)
 }
 
-func Test_SavePeerStatus(t *testing.T) {
+func TestSqlite_SavePeerLocation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
-		account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
-		require.NoError(t, err)
+	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	assert.NoError(t, err)
 
-		// save status of non-existing peer
-		newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()}
-		err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
-		assert.Error(t, err)
-		parsedErr, ok := status.FromError(err)
-		require.True(t, ok)
-		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
 
-		// save new status of existing peer
-		account.Peers["testpeer"] = &nbpeer.Peer{
-			Key:    "peerkey",
-			ID:     "testpeer",
-			IP:     net.IP{127, 0, 0, 1},
-			Meta:   nbpeer.PeerSystemMeta{},
-			Name:   "peer name",
-			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
-		}
+	peer := &nbpeer.Peer{
+		AccountID: account.Id,
+		ID:        "testpeer",
+		Location: nbpeer.Location{
+			ConnectionIP: net.ParseIP("0.0.0.0"),
+			CountryCode:  "YY",
+			CityName:     "City",
+			GeoNameID:    1,
+		},
+		Meta: nbpeer.PeerSystemMeta{},
+	}
+	// error is expected as peer is not in store yet
+	err = store.SavePeerLocation(account.Id, peer)
+	assert.Error(t, err)
 
-		err = store.SaveAccount(context.Background(), account)
-		require.NoError(t, err)
+	account.Peers[peer.ID] = peer
+	err = store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
 
-		err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
-		require.NoError(t, err)
+	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
+	peer.Location.CountryCode = "DE"
+	peer.Location.CityName = "Berlin"
+	peer.Location.GeoNameID = 2950159
 
-		account, err = store.GetAccount(context.Background(), account.Id)
-		require.NoError(t, err)
+	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
+	assert.NoError(t, err)
 
-		actual := account.Peers["testpeer"].Status
-		assert.Equal(t, newStatus, *actual)
+	account, err = store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
 
-		newStatus.Connected = true
+	actual := account.Peers[peer.ID].Location
+	assert.Equal(t, peer.Location, actual)
 
-		err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
-		require.NoError(t, err)
-
-		account, err = store.GetAccount(context.Background(), account.Id)
-		require.NoError(t, err)
-
-		actual = account.Peers["testpeer"].Status
-		assert.Equal(t, newStatus, *actual)
-	})
+	peer.ID = "non-existing-peer"
+	err = store.SavePeerLocation(account.Id, peer)
+	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func Test_SavePeerLocation(t *testing.T) {

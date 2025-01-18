@@ -34,6 +34,7 @@ func CreateMysqlTestContainer() (func(), error) {
 	}
 
 	cleanup := func() {
+		os.Unsetenv("NETBIRD_STORE_ENGINE_MYSQL_DSN")
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
 		defer cancelFunc()
 		if err = myContainer.Terminate(timeoutCtx); err != nil {
@@ -68,6 +69,7 @@ func CreatePostgresTestContainer() (func(), error) {
 	}
 
 	cleanup := func() {
+		os.Unsetenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN")
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
 		defer cancelFunc()
 		if err = pgContainer.Terminate(timeoutCtx); err != nil {
