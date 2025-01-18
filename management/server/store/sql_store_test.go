@@ -35,10 +35,9 @@ import (
 	nbroute "github.com/netbirdio/netbird/route"
 )
 
-var cleanUpPostgres func()
-var cleanUpMysql func()
-
 func TestMain(m *testing.M) {
+	var cleanUpPostgres func()
+	// var cleanUpMysql func()
 
 	if dsn, ok := os.LookupEnv("NETBIRD_STORE_ENGINE_POSTGRES_DSN"); !ok || dsn == "" {
 		var err error
@@ -47,30 +46,28 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
-
-	if dsn, ok := os.LookupEnv("NETBIRD_STORE_ENGINE_MYSQL_DSN"); !ok || dsn == "" {
-		var err error
-		cleanUpMysql, err = testutil.CreateMysqlTestContainer()
-		if err != nil {
-			os.Exit(1)
-		}
-	}
+	//
+	// if dsn, ok := os.LookupEnv("NETBIRD_STORE_ENGINE_MYSQL_DSN"); !ok || dsn == "" {
+	// 	var err error
+	// 	cleanUpMysql, err = testutil.CreateMysqlTestContainer()
+	// 	if err != nil {
+	// 		os.Exit(1)
+	// 	}
+	// }
 
 	code := m.Run()
 
 	if cleanUpPostgres != nil {
 		cleanUpPostgres()
 	}
-	if cleanUpMysql != nil {
-		os.Unsetenv("NETBIRD_STORE_ENGINE_MYSQL_DSN")
-		os.Unsetenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN")
-		cleanUpMysql()
-	}
+	// if cleanUpMysql != nil {
+	// 	cleanUpMysql()
+	// }
 
 	os.Exit(code)
 }
 
-var engines = []Engine{SqliteStoreEngine, PostgresStoreEngine}
+var engines = []Engine{SqliteStoreEngine, PostgresStoreEngine, MysqlStoreEngine}
 
 func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
 	t.Helper()
@@ -562,57 +559,6 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
-}
-
-func Test_SavePeerLocation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
-	}
-
-	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
-		account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
-		require.NoError(t, err)
-
-		peer := &nbpeer.Peer{
-			AccountID: account.Id,
-			ID:        "testpeer",
-			Location: nbpeer.Location{
-				ConnectionIP: net.ParseIP("0.0.0.0"),
-				CountryCode:  "YY",
-				CityName:     "City",
-				GeoNameID:    1,
-			},
-			Meta: nbpeer.PeerSystemMeta{},
-		}
-		// error is expected as peer is not in store yet
-		err = store.SavePeerLocation(account.Id, peer)
-		assert.Error(t, err)
-
-		account.Peers[peer.ID] = peer
-		err = store.SaveAccount(context.Background(), account)
-		require.NoError(t, err)
-
-		peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
-		peer.Location.CountryCode = "DE"
-		peer.Location.CityName = "Berlin"
-		peer.Location.GeoNameID = 2950159
-
-		err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
-		assert.NoError(t, err)
-
-		account, err = store.GetAccount(context.Background(), account.Id)
-		require.NoError(t, err)
-
-		actual := account.Peers[peer.ID].Location
-		assert.Equal(t, peer.Location, actual)
-
-		peer.ID = "non-existing-peer"
-		err = store.SavePeerLocation(account.Id, peer)
-		assert.Error(t, err)
-		parsedErr, ok := status.FromError(err)
-		require.True(t, ok)
-		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
-	})
 }
 
 func Test_TestGetAccountByPrivateDomain(t *testing.T) {

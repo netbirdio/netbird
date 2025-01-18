@@ -375,7 +375,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 	if kind == MysqlStoreEngine {
 		var cleanUp func()
 		removeContainer := false
-		if _, ok := os.LookupEnv(mysqlDsnEnv); !ok {
+		if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
 			var err error
 			cleanUp, err = testutil.CreateMysqlTestContainer()
 			if err != nil {
