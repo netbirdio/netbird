@@ -5,9 +5,10 @@ type Rule struct {
 	ruleID    string
 	ipsetName string
 
-	specs []string
-	ip    string
-	chain string
+	specs       []string
+	mangleSpecs []string
+	ip          string
+	chain       string
 }
 
 // GetRuleID returns the rule id
