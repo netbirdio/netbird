@@ -229,9 +229,9 @@ jobs:
         if: matrix.store == 'mysql'
         run: |
           for i in {1..10}; do
-            if nc -z localhost 3306; then
+            if docker exec my-mysql mysqladmin -uroot -pnetbird ping &>/dev/null; then
               docker exec my-mysql \
-                mysql -u root -pnetbird -e \
+                mysql -h127.0.0.1 -P3306 -uroot -pnetbird -e \
                 "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'netbird' WITH GRANT OPTION; FLUSH PRIVILEGES;"
               break
             fi
