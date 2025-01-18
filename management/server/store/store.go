@@ -415,7 +415,6 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 }
 
 func createRandomDB(dsn string, db *gorm.DB, cleanUp func(), removeContainer bool) (string, func(), error) {
-	rand.Seed(time.Now().UnixNano())
 	dbName := fmt.Sprintf("test_db_%d", rand.Intn(1e6))
 
 	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
