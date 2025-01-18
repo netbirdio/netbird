@@ -86,6 +86,11 @@ func NewAccountNotFoundError(accountKey string) error {
 	return Errorf(NotFound, "account not found: %s", accountKey)
 }
 
+// NewPeerNotPartOfAccountError creates a new Error with PermissionDenied type for a peer not being part of an account
+func NewPeerNotPartOfAccountError() error {
+	return Errorf(PermissionDenied, "peer is not part of this account")
+}
+
 // NewUserNotFoundError creates a new Error with NotFound type for a missing user
 func NewUserNotFoundError(userKey string) error {
 	return Errorf(NotFound, "user not found: %s", userKey)

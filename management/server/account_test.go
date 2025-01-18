@@ -1450,7 +1450,6 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	userID := "account_creator"
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
 		t.Fatal(err)
@@ -1479,7 +1478,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	err = manager.DeletePeer(context.Background(), account.Id, peerKey, userID)
+	err = manager.DeletePeer(context.Background(), account.Id, peer.ID, userID)
 	if err != nil {
 		return
 	}
@@ -1501,7 +1500,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	assert.Equal(t, peer.Name, ev.Meta["name"])
 	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
 	assert.Equal(t, userID, ev.InitiatorID)
-	assert.Equal(t, peer.IP.String(), ev.TargetID)
+	assert.Equal(t, peer.ID, ev.TargetID)
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
@@ -1855,13 +1854,10 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
-	account, err := manager.Store.GetAccount(context.Background(), accountID)
-	require.NoError(t, err, "unable to get the account")
-
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
-	account, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+	account, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1929,11 +1925,8 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	accountID, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to get the account")
 
-	account, err := manager.Store.GetAccount(context.Background(), accountID)
-	require.NoError(t, err, "unable to get the account")
-
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1964,7 +1957,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err, "unable to get the account")
 
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
@@ -3089,12 +3082,12 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 102, 110, 102, 130},
-		{"Medium", 500, 100, 105, 140, 105, 190},
-		{"Large", 5000, 200, 160, 200, 160, 320},
-		{"Small single", 50, 10, 102, 110, 102, 130},
-		{"Medium single", 500, 10, 105, 140, 105, 190},
-		{"Large 5", 5000, 15, 160, 200, 160, 290},
+		{"Small", 50, 5, 102, 110, 3, 20},
+		{"Medium", 500, 100, 105, 140, 20, 110},
+		{"Large", 5000, 200, 160, 200, 120, 260},
+		{"Small single", 50, 10, 102, 110, 5, 40},
+		{"Medium single", 500, 10, 105, 140, 10, 60},
+		{"Large 5", 5000, 15, 160, 200, 60, 180},
 	}
 
 	log.SetOutput(io.Discard)
@@ -3163,12 +3156,12 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 107, 120, 107, 160},
-		{"Medium", 500, 100, 105, 140, 105, 220},
-		{"Large", 5000, 200, 180, 220, 180, 395},
-		{"Small single", 50, 10, 107, 120, 105, 160},
-		{"Medium single", 500, 10, 105, 140, 105, 170},
-		{"Large 5", 5000, 15, 180, 220, 180, 340},
+		{"Small", 50, 5, 107, 120, 10, 80},
+		{"Medium", 500, 100, 105, 140, 30, 140},
+		{"Large", 5000, 200, 180, 220, 140, 300},
+		{"Small single", 50, 10, 107, 120, 10, 80},
+		{"Medium single", 500, 10, 105, 140, 20, 60},
+		{"Large 5", 5000, 15, 180, 220, 80, 200},
 	}
 
 	log.SetOutput(io.Discard)

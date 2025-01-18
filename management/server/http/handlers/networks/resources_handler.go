@@ -66,10 +66,11 @@ func (h *resourceHandler) getAllResourcesInNetwork(w http.ResponseWriter, r *htt
 		return
 	}
 
+	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(resources))
+
 	var resourcesResponse []*api.NetworkResource
 	for _, resource := range resources {
-		groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
-		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse(groupMinimumInfo))
+		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse(grpsInfoMap[resource.ID]))
 	}
 
 	util.WriteJSONObject(r.Context(), w, resourcesResponse)
@@ -94,10 +95,11 @@ func (h *resourceHandler) getAllResourcesInAccount(w http.ResponseWriter, r *htt
 		return
 	}
 
+	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
+
 	var resourcesResponse []*api.NetworkResource
 	for _, resource := range resources {
-		groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
-		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse(groupMinimumInfo))
+		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse(grpsInfoMap[resource.ID]))
 	}
 
 	util.WriteJSONObject(r.Context(), w, resourcesResponse)
@@ -136,8 +138,9 @@ func (h *resourceHandler) createResource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
-	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(groupMinimumInfo))
+	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
+
+	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(grpsInfoMap[resource.ID]))
 }
 
 func (h *resourceHandler) getResource(w http.ResponseWriter, r *http.Request) {
@@ -162,8 +165,9 @@ func (h *resourceHandler) getResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
-	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(groupMinimumInfo))
+	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
+
+	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(grpsInfoMap[resource.ID]))
 }
 
 func (h *resourceHandler) updateResource(w http.ResponseWriter, r *http.Request) {
@@ -199,8 +203,9 @@ func (h *resourceHandler) updateResource(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	groupMinimumInfo := groups.ToGroupsInfo(grps, resource.ID)
-	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(groupMinimumInfo))
+	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
+
+	util.WriteJSONObject(r.Context(), w, resource.ToAPIResponse(grpsInfoMap[resource.ID]))
 }
 
 func (h *resourceHandler) deleteResource(w http.ResponseWriter, r *http.Request) {
