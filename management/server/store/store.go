@@ -430,9 +430,9 @@ func createRandomDB(dsn string, db *gorm.DB, cleanUp func(), removeContainer boo
 	u.Path = dbName
 
 	cleanup := func() {
+		db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName))
 		sqlDB, _ := db.DB()
 		_ = sqlDB.Close()
-		db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName))
 		if cleanUp != nil && removeContainer {
 			cleanUp()
 		}
