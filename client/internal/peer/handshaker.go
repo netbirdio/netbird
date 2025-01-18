@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -58,7 +59,7 @@ type Handshaker struct {
 }
 
 func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
-	return &Handshaker{
+	hs := &Handshaker{
 		ctx:            ctx,
 		log:            log,
 		config:         config,
@@ -68,10 +69,12 @@ func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signa
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 	}
-}
 
-func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAnswer)) {
-	h.onNewOfferListeners = append(h.onNewOfferListeners, offer)
+	hs.onNewOfferListeners = append(hs.onNewOfferListeners, hs.relay.OnNewOffer)
+	if os.Getenv("NB_FORCE_RELAY") != "true" {
+		hs.onNewOfferListeners = append(hs.onNewOfferListeners, hs.ice.OnNewOffer)
+	}
+	return hs
 }
 
 func (h *Handshaker) Listen() {

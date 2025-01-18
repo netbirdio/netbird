@@ -34,10 +34,7 @@ type WorkerRelay struct {
 	isController bool
 	config       ConnConfig
 	relayManager relayClient.ManagerService
-
-	onConnReady    func(info RelayConnInfo)
-	onDisconnected func()
-	callBackMu     sync.Mutex
+	conn         *Conn
 
 	relayedConn      net.Conn
 	relayLock        sync.Mutex
@@ -48,12 +45,13 @@ type WorkerRelay struct {
 	relaySupportedOnRemotePeer atomic.Bool
 }
 
-func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, relayManager relayClient.ManagerService) *WorkerRelay {
+func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
 	r := &WorkerRelay{
 		log:          log,
 		isController: ctrl,
 		config:       config,
 		relayManager: relayManager,
+		conn:         conn,
 	}
 	return r
 }
@@ -97,7 +95,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	w.log.Debugf("peer conn opened via Relay: %s", srv)
-	go w.notifyOnReady(RelayConnInfo{
+	go w.conn.relayConnectionIsReady(RelayConnInfo{
 		relayedConn:     relayedConn,
 		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
 		rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
@@ -131,20 +129,6 @@ func (w *WorkerRelay) DisableWgWatcher() {
 	w.log.Debugf("disable WireGuard watcher")
 
 	w.ctxCancelWgWatch()
-}
-
-func (w *WorkerRelay) SetOnConnReady(f func(info RelayConnInfo)) {
-	w.callBackMu.Lock()
-	defer w.callBackMu.Unlock()
-
-	w.onConnReady = f
-}
-
-func (w *WorkerRelay) SetOnDisconnected(f func()) {
-	w.callBackMu.Lock()
-	defer w.callBackMu.Unlock()
-
-	w.onDisconnected = f
 }
 
 func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
@@ -203,7 +187,7 @@ func (w *WorkerRelay) wgStateCheck(ctx context.Context, ctxCancel context.Cancel
 					w.relayLock.Lock()
 					_ = w.relayedConn.Close()
 					w.relayLock.Unlock()
-					go w.notifyDisconnected()
+					go w.conn.onWorkerRelayStateDisconnected()
 					return
 				}
 
@@ -248,25 +232,5 @@ func (w *WorkerRelay) onRelayMGDisconnected() {
 	if w.ctxCancelWgWatch != nil {
 		w.ctxCancelWgWatch()
 	}
-	go w.notifyDisconnected()
-}
-
-func (w *WorkerRelay) notifyDisconnected() {
-	w.callBackMu.Lock()
-	defer w.callBackMu.Unlock()
-
-	if w.onDisconnected == nil {
-		return
-	}
-	w.onDisconnected()
-}
-
-func (w *WorkerRelay) notifyOnReady(ci RelayConnInfo) {
-	w.callBackMu.Lock()
-	defer w.callBackMu.Unlock()
-
-	if w.onConnReady == nil {
-		return
-	}
-	w.onConnReady(ci)
+	go w.conn.onWorkerRelayStateDisconnected()
 }

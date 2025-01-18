@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/rand"
 	"net"
-	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -127,24 +126,14 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	}
 
 	ctrl := isController(config)
-	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, relayManager)
-	conn.workerRelay.SetOnConnReady(conn.relayConnectionIsReady)
-	conn.workerRelay.SetOnDisconnected(conn.onWorkerRelayStateDisconnected)
 
-	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally)
+	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, conn, relayManager)
+	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, conn, signaler, iFaceDiscover, statusRecorder, conn.workerRelay.RelayIsSupportedLocally())
 	if err != nil {
 		return nil, err
 	}
-	conn.workerICE.SetOnConnReady(conn.iCEConnectionIsReady)
-	conn.workerICE.SetOnDisconnected(conn.onWorkerICEStateDisconnected)
 
 	conn.handshaker = NewHandshaker(ctx, connLog, config, signaler, conn.workerICE, conn.workerRelay)
-
-	conn.handshaker.AddOnNewOfferListener(conn.workerRelay.OnNewOffer)
-	if os.Getenv("NB_FORCE_RELAY") != "true" {
-		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
-	}
 
 	conn.guard = guard.NewGuard(connLog, ctrl, conn.isConnectedOnAllWay, config.Timeout, srWatcher)
 

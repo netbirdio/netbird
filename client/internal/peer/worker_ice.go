@@ -36,14 +36,11 @@ type WorkerICE struct {
 	ctx               context.Context
 	log               *log.Entry
 	config            ConnConfig
+	conn              *Conn
 	signaler          *Signaler
 	iFaceDiscover     stdnet.ExternalIFaceDiscover
 	statusRecorder    *Status
 	hasRelayOnLocally bool
-
-	onConnReady    func(ICEConnInfo)
-	onDisconnected func()
-	callBackMu     sync.Mutex
 
 	agent    *ice.Agent
 	muxAgent sync.Mutex
@@ -56,11 +53,12 @@ type WorkerICE struct {
 	localPwd   string
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
 	w := &WorkerICE{
 		ctx:               ctx,
 		log:               log,
 		config:            config,
+		conn:              conn,
 		signaler:          signaler,
 		iFaceDiscover:     ifaceDiscover,
 		statusRecorder:    statusRecorder,
@@ -157,7 +155,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		Priority:                   selectedPriority,
 	}
 	w.log.Debugf("on ICE conn read to use ready")
-	w.notifyOnReady(ci)
+	w.conn.iCEConnectionIsReady(ci)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -179,20 +177,6 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 		w.log.Errorf("error while handling remote candidate")
 		return
 	}
-}
-
-func (w *WorkerICE) SetOnConnReady(f func(ICEConnInfo)) {
-	w.callBackMu.Lock()
-	defer w.callBackMu.Unlock()
-
-	w.onConnReady = f
-}
-
-func (w *WorkerICE) SetOnDisconnected(f func()) {
-	w.callBackMu.Lock()
-	defer w.callBackMu.Unlock()
-
-	w.onDisconnected = f
 }
 
 func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string) {
@@ -231,7 +215,7 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 	err = agent.OnConnectionStateChange(func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
-			w.notifyDisconnected()
+			w.conn.onWorkerICEStateDisconnected()
 
 			w.muxAgent.Lock()
 			agentCancel()
@@ -341,26 +325,6 @@ func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferA
 	} else {
 		return w.agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
-}
-
-func (w *WorkerICE) notifyDisconnected() {
-	w.callBackMu.Lock()
-	defer w.callBackMu.Unlock()
-
-	if w.onDisconnected == nil {
-		return
-	}
-	w.onDisconnected()
-}
-
-func (w *WorkerICE) notifyOnReady(ci ICEConnInfo) {
-	w.callBackMu.Lock()
-	defer w.callBackMu.Unlock()
-
-	if w.onConnReady == nil {
-		return
-	}
-	w.onConnReady(ci)
 }
 
 func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive, error) {
