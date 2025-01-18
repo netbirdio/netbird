@@ -89,13 +89,13 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 		}
 
 		peers, err = transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
-
-		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 		return err
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
