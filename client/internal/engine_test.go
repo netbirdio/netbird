@@ -250,6 +250,15 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},
+		AddressFunc: func() iface.WGAddress {
+			return iface.WGAddress{
+				IP: net.ParseIP("10.20.0.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("10.20.0.0"),
+					Mask: net.IPv4Mask(255, 255, 255, 0),
+				},
+			}
+		},
 	}
 	engine.wgInterface = wgIface
 	engine.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
