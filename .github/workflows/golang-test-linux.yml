@@ -219,9 +219,7 @@ jobs:
         if: matrix.store == 'mysql'
         run: |
           docker run -d \
-            -e MYSQL_ROOT_PASSWORD=netbird \
-            -e MYSQL_DATABASE=netbird \
-            -e MYSQL_ROOT_HOST=% \
+            -e MYSQL_ALLOW_EMPTY_PASSWORD=true \
             -p 3306:3306 \
             --name my-mysql \
             mlsmaycon/warmed-mysql:8
@@ -230,11 +228,7 @@ jobs:
         if: matrix.store == 'mysql'
         run: |
           for i in {1..10}; do
-            if docker exec my-mysql mysqladmin -uroot -pnetbird ping &>/dev/null; then
-              # Connect via socket (no -h, no -P)
-              docker exec my-mysql \
-                mysql -uroot -pnetbird \
-                -e "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'netbird' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+            if docker exec my-mysql mysqladmin -uroot ping &>/dev/null; then
               break
             fi
             echo "Waiting for MySQL..."
@@ -248,7 +242,7 @@ jobs:
           fi
               
           if [ "${{ matrix.store }}" = "mysql" ]; then
-            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:netbird@tcp(localhost:3306)/netbird?parseTime=True"
+            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:@tcp(localhost:3306)/netbird?parseTime=True"
           fi
           
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
