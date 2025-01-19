@@ -425,7 +425,8 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
-			return nil, nil, fmt.Errorf("received an empty list of records")
+			log.Warnf("received a custom zone with empty records, skipping domain: %s", customZone.Domain)
+			continue
 		}
 
 		muxUpdates = append(muxUpdates, muxUpdate{
@@ -437,7 +438,8 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 		for _, record := range customZone.Records {
 			var class uint16 = dns.ClassINET
 			if record.Class != nbdns.DefaultClass {
-				return nil, nil, fmt.Errorf("received an invalid class type: %s", record.Class)
+				log.Warnf("received an invalid class type: %s", record.Class)
+				continue
 			}
 			key := buildRecordKey(record.Name, class, uint16(record.Type))
 			localRecords[key] = record
