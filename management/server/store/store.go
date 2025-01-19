@@ -428,7 +428,8 @@ func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), err
 		case PostgresStoreEngine:
 			err = db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
 		case MysqlStoreEngine:
-			err = killMySQLConnections(dsn, dbName)
+			// err = killMySQLConnections(dsn, dbName)
+			err = db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName)).Error
 		}
 		if err != nil {
 			log.Errorf("failed to drop database %s: %v", dbName, err)
@@ -469,8 +470,7 @@ func killMySQLConnections(dsn, targetDB string) error {
 		}
 	}
 
-	dropStmt := fmt.Sprintf("DROP DATABASE `%s`", targetDB)
-	return ctrlDB.Exec(dropStmt).Error
+	return nil
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {

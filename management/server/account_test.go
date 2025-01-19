@@ -17,7 +17,6 @@ import (
 
 	"github.com/golang-jwt/jwt"
 
-	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -39,38 +38,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
-
-func TestMain(m *testing.M) {
-	var cleanUpPostgres func()
-	var cleanUpMysql func()
-
-	if dsn, ok := os.LookupEnv("NETBIRD_STORE_ENGINE_POSTGRES_DSN"); !ok || dsn == "" {
-		var err error
-		cleanUpPostgres, err = testutil.CreatePostgresTestContainer()
-		if err != nil {
-			os.Exit(1)
-		}
-	}
-
-	if dsn, ok := os.LookupEnv("NETBIRD_STORE_ENGINE_MYSQL_DSN"); !ok || dsn == "" {
-		var err error
-		cleanUpMysql, err = testutil.CreateMysqlTestContainer()
-		if err != nil {
-			os.Exit(1)
-		}
-	}
-
-	code := m.Run()
-
-	if cleanUpPostgres != nil {
-		cleanUpPostgres()
-	}
-	if cleanUpMysql != nil {
-		cleanUpMysql()
-	}
-
-	os.Exit(code)
-}
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *types.Account, userID string) {
 	t.Helper()
