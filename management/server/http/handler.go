@@ -43,7 +43,7 @@ func NewAPIHandler(ctx context.Context, accountManager s.AccountManager, network
 	)
 
 	authMiddleware := middleware.NewAuthMiddleware(
-		accountManager.GetAccountFromPAT,
+		accountManager.GetAccountInfoFromPAT,
 		jwtValidator.ValidateAndParse,
 		accountManager.MarkPATUsed,
 		accountManager.CheckUserAccessByJWTGroups,
