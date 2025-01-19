@@ -22,7 +22,7 @@ func CreateMysqlTestContainer() (func(), error) {
 	myContainer, err := mysql.RunContainer(ctx,
 		testcontainers.WithImage("mlsmaycon/warmed-mysql:8"),
 		mysql.WithDatabase("testing"),
-		mysql.WithUsername("testing"),
+		mysql.WithUsername("root"),
 		mysql.WithPassword("testing"),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("/usr/sbin/mysqld: ready for connections").

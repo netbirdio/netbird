@@ -359,7 +359,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 			return nil, cleanUp, fmt.Errorf("failed to open postgres connection: %v", err)
 		}
 
-		newDsn, cleanup, err := createRandomDB(dsn, db, cleanUp, removeContainer)
+		newDsn, cleanup, err := createRandomDB(dsn, db, cleanUp, kind, removeContainer)
 		if err != nil {
 			return nil, cleanup, err
 		}
@@ -394,7 +394,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 			return nil, cleanUp, fmt.Errorf("failed to open mysql connection: %v", err)
 		}
 
-		newDsn, cleanup, err := createRandomDB(dsn, db, cleanUp, removeContainer)
+		newDsn, cleanup, err := createRandomDB(dsn, db, cleanUp, kind, removeContainer)
 		if err != nil {
 			return nil, cleanup, err
 		}
@@ -414,7 +414,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 	return store, closeConnection, nil
 }
 
-func createRandomDB(dsn string, db *gorm.DB, cleanUp func(), removeContainer bool) (string, func(), error) {
+func createRandomDB(dsn string, db *gorm.DB, cleanUp func(), engine Engine, removeContainer bool) (string, func(), error) {
 	dbName := fmt.Sprintf("test_db_%d", rand.Intn(1e6))
 
 	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
@@ -429,7 +429,12 @@ func createRandomDB(dsn string, db *gorm.DB, cleanUp func(), removeContainer boo
 	u.Path = dbName
 
 	cleanup := func() {
-		db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName))
+		switch engine {
+		case PostgresStoreEngine:
+			db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName))
+		case MysqlStoreEngine:
+			db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName))
+		}
 		sqlDB, _ := db.DB()
 		_ = sqlDB.Close()
 		if cleanUp != nil && removeContainer {

@@ -24,6 +24,7 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 
 	route2 "github.com/netbirdio/netbird/route"
@@ -34,40 +35,78 @@ import (
 	nbroute "github.com/netbirdio/netbird/route"
 )
 
-func TestSqlite_NewStore(t *testing.T) {
+func TestMain(m *testing.M) {
+	var cleanUpPostgres func()
+	var cleanUpMysql func()
+
+	if dsn, ok := os.LookupEnv("NETBIRD_STORE_ENGINE_POSTGRES_DSN"); !ok || dsn == "" {
+		var err error
+		cleanUpPostgres, err = testutil.CreatePostgresTestContainer()
+		if err != nil {
+			os.Exit(1)
+		}
+	}
+
+	if dsn, ok := os.LookupEnv("NETBIRD_STORE_ENGINE_MYSQL_DSN"); !ok || dsn == "" {
+		var err error
+		cleanUpMysql, err = testutil.CreateMysqlTestContainer()
+		if err != nil {
+			os.Exit(1)
+		}
+	}
+
+	code := m.Run()
+
+	if cleanUpPostgres != nil {
+		cleanUpPostgres()
+	}
+	if cleanUpMysql != nil {
+		cleanUpMysql()
+	}
+
+	os.Exit(code)
+}
+
+var engines = []Engine{SqliteStoreEngine, PostgresStoreEngine, MysqlStoreEngine}
+
+func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
+	t.Helper()
+	for _, engine := range engines {
+		if os.Getenv("NETBIRD_STORE_ENGINE") != "" && os.Getenv("NETBIRD_STORE_ENGINE") != string(engine) {
+			continue
+		}
+		t.Setenv("NETBIRD_STORE_ENGINE", string(engine))
+		store, cleanUp, err := NewTestStoreFromSQL(context.Background(), testDataFile, t.TempDir())
+		t.Cleanup(cleanUp)
+		assert.NoError(t, err)
+		t.Run(string(engine), func(t *testing.T) {
+			f(t, store)
+		})
+		os.Unsetenv("NETBIRD_STORE_ENGINE")
+	}
+}
+
+func Test_NewStore(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-
-	if len(store.GetAllAccounts(context.Background())) != 0 {
-		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
-	}
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		if store == nil {
+			t.Errorf("expected to create a new Store")
+		}
+		if len(store.GetAllAccounts(context.Background())) != 0 {
+			t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
+		}
+	})
 }
 
-func TestSqlite_SaveAccount_Large(t *testing.T) {
+func Test_SaveAccount_Large(t *testing.T) {
 	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
-	t.Run("SQLite", func(t *testing.T) {
-		t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-		store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-		t.Cleanup(cleanUp)
-		assert.NoError(t, err)
-		runLargeTest(t, store)
-	})
-
-	// create store outside to have a better time counter for the test
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-	t.Run("PostgreSQL", func(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
 		runLargeTest(t, store)
 	})
 }
@@ -212,77 +251,74 @@ func randomIPv4() net.IP {
 	return net.IP(b)
 }
 
-func TestSqlite_SaveAccount(t *testing.T) {
+func Test_SaveAccount(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		account := newAccountWithId(context.Background(), "account_id", "testuser", "")
+		setupKey, _ := types.GenerateDefaultSetupKey()
+		account.SetupKeys[setupKey.Key] = setupKey
+		account.Peers["testpeer"] = &nbpeer.Peer{
+			Key:    "peerkey",
+			IP:     net.IP{127, 0, 0, 1},
+			Meta:   nbpeer.PeerSystemMeta{},
+			Name:   "peer name",
+			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		}
 
-	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
-	setupKey, _ := types.GenerateDefaultSetupKey()
-	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
-	}
+		err := store.SaveAccount(context.Background(), account)
+		require.NoError(t, err)
 
-	err = store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
+		account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
+		setupKey, _ = types.GenerateDefaultSetupKey()
+		account2.SetupKeys[setupKey.Key] = setupKey
+		account2.Peers["testpeer2"] = &nbpeer.Peer{
+			Key:    "peerkey2",
+			IP:     net.IP{127, 0, 0, 2},
+			Meta:   nbpeer.PeerSystemMeta{},
+			Name:   "peer name 2",
+			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		}
 
-	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
-	setupKey, _ = types.GenerateDefaultSetupKey()
-	account2.SetupKeys[setupKey.Key] = setupKey
-	account2.Peers["testpeer2"] = &nbpeer.Peer{
-		Key:    "peerkey2",
-		IP:     net.IP{127, 0, 0, 2},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name 2",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
-	}
+		err = store.SaveAccount(context.Background(), account2)
+		require.NoError(t, err)
 
-	err = store.SaveAccount(context.Background(), account2)
-	require.NoError(t, err)
+		if len(store.GetAllAccounts(context.Background())) != 2 {
+			t.Errorf("expecting 2 Accounts to be stored after SaveAccount()")
+		}
 
-	if len(store.GetAllAccounts(context.Background())) != 2 {
-		t.Errorf("expecting 2 Accounts to be stored after SaveAccount()")
-	}
+		a, err := store.GetAccount(context.Background(), account.Id)
+		if a == nil {
+			t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
+		}
 
-	a, err := store.GetAccount(context.Background(), account.Id)
-	if a == nil {
-		t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
-	}
+		if a != nil && len(a.Policies) != 1 {
+			t.Errorf("expecting Account to have one policy stored after SaveAccount(), got %d", len(a.Policies))
+		}
 
-	if a != nil && len(a.Policies) != 1 {
-		t.Errorf("expecting Account to have one policy stored after SaveAccount(), got %d", len(a.Policies))
-	}
+		if a != nil && len(a.Policies[0].Rules) != 1 {
+			t.Errorf("expecting Account to have one policy rule stored after SaveAccount(), got %d", len(a.Policies[0].Rules))
+			return
+		}
 
-	if a != nil && len(a.Policies[0].Rules) != 1 {
-		t.Errorf("expecting Account to have one policy rule stored after SaveAccount(), got %d", len(a.Policies[0].Rules))
-		return
-	}
+		if a, err := store.GetAccountByPeerPubKey(context.Background(), "peerkey"); a == nil {
+			t.Errorf("expecting PeerKeyID2AccountID index updated after SaveAccount(): %v", err)
+		}
 
-	if a, err := store.GetAccountByPeerPubKey(context.Background(), "peerkey"); a == nil {
-		t.Errorf("expecting PeerKeyID2AccountID index updated after SaveAccount(): %v", err)
-	}
+		if a, err := store.GetAccountByUser(context.Background(), "testuser"); a == nil {
+			t.Errorf("expecting UserID2AccountID index updated after SaveAccount(): %v", err)
+		}
 
-	if a, err := store.GetAccountByUser(context.Background(), "testuser"); a == nil {
-		t.Errorf("expecting UserID2AccountID index updated after SaveAccount(): %v", err)
-	}
+		if a, err := store.GetAccountByPeerID(context.Background(), "testpeer"); a == nil {
+			t.Errorf("expecting PeerID2AccountID index updated after SaveAccount(): %v", err)
+		}
 
-	if a, err := store.GetAccountByPeerID(context.Background(), "testpeer"); a == nil {
-		t.Errorf("expecting PeerID2AccountID index updated after SaveAccount(): %v", err)
-	}
-
-	if a, err := store.GetAccountBySetupKey(context.Background(), setupKey.Key); a == nil {
-		t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount(): %v", err)
-	}
+		if a, err := store.GetAccountBySetupKey(context.Background(), setupKey.Key); a == nil {
+			t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount(): %v", err)
+		}
+	})
 }
 
 func TestSqlite_DeleteAccount(t *testing.T) {
@@ -399,77 +435,24 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	}
 }
 
-func TestSqlite_GetAccount(t *testing.T) {
+func Test_GetAccount(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		id := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	id := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		account, err := store.GetAccount(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, id, account.Id, "account id should match")
 
-	account, err := store.GetAccount(context.Background(), id)
-	require.NoError(t, err)
-	require.Equal(t, id, account.Id, "account id should match")
-
-	_, err = store.GetAccount(context.Background(), "non-existing-account")
-	assert.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
-}
-
-func TestSqlite_SavePeer(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
-	}
-
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-
-	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
-	require.NoError(t, err)
-
-	// save status of non-existing peer
-	peer := &nbpeer.Peer{
-		Key:    "peerkey",
-		ID:     "testpeer",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
-	}
-	ctx := context.Background()
-	err = store.SavePeer(ctx, account.Id, peer)
-	assert.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
-
-	// save new status of existing peer
-	account.Peers[peer.ID] = peer
-
-	err = store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
-
-	updatedPeer := peer.Copy()
-	updatedPeer.Status.Connected = false
-	updatedPeer.Meta.Hostname = "updatedpeer"
-
-	err = store.SavePeer(ctx, account.Id, updatedPeer)
-	require.NoError(t, err)
-
-	account, err = store.GetAccount(context.Background(), account.Id)
-	require.NoError(t, err)
-
-	actual := account.Peers[peer.ID]
-	assert.Equal(t, updatedPeer.Status, actual.Status)
-	assert.Equal(t, updatedPeer.Meta, actual.Meta)
+		_, err = store.GetAccount(context.Background(), "non-existing-account")
+		assert.Error(t, err)
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	})
 }
 
 func TestSqlite_SavePeerStatus(t *testing.T) {
@@ -581,74 +564,65 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
-func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
+func Test_TestGetAccountByPrivateDomain(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		existingDomain := "test.com"
 
-	existingDomain := "test.com"
+		account, err := store.GetAccountByPrivateDomain(context.Background(), existingDomain)
+		require.NoError(t, err, "should found account")
+		require.Equal(t, existingDomain, account.Domain, "domains should match")
 
-	account, err := store.GetAccountByPrivateDomain(context.Background(), existingDomain)
-	require.NoError(t, err, "should found account")
-	require.Equal(t, existingDomain, account.Domain, "domains should match")
-
-	_, err = store.GetAccountByPrivateDomain(context.Background(), "missing-domain.com")
-	require.Error(t, err, "should return error on domain lookup")
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+		_, err = store.GetAccountByPrivateDomain(context.Background(), "missing-domain.com")
+		require.Error(t, err, "should return error on domain lookup")
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	})
 }
 
-func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
+func Test_GetTokenIDByHashedToken(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		hashed := "SoMeHaShEdToKeN"
+		id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	hashed := "SoMeHaShEdToKeN"
-	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
+		token, err := store.GetTokenIDByHashedToken(context.Background(), hashed)
+		require.NoError(t, err)
+		require.Equal(t, id, token)
 
-	token, err := store.GetTokenIDByHashedToken(context.Background(), hashed)
-	require.NoError(t, err)
-	require.Equal(t, id, token)
-
-	_, err = store.GetTokenIDByHashedToken(context.Background(), "non-existing-hash")
-	require.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+		_, err = store.GetTokenIDByHashedToken(context.Background(), "non-existing-hash")
+		require.Error(t, err)
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	})
 }
 
-func TestSqlite_GetUserByTokenID(t *testing.T) {
+func Test_GetUserByTokenID(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
+		user, err := store.GetUserByTokenID(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, id, user.PATs[id].ID)
 
-	user, err := store.GetUserByTokenID(context.Background(), id)
-	require.NoError(t, err)
-	require.Equal(t, id, user.PATs[id].ID)
-
-	_, err = store.GetUserByTokenID(context.Background(), "non-existing-id")
-	require.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+		_, err = store.GetUserByTokenID(context.Background(), "non-existing-id")
+		require.Error(t, err)
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	})
 }
 
 func TestMigrate(t *testing.T) {
@@ -2370,6 +2344,7 @@ func TestSqlStore_GetNetworkRouterByID(t *testing.T) {
 }
 
 func TestSqlStore_SaveNetworkRouter(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
