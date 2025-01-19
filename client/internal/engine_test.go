@@ -701,6 +701,9 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 								},
 							},
 						},
+						{
+							Domain: "0.66.100.in-addr.arpa.",
+						},
 					},
 					NameServerGroups: []*mgmtProto.NameServerGroup{
 						{
@@ -729,6 +732,9 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 							RData: "100.64.0.1",
 						},
 					},
+				},
+				{
+					Domain: "0.66.100.in-addr.arpa.",
 				},
 			},
 			expectedNSGroupsLen: 1,
