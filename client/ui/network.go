@@ -1,4 +1,4 @@
-//go:build !(linux && 386) && !freebsd
+//go:build !(linux && 386)
 
 package main
 
