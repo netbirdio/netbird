@@ -59,13 +59,8 @@ func NewConnectClient(
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run() error {
-	return c.run(MobileDependency{}, nil, nil)
-}
-
-// RunWithProbes runs the client's main logic with probes attached
-func (c *ConnectClient) RunWithProbes(probes *ProbeHolder, runningChan chan error) error {
-	return c.run(MobileDependency{}, probes, runningChan)
+func (c *ConnectClient) Run(runningChan chan error) error {
+	return c.run(MobileDependency{}, runningChan)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -84,7 +79,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.run(mobileDependency, nil, nil)
+	return c.run(mobileDependency, nil)
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -102,10 +97,10 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.run(mobileDependency, nil, nil)
+	return c.run(mobileDependency, nil)
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHolder, runningChan chan error) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan error) error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
@@ -261,7 +256,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
+		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
 		c.engine.SetNetworkMapPersistence(c.persistNetworkMap)
 		c.engineMutex.Unlock()
 
