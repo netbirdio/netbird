@@ -463,9 +463,6 @@ jobs:
           done
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -tags=benchmark -run=^$ -bench=. -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,NETBIRD_STORE_ENGINE_POSTGRES_DSN,NETBIRD_STORE_ENGINE_MYSQL_DSN' -timeout 10m $(go list ./... | grep /management)
-
-      - name: Test
         run: |
           if [ "${{ matrix.store }}" = "postgres" ]; then
             export NETBIRD_STORE_ENGINE_POSTGRES_DSN="postgres://root:netbird@localhost:5432/netbird?sslmode=disable"
@@ -568,8 +565,6 @@ jobs:
             sleep 3
           done
 
-      - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -p 1 -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,NETBIRD_STORE_ENGINE_POSTGRES_DSN,NETBIRD_STORE_ENGINE_MYSQL_DSN' -timeout 10m -tags=integration $(go list ./... | grep /management)
       - name: Test
         run: |
           if [ "${{ matrix.store }}" = "postgres" ]; then

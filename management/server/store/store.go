@@ -389,7 +389,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 		}
 
-		db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), getGormConfig())
+		db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
 		if err != nil {
 			return nil, cleanUp, fmt.Errorf("failed to open mysql connection: %v", err)
 		}
