@@ -219,7 +219,6 @@ jobs:
         if: matrix.store == 'mysql'
         run: |
           docker run -d \
-            -e MYSQL_ALLOW_EMPTY_PASSWORD=true \
             -p 3306:3306 \
             --name my-mysql \
             mlsmaycon/warmed-mysql:8
@@ -242,7 +241,7 @@ jobs:
           fi
               
           if [ "${{ matrix.store }}" = "mysql" ]; then
-            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:testing@tcp(localhost:3306)/testing?parseTime=True"
+            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:testing@tcp(localhost:3306)/testing"
           fi
           
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
@@ -356,7 +355,7 @@ jobs:
           fi
           
           if [ "${{ matrix.store }}" = "mysql" ]; then
-            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:netbird@tcp(localhost:3306)/netbird?parseTime=True"
+            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:testing@tcp(localhost:3306)/testing"
           fi
           
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
@@ -448,8 +447,6 @@ jobs:
         if: matrix.store == 'mysql'
         run: |
           docker run -d \
-            -e MYSQL_ROOT_PASSWORD=netbird \
-            -e MYSQL_DATABASE=netbird \
             -p 3306:3306 \
             --name my-mysql \
             mlsmaycon/warmed-mysql:8
@@ -475,7 +472,7 @@ jobs:
           fi
           
           if [ "${{ matrix.store }}" = "mysql" ]; then
-            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:netbird@tcp(localhost:3306)/netbird?parseTime=True"
+            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:testing@tcp(localhost:3306)/testing"
           fi
           
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
@@ -580,7 +577,7 @@ jobs:
           fi
           
           if [ "${{ matrix.store }}" = "mysql" ]; then
-            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:testing@tcp(localhost:3306)/testing?parseTime=True"
+            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:testing@tcp(localhost:3306)/testing"
           fi
           
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
