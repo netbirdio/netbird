@@ -380,11 +380,11 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
-		return fmt.Errorf("not applying dns update, error: %v", err)
+		return fmt.Errorf("local handler updater: %w", err)
 	}
 	upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
 	if err != nil {
-		return fmt.Errorf("not applying dns update, error: %v", err)
+		return fmt.Errorf("upstream handler updater: %w", err)
 	}
 	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...) //nolint:gocritic
 
