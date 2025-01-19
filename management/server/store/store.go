@@ -338,28 +338,25 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
 	if kind == PostgresStoreEngine {
-		var cleanUp func()
-		removeContainer := false
 		if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
 			var err error
-			cleanUp, err = testutil.CreatePostgresTestContainer()
+			_, err = testutil.CreatePostgresTestContainer()
 			if err != nil {
 				return nil, nil, err
 			}
-			removeContainer = true
 		}
 
 		dsn, ok := os.LookupEnv(postgresDsnEnv)
 		if !ok {
-			return nil, cleanUp, fmt.Errorf("%s is not set", postgresDsnEnv)
+			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 		}
 
 		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err != nil {
-			return nil, cleanUp, fmt.Errorf("failed to open postgres connection: %v", err)
+			return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
 		}
 
-		newDsn, cleanup, err := createRandomDB(dsn, db, cleanUp, kind, removeContainer)
+		newDsn, cleanup, err := createRandomDB(dsn, db, kind)
 		if err != nil {
 			return nil, cleanup, err
 		}
@@ -374,14 +371,12 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 
 	if kind == MysqlStoreEngine {
 		var cleanUp func()
-		removeContainer := false
 		if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
 			var err error
 			cleanUp, err = testutil.CreateMysqlTestContainer()
 			if err != nil {
 				return nil, nil, err
 			}
-			removeContainer = true
 		}
 
 		dsn, ok := os.LookupEnv(mysqlDsnEnv)
@@ -394,7 +389,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 			return nil, cleanUp, fmt.Errorf("failed to open mysql connection: %v", err)
 		}
 
-		newDsn, cleanup, err := createRandomDB(dsn, db, cleanUp, kind, removeContainer)
+		newDsn, cleanup, err := createRandomDB(dsn, db, kind)
 		if err != nil {
 			return nil, cleanup, err
 		}
@@ -414,16 +409,16 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 	return store, closeConnection, nil
 }
 
-func createRandomDB(dsn string, db *gorm.DB, cleanUp func(), engine Engine, removeContainer bool) (string, func(), error) {
+func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), error) {
 	dbName := fmt.Sprintf("test_db_%d", rand.Intn(1e6))
 
 	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
-		return "", cleanUp, fmt.Errorf("failed to create database: %v", err)
+		return "", nil, fmt.Errorf("failed to create database: %v", err)
 	}
 
 	u, err := url.Parse(dsn)
 	if err != nil {
-		return "", cleanUp, fmt.Errorf("failed to parse DSN: %v", err)
+		return "", nil, fmt.Errorf("failed to parse DSN: %v", err)
 	}
 
 	u.Path = dbName
@@ -431,19 +426,51 @@ func createRandomDB(dsn string, db *gorm.DB, cleanUp func(), engine Engine, remo
 	cleanup := func() {
 		switch engine {
 		case PostgresStoreEngine:
-			db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName))
+			err = db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
 		case MysqlStoreEngine:
-			db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName))
+			err = killMySQLConnections(dsn, dbName)
+		}
+		if err != nil {
+			log.Errorf("failed to drop database %s: %v", dbName, err)
 		}
 		sqlDB, _ := db.DB()
 		_ = sqlDB.Close()
-		if cleanUp != nil && removeContainer {
-			cleanUp()
-		}
 	}
 
 	return u.String(), cleanup, nil
 
+}
+
+func killMySQLConnections(dsn, targetDB string) error {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return fmt.Errorf("failed to parse DSN: %v", err)
+	}
+
+	u.Path = "testing"
+
+	ctrlDB, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return fmt.Errorf("failed to open mysql connection: %v", err)
+	}
+
+	var procs []struct {
+		ID int
+	}
+	query := "SELECT ID FROM INFORMATION_SCHEMA.PROCESSLIST WHERE DB = ?"
+	if err := ctrlDB.Raw(query, targetDB).Scan(&procs).Error; err != nil {
+		return fmt.Errorf("failed to get processes: %v", err)
+	}
+
+	for _, p := range procs {
+		killStmt := fmt.Sprintf("KILL %d", p.ID)
+		if err := ctrlDB.Exec(killStmt).Error; err != nil {
+			return fmt.Errorf("failed to kill process %d: %v", p.ID, err)
+		}
+	}
+
+	dropStmt := fmt.Sprintf("DROP DATABASE `%s`", targetDB)
+	return ctrlDB.Exec(dropStmt).Error
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {

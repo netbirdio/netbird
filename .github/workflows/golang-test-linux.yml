@@ -193,61 +193,12 @@ jobs:
         if: matrix.store == 'mysql'
         run: docker pull mlsmaycon/warmed-mysql:8
 
-      - name: Start Postgres
-        if: matrix.store == 'postgres'
-        run: |
-          docker run -d \
-            -e POSTGRES_USER=root \
-            -e POSTGRES_PASSWORD=netbird \
-            -e POSTGRES_DB=netbird \
-            -p 5432:5432 \
-            --name my-postgres \
-            postgres:15-alpine
-
-      - name: Wait for Postgres
-        if: matrix.store == 'postgres'
-        run: |
-          for i in {1..10}; do
-            if nc -z localhost 5432; then
-              break
-            fi
-            echo "Waiting for Postgres..."
-            sleep 3
-          done
-
-      - name: Start MySQL
-        if: matrix.store == 'mysql'
-        run: |
-          docker run -d \
-            -p 3306:3306 \
-            --name my-mysql \
-            mlsmaycon/warmed-mysql:8
-
-      - name: Wait for MySQL
-        if: matrix.store == 'mysql'
-        run: |
-          for i in {1..10}; do
-            if nc -z localhost 3306; then
-              break
-            fi
-            echo "Waiting for MySQL..."
-            sleep 3
-          done
-
       - name: Test
-        run: |
-          if [ "${{ matrix.store }}" = "postgres" ]; then
-            export NETBIRD_STORE_ENGINE_POSTGRES_DSN="postgres://root:netbird@localhost:5432/netbird?sslmode=disable"
-          fi
-              
-          if [ "${{ matrix.store }}" = "mysql" ]; then
-            export NETBIRD_STORE_ENGINE_MYSQL_DSN="root:testing@tcp(localhost:3306)/testing"
-          fi
-          
+        run: |          
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
           go test -tags=devcert -p 1 \
-            -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,NETBIRD_STORE_ENGINE_POSTGRES_DSN,NETBIRD_STORE_ENGINE_MYSQL_DSN" \
+            -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
             -timeout 10m $(go list ./... | grep /management)
 
   benchmark:
