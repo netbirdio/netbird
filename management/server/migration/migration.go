@@ -17,12 +17,19 @@ import (
 	"gorm.io/gorm"
 )
 
+func GetColumnName(db *gorm.DB, column string) string {
+	if db.Name() == "mysql" {
+		return fmt.Sprintf("`%s`", column)
+	}
+	return column
+}
+
 // MigrateFieldFromGobToJSON migrates a column from Gob encoding to JSON encoding.
 // T is the type of the model that contains the field to be migrated.
 // S is the type of the field to be migrated.
 func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, fieldName string) error {
-
-	oldColumnName := fieldName
+	orgColumnName := fieldName
+	oldColumnName := GetColumnName(db, orgColumnName)
 	newColumnName := fieldName + "_tmp"
 
 	var model T
@@ -72,7 +79,7 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 		for _, row := range rows {
 			var field S
 
-			str, ok := row[oldColumnName].(string)
+			str, ok := row[orgColumnName].(string)
 			if !ok {
 				return fmt.Errorf("type assertion failed")
 			}
@@ -111,7 +118,8 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 // MigrateNetIPFieldFromBlobToJSON migrates a Net IP column from Blob encoding to JSON encoding.
 // T is the type of the model that contains the field to be migrated.
 func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fieldName string, indexName string) error {
-	oldColumnName := fieldName
+	orgColumnName := fieldName
+	oldColumnName := GetColumnName(db, orgColumnName)
 	newColumnName := fieldName + "_tmp"
 
 	var model T
@@ -163,7 +171,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 
 		for _, row := range rows {
 			var blobValue string
-			if columnValue := row[oldColumnName]; columnValue != nil {
+			if columnValue := row[orgColumnName]; columnValue != nil {
 				value, ok := columnValue.(string)
 				if !ok {
 					return fmt.Errorf("type assertion failed")
@@ -210,7 +218,8 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 }
 
 func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) error {
-	oldColumnName := "key"
+	orgColumnName := "key"
+	oldColumnName := GetColumnName(db, orgColumnName)
 	newColumnName := "key_secret"
 
 	var model T
@@ -250,8 +259,9 @@ func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) er
 		}
 
 		for _, row := range rows {
+
 			var plainKey string
-			if columnValue := row[oldColumnName]; columnValue != nil {
+			if columnValue := row[orgColumnName]; columnValue != nil {
 				value, ok := columnValue.(string)
 				if !ok {
 					return fmt.Errorf("type assertion failed")
@@ -294,4 +304,51 @@ func hiddenKey(key string, length int) string {
 		length = utf8.RuneCountInString(key) - len(prefix)
 	}
 	return prefix + strings.Repeat("*", length)
+}
+
+func MigrateNewField[T any](ctx context.Context, db *gorm.DB, columnName string, defaultValue any) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	err := stmt.Parse(&model)
+	if err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if !tx.Migrator().HasColumn(&model, columnName) {
+			log.WithContext(ctx).Infof("Column %s does not exist in table %s, adding it", columnName, tableName)
+			if err := tx.Migrator().AddColumn(&model, columnName); err != nil {
+				return fmt.Errorf("add column %s: %w", columnName, err)
+			}
+		}
+
+		var rows []map[string]any
+		if err := tx.Table(tableName).Select("id", columnName).Where(columnName + " IS NULL").Find(&rows).Error; err != nil {
+			return fmt.Errorf("failed to find rows with empty %s: %w", columnName, err)
+		}
+
+		if len(rows) == 0 {
+			log.WithContext(ctx).Infof("No rows with empty %s found in table %s, no migration needed", columnName, tableName)
+			return nil
+		}
+
+		for _, row := range rows {
+			if err := tx.Table(tableName).Where("id = ?", row["id"]).Update(columnName, defaultValue).Error; err != nil {
+				return fmt.Errorf("failed to update row with id %v: %w", row["id"], err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("Migration of empty %s to default value in table %s completed", columnName, tableName)
+	return nil
 }

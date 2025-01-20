@@ -117,9 +117,20 @@ func (p *Policy) RuleGroups() []string {
 
 // SourceGroups returns a slice of all unique source groups referenced in the policy's rules.
 func (p *Policy) SourceGroups() []string {
-	groups := make([]string, 0)
-	for _, rule := range p.Rules {
-		groups = append(groups, rule.Sources...)
+	if len(p.Rules) == 1 {
+		return p.Rules[0].Sources
 	}
-	return groups
+	groups := make(map[string]struct{}, len(p.Rules))
+	for _, rule := range p.Rules {
+		for _, source := range rule.Sources {
+			groups[source] = struct{}{}
+		}
+	}
+
+	groupIDs := make([]string, 0, len(groups))
+	for groupID := range groups {
+		groupIDs = append(groupIDs, groupID)
+	}
+
+	return groupIDs
 }

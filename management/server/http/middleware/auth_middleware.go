@@ -161,7 +161,7 @@ func (m *AuthMiddleware) checkPATFromRequest(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return fmt.Errorf("invalid Token: %w", err)
 	}
-	if time.Now().After(pat.ExpirationDate) {
+	if time.Now().After(pat.GetExpirationDate()) {
 		return fmt.Errorf("token expired")
 	}
 
@@ -175,6 +175,7 @@ func (m *AuthMiddleware) checkPATFromRequest(w http.ResponseWriter, r *http.Requ
 	claimMaps[m.audience+jwtclaims.AccountIDSuffix] = account.Id
 	claimMaps[m.audience+jwtclaims.DomainIDSuffix] = account.Domain
 	claimMaps[m.audience+jwtclaims.DomainCategorySuffix] = account.DomainCategory
+	claimMaps[jwtclaims.IsToken] = true
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	newRequest := r.WithContext(context.WithValue(r.Context(), jwtclaims.TokenUserProperty, jwtToken)) //nolint
 	// Update the current request with the new context information.

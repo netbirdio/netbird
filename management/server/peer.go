@@ -14,6 +14,8 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/util"
+
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -110,6 +112,11 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, account *types.Account) error {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("MarkPeerConnected: took %v", time.Since(start))
+	}()
+
 	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
 		return fmt.Errorf("failed to find peer by pub key: %w", err)
@@ -201,7 +208,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if peer.SSHEnabled != update.SSHEnabled {
+	sshEnabledUpdated := peer.SSHEnabled != update.SSHEnabled
+	if sshEnabledUpdated {
 		peer.SSHEnabled = update.SSHEnabled
 		event := activity.PeerSSHEnabled
 		if !update.SSHEnabled {
@@ -274,6 +282,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 	if peerLabelUpdated || requiresPeerUpdates {
 		am.UpdateAccountPeers(ctx, accountID)
+	} else if sshEnabledUpdated {
+		am.UpdateAccountPeer(ctx, account, peer)
 	}
 
 	return peer, nil
@@ -511,7 +521,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
 			SSHEnabled:                  false,
 			SSHKey:                      peer.SSHKey,
-			LastLogin:                   registrationTime,
+			LastLogin:                   util.ToPtr(registrationTime),
 			CreatedAt:                   registrationTime,
 			LoginExpirationEnabled:      addedByUser,
 			Ephemeral:                   ephemeral,
@@ -566,7 +576,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 
 		if addedByUser {
-			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.LastLogin)
+			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 			if err != nil {
 				return fmt.Errorf("failed to update user last login: %w", err)
 			}
@@ -650,6 +660,11 @@ func (am *DefaultAccountManager) getFreeIP(ctx context.Context, s store.Store, a
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, account *types.Account) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("SyncPeer: took %v", time.Since(start))
+	}()
+
 	peer, err := account.FindPeerByPubKey(sync.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, nil, status.NewPeerNotRegisteredError()
@@ -911,7 +926,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, user *ty
 		return err
 	}
 
-	err = am.Store.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.LastLogin)
+	err = am.Store.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.GetLastLogin())
 	if err != nil {
 		return err
 	}
@@ -1061,6 +1076,36 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	}
 
 	wg.Wait()
+}
+
+// UpdateAccountPeer updates a single peer that belongs to an account.
+// Should be called when changes need to be synced to a specific peer only.
+func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, account *types.Account, peer *nbpeer.Peer) {
+	if !am.peersUpdateManager.HasChannel(peer.ID) {
+		log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
+		return
+	}
+
+	approvedPeersMap, err := am.GetValidatedPeers(account)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to validate peers: %v", peer.ID, err)
+		return
+	}
+
+	dnsCache := &DNSConfigCache{}
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+
+	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to get posture checks: %v", peer.ID, err)
+		return
+	}
+
+	remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled)
+	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 
 func ConvertSliceToMap(existingLabels []string) map[string]struct{} {

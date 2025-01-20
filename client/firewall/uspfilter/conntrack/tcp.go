@@ -62,6 +62,7 @@ type TCPConnKey struct {
 type TCPConnTrack struct {
 	BaseConnTrack
 	State TCPState
+	sync.RWMutex
 }
 
 // TCPTracker manages TCP connection states
@@ -131,36 +132,8 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 		return false
 	}
 
-	// Handle new SYN packets
-	if flags&TCPSyn != 0 && flags&TCPAck == 0 {
-		key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
-		t.mutex.Lock()
-		if _, exists := t.connections[key]; !exists {
-			// Use preallocated IPs
-			srcIPCopy := t.ipPool.Get()
-			dstIPCopy := t.ipPool.Get()
-			copyIP(srcIPCopy, dstIP)
-			copyIP(dstIPCopy, srcIP)
-
-			conn := &TCPConnTrack{
-				BaseConnTrack: BaseConnTrack{
-					SourceIP:   srcIPCopy,
-					DestIP:     dstIPCopy,
-					SourcePort: dstPort,
-					DestPort:   srcPort,
-				},
-				State: TCPStateSynReceived,
-			}
-			conn.lastSeen.Store(time.Now().UnixNano())
-			conn.established.Store(false)
-			t.connections[key] = conn
-		}
-		t.mutex.Unlock()
-		return true
-	}
-
-	// Look up existing connection
 	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
+
 	t.mutex.RLock()
 	conn, exists := t.connections[key]
 	t.mutex.RUnlock()
@@ -172,8 +145,7 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 	// Handle RST packets
 	if flags&TCPRst != 0 {
 		conn.Lock()
-		isEstablished := conn.IsEstablished()
-		if isEstablished || conn.State == TCPStateSynSent || conn.State == TCPStateSynReceived {
+		if conn.IsEstablished() || conn.State == TCPStateSynSent || conn.State == TCPStateSynReceived {
 			conn.State = TCPStateClosed
 			conn.SetEstablished(false)
 			conn.Unlock()
@@ -183,7 +155,6 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 		return false
 	}
 
-	// Update state
 	conn.Lock()
 	t.updateState(conn, flags, false)
 	conn.UpdateLastSeen()
@@ -305,6 +276,11 @@ func (t *TCPTracker) isValidStateForFlags(state TCPState, flags uint8) bool {
 	case TCPStateCloseWait:
 		return flags&TCPFin != 0 || flags&TCPAck != 0
 	case TCPStateLastAck:
+		return flags&TCPAck != 0
+	case TCPStateClosed:
+		// Accept retransmitted ACKs in closed state
+		// This is important because the final ACK might be lost
+		// and the peer will retransmit their FIN-ACK
 		return flags&TCPAck != 0
 	}
 	return false

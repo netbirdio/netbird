@@ -88,6 +88,8 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Infof("WS client connected from: %s", rAddr)
+
 	conn := NewConn(wsConn, lAddr, rAddr)
 	l.acceptFn(conn)
 }
@@ -96,5 +98,5 @@ func remoteAddr(r *http.Request) string {
 	if r.Header.Get("X-Real-Ip") == "" || r.Header.Get("X-Real-Port") == "" {
 		return r.RemoteAddr
 	}
-	return fmt.Sprintf("%s:%s", r.Header.Get("X-Real-Ip"), r.Header.Get("X-Real-Port"))
+	return net.JoinHostPort(r.Header.Get("X-Real-Ip"), r.Header.Get("X-Real-Port"))
 }

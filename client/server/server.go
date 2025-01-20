@@ -91,6 +91,8 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		signalProbe: internal.NewProbe(),
 		relayProbe:  internal.NewProbe(),
 		wgProbe:     internal.NewProbe(),
+
+		persistNetworkMap: true,
 	}
 }
 
@@ -395,6 +397,28 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		duration := msg.DnsRouteInterval.AsDuration()
 		inputConfig.DNSRouteInterval = &duration
 		s.latestConfigInput.DNSRouteInterval = &duration
+	}
+
+	if msg.DisableClientRoutes != nil {
+		inputConfig.DisableClientRoutes = msg.DisableClientRoutes
+		s.latestConfigInput.DisableClientRoutes = msg.DisableClientRoutes
+	}
+	if msg.DisableServerRoutes != nil {
+		inputConfig.DisableServerRoutes = msg.DisableServerRoutes
+		s.latestConfigInput.DisableServerRoutes = msg.DisableServerRoutes
+	}
+	if msg.DisableDns != nil {
+		inputConfig.DisableDNS = msg.DisableDns
+		s.latestConfigInput.DisableDNS = msg.DisableDns
+	}
+	if msg.DisableFirewall != nil {
+		inputConfig.DisableFirewall = msg.DisableFirewall
+		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
+	}
+
+	if msg.BlockLanAccess != nil {
+		inputConfig.BlockLANAccess = msg.BlockLanAccess
+		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
 	}
 
 	s.mutex.Unlock()

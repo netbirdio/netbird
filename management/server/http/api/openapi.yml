@@ -725,10 +725,6 @@ components:
     PolicyRuleMinimum:
       type: object
       properties:
-        id:
-          description: Policy rule ID
-          type: string
-          example: ch8i4ug6lnn4g9hqv7mg
         name:
           description: Policy rule name identifier
           type: string
@@ -794,6 +790,34 @@ components:
         - $ref: '#/components/schemas/PolicyRuleMinimum'
         - type: object
           properties:
+            id:
+              description: Policy rule ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7mg
+            sources:
+              description: Policy rule source group IDs
+              type: array
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9hqv797"
+            sourceResource:
+              description: Policy rule source resource that the rule is applied to
+              $ref: '#/components/schemas/Resource'
+            destinations:
+              description: Policy rule destination group IDs
+              type: array
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9h7v7m0"
+            destinationResource:
+              description: Policy rule destination resource that the rule is applied to
+              $ref: '#/components/schemas/Resource'
+
+    PolicyRuleCreate:
+      allOf:
+        - $ref: '#/components/schemas/PolicyRuleMinimum'
+        - type: object
+          properties:
             sources:
               description: Policy rule source group IDs
               type: array
@@ -817,6 +841,10 @@ components:
         - $ref: '#/components/schemas/PolicyRuleMinimum'
         - type: object
           properties:
+            id:
+              description: Policy rule ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7mg
             sources:
               description: Policy rule source group IDs
               type: array
@@ -836,10 +864,6 @@ components:
     PolicyMinimum:
       type: object
       properties:
-        id:
-          description: Policy ID
-          type: string
-          example: ch8i4ug6lnn4g9hqv7mg
         name:
           description: Policy name identifier
           type: string
@@ -854,9 +878,26 @@ components:
           example: true
       required:
         - name
-        - description
         - enabled
     PolicyUpdate:
+      allOf:
+        - $ref: '#/components/schemas/PolicyMinimum'
+        - type: object
+          properties:
+            source_posture_checks:
+              description: Posture checks ID's applied to policy source groups
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
+            rules:
+              description: Policy rule object for policy UI editor
+              type: array
+              items:
+                $ref: '#/components/schemas/PolicyRuleUpdate'
+          required:
+            - rules
+    PolicyCreate:
       allOf:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
@@ -879,6 +920,10 @@ components:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
+            id:
+              description: Policy ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7mg
             source_posture_checks:
               description: Posture checks ID's applied to policy source groups
               type: array
@@ -1283,9 +1328,14 @@ components:
           description: Network resource address (either a direct host like 1.1.1.1 or 1.1.1.1/32, or a subnet like 192.168.178.0/24, or domains like example.com and *.example.com)
           type: string
           example: "1.1.1.1"
+        enabled:
+          description: Network resource status
+          type: boolean
+          example: true
       required:
         - name
         - address
+        - enabled
     NetworkResourceRequest:
       allOf:
         - $ref: '#/components/schemas/NetworkResourceMinimum'
@@ -1348,12 +1398,17 @@ components:
           description: Indicate if peer should masquerade traffic to this route's prefix
           type: boolean
           example: true
+        enabled:
+          description: Network router status
+          type: boolean
+          example: true
       required:
         # Only one property has to be set
         #- peer
         #- peer_groups
         - metric
         - masquerade
+        - enabled
     NetworkRouter:
       allOf:
         - type: object
@@ -2463,7 +2518,7 @@ paths:
         content:
           'application/json':
             schema:
-              $ref: '#/components/schemas/PolicyUpdate'
+              $ref: '#/components/schemas/PolicyCreate'
       responses:
         '200':
           description: A Policy object

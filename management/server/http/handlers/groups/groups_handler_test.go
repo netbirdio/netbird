@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -73,10 +74,12 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {
 				if groupID == "linked-grp" {
-					return &server.GroupLinkError{
+					err := &server.GroupLinkError{
 						Resource: "something",
 						Name:     "linked-grp",
 					}
+					var allErrors error
+					return errors.Join(allErrors, err)
 				}
 				if groupID == "invalid-grp" {
 					return fmt.Errorf("internal error")

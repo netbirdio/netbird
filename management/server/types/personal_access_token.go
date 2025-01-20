@@ -8,6 +8,7 @@ import (
 	"time"
 
 	b "github.com/hashicorp/go-secure-stdlib/base62"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/base62"
@@ -31,11 +32,11 @@ type PersonalAccessToken struct {
 	UserID         string `gorm:"index"`
 	Name           string
 	HashedToken    string
-	ExpirationDate time.Time
+	ExpirationDate *time.Time
 	// scope could be added in future
 	CreatedBy string
 	CreatedAt time.Time
-	LastUsed  time.Time
+	LastUsed  *time.Time
 }
 
 func (t *PersonalAccessToken) Copy() *PersonalAccessToken {
@@ -48,6 +49,22 @@ func (t *PersonalAccessToken) Copy() *PersonalAccessToken {
 		CreatedAt:      t.CreatedAt,
 		LastUsed:       t.LastUsed,
 	}
+}
+
+// GetExpirationDate returns the expiration time of the token.
+func (t *PersonalAccessToken) GetExpirationDate() time.Time {
+	if t.ExpirationDate != nil {
+		return *t.ExpirationDate
+	}
+	return time.Time{}
+}
+
+// GetLastUsed returns the last time the token was used.
+func (t *PersonalAccessToken) GetLastUsed() time.Time {
+	if t.LastUsed != nil {
+		return *t.LastUsed
+	}
+	return time.Time{}
 }
 
 // PersonalAccessTokenGenerated holds the new PersonalAccessToken and the plain text version of it
@@ -69,10 +86,9 @@ func CreateNewPAT(name string, expirationInDays int, createdBy string) (*Persona
 			ID:             xid.New().String(),
 			Name:           name,
 			HashedToken:    hashedToken,
-			ExpirationDate: currentTime.AddDate(0, 0, expirationInDays),
+			ExpirationDate: util.ToPtr(currentTime.AddDate(0, 0, expirationInDays)),
 			CreatedBy:      createdBy,
 			CreatedAt:      currentTime,
-			LastUsed:       time.Time{},
 		},
 		PlainToken: plainToken,
 	}, nil

@@ -38,7 +38,7 @@ type GRPCServer struct {
 	peersUpdateManager *PeersUpdateManager
 	config             *Config
 	secretsManager     SecretsManager
-	jwtValidator       *jwtclaims.JWTValidator
+	jwtValidator       jwtclaims.JWTValidator
 	jwtClaimsExtractor *jwtclaims.ClaimsExtractor
 	appMetrics         telemetry.AppMetrics
 	ephemeralManager   *EphemeralManager
@@ -61,7 +61,7 @@ func NewServer(
 		return nil, err
 	}
 
-	var jwtValidator *jwtclaims.JWTValidator
+	var jwtValidator jwtclaims.JWTValidator
 
 	if config.HttpConfig != nil && config.HttpConfig.AuthIssuer != "" && config.HttpConfig.AuthAudience != "" && validateURL(config.HttpConfig.AuthKeysLocation) {
 		jwtValidator, err = jwtclaims.NewJWTValidator(
@@ -207,6 +207,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	unlock()
 	unlock = nil
+
+	log.WithContext(ctx).Debugf("Sync: took %v", time.Since(reqStart))
 
 	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }

@@ -34,6 +34,9 @@ type managerImpl struct {
 	accountManager     s.AccountManager
 }
 
+type mockManager struct {
+}
+
 func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager s.AccountManager) Manager {
 	return &managerImpl{
 		store:              store,
@@ -98,7 +101,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resource, err = types.NewNetworkResource(resource.AccountID, resource.NetworkID, resource.Name, resource.Description, resource.Address, resource.GroupIDs)
+	resource, err = types.NewNetworkResource(resource.AccountID, resource.NetworkID, resource.Name, resource.Description, resource.Address, resource.GroupIDs, resource.Enabled)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new network resource: %w", err)
 	}
@@ -110,7 +113,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
 		if err == nil {
-			return errors.New("resource already exists")
+			return status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
 		}
 
 		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
@@ -220,7 +223,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 
 		oldResource, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
 		if err == nil && oldResource.ID != resource.ID {
-			return errors.New("new resource name already exists")
+			return status.Errorf(status.InvalidArgument, "new resource name already exists")
 		}
 
 		oldResource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
@@ -380,4 +383,40 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 	})
 
 	return eventsToStore, nil
+}
+
+func NewManagerMock() Manager {
+	return &mockManager{}
+}
+
+func (m *mockManager) GetAllResourcesInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error) {
+	return []*types.NetworkResource{}, nil
+}
+
+func (m *mockManager) GetAllResourcesInAccount(ctx context.Context, accountID, userID string) ([]*types.NetworkResource, error) {
+	return []*types.NetworkResource{}, nil
+}
+
+func (m *mockManager) GetAllResourceIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
+	return map[string][]string{}, nil
+}
+
+func (m *mockManager) CreateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
+	return &types.NetworkResource{}, nil
+}
+
+func (m *mockManager) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
+	return &types.NetworkResource{}, nil
+}
+
+func (m *mockManager) UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
+	return &types.NetworkResource{}, nil
+}
+
+func (m *mockManager) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
+	return nil
+}
+
+func (m *mockManager) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error) {
+	return []func(){}, nil
 }

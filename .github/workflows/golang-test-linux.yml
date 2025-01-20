@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build-cache:
     runs-on: ubuntu-22.04
-    steps:
+    steps:        
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -134,9 +134,189 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v /management)
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v /management)
 
   test_management:
+    needs: [ build-cache ]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ '386','amd64' ]
+        store: [ 'sqlite', 'postgres', 'mysql' ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Go environment
+        run: |
+          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
+          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV     
+
+      - name: Cache Go modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.cache }}
+            ${{ env.modcache }}
+          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-cache-
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+
+      - name: Install 32-bit libpcap
+        if: matrix.arch == '386'
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Login to Docker hub
+        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: download mysql image
+        if: matrix.store == 'mysql'
+        run: docker pull mlsmaycon/warmed-mysql:8
+
+      - name: Test
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -tags=devcert -p 1 -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 10m $(go list ./... | grep /management)
+
+  benchmark:
+    needs: [ build-cache ]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ '386','amd64' ]
+        store: [ 'sqlite', 'postgres', 'mysql' ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Go environment
+        run: |
+          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
+          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV     
+
+      - name: Cache Go modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.cache }}
+            ${{ env.modcache }}
+          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-cache-
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+
+      - name: Install 32-bit libpcap
+        if: matrix.arch == '386'
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Login to Docker hub
+        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: download mysql image
+        if: matrix.store == 'mysql'
+        run: docker pull mlsmaycon/warmed-mysql:8
+
+      - name: Test
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -tags devcert -run=^$ -bench=. -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 20m ./...
+
+  api_benchmark:
+    needs: [ build-cache ]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ '386','amd64' ]
+        store: [ 'sqlite', 'postgres', 'mysql' ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Go environment
+        run: |
+          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
+          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV     
+
+      - name: Cache Go modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.cache }}
+            ${{ env.modcache }}
+          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-cache-
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+
+      - name: Install 32-bit libpcap
+        if: matrix.arch == '386'
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Login to Docker hub
+        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: download mysql image
+        if: matrix.store == 'mysql'
+        run: docker pull mlsmaycon/warmed-mysql:8
+        
+      - name: Test
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -tags=benchmark -run=^$ -bench=. -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 10m $(go list ./... | grep /management)
+
+  api_integration_test:
     needs: [ build-cache ]
     strategy:
       fail-fast: false
@@ -183,56 +363,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -p 1 -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 10m $(go list ./... | grep /management)
-
-  benchmark:
-    needs: [ build-cache ]
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [ '386','amd64' ]
-        store: [ 'sqlite', 'postgres' ]
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.23.x"
-          cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Get Go environment
-        run: |
-          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
-          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV     
-
-      - name: Cache Go modules
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ env.cache }}
-            ${{ env.modcache }}
-          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-gotest-cache-
-
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install 32-bit libpcap
-        if: matrix.arch == '386'
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
-
-      - name: Install modules
-        run: go mod tidy
-
-      - name: check git status
-        run: git --no-pager diff --exit-code
-
-      - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -run=^$ -bench=. -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 10m -p 1 ./...
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true go test -p 1 -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 10m -tags=integration $(go list ./... | grep /management)
 
   test_client_on_docker:
     needs: [ build-cache ]

@@ -10,6 +10,7 @@ import (
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
+	"github.com/netbirdio/netbird/management/server/util"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -321,14 +322,14 @@ func TestUser_Copy(t *testing.T) {
 				ID:             "pat1",
 				Name:           "First PAT",
 				HashedToken:    "SoMeHaShEdToKeN",
-				ExpirationDate: time.Now().AddDate(0, 0, 7),
+				ExpirationDate: util.ToPtr(time.Now().AddDate(0, 0, 7)),
 				CreatedBy:      "userId",
 				CreatedAt:      time.Now(),
-				LastUsed:       time.Now(),
+				LastUsed:       util.ToPtr(time.Now()),
 			},
 		},
 		Blocked:   false,
-		LastLogin: time.Now().UTC(),
+		LastLogin: util.ToPtr(time.Now().UTC()),
 		CreatedAt: time.Now().UTC(),
 		Issued:    "test",
 		IntegrationReference: integration_reference.IntegrationReference{

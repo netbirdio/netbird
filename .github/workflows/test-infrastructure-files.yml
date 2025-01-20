@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        store: [ 'sqlite', 'postgres' ]
+        store: [ 'sqlite', 'postgres', 'mysql' ]
     services:
       postgres:
         image: ${{ (matrix.store == 'postgres') && 'postgres' || '' }}
@@ -34,6 +34,19 @@ jobs:
           --health-timeout 5s
         ports:
           - 5432:5432
+      mysql:
+        image: ${{ (matrix.store == 'mysql') && 'mysql' || '' }}
+        env:
+          MYSQL_USER: netbird
+          MYSQL_PASSWORD: mysql
+          MYSQL_ROOT_PASSWORD: mysqlroot
+          MYSQL_DATABASE: netbird
+        options: >-
+          --health-cmd "mysqladmin ping --silent"
+          --health-interval 10s
+          --health-timeout 5s
+        ports:
+          - 3306:3306
     steps:
       - name: Set Database Connection String
         run: |
@@ -41,6 +54,11 @@ jobs:
             echo "NETBIRD_STORE_ENGINE_POSTGRES_DSN=host=$(hostname -I | awk '{print $1}') user=netbird password=postgres dbname=netbird port=5432" >> $GITHUB_ENV
           else
             echo "NETBIRD_STORE_ENGINE_POSTGRES_DSN==" >> $GITHUB_ENV
+          fi
+          if [ "${{ matrix.store }}" == "mysql" ]; then
+            echo "NETBIRD_STORE_ENGINE_MYSQL_DSN=netbird:mysql@tcp($(hostname -I | awk '{print $1}'):3306)/netbird" >> $GITHUB_ENV
+          else
+            echo "NETBIRD_STORE_ENGINE_MYSQL_DSN==" >> $GITHUB_ENV
           fi
 
       - name: Install jq
@@ -84,6 +102,7 @@ jobs:
           CI_NETBIRD_AUTH_SUPPORTED_SCOPES: "openid profile email offline_access api email_verified"
           CI_NETBIRD_STORE_CONFIG_ENGINE: ${{ matrix.store }}
           NETBIRD_STORE_ENGINE_POSTGRES_DSN: ${{ env.NETBIRD_STORE_ENGINE_POSTGRES_DSN }}
+          NETBIRD_STORE_ENGINE_MYSQL_DSN: ${{ env.NETBIRD_STORE_ENGINE_MYSQL_DSN }}
           CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH: false
 
       - name: check values
@@ -112,6 +131,7 @@ jobs:
           CI_NETBIRD_SIGNAL_PORT: 12345
           CI_NETBIRD_STORE_CONFIG_ENGINE: ${{ matrix.store }}
           NETBIRD_STORE_ENGINE_POSTGRES_DSN: '${{ env.NETBIRD_STORE_ENGINE_POSTGRES_DSN }}$'
+          NETBIRD_STORE_ENGINE_MYSQL_DSN: '${{ env.NETBIRD_STORE_ENGINE_MYSQL_DSN }}$'
           CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH: false
           CI_NETBIRD_TURN_EXTERNAL_IP: "1.2.3.4"
 
@@ -149,6 +169,7 @@ jobs:
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep Scope | grep "$CI_NETBIRD_AUTH_SUPPORTED_SCOPES"
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep -A 3 RedirectURLs | grep "http://localhost:53000"
           grep "external-ip" turnserver.conf | grep $CI_NETBIRD_TURN_EXTERNAL_IP
+          grep "NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN" docker-compose.yml
           grep NETBIRD_STORE_ENGINE_POSTGRES_DSN docker-compose.yml | egrep "$NETBIRD_STORE_ENGINE_POSTGRES_DSN"
           # check relay values
           grep "NB_EXPOSED_ADDRESS=$CI_NETBIRD_DOMAIN:33445" docker-compose.yml

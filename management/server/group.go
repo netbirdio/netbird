@@ -463,7 +463,7 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 	if group.Issued == types.GroupIssuedIntegration {
 		executingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 		if err != nil {
-			return err
+			return status.Errorf(status.Internal, "failed to get user")
 		}
 		if executingUser.Role != types.UserRoleAdmin || !executingUser.IsServiceUser {
 			return status.Errorf(status.PermissionDenied, "only service users with admin power can delete integration group")
@@ -472,6 +472,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 
 	if group.IsGroupAll() {
 		return status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed")
+	}
+
+	if len(group.Resources) > 0 {
+		return &GroupLinkError{"network resource", group.Resources[0].ID}
 	}
 
 	if isLinked, linkedRoute := isGroupLinkedToRoute(ctx, transaction, group.AccountID, group.ID); isLinked {
@@ -501,7 +505,7 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 func checkGroupLinkedToSettings(ctx context.Context, transaction store.Store, group *types.Group) error {
 	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, store.LockingStrengthShare, group.AccountID)
 	if err != nil {
-		return err
+		return status.Errorf(status.Internal, "failed to get DNS settings")
 	}
 
 	if slices.Contains(dnsSettings.DisabledManagementGroups, group.ID) {
@@ -510,7 +514,7 @@ func checkGroupLinkedToSettings(ctx context.Context, transaction store.Store, gr
 
 	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, group.AccountID)
 	if err != nil {
-		return err
+		return status.Errorf(status.Internal, "failed to get account settings")
 	}
 
 	if settings.Extra != nil && slices.Contains(settings.Extra.IntegratedValidatorGroups, group.ID) {
@@ -529,7 +533,10 @@ func isGroupLinkedToRoute(ctx context.Context, transaction store.Store, accountI
 	}
 
 	for _, r := range routes {
-		if slices.Contains(r.Groups, groupID) || slices.Contains(r.PeerGroups, groupID) {
+		isLinked := slices.Contains(r.Groups, groupID) ||
+			slices.Contains(r.PeerGroups, groupID) ||
+			slices.Contains(r.AccessControlGroups, groupID)
+		if isLinked {
 			return true, r
 		}
 	}

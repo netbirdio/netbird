@@ -71,8 +71,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestEngine_SSH(t *testing.T) {
-	// todo resolve test execution on freebsd
-	if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
+	if runtime.GOOS == "windows" {
 		t.Skip("skipping TestEngine_SSH")
 	}
 
@@ -253,7 +252,14 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 	}
 	engine.wgInterface = wgIface
-	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, relayMgr, nil, nil, nil, nil)
+	engine.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
+		Context:          ctx,
+		PublicKey:        key.PublicKey().String(),
+		DNSRouteInterval: time.Minute,
+		WGInterface:      engine.wgInterface,
+		StatusRecorder:   engine.statusRecorder,
+		RelayManager:     relayMgr,
+	})
 	_, _, err = engine.routeManager.Init()
 	require.NoError(t, err)
 	engine.dnsServer = &dns.MockServer{

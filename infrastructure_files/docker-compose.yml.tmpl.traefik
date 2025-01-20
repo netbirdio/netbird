@@ -50,6 +50,24 @@ services:
     - traefik.http.services.netbird-signal.loadbalancer.server.port=80
     - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
 
+  # Relay
+  relay:
+    image: netbirdio/relay:$NETBIRD_RELAY_TAG
+    restart: unless-stopped
+    environment:
+    - NB_LOG_LEVEL=info
+    - NB_LISTEN_ADDRESS=:$NETBIRD_RELAY_PORT
+    - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_DOMAIN:$NETBIRD_RELAY_PORT
+    # todo: change to a secure secret
+    - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+    ports:
+      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
   # Management
   management:
     image: netbirdio/management:$NETBIRD_MANAGEMENT_TAG
@@ -83,6 +101,7 @@ services:
     - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
+      - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
       
   # Coturn
   coturn:
