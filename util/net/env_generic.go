@@ -3,6 +3,7 @@
 package net
 
 func Init() {
+	// nothing to do on non-linux
 }
 
 func AdvancedRouting() bool {
