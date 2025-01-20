@@ -129,7 +129,7 @@ func TestSaveDNSSettings(t *testing.T) {
 
 			account, err := initTestDNSAccount(t, am)
 			if err != nil {
-				t.Error("failed to init testing account")
+				t.Errorf("failed to init testing account: %v", err)
 			}
 
 			err = am.SaveDNSSettings(context.Background(), account.Id, testCase.userID, testCase.inputSettings)
