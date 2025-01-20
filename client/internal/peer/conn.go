@@ -15,7 +15,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -53,10 +52,17 @@ const (
 	connPriorityICEP2P  ConnPriority = 3
 )
 
+type WgInterface interface {
+	UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	RemovePeer(publicKey string) error
+	GetProxy() wgproxy.Proxy
+	GetStats(peerKey string) (configurer.WGStats, error)
+}
+
 type WgConfig struct {
 	WgListenPort int
 	RemoteKey    string
-	WgInterface  iface.IWGIface
+	WgInterface  WgInterface
 	AllowedIps   string
 	PreSharedKey *wgtypes.Key
 }
@@ -116,6 +122,8 @@ type Conn struct {
 
 	guard     *guard.Guard
 	semaphore *semaphoregroup.SemaphoreGroup
+
+	endpointUpdater *endpointUpdater
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -142,6 +150,11 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		statusRelay:    NewAtomicConnStatus(),
 		statusICE:      NewAtomicConnStatus(),
 		semaphore:      semaphore,
+		endpointUpdater: &endpointUpdater{
+			log:       connLog,
+			wgConfig:  config.WgConfig,
+			initiator: isWireGuardInitiator(config),
+		},
 	}
 
 	ctrl := isController(config)
@@ -239,7 +252,7 @@ func (conn *Conn) Close() {
 		conn.wgProxyICE = nil
 	}
 
-	if err := conn.removeWgPeer(); err != nil {
+	if err := conn.endpointUpdater.removeWgPeer(); err != nil {
 		conn.log.Errorf("failed to remove wg endpoint: %v", err)
 	}
 
@@ -364,7 +377,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 		wgProxy.Work()
 	}
 
-	if err = conn.configureWGEndpoint(ep); err != nil {
+	if err = conn.endpointUpdater.configureWGEndpoint(ep); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
@@ -396,7 +409,7 @@ func (conn *Conn) onICEStateDisconnected() {
 		conn.log.Infof("ICE disconnected, set Relay to active connection")
 		conn.wgProxyRelay.Work()
 
-		if err := conn.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr()); err != nil {
+		if err := conn.endpointUpdater.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr()); err != nil {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
 		conn.workerRelay.EnableWgWatcher(conn.ctx)
@@ -459,7 +472,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 
 	wgProxy.Work()
-	if err := conn.configureWGEndpoint(wgProxy.EndpointAddr()); err != nil {
+	if err := conn.endpointUpdater.configureWGEndpoint(wgProxy.EndpointAddr()); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.log.Warnf("Failed to close relay connection: %v", err)
 		}
@@ -489,7 +502,7 @@ func (conn *Conn) onRelayDisconnected() {
 
 	if conn.currentConnPriority == connPriorityRelay {
 		conn.log.Debugf("clean up WireGuard config")
-		if err := conn.removeWgPeer(); err != nil {
+		if err := conn.endpointUpdater.removeWgPeer(); err != nil {
 			conn.log.Errorf("failed to remove wg endpoint: %v", err)
 		}
 	}
@@ -528,23 +541,6 @@ func (conn *Conn) listenGuardEvent(ctx context.Context) {
 			return
 		}
 	}
-}
-
-func (conn *Conn) configureWGEndpoint(addr *net.UDPAddr) error {
-	var endpoint *net.UDPAddr
-
-	// Force to only one side send handshake request to avoid the handshake congestion in WireGuard connection.
-	// Configure up the WireGuard endpoint only on the initiator side.
-	if isWireGuardInitiator(conn.config) {
-		endpoint = addr
-	}
-	return conn.config.WgConfig.WgInterface.UpdatePeer(
-		conn.config.WgConfig.RemoteKey,
-		conn.config.WgConfig.AllowedIps,
-		defaultWgKeepAlive,
-		endpoint,
-		conn.config.WgConfig.PreSharedKey,
-	)
 }
 
 func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte) {
@@ -724,10 +720,6 @@ func (conn *Conn) isReadyToUpgrade() bool {
 
 func (conn *Conn) iceP2PIsActive() bool {
 	return conn.currentConnPriority == connPriorityICEP2P && conn.statusICE.Get() == StatusConnected
-}
-
-func (conn *Conn) removeWgPeer() error {
-	return conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
 }
 
 func (conn *Conn) handleConfigurationFailure(err error, wgProxy wgproxy.Proxy) {
