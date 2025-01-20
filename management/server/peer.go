@@ -11,10 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+
+	"github.com/netbirdio/netbird/management/server/geolocation"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -119,6 +120,11 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string) error {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("MarkPeerConnected: took %v", time.Since(start))
+	}()
+
 	var peer *nbpeer.Peer
 	var settings *types.Settings
 	var expired bool
@@ -126,11 +132,6 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
-		if err != nil {
-			return err
-		}
-
-		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return err
 		}
@@ -143,6 +144,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	}
 
 	if peer.AddedWithSSOLogin() {
+		settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+		if err != nil {
+			return err
+		}
+
 		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
 			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 		}
@@ -658,12 +664,22 @@ func getFreeIP(ctx context.Context, transaction store.Store, accountID string) (
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("SyncPeer: took %v", time.Since(start))
+	}()
+
 	var peer *nbpeer.Peer
 	var peerNotValid bool
 	var isStatusChanged bool
 	var updated bool
 	var err error
 	var postureChecks []*posture.Checks
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, sync.WireGuardPubKey)
@@ -680,11 +696,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 			if err = checkIfPeerOwnerIsBlocked(peer, user); err != nil {
 				return err
 			}
-		}
-
-		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
 		}
 
 		if peerLoginExpired(ctx, peer, settings) {
@@ -779,16 +790,17 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	var isPeerUpdated bool
 	var postureChecks []*posture.Checks
 
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
 		if err != nil {
 			return err
 		}
 
-		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
 		// this flag prevents unnecessary calls to the persistent store.
 		shouldStorePeer := false
 
@@ -947,6 +959,11 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 }
 
 func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
+	}()
+
 	if isRequiresApproval {
 		network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {

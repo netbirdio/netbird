@@ -105,7 +105,7 @@ func getOSNameAndVersion() (string, string) {
 
 	split := strings.Split(dst[0].Caption, " ")
 
-	if len(split) < 3 {
+	if len(split) <= 3 {
 		return "Windows", getBuildVersion()
 	}
 

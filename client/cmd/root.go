@@ -38,6 +38,7 @@ const (
 	extraIFaceBlackListFlag = "extra-iface-blacklist"
 	dnsRouteIntervalFlag    = "dns-router-interval"
 	systemInfoFlag          = "system-info"
+	blockLANAccessFlag      = "block-lan-access"
 )
 
 var (
@@ -73,6 +74,7 @@ var (
 	anonymizeFlag           bool
 	debugSystemInfoFlag     bool
 	dnsRouteInterval        time.Duration
+	blockLANAccess          bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
