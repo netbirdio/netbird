@@ -24,7 +24,7 @@ jobs:
           copyback: false
           release: "14.1"
           prepare: |
-            pkg install -y go
+            pkg install -y go pkgconf xorg
 
           # -x - to print all executed commands
           # -e - to faile on first error
