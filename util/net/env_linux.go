@@ -66,6 +66,8 @@ func checkAdvancedRoutingSupport() bool {
 		return false
 	}
 
+	log.Info("system supports advanced routing")
+
 	return true
 }
 
@@ -77,7 +79,7 @@ func CheckFwmarkSupport() bool {
 	}
 	defer syscall.Close(fd)
 
-	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, 1)
+	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, NetbirdFwmark)
 	if err != nil {
 		log.Warnf("fwmark is not supported: %v", err)
 		return false
