@@ -57,9 +57,10 @@ func (e *endpointUpdater) removeWgPeer() error {
 // scheduleDelayedUpdate waits for the fallback period before updating the endpoint
 func (e *endpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.UDPAddr) {
 	t := time.NewTimer(fallbackDelay)
+	defer t.Stop()
+
 	select {
 	case <-ctx.Done():
-		t.Stop()
 		return
 	case <-t.C:
 		e.configUpdateMutex.Lock()
