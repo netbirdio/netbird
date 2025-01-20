@@ -31,6 +31,7 @@ import (
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	signal "github.com/netbirdio/netbird/signal/client"
 	"github.com/netbirdio/netbird/util"
+	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -113,6 +114,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 	}()
 
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
+
+	nbnet.Init()
 
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,

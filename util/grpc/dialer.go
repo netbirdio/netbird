@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net"
 	"os/user"
 	"runtime"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
@@ -37,7 +38,6 @@ func WithCustomDialer() grpc.DialOption {
 			}
 		}
 
-		log.Debug("Using nbnet.NewDialer()")
 		conn, err := nbnet.NewDialer().DialContext(ctx, "tcp", addr)
 		if err != nil {
 			log.Errorf("Failed to dial: %s", err)
