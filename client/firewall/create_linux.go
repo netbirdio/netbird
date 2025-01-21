@@ -33,12 +33,12 @@ const SKIP_NFTABLES_ENV = "NB_SKIP_NFTABLES_CHECK"
 // FWType is the type for the firewall type
 type FWType int
 
-func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (firewall.Manager, error) {
+func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, disableServerRoutes bool) (firewall.Manager, error) {
 	// on the linux system we try to user nftables or iptables
 	// in any case, because we need to allow netbird interface traffic
 	// so we use AllowNetbird traffic from these firewall managers
 	// for the userspace packet filtering firewall
-	fm, err := createNativeFirewall(iface, stateManager)
+	fm, err := createNativeFirewall(iface, stateManager, disableServerRoutes)
 
 	if !iface.IsUserspaceBind() {
 		return fm, err
@@ -47,10 +47,10 @@ func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (firewal
 	if err != nil {
 		log.Warnf("failed to create native firewall: %v. Proceeding with userspace", err)
 	}
-	return createUserspaceFirewall(iface, fm)
+	return createUserspaceFirewall(iface, fm, disableServerRoutes)
 }
 
-func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (firewall.Manager, error) {
+func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager, routes bool) (firewall.Manager, error) {
 	fm, err := createFW(iface)
 	if err != nil {
 		return nil, fmt.Errorf("create firewall: %s", err)
@@ -77,12 +77,12 @@ func createFW(iface IFaceMapper) (firewall.Manager, error) {
 	}
 }
 
-func createUserspaceFirewall(iface IFaceMapper, fm firewall.Manager) (firewall.Manager, error) {
+func createUserspaceFirewall(iface IFaceMapper, fm firewall.Manager, disableServerRoutes bool) (firewall.Manager, error) {
 	var errUsp error
 	if fm != nil {
-		fm, errUsp = uspfilter.CreateWithNativeFirewall(iface, fm)
+		fm, errUsp = uspfilter.CreateWithNativeFirewall(iface, fm, disableServerRoutes)
 	} else {
-		fm, errUsp = uspfilter.Create(iface)
+		fm, errUsp = uspfilter.Create(iface, disableServerRoutes)
 	}
 
 	if errUsp != nil {
