@@ -380,6 +380,16 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
+		groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			return err
+		}
+
+		for _, group := range groups {
+			group.RemovePeer(peerID)
+			err = transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
+		}
+
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		return err
 	})
