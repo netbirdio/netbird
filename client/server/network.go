@@ -184,8 +184,8 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		"",
 		map[string]string{
 			"networks": strings.Join(req.GetNetworkIDs(), ", "),
-			"all":      fmt.Sprint(req.GetAll()),
 			"append":   fmt.Sprint(req.GetAppend()),
+			"all":      fmt.Sprint(req.GetAll()),
 		},
 	)
 

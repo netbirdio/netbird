@@ -184,6 +184,10 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 
 	u.disable(err)
 
+	if u.statusRecorder == nil {
+		return
+	}
+
 	u.statusRecorder.PublishEvent(
 		proto.SystemEvent_WARNING,
 		proto.SystemEvent_DNS,
@@ -240,6 +244,10 @@ func (u *upstreamResolverBase) probeAvailability() {
 	// didn't find a working upstream server, let's disable and try later
 	if !success {
 		u.disable(errors.ErrorOrNil())
+
+		if u.statusRecorder == nil {
+			return
+		}
 
 		u.statusRecorder.PublishEvent(
 			proto.SystemEvent_WARNING,
