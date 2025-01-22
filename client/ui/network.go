@@ -438,8 +438,7 @@ func (s *serviceClient) toggleExitNode(nodeID string, item *systray.MenuItem) er
 	for _, node := range exitNodes {
 		if node.ID == nodeID {
 			// preserve original state
-			// nolint:copylocks
-			cp := *node
+			cp := *node //nolint:govet
 			exitNode = &cp
 
 			// set desired state for recreation
