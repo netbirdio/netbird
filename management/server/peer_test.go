@@ -1728,3 +1728,52 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		}
 	})
 }
+
+func Test_DeletePeer(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	// account with an admin and a regular user
+	accountID := "test_account"
+	adminUser := "account_creator"
+	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account.Peers = map[string]*nbpeer.Peer{
+		"peer1": {
+			ID:        "peer1",
+			AccountID: accountID,
+		},
+		"peer2": {
+			ID:        "peer2",
+			AccountID: accountID,
+		},
+	}
+	account.Groups = map[string]*types.Group{
+		"group1": {
+			ID:    "group1",
+			Name:  "Group1",
+			Peers: []string{"peer1", "peer2"},
+		},
+	}
+
+	err = manager.Store.SaveAccount(context.Background(), account)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	err = manager.DeletePeer(context.Background(), accountID, "peer1", adminUser)
+	if err != nil {
+		t.Fatalf("DeletePeer failed: %v", err)
+	}
+
+	_, err = manager.GetPeer(context.Background(), accountID, "peer1", adminUser)
+	assert.Error(t, err)
+
+	group, err := manager.GetGroup(context.Background(), accountID, "group1", adminUser)
+	assert.NoError(t, err)
+	assert.NotContains(t, group.Peers, "peer1")
+
+}
