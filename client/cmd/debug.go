@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 )
 
 const errCloseConnection = "Failed to close connection: %v"
@@ -85,7 +86,7 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	client := proto.NewDaemonServiceClient(conn)
 	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
 		Anonymize:  anonymizeFlag,
-		Status:     getStatusOutput(cmd),
+		Status:     getStatusOutput(cmd, anonymizeFlag),
 		SystemInfo: debugSystemInfoFlag,
 	})
 	if err != nil {
@@ -196,7 +197,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	time.Sleep(3 * time.Second)
 
 	headerPostUp := fmt.Sprintf("----- Netbird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
-	statusOutput := fmt.Sprintf("%s\n%s", headerPostUp, getStatusOutput(cmd))
+	statusOutput := fmt.Sprintf("%s\n%s", headerPostUp, getStatusOutput(cmd, anonymizeFlag))
 
 	if waitErr := waitForDurationOrCancel(cmd.Context(), duration, cmd); waitErr != nil {
 		return waitErr
@@ -206,7 +207,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	cmd.Println("Creating debug bundle...")
 
 	headerPreDown := fmt.Sprintf("----- Netbird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
-	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd))
+	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd, anonymizeFlag))
 
 	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
 		Anonymize:  anonymizeFlag,
@@ -271,13 +272,15 @@ func setNetworkMapPersistence(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getStatusOutput(cmd *cobra.Command) string {
+func getStatusOutput(cmd *cobra.Command, anon bool) string {
 	var statusOutputString string
 	statusResp, err := getStatus(cmd.Context())
 	if err != nil {
 		cmd.PrintErrf("Failed to get status: %v\n", err)
 	} else {
-		statusOutputString = parseToFullDetailSummary(convertToStatusOutputOverview(statusResp))
+		statusOutputString = nbstatus.ParseToFullDetailSummary(
+			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil),
+		)
 	}
 	return statusOutputString
 }

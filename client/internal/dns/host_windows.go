@@ -163,6 +163,10 @@ func (r *registryConfigurator) restoreHostDNS() error {
 	return nil
 }
 
+func (r *registryConfigurator) string() string {
+	return "registry"
+}
+
 func (r *registryConfigurator) updateSearchDomains(domains []string) error {
 	err := r.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, strings.Join(domains, ","))
 	if err != nil {

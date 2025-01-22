@@ -22,3 +22,7 @@ func (a androidHostManager) restoreHostDNS() error {
 func (a androidHostManager) supportCustomPort() bool {
 	return false
 }
+
+func (a androidHostManager) string() string {
+	return "none"
+}

@@ -83,7 +83,7 @@ func main() {
 	}
 
 	a := app.NewWithID("NetBird")
-	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
+	a.SetIcon(fyne.NewStaticResource("netbird", iconConnectedPNG))
 
 	if errorMSG != "" {
 		showErrorMSG(errorMSG)
@@ -149,22 +149,24 @@ type serviceClient struct {
 	icUpdateCloud        []byte
 
 	// systray menu items
-	mStatus           *systray.MenuItem
-	mUp               *systray.MenuItem
-	mDown             *systray.MenuItem
-	mAdminPanel       *systray.MenuItem
-	mSettings         *systray.MenuItem
-	mAbout            *systray.MenuItem
-	mVersionUI        *systray.MenuItem
-	mVersionDaemon    *systray.MenuItem
-	mUpdate           *systray.MenuItem
-	mQuit             *systray.MenuItem
-	mRoutes           *systray.MenuItem
-	mAllowSSH         *systray.MenuItem
-	mAutoConnect      *systray.MenuItem
-	mEnableRosenpass  *systray.MenuItem
-	mNotifications    *systray.MenuItem
-	mAdvancedSettings *systray.MenuItem
+	mStatus            *systray.MenuItem
+	mUp                *systray.MenuItem
+	mDown              *systray.MenuItem
+	mAdminPanel        *systray.MenuItem
+	mSettings          *systray.MenuItem
+	mAbout             *systray.MenuItem
+	mVersionUI         *systray.MenuItem
+	mVersionDaemon     *systray.MenuItem
+	mUpdate            *systray.MenuItem
+	mQuit              *systray.MenuItem
+	mNetworks          *systray.MenuItem
+	mAllowSSH          *systray.MenuItem
+	mAutoConnect       *systray.MenuItem
+	mEnableRosenpass   *systray.MenuItem
+	mNotifications     *systray.MenuItem
+	mAdvancedSettings  *systray.MenuItem
+	mCreateDebugBundle *systray.MenuItem
+	mExitNode          *systray.MenuItem
 
 	// application with main windows.
 	app                  fyne.App
@@ -201,6 +203,14 @@ type serviceClient struct {
 	wRoutes              fyne.Window
 
 	eventManager *event.Manager
+
+	exitNodeMu     sync.Mutex
+	mExitNodeItems []menuHandler
+}
+
+type menuHandler struct {
+	*systray.MenuItem
+	cancel context.CancelFunc
 }
 
 // newServiceClient instance constructor
@@ -446,6 +456,9 @@ func (s *serviceClient) updateStatus() error {
 		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get service status: %v", err)
+			if s.connected {
+				s.app.SendNotification(fyne.NewNotification("Error", "Connection to service lost"))
+			}
 			s.setDisconnectedStatus()
 			return err
 		}
@@ -467,11 +480,13 @@ func (s *serviceClient) updateStatus() error {
 			} else {
 				systray.SetIcon(s.icConnected)
 			}
+			s.mAbout.SetIcon(s.icConnected)
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
-			s.mRoutes.Enable()
+			s.mNetworks.Enable()
+			go s.updateExitNodes()
 			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
 			s.setDisconnectedStatus()
@@ -526,11 +541,13 @@ func (s *serviceClient) setDisconnectedStatus() {
 	} else {
 		systray.SetIcon(s.icDisconnected)
 	}
+	s.mAbout.SetIcon(s.icDisconnected)
 	systray.SetTooltip("NetBird (Disconnected)")
 	s.mStatus.SetTitle("Disconnected")
 	s.mDown.Disable()
 	s.mUp.Enable()
-	s.mRoutes.Disable()
+	s.mNetworks.Disable()
+	go s.updateExitNodes()
 }
 
 func (s *serviceClient) onTrayReady() {
@@ -553,10 +570,16 @@ func (s *serviceClient) onTrayReady() {
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", "Enable post-quantum security via Rosenpass", false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", "Enable notifications", true)
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
+	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", "Create and open debug information bundle")
 	s.loadSettings()
 
-	s.mRoutes = systray.AddMenuItem("Networks", "Open the networks management window")
-	s.mRoutes.Disable()
+	s.exitNodeMu.Lock()
+	s.mExitNode = systray.AddMenuItem("Exit Node", "Select exit node for routing traffic")
+	s.mExitNode.Disable()
+	s.exitNodeMu.Unlock()
+
+	s.mNetworks = systray.AddMenuItem("Networks", "Open the networks management window")
+	s.mNetworks.Disable()
 	systray.AddSeparator()
 
 	s.mAbout = systray.AddMenuItem("About", "About")
@@ -575,6 +598,9 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
 
+	// update exit node menu in case service is already connected
+	go s.updateExitNodes()
+
 	s.update.SetOnUpdateListener(s.onUpdateAvailable)
 	go func() {
 		s.getSrvConfig()
@@ -590,6 +616,12 @@ func (s *serviceClient) onTrayReady() {
 
 	s.eventManager = event.NewManager(s.app, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		if event.Category == proto.SystemEvent_SYSTEM {
+			s.updateExitNodes()
+		}
+	})
+
 	go s.eventManager.Start(s.ctx)
 
 	go func() {
@@ -604,7 +636,7 @@ func (s *serviceClient) onTrayReady() {
 					defer s.mUp.Enable()
 					err := s.menuUpClick()
 					if err != nil {
-						s.runSelfCommand("error-msg", err.Error())
+						s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
 						return
 					}
 				}()
@@ -614,7 +646,7 @@ func (s *serviceClient) onTrayReady() {
 					defer s.mDown.Enable()
 					err := s.menuDownClick()
 					if err != nil {
-						s.runSelfCommand("error-msg", err.Error())
+						s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
 						return
 					}
 				}()
@@ -648,27 +680,6 @@ func (s *serviceClient) onTrayReady() {
 					log.Errorf("failed to update config: %v", err)
 					return
 				}
-			case <-s.mAdvancedSettings.ClickedCh:
-				s.mAdvancedSettings.Disable()
-				go func() {
-					defer s.mAdvancedSettings.Enable()
-					defer s.getSrvConfig()
-					s.runSelfCommand("settings", "true")
-				}()
-			case <-s.mQuit.ClickedCh:
-				systray.Quit()
-				return
-			case <-s.mUpdate.ClickedCh:
-				err := openURL(version.DownloadUrl())
-				if err != nil {
-					log.Errorf("%s", err)
-				}
-			case <-s.mRoutes.ClickedCh:
-				s.mRoutes.Disable()
-				go func() {
-					defer s.mRoutes.Enable()
-					s.runSelfCommand("networks", "true")
-				}()
 			case <-s.mNotifications.ClickedCh:
 				if s.mNotifications.Checked() {
 					s.mNotifications.Uncheck()
@@ -682,6 +693,34 @@ func (s *serviceClient) onTrayReady() {
 					log.Errorf("failed to update config: %v", err)
 					return
 				}
+			case <-s.mAdvancedSettings.ClickedCh:
+				s.mAdvancedSettings.Disable()
+				go func() {
+					defer s.mAdvancedSettings.Enable()
+					defer s.getSrvConfig()
+					s.runSelfCommand("settings", "true")
+				}()
+			case <-s.mCreateDebugBundle.ClickedCh:
+				go func() {
+					if err := s.createAndOpenDebugBundle(); err != nil {
+						log.Errorf("Failed to create debug bundle: %v", err)
+						s.app.SendNotification(fyne.NewNotification("Error", "Failed to create debug bundle"))
+					}
+				}()
+			case <-s.mQuit.ClickedCh:
+				systray.Quit()
+				return
+			case <-s.mUpdate.ClickedCh:
+				err := openURL(version.DownloadUrl())
+				if err != nil {
+					log.Errorf("%s", err)
+				}
+			case <-s.mNetworks.ClickedCh:
+				s.mNetworks.Disable()
+				go func() {
+					defer s.mNetworks.Enable()
+					s.runSelfCommand("networks", "true")
+				}()
 			}
 
 			if err != nil {
@@ -698,7 +737,11 @@ func (s *serviceClient) runSelfCommand(command, arg string) {
 		return
 	}
 
-	cmd := exec.Command(proc, fmt.Sprintf("--%s=%s", command, arg))
+	cmd := exec.Command(proc,
+		fmt.Sprintf("--%s=%s", command, arg),
+		fmt.Sprintf("--daemon-addr=%s", s.addr),
+	)
+
 	out, err := cmd.CombinedOutput()
 	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 		log.Errorf("start %s UI: %v, %s", command, err, string(out))
@@ -717,7 +760,11 @@ func normalizedVersion(version string) string {
 	return versionString
 }
 
-func (s *serviceClient) onTrayExit() {}
+func (s *serviceClient) onTrayExit() {
+	for _, item := range s.mExitNodeItems {
+		item.cancel()
+	}
+}
 
 // getSrvClient connection to the service.
 func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {

@@ -114,6 +114,10 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	return nil
 }
 
+func (s *systemConfigurator) string() string {
+	return "scutil"
+}
+
 func (s *systemConfigurator) restoreHostDNS() error {
 	keys := s.getRemovableKeysWithDefaults()
 	for _, key := range keys {

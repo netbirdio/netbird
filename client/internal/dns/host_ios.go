@@ -38,3 +38,7 @@ func (a iosHostManager) restoreHostDNS() error {
 func (a iosHostManager) supportCustomPort() bool {
 	return false
 }
+
+func (a iosHostManager) string() string {
+	return "none"
+}
