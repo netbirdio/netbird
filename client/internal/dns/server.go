@@ -442,6 +442,10 @@ func (s *DefaultServer) handleErrNoGroupaAll(err error) {
 		return
 	}
 
+	if s.statusRecorder == nil {
+		return
+	}
+
 	s.statusRecorder.PublishEvent(
 		cProto.SystemEvent_WARNING, cProto.SystemEvent_DNS,
 		"The host dns manager does not support match domains",
