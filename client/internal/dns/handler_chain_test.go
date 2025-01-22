@@ -813,7 +813,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 						r := args.Get(1).(*dns.Msg)
 						resp := new(dns.Msg)
 						resp.SetReply(r)
-						w.WriteMsg(resp)
+						assert.NoError(t, w.WriteMsg(resp))
 					}).Once()
 				}
 			}
