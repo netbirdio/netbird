@@ -34,7 +34,7 @@ func checkAdvancedRoutingSupport() bool {
 	var err error
 
 	var legacyRouting bool
-	if val := os.Getenv("NB_USE_LEGACY_ROUTING"); val != "" {
+	if val := os.Getenv(envUseLegacyRouting); val != "" {
 		legacyRouting, err = strconv.ParseBool(val)
 		if err != nil {
 			log.Warnf("failed to parse %s: %v", envUseLegacyRouting, err)
