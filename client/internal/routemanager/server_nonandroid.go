@@ -17,7 +17,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-type defaultServerRouter struct {
+type serverRouter struct {
 	mux            sync.Mutex
 	ctx            context.Context
 	routes         map[route.ID]*route.Route
@@ -26,8 +26,8 @@ type defaultServerRouter struct {
 	statusRecorder *peer.Status
 }
 
-func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall firewall.Manager, statusRecorder *peer.Status) (serverRouter, error) {
-	return &defaultServerRouter{
+func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall firewall.Manager, statusRecorder *peer.Status) (*serverRouter, error) {
+	return &serverRouter{
 		ctx:            ctx,
 		routes:         make(map[route.ID]*route.Route),
 		firewall:       firewall,
@@ -36,7 +36,7 @@ func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall f
 	}, nil
 }
 
-func (m *defaultServerRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
+func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 	serverRoutesToRemove := make([]route.ID, 0)
 
 	for routeID := range m.routes {
@@ -80,74 +80,72 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[route.ID]*route.Route) 
 	return nil
 }
 
-func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error {
-	select {
-	case <-m.ctx.Done():
+func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
+	if m.ctx.Err() != nil {
 		log.Infof("Not removing from server network because context is done")
 		return m.ctx.Err()
-	default:
-		m.mux.Lock()
-		defer m.mux.Unlock()
-
-		routerPair, err := routeToRouterPair(route)
-		if err != nil {
-			return fmt.Errorf("parse prefix: %w", err)
-		}
-
-		err = m.firewall.RemoveNatRule(routerPair)
-		if err != nil {
-			return fmt.Errorf("remove routing rules: %w", err)
-		}
-
-		delete(m.routes, route.ID)
-
-		state := m.statusRecorder.GetLocalPeerState()
-		delete(state.Routes, route.Network.String())
-		m.statusRecorder.UpdateLocalPeerState(state)
-
-		return nil
 	}
+
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	routerPair, err := routeToRouterPair(route)
+	if err != nil {
+		return fmt.Errorf("parse prefix: %w", err)
+	}
+
+	err = m.firewall.RemoveNatRule(routerPair)
+	if err != nil {
+		return fmt.Errorf("remove routing rules: %w", err)
+	}
+
+	delete(m.routes, route.ID)
+
+	state := m.statusRecorder.GetLocalPeerState()
+	delete(state.Routes, route.Network.String())
+	m.statusRecorder.UpdateLocalPeerState(state)
+
+	return nil
 }
 
-func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
-	select {
-	case <-m.ctx.Done():
+func (m *serverRouter) addToServerNetwork(route *route.Route) error {
+	if m.ctx.Err() != nil {
 		log.Infof("Not adding to server network because context is done")
 		return m.ctx.Err()
-	default:
-		m.mux.Lock()
-		defer m.mux.Unlock()
-
-		routerPair, err := routeToRouterPair(route)
-		if err != nil {
-			return fmt.Errorf("parse prefix: %w", err)
-		}
-
-		err = m.firewall.AddNatRule(routerPair)
-		if err != nil {
-			return fmt.Errorf("insert routing rules: %w", err)
-		}
-
-		m.routes[route.ID] = route
-
-		state := m.statusRecorder.GetLocalPeerState()
-		if state.Routes == nil {
-			state.Routes = map[string]struct{}{}
-		}
-
-		routeStr := route.Network.String()
-		if route.IsDynamic() {
-			routeStr = route.Domains.SafeString()
-		}
-		state.Routes[routeStr] = struct{}{}
-
-		m.statusRecorder.UpdateLocalPeerState(state)
-
-		return nil
 	}
+
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	routerPair, err := routeToRouterPair(route)
+	if err != nil {
+		return fmt.Errorf("parse prefix: %w", err)
+	}
+
+	err = m.firewall.AddNatRule(routerPair)
+	if err != nil {
+		return fmt.Errorf("insert routing rules: %w", err)
+	}
+
+	m.routes[route.ID] = route
+
+	state := m.statusRecorder.GetLocalPeerState()
+	if state.Routes == nil {
+		state.Routes = map[string]struct{}{}
+	}
+
+	routeStr := route.Network.String()
+	if route.IsDynamic() {
+		routeStr = route.Domains.SafeString()
+	}
+	state.Routes[routeStr] = struct{}{}
+
+	m.statusRecorder.UpdateLocalPeerState(state)
+
+	return nil
 }
 
-func (m *defaultServerRouter) cleanUp() {
+func (m *serverRouter) cleanUp() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	for _, r := range m.routes {

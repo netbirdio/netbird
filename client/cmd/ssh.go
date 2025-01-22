@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -73,7 +72,7 @@ var sshCmd = &cobra.Command{
 		go func() {
 			// blocking
 			if err := runSSH(sshctx, host, []byte(config.SSHKey), cmd); err != nil {
-				log.Debug(err)
+				cmd.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
 			cancel()

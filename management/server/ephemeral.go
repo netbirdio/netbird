@@ -10,7 +10,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -22,10 +21,10 @@ var (
 )
 
 type ephemeralPeer struct {
-	id       string
-	account  *types.Account
-	deadline time.Time
-	next     *ephemeralPeer
+	id        string
+	accountID string
+	deadline  time.Time
+	next      *ephemeralPeer
 }
 
 // todo: consider to remove peer from ephemeral list when the peer has been deleted via API. If we do not do it
@@ -106,12 +105,6 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 
 	log.WithContext(ctx).Tracef("add peer to ephemeral list: %s", peer.ID)
 
-	a, err := e.store.GetAccountByPeerID(context.Background(), peer.ID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to add peer to ephemeral list: %s", err)
-		return
-	}
-
 	e.peersLock.Lock()
 	defer e.peersLock.Unlock()
 
@@ -119,7 +112,7 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 		return
 	}
 
-	e.addPeer(peer.ID, a, newDeadLine())
+	e.addPeer(peer.AccountID, peer.ID, newDeadLine())
 	if e.timer == nil {
 		e.timer = time.AfterFunc(e.headPeer.deadline.Sub(timeNow()), func() {
 			e.cleanup(ctx)
@@ -128,18 +121,18 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 }
 
 func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
-	accounts := e.store.GetAllAccounts(context.Background())
-	t := newDeadLine()
-	count := 0
-	for _, a := range accounts {
-		for id, p := range a.Peers {
-			if p.Ephemeral {
-				count++
-				e.addPeer(id, a, t)
-			}
-		}
+	peers, err := e.store.GetAllEphemeralPeers(ctx, store.LockingStrengthShare)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to load ephemeral peers: %s", err)
+		return
 	}
-	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", count)
+
+	t := newDeadLine()
+	for _, p := range peers {
+		e.addPeer(p.AccountID, p.ID, t)
+	}
+
+	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", len(peers))
 }
 
 func (e *EphemeralManager) cleanup(ctx context.Context) {
@@ -172,18 +165,18 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 
 	for id, p := range deletePeers {
 		log.WithContext(ctx).Debugf("delete ephemeral peer: %s", id)
-		err := e.accountManager.DeletePeer(ctx, p.account.Id, id, activity.SystemInitiator)
+		err := e.accountManager.DeletePeer(ctx, p.accountID, id, activity.SystemInitiator)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peer: %s", err)
 		}
 	}
 }
 
-func (e *EphemeralManager) addPeer(id string, account *types.Account, deadline time.Time) {
+func (e *EphemeralManager) addPeer(accountID string, peerID string, deadline time.Time) {
 	ep := &ephemeralPeer{
-		id:       id,
-		account:  account,
-		deadline: deadline,
+		id:        peerID,
+		accountID: accountID,
+		deadline:  deadline,
 	}
 
 	if e.headPeer == nil {
