@@ -192,6 +192,10 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 		log.Errorf("Failed to add state file to debug bundle: %v", err)
 	}
 
+	if err := s.addCorruptedStateFiles(archive); err != nil {
+		log.Errorf("Failed to add corrupted state files to debug bundle: %v", err)
+	}
+
 	if s.logFile != "console" {
 		if err := s.addLogfile(req, anonymizer, archive); err != nil {
 			return fmt.Errorf("add log file: %w", err)
@@ -398,6 +402,36 @@ func (s *Server) addStateFile(req *proto.DebugBundleRequest, anonymizer *anonymi
 
 	if err := addFileToZip(archive, bytes.NewReader(data), "state.json"); err != nil {
 		return fmt.Errorf("add state file to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) addCorruptedStateFiles(archive *zip.Writer) error {
+	pattern := statemanager.GetDefaultStatePath()
+	if pattern == "" {
+		return nil
+	}
+	pattern += "*.corrupted.*"
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("find corrupted state files: %w", err)
+	}
+
+	for _, match := range matches {
+		data, err := os.ReadFile(match)
+		if err != nil {
+			log.Warnf("Failed to read corrupted state file %s: %v", match, err)
+			continue
+		}
+
+		fileName := filepath.Base(match)
+		if err := addFileToZip(archive, bytes.NewReader(data), "corrupted_states/"+fileName); err != nil {
+			log.Warnf("Failed to add corrupted state file %s to zip: %v", fileName, err)
+			continue
+		}
+
+		log.Debugf("Added corrupted state file to debug bundle: %s", fileName)
 	}
 
 	return nil
