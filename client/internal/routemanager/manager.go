@@ -113,12 +113,13 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		disableServerRoutes: config.DisableServerRoutes,
 	}
 
+	useNoop := netstack.IsEnabled() || config.DisableClientRoutes
+	dm.setupRefCounters(useNoop)
+
 	// don't proceed with client routes if it is disabled
 	if config.DisableClientRoutes {
 		return dm
 	}
-
-	dm.setupRefCounters()
 
 	if runtime.GOOS == "android" {
 		cr := dm.initialClientRoutes(config.InitialRoutes)
@@ -127,7 +128,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	return dm
 }
 
-func (m *DefaultManager) setupRefCounters() {
+func (m *DefaultManager) setupRefCounters(useNoop bool) {
 	m.routeRefCounter = refcounter.New(
 		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
 			return struct{}{}, m.sysOps.AddVPNRoute(prefix, m.wgInterface.ToInterface())
@@ -137,7 +138,7 @@ func (m *DefaultManager) setupRefCounters() {
 		},
 	)
 
-	if netstack.IsEnabled() {
+	if useNoop {
 		m.routeRefCounter = refcounter.New(
 			func(netip.Prefix, struct{}) (struct{}, error) {
 				return struct{}{}, refcounter.ErrIgnore
