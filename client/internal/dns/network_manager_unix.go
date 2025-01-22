@@ -179,6 +179,10 @@ func (n *networkManagerDbusConfigurator) restoreHostDNS() error {
 	return nil
 }
 
+func (n *networkManagerDbusConfigurator) string() string {
+	return "network-manager"
+}
+
 func (n *networkManagerDbusConfigurator) getAppliedConnectionSettings() (networkManagerConnSettings, networkManagerConfigVersion, error) {
 	obj, closeConn, err := getDbusObject(networkManagerDest, n.dbusLinkObject)
 	if err != nil {

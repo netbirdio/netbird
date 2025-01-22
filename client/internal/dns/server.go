@@ -2,6 +2,7 @@ package dns
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"runtime"
@@ -15,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	cProto "github.com/netbirdio/netbird/client/proto"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -416,6 +418,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	if err = s.hostManager.applyDNSConfig(hostUpdate, s.stateManager); err != nil {
 		log.Error(err)
+		s.handleErrNoGroupaAll(err)
 	}
 
 	go func() {
@@ -432,6 +435,19 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	s.updateNSGroupStates(update.NameServerGroups)
 
 	return nil
+}
+
+func (s *DefaultServer) handleErrNoGroupaAll(err error) {
+	if !errors.Is(ErrRouteAllWithoutNameserverGroup, err) {
+		return
+	}
+
+	s.statusRecorder.PublishEvent(
+		cProto.SystemEvent_WARNING, cProto.SystemEvent_DNS,
+		"The host dns manager does not support match domains",
+		"The host dns manager does not support match domains without a catch-all nameserver group.",
+		map[string]string{"manager": s.hostManager.string()},
+	)
 }
 
 func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, map[string]nbdns.SimpleRecord, error) {
@@ -653,6 +669,7 @@ func (s *DefaultServer) upstreamCallbacks(
 		}
 
 		if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
+			s.handleErrNoGroupaAll(err)
 			l.Errorf("Failed to apply nameserver deactivation on the host: %v", err)
 		}
 
@@ -691,6 +708,7 @@ func (s *DefaultServer) upstreamCallbacks(
 
 		if s.hostManager != nil {
 			if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
+				s.handleErrNoGroupaAll(err)
 				l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
 			}
 		}

@@ -58,7 +58,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *st
 				return fmt.Errorf("restoring the original resolv.conf file return err: %w", err)
 			}
 		}
-		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
+		return ErrRouteAllWithoutNameserverGroup
 	}
 
 	if !backupFileExist {
@@ -119,6 +119,10 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 func (f *fileConfigurator) restoreHostDNS() error {
 	f.repair.stopWatchFileChanges()
 	return f.restore()
+}
+
+func (f *fileConfigurator) string() string {
+	return "file"
 }
 
 func (f *fileConfigurator) backup() error {
