@@ -748,7 +748,11 @@ func (s *serviceClient) runSelfCommand(command, arg string) {
 		return
 	}
 
-	cmd := exec.Command(proc, fmt.Sprintf("--%s=%s", command, arg))
+	cmd := exec.Command(proc,
+		fmt.Sprintf("--%s=%s", command, arg),
+		fmt.Sprintf("--daemon-addr=%s", s.addr),
+	)
+
 	out, err := cmd.CombinedOutput()
 	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 		log.Errorf("start %s UI: %v, %s", command, err, string(out))
