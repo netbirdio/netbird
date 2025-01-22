@@ -461,6 +461,24 @@ func (s *serviceClient) toggleExitNode(nodeID string, item *systray.MenuItem) er
 	}
 
 	// deselect all other selected exit nodes
+	if err := s.deselectOtherExitNodes(conn, ids, item); err != nil {
+		return err
+	}
+
+	if err := s.selectNewExitNode(conn, exitNode, nodeID, item); err != nil {
+		return err
+	}
+
+	// linux/bsd doesn't handle Check/Uncheck well, so we recreate the menu
+	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
+		s.recreateExitNodeMenu(exitNodes)
+	}
+
+	return nil
+}
+
+func (s *serviceClient) deselectOtherExitNodes(conn proto.DaemonServiceClient, ids []string, currentItem *systray.MenuItem) error {
+	// deselect all other selected exit nodes
 	if len(ids) > 0 {
 		deselectReq := &proto.SelectNetworksRequest{
 			NetworkIDs: ids,
@@ -474,14 +492,17 @@ func (s *serviceClient) toggleExitNode(nodeID string, item *systray.MenuItem) er
 
 	// uncheck all other exit node menu items
 	for _, i := range s.mExitNodeItems {
-		if i.MenuItem == item {
+		if i.MenuItem == currentItem {
 			continue
 		}
 		i.Uncheck()
 		log.Infof("Unchecked exit node %v", i)
 	}
 
-	// select clicked exit node if not selected
+	return nil
+}
+
+func (s *serviceClient) selectNewExitNode(conn proto.DaemonServiceClient, exitNode *proto.Network, nodeID string, item *systray.MenuItem) error {
 	if exitNode != nil && !exitNode.Selected {
 		selectReq := &proto.SelectNetworksRequest{
 			NetworkIDs: []string{exitNode.ID},
@@ -495,11 +516,6 @@ func (s *serviceClient) toggleExitNode(nodeID string, item *systray.MenuItem) er
 	}
 
 	item.Check()
-
-	// linux/bsd doesn't handle Check/Uncheck well, so we recreate the menu
-	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
-		s.recreateExitNodeMenu(exitNodes)
-	}
 
 	return nil
 }
