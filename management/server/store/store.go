@@ -319,7 +319,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 
 	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
+	db, err := gorm.Open(sqlite.Open(file), getGormConfig(kind))
 	if err != nil {
 		return nil, nil, err
 	}
