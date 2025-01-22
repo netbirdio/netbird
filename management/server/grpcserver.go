@@ -208,6 +208,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	unlock()
 	unlock = nil
 
+	log.WithContext(ctx).Debugf("Sync: took %v", time.Since(reqStart))
+
 	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }
 

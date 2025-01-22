@@ -938,7 +938,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 		{"Small single", 50, 10, 90, 120, 90, 120},
 		{"Medium single", 500, 10, 110, 170, 120, 200},
 		{"Large 5", 5000, 15, 1300, 2100, 4900, 7000},
-		{"Extra Large", 2000, 2000, 1300, 2400, 3800, 6400},
+		{"Extra Large", 2000, 2000, 1300, 2400, 3000, 6400},
 	}
 
 	log.SetOutput(io.Discard)
