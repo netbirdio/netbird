@@ -315,7 +315,7 @@ func (m *Manager) handleCorruptedState(deleteCorrupt bool) {
 	if deleteCorrupt {
 		return
 	}
-	log.Warn("State file appears to be corrupted, attempting to backup it")
+	log.Warn("State file appears to be corrupted, attempting to back it up")
 
 	backupPath := fmt.Sprintf("%s.corrupted.%d", m.filePath, time.Now().UnixNano())
 	if err := os.Rename(m.filePath, backupPath); err != nil {
