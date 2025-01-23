@@ -2,7 +2,6 @@ package nftables
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"slices"
