@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -132,6 +133,9 @@ const (
 	clientLogFile = "client.log"
 	errorLogFile  = "netbird.err"
 	stdoutLogFile = "netbird.out"
+
+	darwinErrorLogPath  = "/var/log/netbird.out.log"
+	darwinStdoutLogPath = "/var/log/netbird.err.log"
 )
 
 // DebugBundle creates a debug bundle and returns the location.
@@ -410,12 +414,17 @@ func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
-	errLogPath := filepath.Join(logDir, errorLogFile)
-	if err := s.addSingleLogfile(errLogPath, errorLogFile, req, anonymizer, archive); err != nil {
+	stdErrLogPath := filepath.Join(logDir, errorLogFile)
+	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
+	if runtime.GOOS == "darwin" {
+		stdErrLogPath = darwinErrorLogPath
+		stdoutLogPath = darwinStdoutLogPath
+	}
+
+	if err := s.addSingleLogfile(stdErrLogPath, errorLogFile, req, anonymizer, archive); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", errorLogFile, err)
 	}
 
-	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
 	if err := s.addSingleLogfile(stdoutLogPath, stdoutLogFile, req, anonymizer, archive); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", stdoutLogFile, err)
 	}
