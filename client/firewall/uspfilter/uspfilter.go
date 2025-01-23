@@ -523,7 +523,7 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]Rule, d *decode
 				return rule.udpHook(packetData), true
 			}
 
-			if portsMatch(rule.sPort, uint16(d.tcp.SrcPort)) && portsMatch(rule.dPort, uint16(d.tcp.DstPort)) {
+			if portsMatch(rule.sPort, uint16(d.udp.SrcPort)) && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
 				return rule.drop, true
 			}
 		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
