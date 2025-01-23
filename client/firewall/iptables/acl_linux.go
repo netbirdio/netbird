@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"slices"
-	"strconv"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
@@ -87,19 +86,10 @@ func (m *aclManager) AddPeerFiltering(
 	action firewall.Action,
 	ipsetName string,
 ) ([]firewall.Rule, error) {
-	var dPortVal, sPortVal string
-	if dPort != nil && dPort.Values != nil {
-		// TODO: we support only one port per rule in current implementation of ACLs
-		dPortVal = strconv.Itoa(dPort.Values[0])
-	}
-	if sPort != nil && sPort.Values != nil {
-		sPortVal = strconv.Itoa(sPort.Values[0])
-	}
-
 	chain := chainNameInputRules
 
-	ipsetName = transformIPsetName(ipsetName, sPortVal, dPortVal)
-	specs := filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, action, ipsetName)
+	ipsetName = transformIPsetName(ipsetName, sPort, dPort)
+	specs := filterRuleSpecs(ip, string(protocol), sPort, dPort, action, ipsetName)
 
 	mangleSpecs := slices.Clone(specs)
 	mangleSpecs = append(mangleSpecs,
@@ -109,7 +99,6 @@ func (m *aclManager) AddPeerFiltering(
 	)
 
 	specs = append(specs, "-j", actionToStr(action))
-
 	if ipsetName != "" {
 		if ipList, ipsetExists := m.ipsetStore.ipset(ipsetName); ipsetExists {
 			if err := ipset.Add(ipsetName, ip.String()); err != nil {
@@ -370,7 +359,7 @@ func (m *aclManager) updateState() {
 }
 
 // filterRuleSpecs returns the specs of a filtering rule
-func filterRuleSpecs(ip net.IP, protocol, sPort, dPort string, action firewall.Action, ipsetName string) (specs []string) {
+func filterRuleSpecs(ip net.IP, protocol string, sPort, dPort *firewall.Port, action firewall.Action, ipsetName string) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
 	if ip.String() == "0.0.0.0" {
@@ -387,12 +376,8 @@ func filterRuleSpecs(ip net.IP, protocol, sPort, dPort string, action firewall.A
 	if protocol != "all" {
 		specs = append(specs, "-p", protocol)
 	}
-	if sPort != "" {
-		specs = append(specs, "--sport", sPort)
-	}
-	if dPort != "" {
-		specs = append(specs, "--dport", dPort)
-	}
+	specs = append(specs, applyPort("--sport", sPort)...)
+	specs = append(specs, applyPort("--dport", dPort)...)
 	return specs
 }
 
@@ -403,15 +388,15 @@ func actionToStr(action firewall.Action) string {
 	return "DROP"
 }
 
-func transformIPsetName(ipsetName string, sPort, dPort string) string {
+func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port) string {
 	switch {
 	case ipsetName == "":
 		return ""
-	case sPort != "" && dPort != "":
+	case sPort != nil && dPort != nil:
 		return ipsetName + "-sport-dport"
-	case sPort != "":
+	case sPort != nil:
 		return ipsetName + "-sport"
-	case dPort != "":
+	case dPort != nil:
 		return ipsetName + "-dport"
 	default:
 		return ipsetName

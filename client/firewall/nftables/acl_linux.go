@@ -327,37 +327,8 @@ func (m *AclManager) addIOFiltering(
 		}
 	}
 
-	if sPort != nil && len(sPort.Values) != 0 {
-		expressions = append(expressions,
-			&expr.Payload{
-				DestRegister: 1,
-				Base:         expr.PayloadBaseTransportHeader,
-				Offset:       0,
-				Len:          2,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     encodePort(*sPort),
-			},
-		)
-	}
-
-	if dPort != nil && len(dPort.Values) != 0 {
-		expressions = append(expressions,
-			&expr.Payload{
-				DestRegister: 1,
-				Base:         expr.PayloadBaseTransportHeader,
-				Offset:       2,
-				Len:          2,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     encodePort(*dPort),
-			},
-		)
-	}
+	expressions = append(expressions, applyPort(sPort, true)...)
+	expressions = append(expressions, applyPort(dPort, false)...)
 
 	mainExpressions := slices.Clone(expressions)
 

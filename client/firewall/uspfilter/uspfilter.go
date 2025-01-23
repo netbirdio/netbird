@@ -179,13 +179,8 @@ func (m *Manager) AddPeerFiltering(
 		r.matchByIP = false
 	}
 
-	if sPort != nil && len(sPort.Values) == 1 {
-		r.sPort = uint16(sPort.Values[0])
-	}
-
-	if dPort != nil && len(dPort.Values) == 1 {
-		r.dPort = uint16(dPort.Values[0])
-	}
+	r.sPort = sPort
+	r.dPort = dPort
 
 	switch proto {
 	case firewall.ProtocolTCP:
@@ -364,7 +359,7 @@ func (m *Manager) checkUDPHooks(d *decoder, dstIP net.IP, packetData []byte) boo
 	for _, ipKey := range []string{dstIP.String(), "0.0.0.0", "::"} {
 		if rules, exists := m.outgoingRules[ipKey]; exists {
 			for _, rule := range rules {
-				if rule.udpHook != nil && (rule.dPort == 0 || rule.dPort == uint16(d.udp.DstPort)) {
+				if rule.udpHook != nil && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
 					return rule.udpHook(packetData)
 				}
 			}
@@ -484,6 +479,23 @@ func (m *Manager) applyRules(srcIP net.IP, packetData []byte, rules map[string]R
 	return true
 }
 
+func portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
+	if rulePort == nil {
+		return true
+	}
+
+	if rulePort.IsRange {
+		return packetPort >= rulePort.Values[0] && packetPort <= rulePort.Values[1]
+	}
+
+	for _, p := range rulePort.Values {
+		if p == packetPort {
+			return true
+		}
+	}
+	return false
+}
+
 func validateRule(ip net.IP, packetData []byte, rules map[string]Rule, d *decoder) (bool, bool) {
 	payloadLayer := d.decoded[1]
 	for _, rule := range rules {
@@ -501,13 +513,7 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]Rule, d *decode
 
 		switch payloadLayer {
 		case layers.LayerTypeTCP:
-			if rule.sPort == 0 && rule.dPort == 0 {
-				return rule.drop, true
-			}
-			if rule.sPort != 0 && rule.sPort == uint16(d.tcp.SrcPort) {
-				return rule.drop, true
-			}
-			if rule.dPort != 0 && rule.dPort == uint16(d.tcp.DstPort) {
+			if portsMatch(rule.sPort, uint16(d.tcp.SrcPort)) && portsMatch(rule.dPort, uint16(d.tcp.DstPort)) {
 				return rule.drop, true
 			}
 		case layers.LayerTypeUDP:
@@ -517,13 +523,7 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]Rule, d *decode
 				return rule.udpHook(packetData), true
 			}
 
-			if rule.sPort == 0 && rule.dPort == 0 {
-				return rule.drop, true
-			}
-			if rule.sPort != 0 && rule.sPort == uint16(d.udp.SrcPort) {
-				return rule.drop, true
-			}
-			if rule.dPort != 0 && rule.dPort == uint16(d.udp.DstPort) {
+			if portsMatch(rule.sPort, uint16(d.tcp.SrcPort)) && portsMatch(rule.dPort, uint16(d.tcp.DstPort)) {
 				return rule.drop, true
 			}
 		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
@@ -548,7 +548,7 @@ func (m *Manager) AddUDPPacketHook(
 		id:         uuid.New().String(),
 		ip:         ip,
 		protoLayer: layers.LayerTypeUDP,
-		dPort:      dPort,
+		dPort:      &firewall.Port{Values: []uint16{dPort}},
 		ipLayer:    layers.LayerTypeIPv6,
 		comment:    fmt.Sprintf("UDP Hook direction: %v, ip:%v, dport:%d", in, ip, dPort),
 		udpHook:    hook,
