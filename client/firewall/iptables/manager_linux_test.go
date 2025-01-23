@@ -72,7 +72,8 @@ func TestIptablesManager(t *testing.T) {
 	t.Run("add second rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.3")
 		port := &fw.Port{
-			Values: []uint16{8043: 8046},
+			IsRange: true,
+			Values:  []uint16{8043, 8046},
 		}
 		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, fw.ActionAccept, "", "accept HTTPS traffic from ports range")
 		require.NoError(t, err, "failed to add rule")
