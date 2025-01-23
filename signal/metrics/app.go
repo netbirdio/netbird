@@ -23,56 +23,76 @@ type AppMetrics struct {
 }
 
 func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
-	activePeers, err := meter.Int64UpDownCounter("active_peers")
+	activePeers, err := meter.Int64UpDownCounter("active_peers",
+		metric.WithDescription("Number of active connected peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	peerConnectionDuration, err := meter.Int64Histogram("peer_connection_duration_seconds",
-		metric.WithExplicitBucketBoundaries(getPeerConnectionDurationBucketBoundaries()...))
+		metric.WithExplicitBucketBoundaries(getPeerConnectionDurationBucketBoundaries()...),
+		metric.WithDescription("Duration of how long a peer was connected"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	registrations, err := meter.Int64Counter("registrations_total")
+	registrations, err := meter.Int64Counter("registrations_total",
+		metric.WithDescription("Total number of peer registrations"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	deregistrations, err := meter.Int64Counter("deregistrations_total")
+	deregistrations, err := meter.Int64Counter("deregistrations_total",
+		metric.WithDescription("Total number of peer deregistrations"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	registrationFailures, err := meter.Int64Counter("registration_failures_total")
+	registrationFailures, err := meter.Int64Counter("registration_failures_total",
+		metric.WithDescription("Total number of peer registration failures"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	registrationDelay, err := meter.Float64Histogram("registration_delay_milliseconds",
-		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
+		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...),
+		metric.WithDescription("Duration of how long it takes to register a peer"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	getRegistrationDelay, err := meter.Float64Histogram("get_registration_delay_milliseconds",
-		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
+		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...),
+		metric.WithDescription("Duration of how long it takes to load a connection from the registry"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	messagesForwarded, err := meter.Int64Counter("messages_forwarded_total")
+	messagesForwarded, err := meter.Int64Counter("messages_forwarded_total",
+		metric.WithDescription("Total number of messages forwarded to peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	messageForwardFailures, err := meter.Int64Counter("message_forward_failures_total")
+	messageForwardFailures, err := meter.Int64Counter("message_forward_failures_total",
+		metric.WithDescription("Total number of message forwarding failures"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	messageForwardLatency, err := meter.Float64Histogram("message_forward_latency_milliseconds",
-		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
+		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...),
+		metric.WithDescription("Duration of how long it takes to forward a message to a peer"),
+	)
 	if err != nil {
 		return nil, err
 	}

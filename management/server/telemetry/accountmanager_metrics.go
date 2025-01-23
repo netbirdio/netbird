@@ -22,7 +22,8 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		metric.WithUnit("milliseconds"),
 		metric.WithExplicitBucketBoundaries(
 			0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000,
-		))
+		),
+		metric.WithDescription("Duration of triggering the account peers update and preparing the required data for the network map being send to the clients"))
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +32,8 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		metric.WithUnit("milliseconds"),
 		metric.WithExplicitBucketBoundaries(
 			0.1, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000,
-		))
+		),
+		metric.WithDescription("Duration of calculating the peer network map that is send to the clients"))
 	if err != nil {
 		return nil, err
 	}
@@ -40,12 +42,15 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		metric.WithUnit("objects"),
 		metric.WithExplicitBucketBoundaries(
 			50, 100, 200, 500, 1000, 2500, 5000, 10000,
-		))
+		),
+		metric.WithDescription("Number of objects in the network map like peers, routes, firewall rules, etc. that are send to the clients"))
 	if err != nil {
 		return nil, err
 	}
 
-	peerMetaUpdateCount, err := meter.Int64Counter("management.account.peer.meta.update.counter", metric.WithUnit("1"))
+	peerMetaUpdateCount, err := meter.Int64Counter("management.account.peer.meta.update.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of updates with new meta data from the peers"))
 	if err != nil {
 		return nil, err
 	}

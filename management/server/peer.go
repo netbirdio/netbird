@@ -1130,11 +1130,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	}
 
 	start := time.Now()
-	defer func() {
-		if am.metrics != nil {
-			am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
-		}
-	}()
 
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
@@ -1175,6 +1170,9 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	}
 
 	wg.Wait()
+	if am.metrics != nil {
+		am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
+	}
 }
 
 // UpdateAccountPeer updates a single peer that belongs to an account.
