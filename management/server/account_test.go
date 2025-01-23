@@ -3005,7 +3005,7 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) 
 }
 
 func BenchmarkSyncAndMarkPeer(b *testing.B) {
-	os.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "0")
+	b.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "0")
 
 	benchCases := []struct {
 		name   string
