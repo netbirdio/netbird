@@ -430,7 +430,7 @@ message FirewallRule {
   RuleAction Action = 3;
   RuleProtocol Protocol = 4;
   string Port = 5;
-  PortInfo portInfo = 6;
+  PortInfo PortInfo = 6;
 }
 
 message NetworkAddress {
