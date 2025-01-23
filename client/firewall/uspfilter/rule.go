@@ -16,8 +16,8 @@ type PeerRule struct {
 	ipLayer    gopacket.LayerType
 	matchByIP  bool
 	protoLayer gopacket.LayerType
-	sPort      uint16
-	dPort      uint16
+	sPort      *firewall.Port
+	dPort      *firewall.Port
 	drop       bool
 	comment    string
 

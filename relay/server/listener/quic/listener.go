@@ -25,7 +25,8 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	l.acceptFn = acceptFn
 
 	quicCfg := &quic.Config{
-		EnableDatagrams: true,
+		EnableDatagrams:   true,
+		InitialPacketSize: 1452,
 	}
 	listener, err := quic.ListenAddr(l.Address, l.TLSConfig, quicCfg)
 	if err != nil {

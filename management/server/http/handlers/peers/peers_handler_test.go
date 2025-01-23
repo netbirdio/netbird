@@ -38,6 +38,68 @@ const (
 )
 
 func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
+
+	peersMap := make(map[string]*nbpeer.Peer)
+	for _, peer := range peers {
+		peersMap[peer.ID] = peer.Copy()
+	}
+
+	policy := &types.Policy{
+		ID:        "policy",
+		AccountID: "test_id",
+		Name:      "policy",
+		Enabled:   true,
+		Rules: []*types.PolicyRule{
+			{
+				ID:            "rule",
+				Name:          "rule",
+				Enabled:       true,
+				Action:        "accept",
+				Destinations:  []string{"group1"},
+				Sources:       []string{"group1"},
+				Bidirectional: true,
+				Protocol:      "all",
+				Ports:         []string{"80"},
+			},
+		},
+	}
+
+	srvUser := types.NewRegularUser(serviceUser)
+	srvUser.IsServiceUser = true
+
+	account := &types.Account{
+		Id:     "test_id",
+		Domain: "hotmail.com",
+		Peers:  peersMap,
+		Users: map[string]*types.User{
+			adminUser:   types.NewAdminUser(adminUser),
+			regularUser: types.NewRegularUser(regularUser),
+			serviceUser: srvUser,
+		},
+		Groups: map[string]*types.Group{
+			"group1": {
+				ID:        "group1",
+				AccountID: "test_id",
+				Name:      "group1",
+				Issued:    "api",
+				Peers:     maps.Keys(peersMap),
+			},
+		},
+		Settings: &types.Settings{
+			PeerLoginExpirationEnabled: true,
+			PeerLoginExpiration:        time.Hour,
+		},
+		Policies: []*types.Policy{policy},
+		Network: &types.Network{
+			Identifier: "ciclqisab2ss43jdn8q0",
+			Net: net.IPNet{
+				IP:   net.ParseIP("100.67.0.0"),
+				Mask: net.IPv4Mask(255, 255, 0, 0),
+			},
+			Serial: 51,
+		},
+	}
+
 	return &Handler{
 		accountManager: &mock_server.MockAccountManager{
 			UpdatePeerFunc: func(_ context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
@@ -66,74 +128,31 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 			GetPeersFunc: func(_ context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
+			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
+				peersID := make([]string, len(peers))
+				for _, peer := range peers {
+					peersID = append(peersID, peer.ID)
+				}
+				return []*types.Group{
+					{
+						ID:        "group1",
+						AccountID: accountID,
+						Name:      "group1",
+						Issued:    "api",
+						Peers:     peersID,
+					},
+				}, nil
+			},
 			GetDNSDomainFunc: func() string {
 				return "netbird.selfhosted"
 			},
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
+			GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
+				return account, nil
+			},
 			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
-				peersMap := make(map[string]*nbpeer.Peer)
-				for _, peer := range peers {
-					peersMap[peer.ID] = peer.Copy()
-				}
-
-				policy := &types.Policy{
-					ID:        "policy",
-					AccountID: accountID,
-					Name:      "policy",
-					Enabled:   true,
-					Rules: []*types.PolicyRule{
-						{
-							ID:            "rule",
-							Name:          "rule",
-							Enabled:       true,
-							Action:        "accept",
-							Destinations:  []string{"group1"},
-							Sources:       []string{"group1"},
-							Bidirectional: true,
-							Protocol:      "all",
-							Ports:         []string{"80"},
-						},
-					},
-				}
-
-				srvUser := types.NewRegularUser(serviceUser)
-				srvUser.IsServiceUser = true
-
-				account := &types.Account{
-					Id:     accountID,
-					Domain: "hotmail.com",
-					Peers:  peersMap,
-					Users: map[string]*types.User{
-						adminUser:   types.NewAdminUser(adminUser),
-						regularUser: types.NewRegularUser(regularUser),
-						serviceUser: srvUser,
-					},
-					Groups: map[string]*types.Group{
-						"group1": {
-							ID:        "group1",
-							AccountID: accountID,
-							Name:      "group1",
-							Issued:    "api",
-							Peers:     maps.Keys(peersMap),
-						},
-					},
-					Settings: &types.Settings{
-						PeerLoginExpirationEnabled: true,
-						PeerLoginExpiration:        time.Hour,
-					},
-					Policies: []*types.Policy{policy},
-					Network: &types.Network{
-						Identifier: "ciclqisab2ss43jdn8q0",
-						Net: net.IPNet{
-							IP:   net.ParseIP("100.67.0.0"),
-							Mask: net.IPv4Mask(255, 255, 0, 0),
-						},
-						Serial: 51,
-					},
-				}
-
 				return account, nil
 			},
 			HasConnectedChannelFunc: func(peerID string) bool {

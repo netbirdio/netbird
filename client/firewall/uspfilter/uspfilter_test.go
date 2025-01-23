@@ -90,7 +90,7 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
-	port := &fw.Port{Values: []int{80}}
+	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
 	comment := "Test rule"
 
@@ -124,7 +124,7 @@ func TestManagerDeleteRule(t *testing.T) {
 
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
-	port := &fw.Port{Values: []int{80}}
+	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
 	comment := "Test rule 2"
 
@@ -215,8 +215,8 @@ func TestAddUDPPacketHook(t *testing.T) {
 				t.Errorf("expected ip %s, got %s", tt.ip, addedRule.ip)
 				return
 			}
-			if tt.dPort != addedRule.dPort {
-				t.Errorf("expected dPort %d, got %d", tt.dPort, addedRule.dPort)
+			if tt.dPort != addedRule.dPort.Values[0] {
+				t.Errorf("expected dPort %d, got %d", tt.dPort, addedRule.dPort.Values[0])
 				return
 			}
 			if layers.LayerTypeUDP != addedRule.protoLayer {
@@ -244,7 +244,7 @@ func TestManagerReset(t *testing.T) {
 
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
-	port := &fw.Port{Values: []int{80}}
+	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
 	comment := "Test rule"
 
@@ -493,7 +493,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ip := net.ParseIP("10.20.0.100")
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
-				port := &fw.Port{Values: []int{1000 + i}}
+				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
 				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
 
 				require.NoError(t, err, "failed to add rule")

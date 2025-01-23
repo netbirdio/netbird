@@ -29,9 +29,10 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 	}
 
 	quicConfig := &quic.Config{
-		KeepAlivePeriod: 30 * time.Second,
-		MaxIdleTimeout:  4 * time.Minute,
-		EnableDatagrams: true,
+		KeepAlivePeriod:   30 * time.Second,
+		MaxIdleTimeout:    4 * time.Minute,
+		EnableDatagrams:   true,
+		InitialPacketSize: 1452,
 	}
 
 	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})

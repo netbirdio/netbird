@@ -183,7 +183,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 		}()
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
-		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey)
+		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
 		if err != nil {
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
@@ -463,7 +463,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 }
 
 // loginToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
-func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
+func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *Config) (*mgmProto.LoginResponse, error) {
 
 	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
@@ -471,6 +471,15 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte)
 	}
 
 	sysInfo := system.GetInfo(ctx)
+	sysInfo.SetFlags(
+		config.RosenpassEnabled,
+		config.RosenpassPermissive,
+		config.ServerSSHAllowed,
+		config.DisableClientRoutes,
+		config.DisableServerRoutes,
+		config.DisableDNS,
+		config.DisableFirewall,
+	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey)
 	if err != nil {
 		return nil, err

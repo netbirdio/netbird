@@ -55,12 +55,12 @@ require (
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-netroute v0.2.1
 	github.com/magiconair/properties v1.8.7
-	github.com/mattn/go-sqlite3 v1.14.19
+	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/mdlayher/socket v0.5.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20241211172827-ba0a446be480
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20250115083837-a09722b8d2a6
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20241010133937-e0df50df217d
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
@@ -100,8 +100,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/postgres v1.5.7
-	gorm.io/driver/sqlite v1.5.3
-	gorm.io/gorm v1.25.7
+	gorm.io/driver/sqlite v1.5.7
+	gorm.io/gorm v1.25.12
 	gvisor.dev/gvisor v0.0.0-20231020174304-b8a429915ff1
 	nhooyr.io/websocket v1.8.11
 )

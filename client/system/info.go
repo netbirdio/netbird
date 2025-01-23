@@ -59,6 +59,31 @@ type Info struct {
 	SystemManufacturer string
 	Environment        Environment
 	Files              []File // for posture checks
+
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
+	ServerSSHAllowed    bool
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
+}
+
+func (i *Info) SetFlags(
+	rosenpassEnabled, rosenpassPermissive bool,
+	serverSSHAllowed *bool,
+	disableClientRoutes, disableServerRoutes,
+	disableDNS, disableFirewall bool,
+) {
+	i.RosenpassEnabled = rosenpassEnabled
+	i.RosenpassPermissive = rosenpassPermissive
+	if serverSSHAllowed != nil {
+		i.ServerSSHAllowed = *serverSSHAllowed
+	}
+	i.DisableClientRoutes = disableClientRoutes
+	i.DisableServerRoutes = disableServerRoutes
+	i.DisableDNS = disableDNS
+	i.DisableFirewall = disableFirewall
 }
 
 // StaticInfo is an object that contains machine information that does not change

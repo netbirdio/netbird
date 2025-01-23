@@ -34,8 +34,6 @@ type TunKernelDevice struct {
 }
 
 func NewKernelDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) *TunKernelDevice {
-	checkUser()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TunKernelDevice{
 		ctx:          ctx,
