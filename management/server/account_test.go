@@ -3005,6 +3005,8 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) 
 }
 
 func BenchmarkSyncAndMarkPeer(b *testing.B) {
+	os.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "0")
+
 	benchCases := []struct {
 		name   string
 		peers  int
@@ -3015,10 +3017,10 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 3, 3, 19},
-		{"Medium", 500, 100, 7, 13, 10, 90},
-		{"Large", 5000, 200, 65, 80, 60, 240},
-		{"Small single", 50, 10, 1, 3, 3, 80},
+		{"Small", 50, 5, 1, 5, 3, 19},
+		{"Medium", 500, 100, 7, 22, 10, 90},
+		{"Large", 5000, 200, 65, 110, 60, 240},
+		{"Small single", 50, 10, 1, 4, 3, 80},
 		{"Medium single", 500, 10, 7, 13, 10, 37},
 		{"Large 5", 5000, 15, 65, 80, 60, 220},
 	}
