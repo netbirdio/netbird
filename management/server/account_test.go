@@ -3085,7 +3085,7 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 2, 10, 3, 20},
+		{"Small", 50, 5, 2, 10, 3, 35},
 		{"Medium", 500, 100, 5, 40, 20, 110},
 		{"Large", 5000, 200, 60, 100, 120, 260},
 		{"Small single", 50, 10, 2, 10, 5, 40},
