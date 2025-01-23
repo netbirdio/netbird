@@ -312,7 +312,7 @@ func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage,
 
 // handleCorruptedState creates a backup of a corrupted state file by moving it
 func (m *Manager) handleCorruptedState(deleteCorrupt bool) {
-	if deleteCorrupt {
+	if !deleteCorrupt {
 		return
 	}
 	log.Warn("State file appears to be corrupted, attempting to back it up")
