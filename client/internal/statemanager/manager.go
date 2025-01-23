@@ -303,18 +303,27 @@ func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage,
 
 	var rawStates map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawStates); err != nil {
-		if deleteCorrupt {
-			log.Warn("State file appears to be corrupted, attempting to delete it", err)
-			if err := os.Remove(m.filePath); err != nil {
-				log.Errorf("Failed to delete corrupted state file: %v", err)
-			} else {
-				log.Info("State file deleted")
-			}
-		}
+		m.handleCorruptedState(deleteCorrupt)
 		return nil, fmt.Errorf("unmarshal states: %w", err)
 	}
 
 	return rawStates, nil
+}
+
+// handleCorruptedState creates a backup of a corrupted state file by moving it
+func (m *Manager) handleCorruptedState(deleteCorrupt bool) {
+	if !deleteCorrupt {
+		return
+	}
+	log.Warn("State file appears to be corrupted, attempting to back it up")
+
+	backupPath := fmt.Sprintf("%s.corrupted.%d", m.filePath, time.Now().UnixNano())
+	if err := os.Rename(m.filePath, backupPath); err != nil {
+		log.Errorf("Failed to backup corrupted state file: %v", err)
+		return
+	}
+
+	log.Infof("Created backup of corrupted state file at: %s", backupPath)
 }
 
 // loadSingleRawState unmarshals a raw state into a concrete state object
