@@ -700,12 +700,6 @@ func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, a
 	return "set:" + ipset.Name + rulesetID
 }
 
-func encodePort(port firewall.Port) []byte {
-	bs := make([]byte, 2)
-	binary.BigEndian.PutUint16(bs, uint16(port.Values[0]))
-	return bs
-}
-
 func ifname(n string) []byte {
 	b := make([]byte, 16)
 	copy(b, n+"\x00")
