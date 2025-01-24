@@ -24,7 +24,7 @@ type GRPCMetrics struct {
 func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, error) {
 	syncRequestsCounter, err := meter.Int64Counter("management.grpc.sync.request.counter",
 		metric.WithUnit("1"),
-		metric.WithDescription("Number of sync gRPC requests from the peers to establish a connection an receive network map updates (update channel)"),
+		metric.WithDescription("Number of sync gRPC requests from the peers to establish a connection and receive network map updates (update channel)"),
 	)
 	if err != nil {
 		return nil, err
