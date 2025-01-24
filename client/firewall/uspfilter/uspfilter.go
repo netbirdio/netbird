@@ -253,6 +253,16 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
+// AddDNATRule adds a DNAT rule
+func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+// DeleteDNATRule deletes a DNAT rule
+func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
+	return nil
+}
+
 // DropOutgoing filter outgoing packets
 func (m *Manager) DropOutgoing(packetData []byte) bool {
 	return m.processOutgoingHooks(packetData)

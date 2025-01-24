@@ -935,7 +935,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	// Ingress forward rules
-	e.updateForwardRules(networkMap.GetForwardingRules())
+	if err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
+		log.Errorf("failed to update forward rules, err: %v", err)
+	}
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
@@ -1755,12 +1757,20 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 		return nil
 	}
 
+	// todo delete this before merge
+	defer e.mocForwardRules()
+
 	if len(rules) == 0 && e.ingressGatewayMgr != nil {
-		return e.ingressGatewayMgr.Close()
+		err := e.ingressGatewayMgr.Close()
+		e.ingressGatewayMgr = nil
+		e.statusRecorder.SetIngressGwMgr(nil)
+		return err
 	}
 
 	if e.ingressGatewayMgr == nil {
-		e.ingressGatewayMgr = ingressgw.NewManager(e.firewall)
+		mgr := ingressgw.NewManager(e.firewall)
+		e.ingressGatewayMgr = mgr
+		e.statusRecorder.SetIngressGwMgr(mgr)
 	}
 
 	var merr *multierror.Error

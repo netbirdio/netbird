@@ -22,5 +22,5 @@ func (r ForwardRule) GetRuleID() string {
 }
 
 func (r ForwardRule) String() string {
-	return r.GetRuleID()
+	return fmt.Sprintf("protocol: %s, destinationPort: %s, translatedAddress: %s, translatedPort: %s", r.Protocol, r.DestinationPort.String(), r.TranslatedAddress.String(), r.TranslatedPort.String())
 }

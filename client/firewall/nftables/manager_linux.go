@@ -329,6 +329,19 @@ func (m *Manager) Flush() error {
 	return m.aclManager.Flush()
 }
 
+// AddDNATRule adds a DNAT rule
+func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	r := &Rule{
+		ruleID: rule.GetRuleID(),
+	}
+	return r, nil
+}
+
+// DeleteDNATRule deletes a DNAT rule
+func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
+	return nil
+}
+
 func (m *Manager) createWorkTable() (*nftables.Table, error) {
 	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {

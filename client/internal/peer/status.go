@@ -11,7 +11,9 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/management/domain"
 	relayClient "github.com/netbirdio/netbird/relay/client"
@@ -157,6 +159,8 @@ type Status struct {
 	peerListChangedForNotification bool
 
 	relayMgr *relayClient.Manager
+
+	ingressGwMgr *ingressgw.Manager
 }
 
 // NewRecorder returns a new Status instance
@@ -175,6 +179,12 @@ func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.relayMgr = manager
+}
+
+func (d *Status) SetIngressGwMgr(ingressGwMgr *ingressgw.Manager) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.ingressGwMgr = ingressGwMgr
 }
 
 // ReplaceOfflinePeers replaces
@@ -716,6 +726,16 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 		URI: instanceAddr,
 	}
 	return append(relayStates, relayState)
+}
+
+func (d *Status) ForwardingRules() []firewall.ForwardRule {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	if d.ingressGwMgr == nil {
+		return nil
+	}
+
+	return d.ingressGwMgr.Rules()
 }
 
 func (d *Status) GetDNSStates() []NSGroupState {
