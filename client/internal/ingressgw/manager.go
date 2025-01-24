@@ -24,14 +24,14 @@ type RulePair struct {
 type Manager struct {
 	dnatFirewall DNATFirewall
 
-	rules   map[firewall.ForwardRuleID]RulePair // keys is the ID of the ForwardRule
+	rules   map[string]RulePair // keys is the ID of the ForwardRule
 	rulesMu sync.Mutex
 }
 
 func NewManager(dnatFirewall DNATFirewall) *Manager {
 	return &Manager{
 		dnatFirewall: dnatFirewall,
-		rules:        make(map[firewall.ForwardRuleID]RulePair),
+		rules:        make(map[string]RulePair),
 	}
 }
 
@@ -40,7 +40,7 @@ func (h *Manager) Update(forwardRules []firewall.ForwardRule) error {
 	defer h.rulesMu.Unlock()
 
 	var mErr *multierror.Error
-	toDelete := make(map[firewall.ForwardRuleID]RulePair)
+	toDelete := make(map[string]RulePair)
 	for id, r := range h.rules {
 		toDelete[id] = r
 	}
@@ -89,7 +89,7 @@ func (h *Manager) Close() error {
 		}
 	}
 
-	h.rules = make(map[firewall.ForwardRuleID]RulePair)
+	h.rules = make(map[string]RulePair)
 	return nberrors.FormatErrorOrNil(mErr)
 }
 

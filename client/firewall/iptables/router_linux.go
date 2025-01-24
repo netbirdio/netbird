@@ -23,21 +23,35 @@ import (
 
 // constants needed to manage and create iptable rules
 const (
-	tableFilter             = "filter"
-	tableNat                = "nat"
-	tableMangle             = "mangle"
+	tableFilter = "filter"
+	tableNat    = "nat"
+	tableMangle = "mangle"
+
 	chainPOSTROUTING        = "POSTROUTING"
 	chainPREROUTING         = "PREROUTING"
 	chainRTNAT              = "NETBIRD-RT-NAT"
-	chainRTFWD              = "NETBIRD-RT-FWD"
+	chainRTFWDIN            = "NETBIRD-RT-FWD-IN"
+	chainRTFWDOUT           = "NETBIRD-RT-FWD-OUT"
 	chainRTPRE              = "NETBIRD-RT-PRE"
+	chainRTRDR              = "NETBIRD-RT-RDR"
 	routingFinalForwardJump = "ACCEPT"
 	routingFinalNatJump     = "MASQUERADE"
 
-	jumpPre  = "jump-pre"
-	jumpNat  = "jump-nat"
-	matchSet = "--match-set"
+	jumpManglePre = "jump-mangle-pre"
+	jumpNatPre    = "jump-nat-pre"
+	jumpNatPost   = "jump-nat-post"
+	matchSet      = "--match-set"
+
+	dnatSuffix = "_dnat"
+	snatSuffix = "_snat"
+	fwdSuffix  = "_fwd"
 )
+
+type ruleInfo struct {
+	chain string
+	table string
+	rule  []string
+}
 
 type routeFilteringRuleParams struct {
 	Sources     []netip.Prefix
@@ -135,7 +149,7 @@ func (r *router) AddRouteFiltering(
 	}
 
 	rule := genRouteFilteringRuleSpec(params)
-	if err := r.iptablesClient.Append(tableFilter, chainRTFWD, rule...); err != nil {
+	if err := r.iptablesClient.Append(tableFilter, chainRTFWDIN, rule...); err != nil {
 		return nil, fmt.Errorf("add route rule: %v", err)
 	}
 
@@ -147,12 +161,12 @@ func (r *router) AddRouteFiltering(
 }
 
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
-	ruleKey := rule.GetRuleID()
+	ruleKey := rule.ID()
 
 	if rule, exists := r.rules[ruleKey]; exists {
 		setName := r.findSetNameInRule(rule)
 
-		if err := r.iptablesClient.Delete(tableFilter, chainRTFWD, rule...); err != nil {
+		if err := r.iptablesClient.Delete(tableFilter, chainRTFWDIN, rule...); err != nil {
 			return fmt.Errorf("delete route rule: %v", err)
 		}
 		delete(r.rules, ruleKey)
@@ -255,7 +269,7 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 	}
 
 	rule := []string{"-s", pair.Source.String(), "-d", pair.Destination.String(), "-j", routingFinalForwardJump}
-	if err := r.iptablesClient.Append(tableFilter, chainRTFWD, rule...); err != nil {
+	if err := r.iptablesClient.Append(tableFilter, chainRTFWDIN, rule...); err != nil {
 		return fmt.Errorf("add legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
 	}
 
@@ -268,7 +282,7 @@ func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
 
 	if rule, exists := r.rules[ruleKey]; exists {
-		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWD, rule...); err != nil {
+		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWDIN, rule...); err != nil {
 			return fmt.Errorf("remove legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
 		}
 		delete(r.rules, ruleKey)
@@ -296,7 +310,7 @@ func (r *router) RemoveAllLegacyRouteRules() error {
 		if !strings.HasPrefix(k, firewall.ForwardingFormatPrefix) {
 			continue
 		}
-		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWD, rule...); err != nil {
+		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWDIN, rule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove legacy forwarding rule: %v", err))
 		} else {
 			delete(r.rules, k)
@@ -334,9 +348,11 @@ func (r *router) cleanUpDefaultForwardRules() error {
 		chain string
 		table string
 	}{
-		{chainRTFWD, tableFilter},
-		{chainRTNAT, tableNat},
+		{chainRTFWDIN, tableFilter},
+		{chainRTFWDOUT, tableFilter},
 		{chainRTPRE, tableMangle},
+		{chainRTNAT, tableNat},
+		{chainRTRDR, tableNat},
 	} {
 		ok, err := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain)
 		if err != nil {
@@ -356,16 +372,22 @@ func (r *router) createContainers() error {
 		chain string
 		table string
 	}{
-		{chainRTFWD, tableFilter},
+		{chainRTFWDIN, tableFilter},
+		{chainRTFWDOUT, tableFilter},
 		{chainRTPRE, tableMangle},
 		{chainRTNAT, tableNat},
+		{chainRTRDR, tableNat},
 	} {
-		if err := r.createAndSetupChain(chainInfo.chain); err != nil {
+		if err := r.iptablesClient.NewChain(chainInfo.table, chainInfo.chain); err != nil {
 			return fmt.Errorf("create chain %s in table %s: %w", chainInfo.chain, chainInfo.table, err)
 		}
 	}
 
-	if err := r.insertEstablishedRule(chainRTFWD); err != nil {
+	if err := r.insertEstablishedRule(chainRTFWDIN); err != nil {
+		return fmt.Errorf("insert established rule: %w", err)
+	}
+
+	if err := r.insertEstablishedRule(chainRTFWDOUT); err != nil {
 		return fmt.Errorf("insert established rule: %w", err)
 	}
 
@@ -406,27 +428,6 @@ func (r *router) addPostroutingRules() error {
 	return nil
 }
 
-func (r *router) createAndSetupChain(chain string) error {
-	table := r.getTableForChain(chain)
-
-	if err := r.iptablesClient.NewChain(table, chain); err != nil {
-		return fmt.Errorf("failed creating chain %s, error: %v", chain, err)
-	}
-
-	return nil
-}
-
-func (r *router) getTableForChain(chain string) string {
-	switch chain {
-	case chainRTNAT:
-		return tableNat
-	case chainRTPRE:
-		return tableMangle
-	default:
-		return tableFilter
-	}
-}
-
 func (r *router) insertEstablishedRule(chain string) error {
 	establishedRule := getConntrackEstablished()
 
@@ -445,28 +446,43 @@ func (r *router) addJumpRules() error {
 	// Jump to NAT chain
 	natRule := []string{"-j", chainRTNAT}
 	if err := r.iptablesClient.Insert(tableNat, chainPOSTROUTING, 1, natRule...); err != nil {
-		return fmt.Errorf("add nat jump rule: %v", err)
+		return fmt.Errorf("add nat postrouting jump rule: %v", err)
 	}
-	r.rules[jumpNat] = natRule
+	r.rules[jumpNatPost] = natRule
 
-	// Jump to prerouting chain
+	// Jump to mangle prerouting chain
 	preRule := []string{"-j", chainRTPRE}
 	if err := r.iptablesClient.Insert(tableMangle, chainPREROUTING, 1, preRule...); err != nil {
-		return fmt.Errorf("add prerouting jump rule: %v", err)
+		return fmt.Errorf("add mangle prerouting jump rule: %v", err)
 	}
-	r.rules[jumpPre] = preRule
+	r.rules[jumpManglePre] = preRule
+
+	// Jump to nat prerouting chain
+	rdrRule := []string{"-j", chainRTRDR}
+	if err := r.iptablesClient.Insert(tableNat, chainPREROUTING, 1, rdrRule...); err != nil {
+		return fmt.Errorf("add nat prerouting jump rule: %v", err)
+	}
+	r.rules[jumpNatPre] = rdrRule
 
 	return nil
 }
 
 func (r *router) cleanJumpRules() error {
-	for _, ruleKey := range []string{jumpNat, jumpPre} {
+	for _, ruleKey := range []string{jumpNatPost, jumpManglePre, jumpNatPre} {
 		if rule, exists := r.rules[ruleKey]; exists {
-			table := tableNat
-			chain := chainPOSTROUTING
-			if ruleKey == jumpPre {
+			var table, chain string
+			switch ruleKey {
+			case jumpNatPost:
+				table = tableNat
+				chain = chainPOSTROUTING
+			case jumpManglePre:
 				table = tableMangle
 				chain = chainPREROUTING
+			case jumpNatPre:
+				table = tableNat
+				chain = chainPREROUTING
+			default:
+				return fmt.Errorf("unknown jump rule: %s", ruleKey)
 			}
 
 			if err := r.iptablesClient.DeleteIfExists(table, chain, rule...); err != nil {
@@ -511,6 +527,8 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	}
 
 	r.rules[ruleKey] = rule
+
+	r.updateState()
 	return nil
 }
 
@@ -526,6 +544,7 @@ func (r *router) removeNatRule(pair firewall.RouterPair) error {
 		log.Debugf("marking rule %s not found", ruleKey)
 	}
 
+	r.updateState()
 	return nil
 }
 
@@ -553,6 +572,129 @@ func (r *router) updateState() {
 	if err := r.stateManager.UpdateState(currentState); err != nil {
 		log.Errorf("failed to update state: %v", err)
 	}
+}
+
+func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	ruleKey := rule.ID()
+	if _, exists := r.rules[ruleKey+dnatSuffix]; exists {
+		return rule, nil
+	}
+
+	toDestination := rule.TranslatedAddress.String()
+	switch {
+	case len(rule.TranslatedPort.Values) == 0:
+		// no translated port, use original port
+	case rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2:
+		// need the "/originalport" suffix to avoid dnat port randomization
+		toDestination += fmt.Sprintf(":%d-%d/%d", rule.TranslatedPort.Values[0], rule.TranslatedPort.Values[1], rule.DestinationPort.Values[0])
+	case len(rule.TranslatedPort.Values) == 1:
+		toDestination += fmt.Sprintf(":%d", rule.TranslatedPort.Values[0])
+	default:
+		return nil, fmt.Errorf("invalid translated port: %v", rule.TranslatedPort)
+	}
+
+	proto := strings.ToLower(string(rule.Protocol))
+
+	rules := make(map[string]ruleInfo, 3)
+
+	// DNAT rule
+	dnatRule := []string{
+		"!", "-i", r.wgIface.Name(),
+		"-p", proto,
+		"-j", "DNAT",
+		"--to-destination", toDestination,
+	}
+	dnatRule = append(dnatRule, applyPort("--dport", &rule.DestinationPort)...)
+	rules[ruleKey+dnatSuffix] = ruleInfo{
+		table: tableNat,
+		chain: chainRTRDR,
+		rule:  dnatRule,
+	}
+
+	// SNAT rule
+	snatRule := []string{
+		"-o", r.wgIface.Name(),
+		"-p", proto,
+		"-d", rule.TranslatedAddress.String(),
+		"-j", "MASQUERADE",
+	}
+	snatRule = append(snatRule, applyPort("--dport", &rule.TranslatedPort)...)
+	rules[ruleKey+snatSuffix] = ruleInfo{
+		table: tableNat,
+		chain: chainRTNAT,
+		rule:  snatRule,
+	}
+
+	// Forward filtering rule, if fwd policy is DROP
+	forwardRule := []string{
+		"-o", r.wgIface.Name(),
+		"-p", proto,
+		"-d", rule.TranslatedAddress.String(),
+		"-j", "ACCEPT",
+	}
+	forwardRule = append(forwardRule, applyPort("--dport", &rule.TranslatedPort)...)
+	rules[ruleKey+fwdSuffix] = ruleInfo{
+		table: tableFilter,
+		chain: chainRTFWDOUT,
+		rule:  forwardRule,
+	}
+
+	for key, ruleInfo := range rules {
+		if err := r.iptablesClient.Append(ruleInfo.table, ruleInfo.chain, ruleInfo.rule...); err != nil {
+			if rollbackErr := r.rollbackRules(rules); rollbackErr != nil {
+				log.Errorf("rollback failed: %v", rollbackErr)
+			}
+			return nil, fmt.Errorf("add rule %s: %w", key, err)
+		}
+		r.rules[key] = ruleInfo.rule
+	}
+
+	r.updateState()
+	return rule, nil
+}
+
+func (r *router) rollbackRules(rules map[string]ruleInfo) error {
+	var merr *multierror.Error
+	for key, ruleInfo := range rules {
+		if err := r.iptablesClient.DeleteIfExists(ruleInfo.table, ruleInfo.chain, ruleInfo.rule...); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("rollback rule %s: %w", key, err))
+			// On rollback error, add to rules map for next cleanup
+			r.rules[key] = ruleInfo.rule
+		}
+	}
+	if merr != nil {
+		r.updateState()
+	}
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *router) DeleteDNATRule(rule firewall.Rule) error {
+	ruleKey := rule.ID()
+
+	var merr *multierror.Error
+	if dnatRule, exists := r.rules[ruleKey+dnatSuffix]; exists {
+		if err := r.iptablesClient.Delete(tableNat, chainRTRDR, dnatRule...); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete DNAT rule: %w", err))
+		}
+		delete(r.rules, ruleKey+dnatSuffix)
+	}
+
+	if snatRule, exists := r.rules[ruleKey+snatSuffix]; exists {
+		if err := r.iptablesClient.Delete(tableNat, chainRTNAT, snatRule...); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete SNAT rule: %w", err))
+		}
+		delete(r.rules, ruleKey+snatSuffix)
+	}
+
+	if fwdRule, exists := r.rules[ruleKey+fwdSuffix]; exists {
+		if err := r.iptablesClient.Delete(tableFilter, chainRTFWDIN, fwdRule...); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete forward rule: %w", err))
+		}
+		delete(r.rules, ruleKey+fwdSuffix)
+	}
+
+	r.updateState()
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {

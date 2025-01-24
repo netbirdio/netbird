@@ -1,6 +1,7 @@
 package uspfilter
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -25,7 +26,8 @@ const layerTypeAll = 0
 const EnvDisableConntrack = "NB_DISABLE_CONNTRACK"
 
 var (
-	errRouteNotSupported = fmt.Errorf("route not supported with userspace firewall")
+	errRouteNotSupported = errors.New("route not supported with userspace firewall")
+	errNatNotSupported   = errors.New("nat not supported with userspace firewall")
 )
 
 // IFaceMapper defines subset methods of interface required for manager
@@ -250,12 +252,18 @@ func (m *Manager) Flush() error { return nil }
 
 // AddDNATRule adds a DNAT rule
 func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	return nil, fmt.Errorf("not implemented")
+	if m.nativeFirewall == nil {
+		return nil, errNatNotSupported
+	}
+	return m.nativeFirewall.AddDNATRule(rule)
 }
 
 // DeleteDNATRule deletes a DNAT rule
 func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
-	return nil
+	if m.nativeFirewall == nil {
+		return errNatNotSupported
+	}
+	return m.nativeFirewall.DeleteDNATRule(rule)
 }
 
 // DropOutgoing filter outgoing packets

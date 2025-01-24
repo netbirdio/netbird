@@ -52,7 +52,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		return nil, fmt.Errorf("create router: %w", err)
 	}
 
-	m.aclMgr, err = newAclManager(iptablesClient, wgIface, chainRTFWD)
+	m.aclMgr, err = newAclManager(iptablesClient, wgIface)
 	if err != nil {
 		return nil, fmt.Errorf("create acl manager: %w", err)
 	}
@@ -213,13 +213,20 @@ func (m *Manager) AllowNetbird() error {
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
+// AddDNATRule adds a DNAT rule
 func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	return nil, fmt.Errorf("not implemented")
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddDNATRule(rule)
 }
 
 // DeleteDNATRule deletes a DNAT rule
 func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
-	return nil
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.DeleteDNATRule(rule)
 }
 
 func getConntrackEstablished() []string {
