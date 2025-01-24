@@ -1766,8 +1766,8 @@ components:
           enum: [ "tcp", "udp" ]
           example: tcp
       required:
-        - start
-        - end
+        - translated_start
+        - translated_end
         - ingress_start
         - ingress_end
         - protocol

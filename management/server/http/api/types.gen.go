@@ -1200,10 +1200,10 @@ type ProxyConfigurationPortMapping struct {
 	Protocol ProxyConfigurationPortMappingProtocol `json:"protocol"`
 
 	// TranslatedEnd The ending port of the translated range of forwarded ports
-	TranslatedEnd *int `json:"translated_end,omitempty"`
+	TranslatedEnd int `json:"translated_end"`
 
 	// TranslatedStart The starting port of the translated range of forwarded ports
-	TranslatedStart *int `json:"translated_start,omitempty"`
+	TranslatedStart int `json:"translated_start"`
 }
 
 // ProxyConfigurationPortMappingProtocol Protocol accepted by the ports
