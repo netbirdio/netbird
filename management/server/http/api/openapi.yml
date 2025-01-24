@@ -1740,7 +1740,7 @@ components:
         - region
         - enabled
         - ingress_ip
-        - port_ranges
+        - port_range_mappings
     ProxyConfigurationPortMapping:
       type: object
       properties:

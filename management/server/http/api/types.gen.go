@@ -1179,7 +1179,7 @@ type ProxyConfiguration struct {
 	Name string `json:"name"`
 
 	// PortRangeMappings List of port ranges that are allowed to be used by the proxy
-	PortRangeMappings *[]ProxyConfigurationPortMapping `json:"port_range_mappings,omitempty"`
+	PortRangeMappings []ProxyConfigurationPortMapping `json:"port_range_mappings"`
 
 	// ProxyId ID of the proxy that forwards the ports
 	ProxyId string `json:"proxy_id"`
