@@ -22,32 +22,50 @@ type GRPCMetrics struct {
 
 // NewGRPCMetrics creates new GRPCMetrics struct and registers common metrics of the gRPC server
 func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, error) {
-	syncRequestsCounter, err := meter.Int64Counter("management.grpc.sync.request.counter", metric.WithUnit("1"))
+	syncRequestsCounter, err := meter.Int64Counter("management.grpc.sync.request.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of sync gRPC requests from the peers to establish a connection and receive network map updates (update channel)"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	loginRequestsCounter, err := meter.Int64Counter("management.grpc.login.request.counter", metric.WithUnit("1"))
+	loginRequestsCounter, err := meter.Int64Counter("management.grpc.login.request.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of login gRPC requests from the peers to authenticate and receive initial configuration and relay credentials"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	getKeyRequestsCounter, err := meter.Int64Counter("management.grpc.key.request.counter", metric.WithUnit("1"))
+	getKeyRequestsCounter, err := meter.Int64Counter("management.grpc.key.request.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of key gRPC requests from the peers to get the server's public WireGuard key"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	activeStreamsGauge, err := meter.Int64ObservableGauge("management.grpc.connected.streams", metric.WithUnit("1"))
+	activeStreamsGauge, err := meter.Int64ObservableGauge("management.grpc.connected.streams",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of active peer streams connected to the gRPC server"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	syncRequestDuration, err := meter.Int64Histogram("management.grpc.sync.request.duration.ms", metric.WithUnit("milliseconds"))
+	syncRequestDuration, err := meter.Int64Histogram("management.grpc.sync.request.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of the sync gRPC requests from the peers to establish a connection and receive network map updates (update channel)"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	loginRequestDuration, err := meter.Int64Histogram("management.grpc.login.request.duration.ms", metric.WithUnit("milliseconds"))
+	loginRequestDuration, err := meter.Int64Histogram("management.grpc.login.request.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of the login gRPC requests from the peers to authenticate and receive initial configuration and relay credentials"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +75,7 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 	// TODO(yury): This needs custom bucketing as we are interested in the values from 0 to server.channelBufferSize (100)
 	channelQueue, err := meter.Int64Histogram(
 		"management.grpc.updatechannel.queue",
-		metric.WithDescription("Number of update messages in the channel queue"),
+		metric.WithDescription("Number of update messages piling up in the update channel queue"),
 		metric.WithUnit("length"),
 	)
 	if err != nil {
