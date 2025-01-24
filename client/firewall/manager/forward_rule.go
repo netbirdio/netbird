@@ -2,14 +2,14 @@ package manager
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 )
 
 // ForwardRule todo figure out better place to this to avoid circular imports
 type ForwardRule struct {
 	Protocol          Protocol
 	DestinationPort   Port
-	TranslatedAddress net.IP
+	TranslatedAddress netip.Addr
 	TranslatedPort    Port
 }
 
