@@ -1744,12 +1744,12 @@ components:
     ProxyConfigurationPortMapping:
       type: object
       properties:
-        start:
-          description: The starting port of the range of forwarded ports
+        translated_start:
+          description: The starting port of the translated range of forwarded ports
           type: integer
           example: 80
-        end:
-          description: The ending port of the range of forwarded ports
+        translated_end:
+          description: The ending port of the translated range of forwarded ports
           type: integer
           example: 320
         ingress_start:
