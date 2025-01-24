@@ -40,7 +40,7 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 
 	getKeyRequestsCounter, err := meter.Int64Counter("management.grpc.key.request.counter",
 		metric.WithUnit("1"),
-		metric.WithDescription("Number of key gRPC requests from the peers o get the servers public WireGuard key"),
+		metric.WithDescription("Number of key gRPC requests from the peers to get the server's public WireGuard key"),
 	)
 	if err != nil {
 		return nil, err
