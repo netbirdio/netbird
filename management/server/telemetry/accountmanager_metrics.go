@@ -43,7 +43,7 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		metric.WithExplicitBucketBoundaries(
 			50, 100, 200, 500, 1000, 2500, 5000, 10000,
 		),
-		metric.WithDescription("Number of objects in the network map like peers, routes, firewall rules, etc. that are send to the clients"))
+		metric.WithDescription("Number of objects in the network map like peers, routes, firewall rules, etc. that are sent to the clients"))
 	if err != nil {
 		return nil, err
 	}
