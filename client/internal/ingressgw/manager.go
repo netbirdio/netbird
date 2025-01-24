@@ -40,6 +40,7 @@ func (h *Manager) Update(forwardRules []firewallManager.ForwardRule) error {
 		rule, err := h.firewallManager.AddDNATRule(rule)
 		if err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("failed to add forward rule '%s': %v", rule, err))
+			continue
 		}
 		h.fwRules[id] = rule
 	}
