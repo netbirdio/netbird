@@ -33,7 +33,7 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		metric.WithExplicitBucketBoundaries(
 			0.1, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000,
 		),
-		metric.WithDescription("Duration of calculating the peer network map that is send to the clients"))
+		metric.WithDescription("Duration of calculating the peer network map that is sent to the clients"))
 	if err != nil {
 		return nil, err
 	}
