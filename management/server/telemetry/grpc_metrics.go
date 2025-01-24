@@ -56,7 +56,7 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 
 	syncRequestDuration, err := meter.Int64Histogram("management.grpc.sync.request.duration.ms",
 		metric.WithUnit("milliseconds"),
-		metric.WithDescription("Duration of the sync gRPC requests from the peers to establish a connection an receive network map updates (update channel)"),
+		metric.WithDescription("Duration of the sync gRPC requests from the peers to establish a connection and receive network map updates (update channel)"),
 	)
 	if err != nil {
 		return nil, err
