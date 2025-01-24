@@ -14,11 +14,11 @@ type ForwardRule struct {
 }
 
 func (r ForwardRule) GetRuleID() string {
-	return fmt.Sprintf("%s-%s-%s-%s",
+	return fmt.Sprintf("%s;%s;%s;%s",
 		r.Protocol,
-		r.DestinationPort,
+		r.DestinationPort.String(),
 		r.TranslatedAddress.String(),
-		r.TranslatedPort)
+		r.TranslatedPort.String())
 }
 
 func (r ForwardRule) String() string {
