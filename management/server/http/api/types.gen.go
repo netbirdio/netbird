@@ -1190,9 +1190,6 @@ type ProxyConfiguration struct {
 
 // ProxyConfigurationPortMapping defines model for ProxyConfigurationPortMapping.
 type ProxyConfigurationPortMapping struct {
-	// End The ending port of the range of forwarded ports
-	End int `json:"end"`
-
 	// IngressEnd The ending port of the range of ingress ports mapped to the forwarded ports
 	IngressEnd int `json:"ingress_end"`
 
@@ -1202,8 +1199,11 @@ type ProxyConfigurationPortMapping struct {
 	// Protocol Protocol accepted by the ports
 	Protocol ProxyConfigurationPortMappingProtocol `json:"protocol"`
 
-	// Start The starting port of the range of forwarded ports
-	Start int `json:"start"`
+	// TranslatedEnd The ending port of the translated range of forwarded ports
+	TranslatedEnd *int `json:"translated_end,omitempty"`
+
+	// TranslatedStart The starting port of the translated range of forwarded ports
+	TranslatedStart *int `json:"translated_start,omitempty"`
 }
 
 // ProxyConfigurationPortMappingProtocol Protocol accepted by the ports
