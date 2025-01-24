@@ -989,7 +989,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return peer, emptyMap, nil, nil
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
