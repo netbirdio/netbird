@@ -25,7 +25,7 @@ type IDPMetrics struct {
 func NewIDPMetrics(ctx context.Context, meter metric.Meter) (*IDPMetrics, error) {
 	metaUpdateCounter, err := meter.Int64Counter("management.idp.update.user.meta.counter",
 		metric.WithUnit("1"),
-		metric.WithDescription("Number of updates of user metadata send to the configured identity provider"),
+		metric.WithDescription("Number of updates of user metadata sent to the configured identity provider"),
 	)
 	if err != nil {
 		return nil, err
