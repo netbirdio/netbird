@@ -10,7 +10,7 @@ import (
 	"github.com/nadoo/ipset"
 	log "github.com/sirupsen/logrus"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -80,12 +80,12 @@ func (m *aclManager) init(stateManager *statemanager.Manager) error {
 
 func (m *aclManager) AddPeerFiltering(
 	ip net.IP,
-	protocol firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	action firewall.Action,
+	protocol types.Protocol,
+	sPort *types.Port,
+	dPort *types.Port,
+	action types.Action,
 	ipsetName string,
-) ([]firewall.Rule, error) {
+) ([]types.Rule, error) {
 	var dPortVal, sPortVal string
 	if dPort != nil && dPort.Values != nil {
 		// TODO: we support only one port per rule in current implementation of ACLs
@@ -107,7 +107,7 @@ func (m *aclManager) AddPeerFiltering(
 			// if ruleset already exists it means we already have the firewall rule
 			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
 			ipList.addIP(ip.String())
-			return []firewall.Rule{&Rule{
+			return []types.Rule{&Rule{
 				ruleID:    uuid.New().String(),
 				ipsetName: ipsetName,
 				ip:        ip.String(),
@@ -152,11 +152,11 @@ func (m *aclManager) AddPeerFiltering(
 
 	m.updateState()
 
-	return []firewall.Rule{rule}, nil
+	return []types.Rule{rule}, nil
 }
 
 // DeletePeerRule from the firewall by rule definition
-func (m *aclManager) DeletePeerRule(rule firewall.Rule) error {
+func (m *aclManager) DeletePeerRule(rule types.Rule) error {
 	r, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("invalid rule type")
@@ -354,7 +354,7 @@ func (m *aclManager) updateState() {
 }
 
 // filterRuleSpecs returns the specs of a filtering rule
-func filterRuleSpecs(ip net.IP, protocol, sPort, dPort string, action firewall.Action, ipsetName string) (specs []string) {
+func filterRuleSpecs(ip net.IP, protocol, sPort, dPort string, action types.Action, ipsetName string) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
 	if ip.String() == "0.0.0.0" {
@@ -380,8 +380,8 @@ func filterRuleSpecs(ip net.IP, protocol, sPort, dPort string, action firewall.A
 	return append(specs, "-j", actionToStr(action))
 }
 
-func actionToStr(action firewall.Action) string {
-	if action == firewall.ActionAccept {
+func actionToStr(action types.Action) string {
+	if action == types.ActionAccept {
 		return "ACCEPT"
 	}
 	return "DROP"

@@ -1,7 +1,6 @@
-package manager
+package types
 
 // Protocol is the protocol of the port
-// todo Move Protocol and Port and RouterPair to the Firwall package or a separate package
 type Protocol string
 
 const (

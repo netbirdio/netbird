@@ -3,7 +3,7 @@ package test
 import (
 	"net/netip"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	firewall "github.com/netbirdio/netbird/client/firewall/types"
 )
 
 var (

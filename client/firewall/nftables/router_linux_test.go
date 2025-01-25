@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"net/netip"
 	"os/exec"
+	"reflect"
 	"testing"
 
 	"github.com/coreos/go-iptables/iptables"
@@ -15,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
+	"github.com/netbirdio/netbird/client/firewall/types"
 )
 
 const (
@@ -97,7 +98,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				testingExpression = append(testingExpression, sourceExp...)
 				testingExpression = append(testingExpression, destExp...)
 
-				natRuleKey := firewall.GenKey(firewall.PreroutingFormat, testCase.InputPair)
+				natRuleKey := types.GenRuleKey(types.PreroutingFormat, testCase.InputPair)
 				found := 0
 				for _, chain := range rtr.chains {
 					if chain.Name == chainNamePrerouting {
@@ -139,7 +140,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			require.NoError(t, err, "should add NAT rule")
 
 			// Verify the rule was added
-			natRuleKey := firewall.GenKey(firewall.PreroutingFormat, testCase.InputPair)
+			natRuleKey := types.GenRuleKey(types.PreroutingFormat, testCase.InputPair)
 			found := false
 			rules, err := rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNamePrerouting])
 			require.NoError(t, err, "should list rules")
@@ -209,22 +210,22 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 		name        string
 		sources     []netip.Prefix
 		destination netip.Prefix
-		proto       firewall.Protocol
-		sPort       *firewall.Port
-		dPort       *firewall.Port
-		direction   firewall.RuleDirection
-		action      firewall.Action
+		proto       types.Protocol
+		sPort       *types.Port
+		dPort       *types.Port
+		direction   types.RuleDirection
+		action      types.Action
 		expectSet   bool
 	}{
 		{
 			name:        "Basic TCP rule with single source",
 			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
 			destination: netip.MustParsePrefix("10.0.0.0/24"),
-			proto:       firewall.ProtocolTCP,
+			proto:       types.ProtocolTCP,
 			sPort:       nil,
-			dPort:       &firewall.Port{Values: []int{80}},
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionAccept,
+			dPort:       &types.Port{Values: []int{80}},
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
@@ -234,77 +235,77 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 				netip.MustParsePrefix("192.168.0.0/16"),
 			},
 			destination: netip.MustParsePrefix("10.0.0.0/8"),
-			proto:       firewall.ProtocolUDP,
-			sPort:       &firewall.Port{Values: []int{1024, 2048}, IsRange: true},
+			proto:       types.ProtocolUDP,
+			sPort:       &types.Port{Values: []int{1024, 2048}, IsRange: true},
 			dPort:       nil,
-			direction:   firewall.RuleDirectionOUT,
-			action:      firewall.ActionDrop,
+			direction:   types.RuleDirectionOUT,
+			action:      types.ActionDrop,
 			expectSet:   true,
 		},
 		{
 			name:        "All protocols rule",
 			sources:     []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 			destination: netip.MustParsePrefix("0.0.0.0/0"),
-			proto:       firewall.ProtocolALL,
+			proto:       types.ProtocolALL,
 			sPort:       nil,
 			dPort:       nil,
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionAccept,
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
 			name:        "ICMP rule",
 			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.0.0/16")},
 			destination: netip.MustParsePrefix("10.0.0.0/8"),
-			proto:       firewall.ProtocolICMP,
+			proto:       types.ProtocolICMP,
 			sPort:       nil,
 			dPort:       nil,
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionAccept,
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
 			name:        "TCP rule with multiple source ports",
 			sources:     []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")},
 			destination: netip.MustParsePrefix("192.168.0.0/16"),
-			proto:       firewall.ProtocolTCP,
-			sPort:       &firewall.Port{Values: []int{80, 443, 8080}},
+			proto:       types.ProtocolTCP,
+			sPort:       &types.Port{Values: []int{80, 443, 8080}},
 			dPort:       nil,
-			direction:   firewall.RuleDirectionOUT,
-			action:      firewall.ActionAccept,
+			direction:   types.RuleDirectionOUT,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
 			name:        "UDP rule with single IP and port range",
 			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.1.1/32")},
 			destination: netip.MustParsePrefix("10.0.0.0/24"),
-			proto:       firewall.ProtocolUDP,
+			proto:       types.ProtocolUDP,
 			sPort:       nil,
-			dPort:       &firewall.Port{Values: []int{5000, 5100}, IsRange: true},
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionDrop,
+			dPort:       &types.Port{Values: []int{5000, 5100}, IsRange: true},
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionDrop,
 			expectSet:   false,
 		},
 		{
 			name:        "TCP rule with source and destination ports",
 			sources:     []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")},
 			destination: netip.MustParsePrefix("172.16.0.0/16"),
-			proto:       firewall.ProtocolTCP,
-			sPort:       &firewall.Port{Values: []int{1024, 65535}, IsRange: true},
-			dPort:       &firewall.Port{Values: []int{22}},
-			direction:   firewall.RuleDirectionOUT,
-			action:      firewall.ActionAccept,
+			proto:       types.ProtocolTCP,
+			sPort:       &types.Port{Values: []int{1024, 65535}, IsRange: true},
+			dPort:       &types.Port{Values: []int{22}},
+			direction:   types.RuleDirectionOUT,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
 			name:        "Drop all incoming traffic",
 			sources:     []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 			destination: netip.MustParsePrefix("192.168.0.0/24"),
-			proto:       firewall.ProtocolALL,
+			proto:       types.ProtocolALL,
 			sPort:       nil,
 			dPort:       nil,
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionDrop,
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionDrop,
 			expectSet:   false,
 		},
 	}
@@ -441,7 +442,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			setName := firewall.GenerateSetName(tt.sources)
+			setName := types.GenerateSetName(tt.sources)
 			set, err := r.createIpSet(setName, tt.sources)
 			if err != nil {
 				t.Logf("Failed to create IP set: %v", err)
@@ -506,7 +507,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 	}
 }
 
-func verifyRule(t *testing.T, rule *nftables.Rule, sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, expectSet bool) {
+func verifyRule(t *testing.T, rule *nftables.Rule, sources []netip.Prefix, destination netip.Prefix, proto types.Protocol, sPort, dPort *types.Port, direction types.RuleDirection, action types.Action, expectSet bool) {
 	t.Helper()
 
 	assert.NotNil(t, rule, "Rule should not be nil")
@@ -515,21 +516,21 @@ func verifyRule(t *testing.T, rule *nftables.Rule, sources []netip.Prefix, desti
 	if expectSet {
 		assert.True(t, containsSetLookup(rule.Exprs), "Rule should contain set lookup for multiple sources")
 	} else if len(sources) == 1 && sources[0].Bits() != 0 {
-		if direction == firewall.RuleDirectionIN {
+		if direction == types.RuleDirectionIN {
 			assert.True(t, containsCIDRMatcher(rule.Exprs, sources[0], true), "Rule should contain source CIDR matcher for %s", sources[0])
 		} else {
 			assert.True(t, containsCIDRMatcher(rule.Exprs, sources[0], false), "Rule should contain destination CIDR matcher for %s", sources[0])
 		}
 	}
 
-	if direction == firewall.RuleDirectionIN {
+	if direction == types.RuleDirectionIN {
 		assert.True(t, containsCIDRMatcher(rule.Exprs, destination, false), "Rule should contain destination CIDR matcher for %s", destination)
 	} else {
 		assert.True(t, containsCIDRMatcher(rule.Exprs, destination, true), "Rule should contain source CIDR matcher for %s", destination)
 	}
 
 	// Verify protocol
-	if proto != firewall.ProtocolALL {
+	if proto != types.ProtocolALL {
 		assert.True(t, containsProtocol(rule.Exprs, proto), "Rule should contain protocol matcher for %s", proto)
 	}
 
@@ -582,7 +583,7 @@ func containsCIDRMatcher(exprs []expr.Any, prefix netip.Prefix, isSource bool) b
 	return (payloadFound && bitwiseFound && cmpFound) || prefix.Bits() == 0
 }
 
-func containsPort(exprs []expr.Any, port *firewall.Port, isSource bool) bool {
+func containsPort(exprs []expr.Any, port *types.Port, isSource bool) bool {
 	var offset uint32 = 2 // Default offset for destination port
 	if isSource {
 		offset = 0 // Offset for source port
@@ -619,7 +620,7 @@ func containsPort(exprs []expr.Any, port *firewall.Port, isSource bool) bool {
 	return false
 }
 
-func containsProtocol(exprs []expr.Any, proto firewall.Protocol) bool {
+func containsProtocol(exprs []expr.Any, proto types.Protocol) bool {
 	var metaFound, cmpFound bool
 	expectedProto, _ := protoToInt(proto)
 	for _, e := range exprs {
@@ -637,13 +638,13 @@ func containsProtocol(exprs []expr.Any, proto firewall.Protocol) bool {
 	return metaFound && cmpFound
 }
 
-func containsAction(exprs []expr.Any, action firewall.Action) bool {
+func containsAction(exprs []expr.Any, action types.Action) bool {
 	for _, e := range exprs {
 		if verdict, ok := e.(*expr.Verdict); ok {
 			switch action {
-			case firewall.ActionAccept:
+			case types.ActionAccept:
 				return verdict.Kind == expr.VerdictAccept
-			case firewall.ActionDrop:
+			case types.ActionDrop:
 				return verdict.Kind == expr.VerdictDrop
 			}
 		}
@@ -712,5 +713,123 @@ func deleteWorkTable() {
 		if t.Name == tableNameNetbird {
 			sConn.DelTable(t)
 		}
+	}
+}
+
+func TestMergeIPRanges(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []netip.Prefix
+		expected []netip.Prefix
+	}{
+		{
+			name:     "Empty input",
+			input:    []netip.Prefix{},
+			expected: []netip.Prefix{},
+		},
+		{
+			name: "Single range",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.0/24"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.0/24"),
+			},
+		},
+		{
+			name: "Two non-overlapping ranges",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.0/24"),
+				netip.MustParsePrefix("10.0.0.0/8"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.0/24"),
+				netip.MustParsePrefix("10.0.0.0/8"),
+			},
+		},
+		{
+			name: "One range containing another",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("192.168.0.0/16"),
+				netip.MustParsePrefix("192.168.1.0/24"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("192.168.0.0/16"),
+			},
+		},
+		{
+			name: "One range containing another (different order)",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.0/24"),
+				netip.MustParsePrefix("192.168.0.0/16"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("192.168.0.0/16"),
+			},
+		},
+		{
+			name: "Overlapping ranges",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.0/24"),
+				netip.MustParsePrefix("192.168.1.128/25"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.0/24"),
+			},
+		},
+		{
+			name: "Overlapping ranges (different order)",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.128/25"),
+				netip.MustParsePrefix("192.168.1.0/24"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.0/24"),
+			},
+		},
+		{
+			name: "Multiple overlapping ranges",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("192.168.0.0/16"),
+				netip.MustParsePrefix("192.168.1.0/24"),
+				netip.MustParsePrefix("192.168.2.0/24"),
+				netip.MustParsePrefix("192.168.1.128/25"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("192.168.0.0/16"),
+			},
+		},
+		{
+			name: "Partially overlapping ranges",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("192.168.0.0/23"),
+				netip.MustParsePrefix("192.168.1.0/24"),
+				netip.MustParsePrefix("192.168.2.0/25"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("192.168.0.0/23"),
+				netip.MustParsePrefix("192.168.2.0/25"),
+			},
+		},
+		{
+			name: "IPv6 ranges",
+			input: []netip.Prefix{
+				netip.MustParsePrefix("2001:db8::/32"),
+				netip.MustParsePrefix("2001:db8:1::/48"),
+				netip.MustParsePrefix("2001:db8:2::/48"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("2001:db8::/32"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mergeIPRanges(tt.input)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("MergeIPRanges() = %v, want %v", result, tt.expected)
+			}
+		})
 	}
 }

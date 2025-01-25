@@ -15,7 +15,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/ssh"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
@@ -30,17 +31,17 @@ type Manager interface {
 
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
-	firewall       firewall.Manager
+	firewall       _interface.Firewall
 	ipsetCounter   int
-	peerRulesPairs map[id.RuleID][]firewall.Rule
+	peerRulesPairs map[id.RuleID][]types.Rule
 	routeRules     map[id.RuleID]struct{}
 	mutex          sync.Mutex
 }
 
-func NewDefaultManager(fm firewall.Manager) *DefaultManager {
+func NewDefaultManager(fm _interface.Firewall) *DefaultManager {
 	return &DefaultManager{
 		firewall:       fm,
-		peerRulesPairs: make(map[id.RuleID][]firewall.Rule),
+		peerRulesPairs: make(map[id.RuleID][]types.Rule),
 		routeRules:     make(map[id.RuleID]struct{}),
 	}
 }
@@ -132,7 +133,7 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 		)
 	}
 
-	newRulePairs := make(map[id.RuleID][]firewall.Rule)
+	newRulePairs := make(map[id.RuleID][]types.Rule)
 	ipsetByRuleSelectors := make(map[string]string)
 
 	for _, r := range rules {
@@ -251,7 +252,7 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 func (d *DefaultManager) protoRuleToFirewallRule(
 	r *mgmProto.FirewallRule,
 	ipsetName string,
-) (id.RuleID, []firewall.Rule, error) {
+) (id.RuleID, []types.Rule, error) {
 	ip := net.ParseIP(r.PeerIP)
 	if ip == nil {
 		return "", nil, fmt.Errorf("invalid IP address, skipping firewall rule")
@@ -267,13 +268,13 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 		return "", nil, fmt.Errorf("skipping firewall rule: %s", err)
 	}
 
-	var port *firewall.Port
+	var port *types.Port
 	if r.Port != "" {
 		value, err := strconv.Atoi(r.Port)
 		if err != nil {
 			return "", nil, fmt.Errorf("invalid port, skipping firewall rule")
 		}
-		port = &firewall.Port{
+		port = &types.Port{
 			Values: []int{value},
 		}
 	}
@@ -283,7 +284,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 		return ruleID, rulesPair, nil
 	}
 
-	var rules []firewall.Rule
+	var rules []types.Rule
 	switch r.Direction {
 	case mgmProto.RuleDirection_IN:
 		rules, err = d.addInRules(ip, protocol, port, action, ipsetName, "")
@@ -304,12 +305,12 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 
 func (d *DefaultManager) addInRules(
 	ip net.IP,
-	protocol firewall.Protocol,
-	port *firewall.Port,
-	action firewall.Action,
+	protocol types.Protocol,
+	port *types.Port,
+	action types.Action,
 	ipsetName string,
 	comment string,
-) ([]firewall.Rule, error) {
+) ([]types.Rule, error) {
 	rule, err := d.firewall.AddPeerFiltering(ip, protocol, nil, port, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("add firewall rule: %w", err)
@@ -320,12 +321,12 @@ func (d *DefaultManager) addInRules(
 
 func (d *DefaultManager) addOutRules(
 	ip net.IP,
-	protocol firewall.Protocol,
-	port *firewall.Port,
-	action firewall.Action,
+	protocol types.Protocol,
+	port *types.Port,
+	action types.Action,
 	ipsetName string,
 	comment string,
-) ([]firewall.Rule, error) {
+) ([]types.Rule, error) {
 	if shouldSkipInvertedRule(protocol, port) {
 		return nil, nil
 	}
@@ -341,10 +342,10 @@ func (d *DefaultManager) addOutRules(
 // getPeerRuleID() returns unique ID for the rule based on its parameters.
 func (d *DefaultManager) getPeerRuleID(
 	ip net.IP,
-	proto firewall.Protocol,
+	proto types.Protocol,
 	direction int,
-	port *firewall.Port,
-	action firewall.Action,
+	port *types.Port,
+	action types.Action,
 	comment string,
 ) id.RuleID {
 	idStr := ip.String() + string(proto) + strconv.Itoa(direction) + strconv.Itoa(int(action)) + comment
@@ -491,7 +492,7 @@ func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) st
 	return fmt.Sprintf("%v:%v:%v:%s", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port)
 }
 
-func (d *DefaultManager) rollBack(newRulePairs map[id.RuleID][]firewall.Rule) {
+func (d *DefaultManager) rollBack(newRulePairs map[id.RuleID][]types.Rule) {
 	log.Debugf("rollback ACL to previous state")
 	for _, rules := range newRulePairs {
 		for _, rule := range rules {
@@ -502,49 +503,49 @@ func (d *DefaultManager) rollBack(newRulePairs map[id.RuleID][]firewall.Rule) {
 	}
 }
 
-func convertToFirewallProtocol(protocol mgmProto.RuleProtocol) (firewall.Protocol, error) {
+func convertToFirewallProtocol(protocol mgmProto.RuleProtocol) (types.Protocol, error) {
 	switch protocol {
 	case mgmProto.RuleProtocol_TCP:
-		return firewall.ProtocolTCP, nil
+		return types.ProtocolTCP, nil
 	case mgmProto.RuleProtocol_UDP:
-		return firewall.ProtocolUDP, nil
+		return types.ProtocolUDP, nil
 	case mgmProto.RuleProtocol_ICMP:
-		return firewall.ProtocolICMP, nil
+		return types.ProtocolICMP, nil
 	case mgmProto.RuleProtocol_ALL:
-		return firewall.ProtocolALL, nil
+		return types.ProtocolALL, nil
 	default:
-		return firewall.ProtocolALL, fmt.Errorf("invalid protocol type: %s", protocol.String())
+		return types.ProtocolALL, fmt.Errorf("invalid protocol type: %s", protocol.String())
 	}
 }
 
-func shouldSkipInvertedRule(protocol firewall.Protocol, port *firewall.Port) bool {
-	return protocol == firewall.ProtocolALL || protocol == firewall.ProtocolICMP || port == nil
+func shouldSkipInvertedRule(protocol types.Protocol, port *types.Port) bool {
+	return protocol == types.ProtocolALL || protocol == types.ProtocolICMP || port == nil
 }
 
-func convertFirewallAction(action mgmProto.RuleAction) (firewall.Action, error) {
+func convertFirewallAction(action mgmProto.RuleAction) (types.Action, error) {
 	switch action {
 	case mgmProto.RuleAction_ACCEPT:
-		return firewall.ActionAccept, nil
+		return types.ActionAccept, nil
 	case mgmProto.RuleAction_DROP:
-		return firewall.ActionDrop, nil
+		return types.ActionDrop, nil
 	default:
-		return firewall.ActionDrop, fmt.Errorf("invalid action type: %d", action)
+		return types.ActionDrop, fmt.Errorf("invalid action type: %d", action)
 	}
 }
 
-func convertPortInfo(portInfo *mgmProto.PortInfo) *firewall.Port {
+func convertPortInfo(portInfo *mgmProto.PortInfo) *types.Port {
 	if portInfo == nil {
 		return nil
 	}
 
 	if portInfo.GetPort() != 0 {
-		return &firewall.Port{
+		return &types.Port{
 			Values: []int{int(portInfo.GetPort())},
 		}
 	}
 
 	if portInfo.GetRange() != nil {
-		return &firewall.Port{
+		return &types.Port{
 			IsRange: true,
 			Values:  []int{int(portInfo.GetRange().Start), int(portInfo.GetRange().End)},
 		}

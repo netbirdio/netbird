@@ -13,7 +13,8 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	firewall "github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -46,7 +47,7 @@ type Manager struct {
 	wgNetwork      *net.IPNet
 	decoders       sync.Pool
 	wgIface        IFaceMapper
-	nativeFirewall firewall.Manager
+	nativeFirewall firewall.Firewall
 
 	mutex sync.RWMutex
 
@@ -74,7 +75,7 @@ func Create(iface IFaceMapper) (*Manager, error) {
 	return create(iface)
 }
 
-func CreateWithNativeFirewall(iface IFaceMapper, nativeFirewall firewall.Manager) (*Manager, error) {
+func CreateWithNativeFirewall(iface IFaceMapper, nativeFirewall firewall.Firewall) (*Manager, error) {
 	mgr, err := create(iface)
 	if err != nil {
 		return nil, err
@@ -134,7 +135,7 @@ func (m *Manager) IsServerRouteSupported() bool {
 	}
 }
 
-func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
+func (m *Manager) AddNatRule(pair types.RouterPair) error {
 	if m.nativeFirewall == nil {
 		return errRouteNotSupported
 	}
@@ -142,7 +143,7 @@ func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 }
 
 // RemoveNatRule removes a routing firewall rule
-func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
+func (m *Manager) RemoveNatRule(pair types.RouterPair) error {
 	if m.nativeFirewall == nil {
 		return errRouteNotSupported
 	}
@@ -155,19 +156,19 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 // rule ID as comment for the rule
 func (m *Manager) AddPeerFiltering(
 	ip net.IP,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	action firewall.Action,
+	proto types.Protocol,
+	sPort *types.Port,
+	dPort *types.Port,
+	action types.Action,
 	_ string,
 	comment string,
-) ([]firewall.Rule, error) {
+) ([]types.Rule, error) {
 	r := Rule{
 		id:        uuid.New().String(),
 		ip:        ip,
 		ipLayer:   layers.LayerTypeIPv6,
 		matchByIP: true,
-		drop:      action == firewall.ActionDrop,
+		drop:      action == types.ActionDrop,
 		comment:   comment,
 	}
 	if ipNormalized := ip.To4(); ipNormalized != nil {
@@ -188,16 +189,16 @@ func (m *Manager) AddPeerFiltering(
 	}
 
 	switch proto {
-	case firewall.ProtocolTCP:
+	case types.ProtocolTCP:
 		r.protoLayer = layers.LayerTypeTCP
-	case firewall.ProtocolUDP:
+	case types.ProtocolUDP:
 		r.protoLayer = layers.LayerTypeUDP
-	case firewall.ProtocolICMP:
+	case types.ProtocolICMP:
 		r.protoLayer = layers.LayerTypeICMPv4
 		if r.ipLayer == layers.LayerTypeIPv6 {
 			r.protoLayer = layers.LayerTypeICMPv6
 		}
-	case firewall.ProtocolALL:
+	case types.ProtocolALL:
 		r.protoLayer = layerTypeAll
 	}
 
@@ -207,17 +208,17 @@ func (m *Manager) AddPeerFiltering(
 	}
 	m.incomingRules[r.ip.String()][r.id] = r
 	m.mutex.Unlock()
-	return []firewall.Rule{&r}, nil
+	return []types.Rule{&r}, nil
 }
 
-func (m *Manager) AddRouteFiltering(sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action) (firewall.Rule, error) {
+func (m *Manager) AddRouteFiltering(sources []netip.Prefix, destination netip.Prefix, proto types.Protocol, sPort *types.Port, dPort *types.Port, action types.Action) (types.Rule, error) {
 	if m.nativeFirewall == nil {
 		return nil, errRouteNotSupported
 	}
 	return m.nativeFirewall.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
 }
 
-func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
+func (m *Manager) DeleteRouteRule(rule types.Rule) error {
 	if m.nativeFirewall == nil {
 		return errRouteNotSupported
 	}
@@ -225,7 +226,7 @@ func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
 }
 
 // DeletePeerRule from the firewall by rule definition
-func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
+func (m *Manager) DeletePeerRule(rule types.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -254,12 +255,12 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 func (m *Manager) Flush() error { return nil }
 
 // AddDNATRule adds a DNAT rule
-func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+func (m *Manager) AddDNATRule(rule types.ForwardRule) (types.Rule, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
 // DeleteDNATRule deletes a DNAT rule
-func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
+func (m *Manager) DeleteDNATRule(rule types.Rule) error {
 	return nil
 }
 

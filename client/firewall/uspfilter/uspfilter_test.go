@@ -11,7 +11,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
 
-	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -43,12 +43,12 @@ func TestManagerCreate(t *testing.T) {
 
 	m, err := Create(ifaceMock)
 	if err != nil {
-		t.Errorf("failed to create Manager: %v", err)
+		t.Errorf("failed to create Firewall: %v", err)
 		return
 	}
 
 	if m == nil {
-		t.Error("Manager is nil")
+		t.Error("Firewall is nil")
 	}
 }
 
@@ -63,14 +63,14 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 
 	m, err := Create(ifaceMock)
 	if err != nil {
-		t.Errorf("failed to create Manager: %v", err)
+		t.Errorf("failed to create Firewall: %v", err)
 		return
 	}
 
 	ip := net.ParseIP("192.168.1.1")
-	proto := fw.ProtocolTCP
-	port := &fw.Port{Values: []int{80}}
-	action := fw.ActionDrop
+	proto := types.ProtocolTCP
+	port := &types.Port{Values: []int{80}}
+	action := types.ActionDrop
 	comment := "Test rule"
 
 	rule, err := m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
@@ -97,14 +97,14 @@ func TestManagerDeleteRule(t *testing.T) {
 
 	m, err := Create(ifaceMock)
 	if err != nil {
-		t.Errorf("failed to create Manager: %v", err)
+		t.Errorf("failed to create Firewall: %v", err)
 		return
 	}
 
 	ip := net.ParseIP("192.168.1.1")
-	proto := fw.ProtocolTCP
-	port := &fw.Port{Values: []int{80}}
-	action := fw.ActionDrop
+	proto := types.ProtocolTCP
+	port := &types.Port{Values: []int{80}}
+	action := types.ActionDrop
 	comment := "Test rule 2"
 
 	rule2, err := m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
@@ -138,7 +138,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 	tests := []struct {
 		name       string
 		in         bool
-		expDir     fw.RuleDirection
+		expDir     types.RuleDirection
 		ip         net.IP
 		dPort      uint16
 		hook       func([]byte) bool
@@ -147,7 +147,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 		{
 			name:   "Test Outgoing UDP Packet Hook",
 			in:     false,
-			expDir: fw.RuleDirectionOUT,
+			expDir: types.RuleDirectionOUT,
 			ip:     net.IPv4(10, 168, 0, 1),
 			dPort:  8000,
 			hook:   func([]byte) bool { return true },
@@ -155,7 +155,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 		{
 			name:   "Test Incoming UDP Packet Hook",
 			in:     true,
-			expDir: fw.RuleDirectionIN,
+			expDir: types.RuleDirectionIN,
 			ip:     net.IPv6loopback,
 			dPort:  9000,
 			hook:   func([]byte) bool { return false },
@@ -217,14 +217,14 @@ func TestManagerReset(t *testing.T) {
 
 	m, err := Create(ifaceMock)
 	if err != nil {
-		t.Errorf("failed to create Manager: %v", err)
+		t.Errorf("failed to create Firewall: %v", err)
 		return
 	}
 
 	ip := net.ParseIP("192.168.1.1")
-	proto := fw.ProtocolTCP
-	port := &fw.Port{Values: []int{80}}
-	action := fw.ActionDrop
+	proto := types.ProtocolTCP
+	port := &types.Port{Values: []int{80}}
+	action := types.ActionDrop
 	comment := "Test rule"
 
 	_, err = m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
@@ -235,7 +235,7 @@ func TestManagerReset(t *testing.T) {
 
 	err = m.Reset(nil)
 	if err != nil {
-		t.Errorf("failed to reset Manager: %v", err)
+		t.Errorf("failed to reset Firewall: %v", err)
 		return
 	}
 
@@ -251,7 +251,7 @@ func TestNotMatchByIP(t *testing.T) {
 
 	m, err := Create(ifaceMock)
 	if err != nil {
-		t.Errorf("failed to create Manager: %v", err)
+		t.Errorf("failed to create Firewall: %v", err)
 		return
 	}
 	m.wgNetwork = &net.IPNet{
@@ -260,8 +260,8 @@ func TestNotMatchByIP(t *testing.T) {
 	}
 
 	ip := net.ParseIP("0.0.0.0")
-	proto := fw.ProtocolUDP
-	action := fw.ActionAccept
+	proto := types.ProtocolUDP
+	action := types.ActionAccept
 	comment := "Test rule"
 
 	_, err = m.AddPeerFiltering(ip, proto, nil, nil, action, "", comment)
@@ -304,7 +304,7 @@ func TestNotMatchByIP(t *testing.T) {
 	}
 
 	if err = m.Reset(nil); err != nil {
-		t.Errorf("failed to reset Manager: %v", err)
+		t.Errorf("failed to reset Firewall: %v", err)
 		return
 	}
 }
@@ -319,7 +319,7 @@ func TestRemovePacketHook(t *testing.T) {
 	// creating manager instance
 	manager, err := Create(iface)
 	if err != nil {
-		t.Fatalf("Failed to create Manager: %s", err)
+		t.Fatalf("Failed to create Firewall: %s", err)
 	}
 	defer func() {
 		require.NoError(t, manager.Reset(nil))
@@ -463,8 +463,8 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ip := net.ParseIP("10.20.0.100")
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
-				port := &fw.Port{Values: []int{1000 + i}}
-				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
+				port := &types.Port{Values: []int{1000 + i}}
+				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, types.ActionAccept, "", "accept HTTP traffic")
 
 				require.NoError(t, err, "failed to add rule")
 			}

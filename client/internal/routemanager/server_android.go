@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/interface"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/route"
@@ -22,6 +22,6 @@ func (r serverRouter) updateRoutes(map[route.ID]*route.Route) error {
 	return nil
 }
 
-func newServerRouter(context.Context, iface.IWGIface, firewall.Manager, *peer.Status) (*serverRouter, error) {
+func newServerRouter(context.Context, iface.IWGIface, _interface.Firewall, *peer.Status) (*serverRouter, error) {
 	return nil, fmt.Errorf("server route not supported on this os")
 }

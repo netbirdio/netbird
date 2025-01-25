@@ -3,7 +3,7 @@ package routemanager
 import (
 	"context"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/interface"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
@@ -78,7 +78,7 @@ func (m *MockManager) SetRouteChangeListener(listener listener.NetworkChangeList
 
 }
 
-func (m *MockManager) EnableServerRouter(firewall firewall.Manager) error {
+func (m *MockManager) EnableServerRouter(firewall _interface.Firewall) error {
 	panic("implement me")
 }
 

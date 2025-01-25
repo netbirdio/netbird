@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	firewall "github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/relay"

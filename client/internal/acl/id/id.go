@@ -7,7 +7,7 @@ import (
 	"net/netip"
 	"strconv"
 
-	"github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/types"
 )
 
 type RuleID string
@@ -19,12 +19,12 @@ func (r RuleID) GetRuleID() string {
 func GenerateRouteRuleKey(
 	sources []netip.Prefix,
 	destination netip.Prefix,
-	proto manager.Protocol,
-	sPort *manager.Port,
-	dPort *manager.Port,
-	action manager.Action,
+	proto types.Protocol,
+	sPort *types.Port,
+	dPort *types.Port,
+	action types.Action,
 ) RuleID {
-	manager.SortPrefixes(sources)
+	types.SortPrefixes(sources)
 
 	h := sha256.New()
 

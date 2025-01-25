@@ -13,7 +13,8 @@ import (
 	"github.com/google/nftables/expr"
 	log "github.com/sirupsen/logrus"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/legacy"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
@@ -114,13 +115,13 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 // rule ID as comment for the rule
 func (m *Manager) AddPeerFiltering(
 	ip net.IP,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	action firewall.Action,
+	proto types.Protocol,
+	sPort *types.Port,
+	dPort *types.Port,
+	action types.Action,
 	ipsetName string,
 	comment string,
-) ([]firewall.Rule, error) {
+) ([]types.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -135,11 +136,11 @@ func (m *Manager) AddPeerFiltering(
 func (m *Manager) AddRouteFiltering(
 	sources []netip.Prefix,
 	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	action firewall.Action,
-) (firewall.Rule, error) {
+	proto types.Protocol,
+	sPort *types.Port,
+	dPort *types.Port,
+	action types.Action,
+) (types.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -151,7 +152,7 @@ func (m *Manager) AddRouteFiltering(
 }
 
 // DeletePeerRule from the firewall by rule definition
-func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
+func (m *Manager) DeletePeerRule(rule types.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -159,7 +160,7 @@ func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
 }
 
 // DeleteRouteRule deletes a routing rule
-func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
+func (m *Manager) DeleteRouteRule(rule types.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -170,14 +171,14 @@ func (m *Manager) IsServerRouteSupported() bool {
 	return true
 }
 
-func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
+func (m *Manager) AddNatRule(pair types.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	return m.router.AddNatRule(pair)
 }
 
-func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
+func (m *Manager) RemoveNatRule(pair types.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -238,7 +239,7 @@ func (m *Manager) AllowNetbird() error {
 
 // SetLegacyManagement sets the route manager to use legacy management
 func (m *Manager) SetLegacyManagement(isLegacy bool) error {
-	return firewall.SetLegacyManagement(m.router, isLegacy)
+	return legacy.SetLegacyRouter(m.router, isLegacy)
 }
 
 // Reset firewall to the default state
@@ -330,7 +331,7 @@ func (m *Manager) Flush() error {
 }
 
 // AddDNATRule adds a DNAT rule
-func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+func (m *Manager) AddDNATRule(rule types.ForwardRule) (types.Rule, error) {
 	r := &Rule{
 		ruleID: rule.GetRuleID(),
 	}
@@ -338,7 +339,7 @@ func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) 
 }
 
 // DeleteDNATRule deletes a DNAT rule
-func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
+func (m *Manager) DeleteDNATRule(rule types.Rule) error {
 	return nil
 }
 

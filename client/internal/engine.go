@@ -25,7 +25,8 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
-	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -169,7 +170,7 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall          firewallManager.Manager
+	firewall          _interface.Firewall
 	routeManager      routemanager.Manager
 	acl               acl.Manager
 	dnsForwardMgr     *dnsfwd.Manager
@@ -504,15 +505,15 @@ func (e *Engine) initFirewall() error {
 	}
 
 	rosenpassPort := e.rpManager.GetAddress().Port
-	port := firewallManager.Port{Values: []int{rosenpassPort}}
+	port := types.Port{Values: []int{rosenpassPort}}
 
 	// this rule is static and will be torn down on engine down by the firewall manager
 	if _, err := e.firewall.AddPeerFiltering(
 		net.IP{0, 0, 0, 0},
-		firewallManager.ProtocolUDP,
+		types.ProtocolUDP,
 		nil,
 		&port,
-		firewallManager.ActionAccept,
+		types.ActionAccept,
 		"",
 		"",
 	); err != nil {
@@ -540,10 +541,10 @@ func (e *Engine) blockLanAccess() {
 		if _, err := e.firewall.AddRouteFiltering(
 			[]netip.Prefix{v4},
 			network,
-			firewallManager.ProtocolALL,
+			types.ProtocolALL,
 			nil,
 			nil,
-			firewallManager.ActionDrop,
+			types.ActionDrop,
 		); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add fw rule for network %s: %w", network, err))
 		}
@@ -1774,7 +1775,7 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 	}
 
 	var merr *multierror.Error
-	forwardingRules := make([]firewallManager.ForwardRule, 0, len(rules))
+	forwardingRules := make([]types.ForwardRule, 0, len(rules))
 	for _, rule := range rules {
 		proto, err := convertToFirewallProtocol(rule.GetProtocol())
 		if err != nil {
@@ -1800,7 +1801,7 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 			continue
 		}
 
-		forwardRule := firewallManager.ForwardRule{
+		forwardRule := types.ForwardRule{
 			Protocol:          proto,
 			DestinationPort:   *dstPortInfo,
 			TranslatedAddress: translateIP,

@@ -1,11 +1,10 @@
-package manager
+package types
 
 import (
 	"strconv"
 )
 
 // Port of the address for firewall rule
-// todo Move Protocol and Port and RouterPair to the Firwall package or a separate package
 type Port struct {
 	// IsRange is true Values contains two values, the first is the start port, the second is the end port
 	IsRange bool

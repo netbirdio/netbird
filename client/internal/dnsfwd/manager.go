@@ -9,7 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/types"
 )
 
 const (
@@ -19,13 +20,13 @@ const (
 )
 
 type Manager struct {
-	firewall firewall.Manager
+	firewall _interface.Firewall
 
-	fwRules      []firewall.Rule
+	fwRules      []types.Rule
 	dnsForwarder *DNSForwarder
 }
 
-func NewManager(fw firewall.Manager) *Manager {
+func NewManager(fw _interface.Firewall) *Manager {
 	return &Manager{
 		firewall: fw,
 	}
@@ -79,7 +80,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 }
 
 func (h *Manager) allowDNSFirewall() error {
-	dport := &firewall.Port{
+	dport := &types.Port{
 		IsRange: false,
 		Values:  []int{ListenPort},
 	}
@@ -88,7 +89,7 @@ func (h *Manager) allowDNSFirewall() error {
 		return nil
 	}
 
-	dnsRules, err := h.firewall.AddPeerFiltering(net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "", "")
+	dnsRules, err := h.firewall.AddPeerFiltering(net.IP{0, 0, 0, 0}, types.ProtocolUDP, nil, dport, types.ActionAccept, "", "")
 	if err != nil {
 		log.Errorf("failed to add allow DNS router rules, err: %v", err)
 		return err

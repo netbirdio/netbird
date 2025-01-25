@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -84,13 +84,13 @@ func (m *AclManager) init(workTable *nftables.Table) error {
 // rule ID as comment for the rule
 func (m *AclManager) AddPeerFiltering(
 	ip net.IP,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	action firewall.Action,
+	proto types.Protocol,
+	sPort *types.Port,
+	dPort *types.Port,
+	action types.Action,
 	ipsetName string,
 	comment string,
-) ([]firewall.Rule, error) {
+) ([]types.Rule, error) {
 	var ipset *nftables.Set
 	if ipsetName != "" {
 		var err error
@@ -100,7 +100,7 @@ func (m *AclManager) AddPeerFiltering(
 		}
 	}
 
-	newRules := make([]firewall.Rule, 0, 2)
+	newRules := make([]types.Rule, 0, 2)
 	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, action, ipset, comment)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (m *AclManager) AddPeerFiltering(
 }
 
 // DeletePeerRule from the firewall by rule definition
-func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
+func (m *AclManager) DeletePeerRule(rule types.Rule) error {
 	r, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("invalid rule type")
@@ -234,10 +234,10 @@ func (m *AclManager) Flush() error {
 
 func (m *AclManager) addIOFiltering(
 	ip net.IP,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	action firewall.Action,
+	proto types.Protocol,
+	sPort *types.Port,
+	dPort *types.Port,
+	action types.Action,
 	ipset *nftables.Set,
 	comment string,
 ) (*Rule, error) {
@@ -253,7 +253,7 @@ func (m *AclManager) addIOFiltering(
 
 	var expressions []expr.Any
 
-	if proto != firewall.ProtocolALL {
+	if proto != types.ProtocolALL {
 		expressions = append(expressions, &expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
@@ -341,9 +341,9 @@ func (m *AclManager) addIOFiltering(
 	}
 
 	switch action {
-	case firewall.ActionAccept:
+	case types.ActionAccept:
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictAccept})
-	case firewall.ActionDrop:
+	case types.ActionDrop:
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
@@ -672,7 +672,7 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
 	return nil
 }
 
-func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action, ipset *nftables.Set) string {
+func generatePeerRuleId(ip net.IP, sPort *types.Port, dPort *types.Port, action types.Action, ipset *nftables.Set) string {
 	rulesetID := ":"
 	if sPort != nil {
 		rulesetID += sPort.String()
@@ -689,7 +689,7 @@ func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, a
 	return "set:" + ipset.Name + rulesetID
 }
 
-func encodePort(port firewall.Port) []byte {
+func encodePort(port types.Port) []byte {
 	bs := make([]byte, 2)
 	binary.BigEndian.PutUint16(bs, uint16(port.Values[0]))
 	return bs
@@ -701,13 +701,13 @@ func ifname(n string) []byte {
 	return b
 }
 
-func protoToInt(protocol firewall.Protocol) (uint8, error) {
+func protoToInt(protocol types.Protocol) (uint8, error) {
 	switch protocol {
-	case firewall.ProtocolTCP:
+	case types.ProtocolTCP:
 		return unix.IPPROTO_TCP, nil
-	case firewall.ProtocolUDP:
+	case types.ProtocolUDP:
 		return unix.IPPROTO_UDP, nil
-	case firewall.ProtocolICMP:
+	case types.ProtocolICMP:
 		return unix.IPPROTO_ICMP, nil
 	}
 

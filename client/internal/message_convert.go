@@ -6,39 +6,39 @@ import (
 	"net"
 	"net/netip"
 
-	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
-func convertToFirewallProtocol(protocol mgmProto.RuleProtocol) (firewallManager.Protocol, error) {
+func convertToFirewallProtocol(protocol mgmProto.RuleProtocol) (types.Protocol, error) {
 	switch protocol {
 	case mgmProto.RuleProtocol_TCP:
-		return firewallManager.ProtocolTCP, nil
+		return types.ProtocolTCP, nil
 	case mgmProto.RuleProtocol_UDP:
-		return firewallManager.ProtocolUDP, nil
+		return types.ProtocolUDP, nil
 	case mgmProto.RuleProtocol_ICMP:
-		return firewallManager.ProtocolICMP, nil
+		return types.ProtocolICMP, nil
 	case mgmProto.RuleProtocol_ALL:
-		return firewallManager.ProtocolALL, nil
+		return types.ProtocolALL, nil
 	default:
-		return firewallManager.ProtocolALL, fmt.Errorf("invalid protocol type: %s", protocol.String())
+		return types.ProtocolALL, fmt.Errorf("invalid protocol type: %s", protocol.String())
 	}
 }
 
 // convertPortInfo todo: write validation for portInfo
-func convertPortInfo(portInfo *mgmProto.PortInfo) *firewallManager.Port {
+func convertPortInfo(portInfo *mgmProto.PortInfo) *types.Port {
 	if portInfo == nil {
 		return nil
 	}
 
 	if portInfo.GetPort() != 0 {
-		return &firewallManager.Port{
+		return &types.Port{
 			Values: []int{int(portInfo.GetPort())},
 		}
 	}
 
 	if portInfo.GetRange() != nil {
-		return &firewallManager.Port{
+		return &types.Port{
 			IsRange: true,
 			Values:  []int{int(portInfo.GetRange().Start), int(portInfo.GetRange().End)},
 		}

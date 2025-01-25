@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
-	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/iface"
 )
 
@@ -74,7 +74,7 @@ func TestNftablesManager(t *testing.T) {
 
 	testClient := &nftables.Conn{}
 
-	rule, err := manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []int{53}}, fw.ActionDrop, "", "")
+	rule, err := manager.AddPeerFiltering(ip, types.ProtocolTCP, nil, &types.Port{Values: []int{53}}, types.ActionDrop, "", "")
 	require.NoError(t, err, "failed to add rule")
 
 	err = manager.Flush()
@@ -200,8 +200,8 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			ip := net.ParseIP("10.20.0.100")
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
-				port := &fw.Port{Values: []int{1000 + i}}
-				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
+				port := &types.Port{Values: []int{1000 + i}}
+				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, types.ActionAccept, "", "accept HTTP traffic")
 				require.NoError(t, err, "failed to add rule")
 
 				if i%100 == 0 {
@@ -283,20 +283,20 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	})
 
 	ip := net.ParseIP("100.96.0.1")
-	_, err = manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []int{80}}, fw.ActionAccept, "", "test rule")
+	_, err = manager.AddPeerFiltering(ip, types.ProtocolTCP, nil, &types.Port{Values: []int{80}}, types.ActionAccept, "", "test rule")
 	require.NoError(t, err, "failed to add peer filtering rule")
 
 	_, err = manager.AddRouteFiltering(
 		[]netip.Prefix{netip.MustParsePrefix("192.168.2.0/24")},
 		netip.MustParsePrefix("10.1.0.0/24"),
-		fw.ProtocolTCP,
+		types.ProtocolTCP,
 		nil,
-		&fw.Port{Values: []int{443}},
-		fw.ActionAccept,
+		&types.Port{Values: []int{443}},
+		types.ActionAccept,
 	)
 	require.NoError(t, err, "failed to add route filtering rule")
 
-	pair := fw.RouterPair{
+	pair := types.RouterPair{
 		Source:      netip.MustParsePrefix("192.168.1.0/24"),
 		Destination: netip.MustParsePrefix("10.0.0.0/24"),
 		Masquerade:  true,

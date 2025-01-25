@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	firewall "github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/proto"
 )
 

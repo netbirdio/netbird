@@ -1,11 +1,10 @@
-package manager
+package types
 
 import (
 	"fmt"
 	"net/netip"
 )
 
-// ForwardRule todo figure out better place to this to avoid circular imports
 type ForwardRule struct {
 	Protocol          Protocol
 	DestinationPort   Port

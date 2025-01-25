@@ -10,7 +10,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
@@ -21,12 +22,12 @@ type serverRouter struct {
 	mux            sync.Mutex
 	ctx            context.Context
 	routes         map[route.ID]*route.Route
-	firewall       firewall.Manager
+	firewall       _interface.Firewall
 	wgInterface    iface.IWGIface
 	statusRecorder *peer.Status
 }
 
-func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall firewall.Manager, statusRecorder *peer.Status) (*serverRouter, error) {
+func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall _interface.Firewall, statusRecorder *peer.Status) (*serverRouter, error) {
 	return &serverRouter{
 		ctx:            ctx,
 		routes:         make(map[route.ID]*route.Route),
@@ -167,7 +168,7 @@ func (m *serverRouter) cleanUp() {
 	m.statusRecorder.UpdateLocalPeerState(state)
 }
 
-func routeToRouterPair(route *route.Route) (firewall.RouterPair, error) {
+func routeToRouterPair(route *route.Route) (types.RouterPair, error) {
 	// TODO: add ipv6
 	source := getDefaultPrefix(route.Network)
 
@@ -177,7 +178,7 @@ func routeToRouterPair(route *route.Route) (firewall.RouterPair, error) {
 		destination = getDefaultPrefix(destination)
 	}
 
-	return firewall.RouterPair{
+	return types.RouterPair{
 		ID:          route.ID,
 		Source:      source,
 		Destination: destination,

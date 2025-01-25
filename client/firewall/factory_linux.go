@@ -11,8 +11,8 @@ import (
 	"github.com/google/nftables"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/firewall/interface"
 	nbiptables "github.com/netbirdio/netbird/client/firewall/iptables"
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	nbnftables "github.com/netbirdio/netbird/client/firewall/nftables"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -33,7 +33,7 @@ const SKIP_NFTABLES_ENV = "NB_SKIP_NFTABLES_CHECK"
 // FWType is the type for the firewall type
 type FWType int
 
-func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (firewall.Manager, error) {
+func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (_interface.Firewall, error) {
 	// on the linux system we try to user nftables or iptables
 	// in any case, because we need to allow netbird interface traffic
 	// so we use AllowNetbird traffic from these firewall managers
@@ -50,7 +50,7 @@ func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (firewal
 	return createUserspaceFirewall(iface, fm)
 }
 
-func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (firewall.Manager, error) {
+func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager) (_interface.Firewall, error) {
 	fm, err := createFW(iface)
 	if err != nil {
 		return nil, fmt.Errorf("create firewall: %s", err)
@@ -63,7 +63,7 @@ func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager)
 	return fm, nil
 }
 
-func createFW(iface IFaceMapper) (firewall.Manager, error) {
+func createFW(iface IFaceMapper) (_interface.Firewall, error) {
 	switch check() {
 	case IPTABLES:
 		log.Info("creating an iptables firewall manager")
@@ -77,7 +77,7 @@ func createFW(iface IFaceMapper) (firewall.Manager, error) {
 	}
 }
 
-func createUserspaceFirewall(iface IFaceMapper, fm firewall.Manager) (firewall.Manager, error) {
+func createUserspaceFirewall(iface IFaceMapper, fm _interface.Firewall) (_interface.Firewall, error) {
 	var errUsp error
 	if fm != nil {
 		fm, errUsp = uspfilter.CreateWithNativeFirewall(iface, fm)

@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -54,7 +54,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableMangle, chainPREROUTING)
 	require.True(t, exists, "prerouting jump rule should exist")
 
-	pair := firewall.RouterPair{
+	pair := types.RouterPair{
 		ID:          "abc",
 		Source:      netip.MustParsePrefix("100.100.100.1/32"),
 		Destination: netip.MustParsePrefix("100.100.100.0/24"),
@@ -89,7 +89,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			err = manager.AddNatRule(testCase.InputPair)
 			require.NoError(t, err, "marking rule should be inserted")
 
-			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
+			natRuleKey := types.GenRuleKey(types.NatFormat, testCase.InputPair)
 			markingRule := []string{
 				"-i", ifaceMock.Name(),
 				"-m", "conntrack",
@@ -114,8 +114,8 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			}
 
 			// Check inverse rule
-			inversePair := firewall.GetInversePair(testCase.InputPair)
-			inverseRuleKey := firewall.GenKey(firewall.NatFormat, inversePair)
+			inversePair := types.GetInversePair(testCase.InputPair)
+			inverseRuleKey := types.GenRuleKey(types.NatFormat, inversePair)
 			inverseMarkingRule := []string{
 				"!", "-i", ifaceMock.Name(),
 				"-m", "conntrack",
@@ -164,7 +164,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 			err = manager.RemoveNatRule(testCase.InputPair)
 			require.NoError(t, err, "shouldn't return error")
 
-			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
+			natRuleKey := types.GenRuleKey(types.NatFormat, testCase.InputPair)
 			markingRule := []string{
 				"-i", ifaceMock.Name(),
 				"-m", "conntrack",
@@ -183,8 +183,8 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 			require.False(t, found, "marking rule should not exist in the manager map")
 
 			// Check inverse rule removal
-			inversePair := firewall.GetInversePair(testCase.InputPair)
-			inverseRuleKey := firewall.GenKey(firewall.NatFormat, inversePair)
+			inversePair := types.GetInversePair(testCase.InputPair)
+			inverseRuleKey := types.GenRuleKey(types.NatFormat, inversePair)
 			inverseMarkingRule := []string{
 				"!", "-i", ifaceMock.Name(),
 				"-m", "conntrack",
@@ -226,22 +226,22 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 		name        string
 		sources     []netip.Prefix
 		destination netip.Prefix
-		proto       firewall.Protocol
-		sPort       *firewall.Port
-		dPort       *firewall.Port
-		direction   firewall.RuleDirection
-		action      firewall.Action
+		proto       types.Protocol
+		sPort       *types.Port
+		dPort       *types.Port
+		direction   types.RuleDirection
+		action      types.Action
 		expectSet   bool
 	}{
 		{
 			name:        "Basic TCP rule with single source",
 			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
 			destination: netip.MustParsePrefix("10.0.0.0/24"),
-			proto:       firewall.ProtocolTCP,
+			proto:       types.ProtocolTCP,
 			sPort:       nil,
-			dPort:       &firewall.Port{Values: []int{80}},
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionAccept,
+			dPort:       &types.Port{Values: []int{80}},
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
@@ -251,77 +251,77 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 				netip.MustParsePrefix("192.168.0.0/16"),
 			},
 			destination: netip.MustParsePrefix("10.0.0.0/8"),
-			proto:       firewall.ProtocolUDP,
-			sPort:       &firewall.Port{Values: []int{1024, 2048}, IsRange: true},
+			proto:       types.ProtocolUDP,
+			sPort:       &types.Port{Values: []int{1024, 2048}, IsRange: true},
 			dPort:       nil,
-			direction:   firewall.RuleDirectionOUT,
-			action:      firewall.ActionDrop,
+			direction:   types.RuleDirectionOUT,
+			action:      types.ActionDrop,
 			expectSet:   true,
 		},
 		{
 			name:        "All protocols rule",
 			sources:     []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 			destination: netip.MustParsePrefix("0.0.0.0/0"),
-			proto:       firewall.ProtocolALL,
+			proto:       types.ProtocolALL,
 			sPort:       nil,
 			dPort:       nil,
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionAccept,
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
 			name:        "ICMP rule",
 			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.0.0/16")},
 			destination: netip.MustParsePrefix("10.0.0.0/8"),
-			proto:       firewall.ProtocolICMP,
+			proto:       types.ProtocolICMP,
 			sPort:       nil,
 			dPort:       nil,
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionAccept,
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
 			name:        "TCP rule with multiple source ports",
 			sources:     []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")},
 			destination: netip.MustParsePrefix("192.168.0.0/16"),
-			proto:       firewall.ProtocolTCP,
-			sPort:       &firewall.Port{Values: []int{80, 443, 8080}},
+			proto:       types.ProtocolTCP,
+			sPort:       &types.Port{Values: []int{80, 443, 8080}},
 			dPort:       nil,
-			direction:   firewall.RuleDirectionOUT,
-			action:      firewall.ActionAccept,
+			direction:   types.RuleDirectionOUT,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
 			name:        "UDP rule with single IP and port range",
 			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.1.1/32")},
 			destination: netip.MustParsePrefix("10.0.0.0/24"),
-			proto:       firewall.ProtocolUDP,
+			proto:       types.ProtocolUDP,
 			sPort:       nil,
-			dPort:       &firewall.Port{Values: []int{5000, 5100}, IsRange: true},
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionDrop,
+			dPort:       &types.Port{Values: []int{5000, 5100}, IsRange: true},
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionDrop,
 			expectSet:   false,
 		},
 		{
 			name:        "TCP rule with source and destination ports",
 			sources:     []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")},
 			destination: netip.MustParsePrefix("172.16.0.0/16"),
-			proto:       firewall.ProtocolTCP,
-			sPort:       &firewall.Port{Values: []int{1024, 65535}, IsRange: true},
-			dPort:       &firewall.Port{Values: []int{22}},
-			direction:   firewall.RuleDirectionOUT,
-			action:      firewall.ActionAccept,
+			proto:       types.ProtocolTCP,
+			sPort:       &types.Port{Values: []int{1024, 65535}, IsRange: true},
+			dPort:       &types.Port{Values: []int{22}},
+			direction:   types.RuleDirectionOUT,
+			action:      types.ActionAccept,
 			expectSet:   false,
 		},
 		{
 			name:        "Drop all incoming traffic",
 			sources:     []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 			destination: netip.MustParsePrefix("192.168.0.0/24"),
-			proto:       firewall.ProtocolALL,
+			proto:       types.ProtocolALL,
 			sPort:       nil,
 			dPort:       nil,
-			direction:   firewall.RuleDirectionIN,
-			action:      firewall.ActionDrop,
+			direction:   types.RuleDirectionIN,
+			action:      types.ActionDrop,
 			expectSet:   false,
 		},
 	}
@@ -357,7 +357,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			expectedRule := genRouteFilteringRuleSpec(params)
 
 			if tt.expectSet {
-				setName := firewall.GenerateSetName(tt.sources)
+				setName := types.GenerateSetName(tt.sources)
 				params.SetName = setName
 				expectedRule = genRouteFilteringRuleSpec(params)
 

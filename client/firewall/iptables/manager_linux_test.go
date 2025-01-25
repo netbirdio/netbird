@@ -9,7 +9,7 @@ import (
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/stretchr/testify/require"
 
-	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/iface"
 )
 
@@ -68,13 +68,13 @@ func TestIptablesManager(t *testing.T) {
 		time.Sleep(time.Second)
 	}()
 
-	var rule2 []fw.Rule
+	var rule2 []types.Rule
 	t.Run("add second rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.3")
-		port := &fw.Port{
+		port := &types.Port{
 			Values: []int{8043: 8046},
 		}
-		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, fw.ActionAccept, "", "accept HTTPS traffic from ports range")
+		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, types.ActionAccept, "", "accept HTTPS traffic from ports range")
 		require.NoError(t, err, "failed to add rule")
 
 		for _, r := range rule2 {
@@ -95,8 +95,8 @@ func TestIptablesManager(t *testing.T) {
 	t.Run("reset check", func(t *testing.T) {
 		// add second rule
 		ip := net.ParseIP("10.20.0.3")
-		port := &fw.Port{Values: []int{5353}}
-		_, err = manager.AddPeerFiltering(ip, "udp", nil, port, fw.ActionAccept, "", "accept Fake DNS traffic")
+		port := &types.Port{Values: []int{5353}}
+		_, err = manager.AddPeerFiltering(ip, "udp", nil, port, types.ActionAccept, "", "accept Fake DNS traffic")
 		require.NoError(t, err, "failed to add rule")
 
 		err = manager.Reset(nil)
@@ -141,13 +141,13 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		time.Sleep(time.Second)
 	}()
 
-	var rule2 []fw.Rule
+	var rule2 []types.Rule
 	t.Run("add second rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.3")
-		port := &fw.Port{
+		port := &types.Port{
 			Values: []int{443},
 		}
-		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, fw.ActionAccept, "default", "accept HTTPS traffic from ports range")
+		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, types.ActionAccept, "default", "accept HTTPS traffic from ports range")
 		for _, r := range rule2 {
 			require.NoError(t, err, "failed to add rule")
 			require.Equal(t, r.(*Rule).ipsetName, "default-sport", "ipset name must be set")
@@ -214,8 +214,8 @@ func TestIptablesCreatePerformance(t *testing.T) {
 			ip := net.ParseIP("10.20.0.100")
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
-				port := &fw.Port{Values: []int{1000 + i}}
-				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
+				port := &types.Port{Values: []int{1000 + i}}
+				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, types.ActionAccept, "", "accept HTTP traffic")
 
 				require.NoError(t, err, "failed to add rule")
 			}

@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -42,11 +42,11 @@ const (
 type routeFilteringRuleParams struct {
 	Sources     []netip.Prefix
 	Destination netip.Prefix
-	Proto       firewall.Protocol
-	SPort       *firewall.Port
-	DPort       *firewall.Port
-	Direction   firewall.RuleDirection
-	Action      firewall.Action
+	Proto       types.Protocol
+	SPort       *types.Port
+	DPort       *types.Port
+	Direction   types.RuleDirection
+	Action      types.Action
 	SetName     string
 }
 
@@ -106,11 +106,11 @@ func (r *router) init(stateManager *statemanager.Manager) error {
 func (r *router) AddRouteFiltering(
 	sources []netip.Prefix,
 	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	action firewall.Action,
-) (firewall.Rule, error) {
+	proto types.Protocol,
+	sPort *types.Port,
+	dPort *types.Port,
+	action types.Action,
+) (types.Rule, error) {
 	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
@@ -118,7 +118,7 @@ func (r *router) AddRouteFiltering(
 
 	var setName string
 	if len(sources) > 1 {
-		setName = firewall.GenerateSetName(sources)
+		setName = types.GenerateSetName(sources)
 		if _, err := r.ipsetCounter.Increment(setName, sources); err != nil {
 			return nil, fmt.Errorf("create or get ipset: %w", err)
 		}
@@ -146,7 +146,7 @@ func (r *router) AddRouteFiltering(
 	return ruleKey, nil
 }
 
-func (r *router) DeleteRouteRule(rule firewall.Rule) error {
+func (r *router) DeleteRouteRule(rule types.Rule) error {
 	ruleKey := rule.GetRuleID()
 
 	if rule, exists := r.rules[ruleKey]; exists {
@@ -202,7 +202,7 @@ func (r *router) deleteIpSet(setName string) error {
 }
 
 // AddNatRule inserts an iptables rule pair into the nat chain
-func (r *router) AddNatRule(pair firewall.RouterPair) error {
+func (r *router) AddNatRule(pair types.RouterPair) error {
 	if r.legacyManagement {
 		log.Warnf("This peer is connected to a NetBird Management service with an older version. Allowing all traffic for %s", pair.Destination)
 		if err := r.addLegacyRouteRule(pair); err != nil {
@@ -218,7 +218,7 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("add nat rule: %w", err)
 	}
 
-	if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
+	if err := r.addNatRule(types.GetInversePair(pair)); err != nil {
 		return fmt.Errorf("add inverse nat rule: %w", err)
 	}
 
@@ -228,12 +228,12 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 }
 
 // RemoveNatRule removes an iptables rule pair from forwarding and nat chains
-func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
+func (r *router) RemoveNatRule(pair types.RouterPair) error {
 	if err := r.removeNatRule(pair); err != nil {
 		return fmt.Errorf("remove nat rule: %w", err)
 	}
 
-	if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
+	if err := r.removeNatRule(types.GetInversePair(pair)); err != nil {
 		return fmt.Errorf("remove inverse nat rule: %w", err)
 	}
 
@@ -247,8 +247,8 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 }
 
 // addLegacyRouteRule adds a legacy routing rule for mgmt servers pre route acls
-func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
+func (r *router) addLegacyRouteRule(pair types.RouterPair) error {
+	ruleKey := types.GenRuleKey(types.ForwardingFormat, pair)
 
 	if err := r.removeLegacyRouteRule(pair); err != nil {
 		return err
@@ -264,8 +264,8 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
+func (r *router) removeLegacyRouteRule(pair types.RouterPair) error {
+	ruleKey := types.GenRuleKey(types.ForwardingFormat, pair)
 
 	if rule, exists := r.rules[ruleKey]; exists {
 		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWD, rule...); err != nil {
@@ -293,7 +293,7 @@ func (r *router) SetLegacyManagement(isLegacy bool) {
 func (r *router) RemoveAllLegacyRouteRules() error {
 	var merr *multierror.Error
 	for k, rule := range r.rules {
-		if !strings.HasPrefix(k, firewall.ForwardingFormatPrefix) {
+		if !strings.HasPrefix(k, types.ForwardingFormatPrefix) {
 			continue
 		}
 		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWD, rule...); err != nil {
@@ -478,8 +478,8 @@ func (r *router) cleanJumpRules() error {
 	return nil
 }
 
-func (r *router) addNatRule(pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
+func (r *router) addNatRule(pair types.RouterPair) error {
+	ruleKey := types.GenRuleKey(types.NatFormat, pair)
 
 	if rule, exists := r.rules[ruleKey]; exists {
 		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPRE, rule...); err != nil {
@@ -514,8 +514,8 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-func (r *router) removeNatRule(pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
+func (r *router) removeNatRule(pair types.RouterPair) error {
+	ruleKey := types.GenRuleKey(types.NatFormat, pair)
 
 	if rule, exists := r.rules[ruleKey]; exists {
 		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPRE, rule...); err != nil {
@@ -567,7 +567,7 @@ func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {
 
 	rule = append(rule, "-d", params.Destination.String())
 
-	if params.Proto != firewall.ProtocolALL {
+	if params.Proto != types.ProtocolALL {
 		rule = append(rule, "-p", strings.ToLower(string(params.Proto)))
 		rule = append(rule, applyPort("--sport", params.SPort)...)
 		rule = append(rule, applyPort("--dport", params.DPort)...)
@@ -578,7 +578,7 @@ func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {
 	return rule
 }
 
-func applyPort(flag string, port *firewall.Port) []string {
+func applyPort(flag string, port *types.Port) []string {
 	if port == nil {
 		return nil
 	}
