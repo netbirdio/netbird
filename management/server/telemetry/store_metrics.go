@@ -20,28 +20,41 @@ type StoreMetrics struct {
 // NewStoreMetrics creates an instance of StoreMetrics
 func NewStoreMetrics(ctx context.Context, meter metric.Meter) (*StoreMetrics, error) {
 	globalLockAcquisitionDurationMicro, err := meter.Int64Histogram("management.store.global.lock.acquisition.duration.micro",
-		metric.WithUnit("microseconds"))
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to acquire the global lock in the store to block all other requests to the store"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	globalLockAcquisitionDurationMs, err := meter.Int64Histogram("management.store.global.lock.acquisition.duration.ms")
+	globalLockAcquisitionDurationMs, err := meter.Int64Histogram("management.store.global.lock.acquisition.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of how long a process holds the acquired global lock in the store"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	persistenceDurationMicro, err := meter.Int64Histogram("management.store.persistence.duration.micro",
-		metric.WithUnit("microseconds"))
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to save or delete an account in the store"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	persistenceDurationMs, err := meter.Int64Histogram("management.store.persistence.duration.ms")
+	persistenceDurationMs, err := meter.Int64Histogram("management.store.persistence.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of how long it takes to save or delete an account in the store"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	transactionDurationMs, err := meter.Int64Histogram("management.store.transaction.duration.ms")
+	transactionDurationMs, err := meter.Int64Histogram("management.store.transaction.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of how long it takes to execute a transaction in the store"),
+	)
 	if err != nil {
 		return nil, err
 	}

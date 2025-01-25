@@ -105,17 +105,30 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 		MatchSubdomains: matchSubdomains,
 	}
 
-	// Insert handler in priority order
-	pos := 0
+	pos := c.findHandlerPosition(entry)
+	c.handlers = append(c.handlers[:pos], append([]HandlerEntry{entry}, c.handlers[pos:]...)...)
+}
+
+// findHandlerPosition determines where to insert a new handler based on priority and specificity
+func (c *HandlerChain) findHandlerPosition(newEntry HandlerEntry) int {
 	for i, h := range c.handlers {
-		if h.Priority < priority {
-			pos = i
-			break
+		// prio first
+		if h.Priority < newEntry.Priority {
+			return i
 		}
-		pos = i + 1
+
+		// domain specificity next
+		if h.Priority == newEntry.Priority {
+			newDots := strings.Count(newEntry.Pattern, ".")
+			existingDots := strings.Count(h.Pattern, ".")
+			if newDots > existingDots {
+				return i
+			}
+		}
 	}
 
-	c.handlers = append(c.handlers[:pos], append([]HandlerEntry{entry}, c.handlers[pos:]...)...)
+	// add at end
+	return len(c.handlers)
 }
 
 // RemoveHandler removes a handler for the given pattern and priority
