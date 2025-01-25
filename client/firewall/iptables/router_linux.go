@@ -584,11 +584,11 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 	switch {
 	case len(rule.TranslatedPort.Values) == 0:
 		// no translated port, use original port
+	case len(rule.TranslatedPort.Values) == 1:
+		toDestination += fmt.Sprintf(":%d", rule.TranslatedPort.Values[0])
 	case rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2:
 		// need the "/originalport" suffix to avoid dnat port randomization
 		toDestination += fmt.Sprintf(":%d-%d/%d", rule.TranslatedPort.Values[0], rule.TranslatedPort.Values[1], rule.DestinationPort.Values[0])
-	case len(rule.TranslatedPort.Values) == 1:
-		toDestination += fmt.Sprintf(":%d", rule.TranslatedPort.Values[0])
 	default:
 		return nil, fmt.Errorf("invalid translated port: %v", rule.TranslatedPort)
 	}

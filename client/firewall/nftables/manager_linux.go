@@ -331,15 +331,18 @@ func (m *Manager) Flush() error {
 
 // AddDNATRule adds a DNAT rule
 func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	r := &Rule{
-		ruleID: string(rule.ID()),
-	}
-	return r, nil
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddDNATRule(rule)
 }
 
 // DeleteDNATRule deletes a DNAT rule
 func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
-	return nil
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.DeleteDNATRule(rule)
 }
 
 func (m *Manager) createWorkTable() (*nftables.Table, error) {

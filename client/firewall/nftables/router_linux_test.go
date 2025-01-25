@@ -319,7 +319,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			})
 
 			// Check if the rule is in the internal map
-			rule, ok := r.rules[ruleKey.GetRuleID()]
+			rule, ok := r.rules[ruleKey.ID()]
 			assert.True(t, ok, "Rule not found in internal map")
 
 			t.Log("Internal rule expressions:")
@@ -336,7 +336,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 			var nftRule *nftables.Rule
 			for _, rule := range rules {
-				if string(rule.UserData) == ruleKey.GetRuleID() {
+				if string(rule.UserData) == ruleKey.ID() {
 					nftRule = rule
 					break
 				}
