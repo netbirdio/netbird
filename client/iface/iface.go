@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/errors"
@@ -233,4 +234,12 @@ func (w *WGIface) waitUntilRemoved() error {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+// GetNet returns the netstack.Net for the netstack device
+func (w *WGIface) GetNet() *netstack.Net {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.tun.GetNet()
 }

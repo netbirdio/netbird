@@ -454,7 +454,7 @@ func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*ro
 }
 
 func isRouteSupported(route *route.Route) bool {
-	if !nbnet.CustomRoutingDisabled() || route.IsDynamic() {
+	if netstack.IsEnabled() || !nbnet.CustomRoutingDisabled() || route.IsDynamic() {
 		return true
 	}
 
