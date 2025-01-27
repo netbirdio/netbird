@@ -563,7 +563,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"Quantum resistance: %s\n"+
 			"Routes: %s\n"+
 			"Networks: %s\n"+
-			"Forarding rules: %d\n"+
+			"Forwarding rules: %d\n"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		overview.DaemonVersion,
