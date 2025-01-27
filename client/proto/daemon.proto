@@ -253,6 +253,7 @@ message FullStatus {
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
   repeated NSGroupState dns_servers = 6;
+  int32 NumberOfForwardingRules = 8;
 }
 
 // Networks

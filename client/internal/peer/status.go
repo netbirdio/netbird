@@ -124,13 +124,14 @@ type NSGroupState struct {
 
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
-	Peers           []State
-	ManagementState ManagementState
-	SignalState     SignalState
-	LocalPeerState  LocalPeerState
-	RosenpassState  RosenpassState
-	Relays          []relay.ProbeResult
-	NSGroupStates   []NSGroupState
+	Peers                []State
+	ManagementState      ManagementState
+	SignalState          SignalState
+	LocalPeerState       LocalPeerState
+	RosenpassState       RosenpassState
+	Relays               []relay.ProbeResult
+	NSGroupStates        []NSGroupState
+	NumOfForwardingRules int
 }
 
 // Status holds a state of peers, signal, management connections and relays
@@ -765,11 +766,12 @@ func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo
 // GetFullStatus gets full status
 func (d *Status) GetFullStatus() FullStatus {
 	fullStatus := FullStatus{
-		ManagementState: d.GetManagementState(),
-		SignalState:     d.GetSignalState(),
-		Relays:          d.GetRelayStates(),
-		RosenpassState:  d.GetRosenpassState(),
-		NSGroupStates:   d.GetDNSStates(),
+		ManagementState:      d.GetManagementState(),
+		SignalState:          d.GetSignalState(),
+		Relays:               d.GetRelayStates(),
+		RosenpassState:       d.GetRosenpassState(),
+		NSGroupStates:        d.GetDNSStates(),
+		NumOfForwardingRules: len(d.ForwardingRules()),
 	}
 
 	d.mux.Lock()
