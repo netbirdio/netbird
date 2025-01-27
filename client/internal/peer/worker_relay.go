@@ -6,16 +6,10 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	relayClient "github.com/netbirdio/netbird/relay/client"
-)
-
-var (
-	wgHandshakePeriod   = 3 * time.Minute
-	wgHandshakeOvertime = 30 * time.Second
 )
 
 type RelayConnInfo struct {
@@ -36,13 +30,12 @@ type WorkerRelay struct {
 	relayManager relayClient.ManagerService
 	callBacks    WorkerRelayCallbacks
 
-	relayedConn      net.Conn
-	relayLock        sync.Mutex
-	ctxWgWatch       context.Context
-	ctxCancelWgWatch context.CancelFunc
-	ctxLock          sync.Mutex
+	relayedConn net.Conn
+	relayLock   sync.Mutex
 
 	relaySupportedOnRemotePeer atomic.Bool
+
+	wgWatcher *WGWatcher
 }
 
 func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
@@ -52,6 +45,7 @@ func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, relayManager r
 		config:       config,
 		relayManager: relayManager,
 		callBacks:    callbacks,
+		wgWatcher:    NewWGWatcher(log, config.WgConfig.WgInterface, config.Key),
 	}
 	return r
 }
@@ -103,32 +97,11 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 }
 
 func (w *WorkerRelay) EnableWgWatcher(ctx context.Context) {
-	w.log.Debugf("enable WireGuard watcher")
-	w.ctxLock.Lock()
-	defer w.ctxLock.Unlock()
-
-	if w.ctxWgWatch != nil && w.ctxWgWatch.Err() == nil {
-		return
-	}
-
-	ctx, ctxCancel := context.WithCancel(ctx)
-	w.ctxWgWatch = ctx
-	w.ctxCancelWgWatch = ctxCancel
-
-	w.wgStateCheck(ctx, ctxCancel)
+	w.wgWatcher.EnableWgWatcher(ctx, w.disconnected)
 }
 
 func (w *WorkerRelay) DisableWgWatcher() {
-	w.ctxLock.Lock()
-	defer w.ctxLock.Unlock()
-
-	if w.ctxCancelWgWatch == nil {
-		return
-	}
-
-	w.log.Debugf("disable WireGuard watcher")
-
-	w.ctxCancelWgWatch()
+	w.wgWatcher.DisableWgWatcher()
 }
 
 func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
@@ -150,57 +123,17 @@ func (w *WorkerRelay) CloseConn() {
 		return
 	}
 
-	err := w.relayedConn.Close()
-	if err != nil {
+	if err := w.relayedConn.Close(); err != nil {
 		w.log.Warnf("failed to close relay connection: %v", err)
 	}
 }
 
-// wgStateCheck help to check the state of the WireGuard handshake and relay connection
-func (w *WorkerRelay) wgStateCheck(ctx context.Context, ctxCancel context.CancelFunc) {
-	w.log.Debugf("WireGuard watcher started")
-	lastHandshake, err := w.wgState()
-	if err != nil {
-		w.log.Warnf("failed to read wg stats: %v", err)
-		lastHandshake = time.Time{}
-	}
+func (w *WorkerRelay) disconnected() {
+	w.relayLock.Lock()
+	_ = w.relayedConn.Close()
+	w.relayLock.Unlock()
 
-	go func(lastHandshake time.Time) {
-		timer := time.NewTimer(wgHandshakeOvertime)
-		defer timer.Stop()
-		defer ctxCancel()
-
-		for {
-			select {
-			case <-timer.C:
-				handshake, err := w.wgState()
-				if err != nil {
-					w.log.Errorf("failed to read wg stats: %v", err)
-					timer.Reset(wgHandshakeOvertime)
-					continue
-				}
-
-				w.log.Tracef("previous handshake, handshake: %v, %v", lastHandshake, handshake)
-
-				if handshake.Equal(lastHandshake) {
-					w.log.Infof("WireGuard handshake timed out, closing relay connection: %v", handshake)
-					w.relayLock.Lock()
-					_ = w.relayedConn.Close()
-					w.relayLock.Unlock()
-					w.callBacks.OnDisconnected()
-					return
-				}
-
-				resetTime := time.Until(handshake.Add(wgHandshakePeriod + wgHandshakeOvertime))
-				lastHandshake = handshake
-				timer.Reset(resetTime)
-			case <-ctx.Done():
-				w.log.Debugf("WireGuard watcher stopped")
-				return
-			}
-		}
-	}(lastHandshake)
-
+	w.callBacks.OnDisconnected()
 }
 
 func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
@@ -217,20 +150,7 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 	return remoteRelayAddress
 }
 
-func (w *WorkerRelay) wgState() (time.Time, error) {
-	wgState, err := w.config.WgConfig.WgInterface.GetStats(w.config.Key)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return wgState.LastHandshake, nil
-}
-
 func (w *WorkerRelay) onRelayMGDisconnected() {
-	w.ctxLock.Lock()
-	defer w.ctxLock.Unlock()
-
-	if w.ctxCancelWgWatch != nil {
-		w.ctxCancelWgWatch()
-	}
+	w.wgWatcher.DisableWgWatcher()
 	go w.callBacks.OnDisconnected()
 }
