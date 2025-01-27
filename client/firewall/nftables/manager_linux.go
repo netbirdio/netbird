@@ -332,7 +332,7 @@ func (m *Manager) Flush() error {
 // AddDNATRule adds a DNAT rule
 func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 	r := &Rule{
-		ruleID: rule.GetRuleID(),
+		ruleID: rule.RuleID(),
 	}
 	return r, nil
 }

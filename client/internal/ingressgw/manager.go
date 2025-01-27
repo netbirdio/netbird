@@ -8,29 +8,34 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
 
+type DNATFirewall interface {
+	AddDNATRule(fwdRule firewall.ForwardRule) (firewall.Rule, error)
+	DeleteDNATRule(rule firewall.Rule) error
+}
+
 type RulePair struct {
-	firewallManager.ForwardRule
-	firewallManager.Rule
+	firewall.ForwardRule
+	firewall.Rule
 }
 
 type Manager struct {
-	firewallManager firewallManager.Manager
+	dnatFirewall DNATFirewall
 
 	rules   map[string]RulePair // keys is the ID of the ForwardRule
 	rulesMu sync.Mutex
 }
 
-func NewManager(firewall firewallManager.Manager) *Manager {
+func NewManager(firewall DNATFirewall) *Manager {
 	return &Manager{
-		firewallManager: firewall,
-		rules:           make(map[string]RulePair),
+		dnatFirewall: firewall,
+		rules:        make(map[string]RulePair),
 	}
 }
 
-func (h *Manager) Update(forwardRules []firewallManager.ForwardRule) error {
+func (h *Manager) Update(forwardRules []firewall.ForwardRule) error {
 	h.rulesMu.Lock()
 	defer h.rulesMu.Unlock()
 
@@ -42,13 +47,13 @@ func (h *Manager) Update(forwardRules []firewallManager.ForwardRule) error {
 
 	// Process new/updated rules
 	for _, fwdRule := range forwardRules {
-		id := fwdRule.GetRuleID()
+		id := fwdRule.RuleID()
 		if _, ok := h.rules[id]; ok {
 			delete(toDelete, id)
 			continue
 		}
 
-		rule, err := h.firewallManager.AddDNATRule(fwdRule)
+		rule, err := h.dnatFirewall.AddDNATRule(fwdRule)
 		if err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("failed to add forward rule '%s': %v", fwdRule.String(), err))
 			continue
@@ -62,7 +67,7 @@ func (h *Manager) Update(forwardRules []firewallManager.ForwardRule) error {
 
 	// Remove deleted rules
 	for id, rulePair := range toDelete {
-		if err := h.firewallManager.DeleteDNATRule(rulePair.Rule); err != nil {
+		if err := h.dnatFirewall.DeleteDNATRule(rulePair.Rule); err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete forward rule '%s': %v", rulePair.ForwardRule.String(), err))
 		}
 		delete(h.rules, id)
@@ -78,18 +83,18 @@ func (h *Manager) Close() error {
 	log.Infof("clean up all forward rules (%d)", len(h.rules))
 	var mErr *multierror.Error
 	for _, rule := range h.rules {
-		if err := h.firewallManager.DeleteDNATRule(rule.Rule); err != nil {
+		if err := h.dnatFirewall.DeleteDNATRule(rule.Rule); err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete forward rule '%s': %v", rule, err))
 		}
 	}
 	return nberrors.FormatErrorOrNil(mErr)
 }
 
-func (h *Manager) Rules() []firewallManager.ForwardRule {
+func (h *Manager) Rules() []firewall.ForwardRule {
 	h.rulesMu.Lock()
 	defer h.rulesMu.Unlock()
 
-	rules := make([]firewallManager.ForwardRule, 0, len(h.rules))
+	rules := make([]firewall.ForwardRule, 0, len(h.rules))
 	for _, rulePair := range h.rules {
 		rules = append(rules, rulePair.ForwardRule)
 	}

@@ -16,7 +16,4 @@ const (
 
 	// ProtocolALL cover all supported protocols
 	ProtocolALL Protocol = "all"
-
-	// ProtocolUnknown unknown protocol
-	ProtocolUnknown Protocol = "unknown"
 )

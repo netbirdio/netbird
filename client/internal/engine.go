@@ -1782,8 +1782,8 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 			continue
 		}
 
-		dstPortInfo := convertPortInfo(rule.GetDestinationPort())
-		if dstPortInfo == nil {
+		dstPortInfo, err := convertPortInfo(rule.GetDestinationPort())
+		if err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("dstPort is nil"))
 			continue
 		}
@@ -1794,8 +1794,8 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 			continue
 		}
 
-		translatePort := convertPortInfo(rule.GetTranslatedPort())
-		if translatePort == nil {
+		translatePort, err := convertPortInfo(rule.GetTranslatedPort())
+		if translatePort != nil {
 			merr = multierror.Append(merr, fmt.Errorf("translatePort is nil"))
 			continue
 		}

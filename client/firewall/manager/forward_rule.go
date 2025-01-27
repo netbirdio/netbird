@@ -13,7 +13,7 @@ type ForwardRule struct {
 	TranslatedPort    Port
 }
 
-func (r ForwardRule) GetRuleID() string {
+func (r ForwardRule) RuleID() string {
 	return fmt.Sprintf("%s;%s;%s;%s",
 		r.Protocol,
 		r.DestinationPort.String(),

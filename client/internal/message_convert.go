@@ -21,30 +21,24 @@ func convertToFirewallProtocol(protocol mgmProto.RuleProtocol) (firewallManager.
 	case mgmProto.RuleProtocol_ALL:
 		return firewallManager.ProtocolALL, nil
 	default:
-		return firewallManager.ProtocolALL, fmt.Errorf("invalid protocol type: %s", protocol.String())
+		return "", fmt.Errorf("invalid protocol type: %s", protocol.String())
 	}
 }
 
-// convertPortInfo todo: write validation for portInfo
-func convertPortInfo(portInfo *mgmProto.PortInfo) *firewallManager.Port {
+func convertPortInfo(portInfo *mgmProto.PortInfo) (*firewallManager.Port, error) {
 	if portInfo == nil {
-		return nil
+		return nil, errors.New("portInfo cannot be nil")
 	}
 
 	if portInfo.GetPort() != 0 {
-		return &firewallManager.Port{
-			Values: []int{int(portInfo.GetPort())},
-		}
+		return firewallManager.NewPort(int(portInfo.GetPort()))
 	}
 
 	if portInfo.GetRange() != nil {
-		return &firewallManager.Port{
-			IsRange: true,
-			Values:  []int{int(portInfo.GetRange().Start), int(portInfo.GetRange().End)},
-		}
+		return firewallManager.NewPort(int(portInfo.GetRange().Start), int(portInfo.GetRange().End))
 	}
 
-	return nil
+	return nil, fmt.Errorf("invalid portInfo: %v", portInfo)
 }
 
 func convertToIP(rawIP []byte) (netip.Addr, error) {
