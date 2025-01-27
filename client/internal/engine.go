@@ -1792,7 +1792,7 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 		}
 
 		translatePort, err := convertPortInfo(rule.GetTranslatedPort())
-		if translatePort != nil {
+		if err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("translatePort is nil"))
 			continue
 		}
