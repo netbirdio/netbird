@@ -154,6 +154,8 @@ func init() {
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
 
+	forwardingRulesCmd.AddCommand(forwardingRulesListCmd)
+
 	debugCmd.AddCommand(debugBundleCmd)
 	debugCmd.AddCommand(logCmd)
 	logCmd.AddCommand(logLevelCmd)

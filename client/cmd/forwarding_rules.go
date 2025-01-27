@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
@@ -15,7 +14,15 @@ var forwardingRulesCmd = &cobra.Command{
 	Use:   "forwarding",
 	Short: "List forwarding rules",
 	Long:  `Commands to list forwarding rules.`,
-	RunE:  listForwardingRules,
+}
+
+var forwardingRulesListCmd = &cobra.Command{
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List forwarding rules",
+	Example: "  netbird forwarding list",
+	Long:    "Commands to list forwarding rules.",
+	RunE:    listForwardingRules,
 }
 
 func listForwardingRules(cmd *cobra.Command, _ []string) error {
@@ -63,7 +70,8 @@ func printForwardingRules(cmd *cobra.Command, rules []*proto.ForwardingRule) {
 			lastIP = rule.GetTranslatedAddress()
 			cmd.Printf("\nTranslated peer: %s\n", rule.GetTranslatedAddress())
 		}
-		cmd.Printf("  ports (%s): %s to %s\n", strings.ToUpper(rule.GetProtocol()), dPort, tPort)
+		///Local tcp/10100-10199 to 100.64.10.206:20100-20199
+		cmd.Printf("  Local %s/%s to %s:%s\n", rule.GetProtocol(), dPort, rule.GetTranslatedAddress(), tPort)
 	}
 }
 
@@ -83,7 +91,7 @@ func portToString(translatedPort *proto.PortInfo) string {
 	case *proto.PortInfo_Port:
 		return fmt.Sprintf("%d", v.Port)
 	case *proto.PortInfo_Range_:
-		return fmt.Sprintf("%d:%d", v.Range.GetStart(), v.Range.GetEnd())
+		return fmt.Sprintf("%d-%d", v.Range.GetStart(), v.Range.GetEnd())
 	default:
 		return "No port specified"
 	}
