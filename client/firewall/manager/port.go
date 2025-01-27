@@ -20,17 +20,18 @@ func NewPort(ports ...int) (*Port, error) {
 		return nil, fmt.Errorf("no port provided")
 	}
 
-	for _, port := range ports {
+	ports16 := make([]uint16, len(ports))
+	for i, port := range ports {
 		if port < 1 || port > 65535 {
 			return nil, fmt.Errorf("invalid port number: %d (must be between 1-65535)", port)
 		}
+		ports16[i] = uint16(port)
 	}
 
 	return &Port{
 		IsRange: len(ports) > 1,
-		Values:  ports,
+		Values:  ports16,
 	}, nil
-
 }
 
 // String interface implementation
