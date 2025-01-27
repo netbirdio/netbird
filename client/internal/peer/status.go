@@ -229,6 +229,18 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 	return state, nil
 }
 
+func (d *Status) PeerByIP(ip string) (string, bool) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	for _, state := range d.peers {
+		if state.IP == ip {
+			return state.FQDN, true
+		}
+	}
+	return "", false
+}
+
 // RemovePeer removes peer from Daemon status map
 func (d *Status) RemovePeer(peerPubKey string) error {
 	d.mux.Lock()

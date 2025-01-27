@@ -12,21 +12,29 @@ func (s *Server) ForwardingRules(context.Context, *proto.EmptyRequest) (*proto.F
 	defer s.mutex.Unlock()
 
 	rules := s.statusRecorder.ForwardingRules()
-
 	responseRules := make([]*proto.ForwardingRule, 0, len(rules))
 	for _, rule := range rules {
-
 		respRule := &proto.ForwardingRule{
-			Protocol:          string(rule.Protocol),
-			DestinationPort:   portToProto(rule.DestinationPort),
-			TranslatedAddress: rule.TranslatedAddress.String(),
-			TranslatedPort:    portToProto(rule.TranslatedPort),
+			Protocol:           string(rule.Protocol),
+			DestinationPort:    portToProto(rule.DestinationPort),
+			TranslatedAddress:  rule.TranslatedAddress.String(),
+			TranslatedHostname: s.hostNameByTranslateAddress(rule.TranslatedAddress.String()),
+			TranslatedPort:     portToProto(rule.TranslatedPort),
 		}
 		responseRules = append(responseRules, respRule)
 
 	}
 
 	return &proto.ForwardingRulesResponse{Rules: responseRules}, nil
+}
+
+func (s *Server) hostNameByTranslateAddress(ip string) string {
+	hostName, ok := s.statusRecorder.PeerByIP(ip)
+	if !ok {
+		return ip
+	}
+
+	return hostName
 }
 
 func portToProto(port firewall.Port) *proto.PortInfo {

@@ -68,9 +68,9 @@ func printForwardingRules(cmd *cobra.Command, rules []*proto.ForwardingRule) {
 		tPort := portToString(rule.GetTranslatedPort())
 		if lastIP != rule.GetTranslatedAddress() {
 			lastIP = rule.GetTranslatedAddress()
-			cmd.Printf("\nTranslated peer: %s\n", rule.GetTranslatedAddress())
+			cmd.Printf("\nTranslated peer: %s\n", rule.GetTranslatedHostname())
 		}
-		///Local tcp/10100-10199 to 100.64.10.206:20100-20199
+
 		cmd.Printf("  Local %s/%s to %s:%s\n", rule.GetProtocol(), dPort, rule.GetTranslatedAddress(), tPort)
 	}
 }

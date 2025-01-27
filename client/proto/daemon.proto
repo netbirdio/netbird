@@ -301,7 +301,8 @@ message ForwardingRule {
   string protocol = 1;
   PortInfo destinationPort = 2;
   string translatedAddress = 3;
-  PortInfo translatedPort = 4;
+  string translatedHostname = 4;
+  PortInfo translatedPort = 5;
 }
 
 message ForwardingRulesResponse {
