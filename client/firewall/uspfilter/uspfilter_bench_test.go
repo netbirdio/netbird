@@ -112,8 +112,8 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				for i := 0; i < 1000; i++ { // Simulate realistic ruleset size
 					ip := generateRandomIPs(1)[0]
 					_, err := m.AddPeerFiltering(ip, fw.ProtocolTCP,
-						&fw.Port{Values: []int{1024 + i}},
-						&fw.Port{Values: []int{80}},
+						&fw.Port{Values: []uint16{uint16(1024 + i)}},
+						&fw.Port{Values: []uint16{80}},
 						fw.ActionAccept, "", "explicit return")
 					require.NoError(b, err)
 				}
@@ -588,7 +588,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
 				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []int{80}},
+					&fw.Port{Values: []uint16{80}},
 					nil,
 					fw.ActionAccept, "", "return traffic")
 				require.NoError(b, err)
@@ -679,7 +679,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
 				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []int{80}},
+					&fw.Port{Values: []uint16{80}},
 					nil,
 					fw.ActionAccept, "", "return traffic")
 				require.NoError(b, err)
@@ -797,7 +797,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 			// Setup initial state based on scenario
 			if sc.rules {
 				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []int{80}},
+					&fw.Port{Values: []uint16{80}},
 					nil,
 					fw.ActionAccept, "", "return traffic")
 				require.NoError(b, err)
@@ -884,7 +884,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 
 			if sc.rules {
 				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []int{80}},
+					&fw.Port{Values: []uint16{80}},
 					nil,
 					fw.ActionAccept, "", "return traffic")
 				require.NoError(b, err)

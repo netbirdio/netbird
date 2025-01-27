@@ -504,7 +504,7 @@ func (e *Engine) initFirewall() error {
 	}
 
 	rosenpassPort := e.rpManager.GetAddress().Port
-	port := firewallManager.Port{Values: []int{rosenpassPort}}
+	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
 
 	// this rule is static and will be torn down on engine down by the firewall manager
 	if _, err := e.firewall.AddPeerFiltering(
