@@ -25,7 +25,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
-	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/firewaller"
 	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -170,7 +170,7 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall          _interface.Firewall
+	firewall          firewaller.Firewall
 	routeManager      routemanager.Manager
 	acl               acl.Manager
 	dnsForwardMgr     *dnsfwd.Manager

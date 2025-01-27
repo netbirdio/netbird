@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	firewall "github.com/netbirdio/netbird/client/firewall/interface"
+	firewall "github.com/netbirdio/netbird/client/firewall/firewaller"
 	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/iface"

@@ -9,7 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/firewaller"
 	"github.com/netbirdio/netbird/client/firewall/types"
 )
 
@@ -20,13 +20,13 @@ const (
 )
 
 type Manager struct {
-	firewall _interface.Firewall
+	firewall firewaller.Firewall
 
 	fwRules      []types.Rule
 	dnsForwarder *DNSForwarder
 }
 
-func NewManager(fw _interface.Firewall) *Manager {
+func NewManager(fw firewaller.Firewall) *Manager {
 	return &Manager{
 		firewall: fw,
 	}

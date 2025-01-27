@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
-	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/firewaller"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/netstack"
@@ -44,7 +44,7 @@ type Manager interface {
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
-	EnableServerRouter(firewall _interface.Firewall) error
+	EnableServerRouter(firewall firewaller.Firewall) error
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -214,7 +214,7 @@ func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
 	return routeselector.NewRouteSelector()
 }
 
-func (m *DefaultManager) EnableServerRouter(firewall _interface.Firewall) error {
+func (m *DefaultManager) EnableServerRouter(firewall firewaller.Firewall) error {
 	if m.disableServerRoutes {
 		log.Info("server routes are disabled")
 		return nil

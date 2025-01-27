@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/firewaller"
 	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -31,14 +31,14 @@ type Manager interface {
 
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
-	firewall       _interface.Firewall
+	firewall       firewaller.Firewall
 	ipsetCounter   int
 	peerRulesPairs map[id.RuleID][]types.Rule
 	routeRules     map[id.RuleID]struct{}
 	mutex          sync.Mutex
 }
 
-func NewDefaultManager(fm _interface.Firewall) *DefaultManager {
+func NewDefaultManager(fm firewaller.Firewall) *DefaultManager {
 	return &DefaultManager{
 		firewall:       fm,
 		peerRulesPairs: make(map[id.RuleID][]types.Rule),

@@ -8,7 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/firewaller"
 	"github.com/netbirdio/netbird/client/firewall/types"
 )
 
@@ -18,13 +18,13 @@ type RulePair struct {
 }
 
 type Manager struct {
-	firewall _interface.Firewall
+	firewall firewaller.Firewall
 
 	rules   map[string]RulePair // keys is the ID of the ForwardRule
 	rulesMu sync.Mutex
 }
 
-func NewManager(firewall _interface.Firewall) *Manager {
+func NewManager(firewall firewaller.Firewall) *Manager {
 	return &Manager{
 		firewall: firewall,
 		rules:    make(map[string]RulePair),

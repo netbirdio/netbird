@@ -8,13 +8,13 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/firewaller"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 // NewFirewall creates a firewall manager instance
-func NewFirewall(iface IFaceMapper, _ *statemanager.Manager) (_interface.Firewall, error) {
+func NewFirewall(iface IFaceMapper, _ *statemanager.Manager) (firewaller.Firewall, error) {
 	if !iface.IsUserspaceBind() {
 		return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
 	}

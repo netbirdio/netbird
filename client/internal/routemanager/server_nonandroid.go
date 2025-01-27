@@ -10,7 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/firewall/interface"
+	"github.com/netbirdio/netbird/client/firewall/firewaller"
 	"github.com/netbirdio/netbird/client/firewall/types"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -22,12 +22,12 @@ type serverRouter struct {
 	mux            sync.Mutex
 	ctx            context.Context
 	routes         map[route.ID]*route.Route
-	firewall       _interface.Firewall
+	firewall       firewaller.Firewall
 	wgInterface    iface.IWGIface
 	statusRecorder *peer.Status
 }
 
-func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall _interface.Firewall, statusRecorder *peer.Status) (*serverRouter, error) {
+func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall firewaller.Firewall, statusRecorder *peer.Status) (*serverRouter, error) {
 	return &serverRouter{
 		ctx:            ctx,
 		routes:         make(map[route.ID]*route.Route),
