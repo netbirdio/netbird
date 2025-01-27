@@ -1757,9 +1757,6 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 		return nil
 	}
 
-	// todo delete this before merge
-	defer e.mocForwardRules()
-
 	if len(rules) == 0 && e.ingressGatewayMgr != nil {
 		err := e.ingressGatewayMgr.Close()
 		e.ingressGatewayMgr = nil
