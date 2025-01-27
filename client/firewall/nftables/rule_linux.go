@@ -8,10 +8,11 @@ import (
 
 // Rule to handle management of rules
 type Rule struct {
-	nftRule *nftables.Rule
-	nftSet  *nftables.Set
-	ruleID  string
-	ip      net.IP
+	nftRule    *nftables.Rule
+	mangleRule *nftables.Rule
+	nftSet     *nftables.Set
+	ruleID     string
+	ip         net.IP
 }
 
 // GetRuleID returns the rule id

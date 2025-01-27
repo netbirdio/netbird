@@ -55,7 +55,7 @@ require (
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-netroute v0.2.1
 	github.com/magiconair/properties v1.8.7
-	github.com/mattn/go-sqlite3 v1.14.19
+	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/mdlayher/socket v0.5.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
@@ -100,8 +100,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/postgres v1.5.7
-	gorm.io/driver/sqlite v1.5.3
-	gorm.io/gorm v1.25.7
+	gorm.io/driver/sqlite v1.5.7
+	gorm.io/gorm v1.25.12
 	nhooyr.io/websocket v1.8.11
 )
 

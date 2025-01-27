@@ -380,6 +380,19 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
+		groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			return fmt.Errorf("failed to get peer groups: %w", err)
+		}
+
+		for _, group := range groups {
+			group.RemovePeer(peerID)
+			err = transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
+			if err != nil {
+				return fmt.Errorf("failed to save group: %w", err)
+			}
+		}
+
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		return err
 	})
@@ -976,7 +989,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return peer, emptyMap, nil, nil
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1117,11 +1130,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	}
 
 	start := time.Now()
-	defer func() {
-		if am.metrics != nil {
-			am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
-		}
-	}()
 
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
@@ -1162,6 +1170,9 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	}
 
 	wg.Wait()
+	if am.metrics != nil {
+		am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
+	}
 }
 
 // UpdateAccountPeer updates a single peer that belongs to an account.

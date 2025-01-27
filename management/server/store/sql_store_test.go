@@ -10,15 +10,17 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/util"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -2802,6 +2804,76 @@ func TestSqlStore_DeletePeer(t *testing.T) {
 	peer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
 	require.Error(t, err)
 	require.Nil(t, peer)
+}
+
+func TestSqlStore_DatabaseBlocking(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	concurrentReads := 40
+
+	testRunSuccessful := false
+	wgSuccess := sync.WaitGroup{}
+	wgSuccess.Add(concurrentReads)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	start := make(chan struct{})
+
+	for i := 0; i < concurrentReads/2; i++ {
+		go func() {
+			t.Logf("Entered routine 1-%d", i)
+
+			<-start
+			err := store.ExecuteInTransaction(context.Background(), func(tx Store) error {
+				_, err := tx.GetAccountIDByPeerID(context.Background(), LockingStrengthShare, "cfvprsrlo1hqoo49ohog")
+				return err
+			})
+			if err != nil {
+				t.Errorf("Failed, got error: %v", err)
+				return
+			}
+
+			t.Log("Got User from routine 1")
+			wgSuccess.Done()
+		}()
+	}
+
+	for i := 0; i < concurrentReads/2; i++ {
+		go func() {
+			t.Logf("Entered routine 2-%d", i)
+
+			<-start
+			_, err := store.GetAccountIDByPeerID(context.Background(), LockingStrengthShare, "cfvprsrlo1hqoo49ohog")
+			if err != nil {
+				t.Errorf("Failed, got error: %v", err)
+				return
+			}
+
+			t.Log("Got User from routine 2")
+			wgSuccess.Done()
+		}()
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	close(start)
+	t.Log("Started routines")
+
+	go func() {
+		wgSuccess.Wait()
+		testRunSuccessful = true
+	}()
+
+	<-ctx.Done()
+	if !testRunSuccessful {
+		t.Fatalf("Test failed")
+	}
+
+	t.Logf("Test completed")
 }
 
 func TestSqlStore_GetAccountCreatedBy(t *testing.T) {
