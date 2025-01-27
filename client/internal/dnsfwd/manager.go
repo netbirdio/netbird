@@ -81,7 +81,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 func (h *Manager) allowDNSFirewall() error {
 	dport := &firewall.Port{
 		IsRange: false,
-		Values:  []int{ListenPort},
+		Values:  []uint16{ListenPort},
 	}
 
 	if h.firewall == nil {
