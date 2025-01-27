@@ -268,13 +268,16 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	}
 
 	var port *firewall.Port
-	if r.Port != "" {
+	if r.PortInfo != nil {
+		port = convertPortInfo(r.PortInfo)
+	} else if r.Port != "" {
+		// old version of management, single port
 		value, err := strconv.Atoi(r.Port)
 		if err != nil {
-			return "", nil, fmt.Errorf("invalid port, skipping firewall rule")
+			return "", nil, fmt.Errorf("invalid port: %w", err)
 		}
 		port = &firewall.Port{
-			Values: []int{value},
+			Values: []uint16{uint16(value)},
 		}
 	}
 
@@ -539,14 +542,14 @@ func convertPortInfo(portInfo *mgmProto.PortInfo) *firewall.Port {
 
 	if portInfo.GetPort() != 0 {
 		return &firewall.Port{
-			Values: []int{int(portInfo.GetPort())},
+			Values: []uint16{uint16(int(portInfo.GetPort()))},
 		}
 	}
 
 	if portInfo.GetRange() != nil {
 		return &firewall.Port{
 			IsRange: true,
-			Values:  []int{int(portInfo.GetRange().Start), int(portInfo.GetRange().End)},
+			Values:  []uint16{uint16(portInfo.GetRange().Start), uint16(portInfo.GetRange().End)},
 		}
 	}
 

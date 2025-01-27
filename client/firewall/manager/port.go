@@ -30,7 +30,7 @@ type Port struct {
 	IsRange bool
 
 	// Values contains one value for single port, multiple values for the list of ports, or two values for the range of ports
-	Values []int
+	Values []uint16
 }
 
 // String interface implementation
@@ -40,7 +40,11 @@ func (p *Port) String() string {
 		if ports != "" {
 			ports += ","
 		}
-		ports += strconv.Itoa(port)
+		ports += strconv.Itoa(int(port))
 	}
+	if p.IsRange {
+		ports = "range:" + ports
+	}
+
 	return ports
 }
