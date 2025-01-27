@@ -252,3 +252,7 @@ replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-2023080111
 replace github.com/pion/ice/v3 => github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e
 
 replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944
+
+replace go.opencensus.io => github.com/census-instrumentation/opencensus-go v0.24.0
+
+replace nhooyr.io/websocket => github.com/coder/websocket v1.8.11
