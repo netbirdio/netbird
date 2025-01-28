@@ -190,7 +190,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	r.GetFullStatus()
 
 	connectClient := internal.NewConnectClient(ctx, config, r)
-	return connectClient.Run()
+	return connectClient.Run(nil)
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
