@@ -85,6 +85,7 @@ var testCases = []testCase{
 }
 
 func TestRouting(t *testing.T) {
+	nbnet.Init()
 	for _, tc := range testCases {
 		// todo resolve test execution on freebsd
 		if runtime.GOOS == "freebsd" {

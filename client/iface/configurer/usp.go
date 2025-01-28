@@ -362,7 +362,7 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 }
 
 func getFwmark() int {
-	if runtime.GOOS == "linux" && !nbnet.CustomRoutingDisabled() {
+	if nbnet.AdvancedRouting() {
 		return nbnet.NetbirdFwmark
 	}
 	return 0

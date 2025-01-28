@@ -5,13 +5,11 @@ package net
 import (
 	"fmt"
 	"syscall"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // SetSocketMark sets the SO_MARK option on the given socket connection
 func SetSocketMark(conn syscall.Conn) error {
-	if isSocketMarkDisabled() {
+	if !AdvancedRouting() {
 		return nil
 	}
 
@@ -25,7 +23,7 @@ func SetSocketMark(conn syscall.Conn) error {
 
 // SetSocketOpt sets the SO_MARK option on the given file descriptor
 func SetSocketOpt(fd int) error {
-	if isSocketMarkDisabled() {
+	if !AdvancedRouting() {
 		return nil
 	}
 
@@ -36,7 +34,7 @@ func setRawSocketMark(conn syscall.RawConn) error {
 	var setErr error
 
 	err := conn.Control(func(fd uintptr) {
-		if isSocketMarkDisabled() {
+		if !AdvancedRouting() {
 			return
 		}
 		setErr = setSocketOptInt(int(fd))
@@ -54,16 +52,4 @@ func setRawSocketMark(conn syscall.RawConn) error {
 
 func setSocketOptInt(fd int) error {
 	return syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, NetbirdFwmark)
-}
-
-func isSocketMarkDisabled() bool {
-	if CustomRoutingDisabled() {
-		log.Infof("Custom routing is disabled, skipping SO_MARK")
-		return true
-	}
-
-	if SkipSocketMark() {
-		return true
-	}
-	return false
 }

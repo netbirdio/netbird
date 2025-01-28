@@ -53,20 +53,6 @@ type ruleParams struct {
 	description    string
 }
 
-// isLegacy determines whether to use the legacy routing setup
-func isLegacy() bool {
-	return os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled() || nbnet.SkipSocketMark()
-}
-
-// setIsLegacy sets the legacy routing setup
-func setIsLegacy(b bool) {
-	if b {
-		os.Setenv("NB_USE_LEGACY_ROUTING", "true")
-	} else {
-		os.Unsetenv("NB_USE_LEGACY_ROUTING")
-	}
-}
-
 func getSetupRules() []ruleParams {
 	return []ruleParams{
 		{100, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, false, 0, "rule with suppress prefixlen v4"},
@@ -87,7 +73,7 @@ func getSetupRules() []ruleParams {
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
 func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
-	if isLegacy() {
+	if !nbnet.AdvancedRouting() {
 		log.Infof("Using legacy routing setup")
 		return r.setupRefCounter(initAddresses, stateManager)
 	}
@@ -103,11 +89,6 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 	rules := getSetupRules()
 	for _, rule := range rules {
 		if err := addRule(rule); err != nil {
-			if errors.Is(err, syscall.EOPNOTSUPP) {
-				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
-				setIsLegacy(true)
-				return r.setupRefCounter(initAddresses, stateManager)
-			}
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}
 	}
@@ -130,7 +111,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
 func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
-	if isLegacy() {
+	if !nbnet.AdvancedRouting() {
 		return r.cleanupRefCounter(stateManager)
 	}
 
@@ -168,7 +149,7 @@ func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) erro
 }
 
 func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	if isLegacy() {
+	if !nbnet.AdvancedRouting() {
 		return r.genericAddVPNRoute(prefix, intf)
 	}
 
@@ -191,7 +172,7 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 }
 
 func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	if isLegacy() {
+	if !nbnet.AdvancedRouting() {
 		return r.genericRemoveVPNRoute(prefix, intf)
 	}
 
@@ -504,7 +485,7 @@ func getAddressFamily(prefix netip.Prefix) int {
 }
 
 func hasSeparateRouting() ([]netip.Prefix, error) {
-	if isLegacy() {
+	if !nbnet.AdvancedRouting() {
 		return GetRoutesFromTable()
 	}
 	return nil, ErrRoutingIsSeparate
