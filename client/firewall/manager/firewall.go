@@ -99,6 +99,13 @@ type Manager interface {
 
 	// Flush the changes to firewall controller
 	Flush() error
+
+	// AddDNATRule adds a DNAT rule
+	AddDNATRule(ForwardRule) (Rule, error)
+
+	// DeleteDNATRule deletes a DNAT rule
+	// todo: do you need a string ID or the complete rule?
+	DeleteDNATRule(Rule) error
 }
 
 func GenKey(format string, pair RouterPair) string {
