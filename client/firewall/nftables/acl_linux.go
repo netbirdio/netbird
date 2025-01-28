@@ -357,6 +357,10 @@ func (m *AclManager) addIOFiltering(
 		UserData: userData,
 	})
 
+	if err := m.rConn.Flush(); err != nil {
+		return nil, fmt.Errorf(flushError, err)
+	}
+
 	rule := &Rule{
 		nftRule: nftRule,
 		nftSet:  ipset,
@@ -367,6 +371,7 @@ func (m *AclManager) addIOFiltering(
 	if ipset != nil {
 		m.ipsetStore.AddReferenceToIpset(ipset.Name)
 	}
+
 	return rule, nil
 }
 
