@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	_ firewall.Rule = &MocFwRule{}
+	_ firewall.Rule = (*MocFwRule)(nil)
 	_ DNATFirewall  = &MockDNATFirewall{}
 )
 
