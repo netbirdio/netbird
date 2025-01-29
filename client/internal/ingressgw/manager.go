@@ -56,7 +56,7 @@ func (h *Manager) Update(forwardRules []firewall.ForwardRule) error {
 
 		rule, err := h.dnatFirewall.AddDNATRule(fwdRule)
 		if err != nil {
-			mErr = multierror.Append(mErr, fmt.Errorf("failed to add forward rule '%s': %v", fwdRule.String(), err))
+			mErr = multierror.Append(mErr, fmt.Errorf("add forward rule '%s': %v", fwdRule.String(), err))
 			continue
 		}
 		log.Infof("forward rule has been added '%s'", fwdRule)
