@@ -114,7 +114,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip.String()][r.GetRuleID()]; !ok {
+		if _, ok := m.incomingRules[ip.String()][r.ID()]; !ok {
 			t.Errorf("rule2 is not in the incomingRules")
 		}
 	}
@@ -128,7 +128,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip.String()][r.GetRuleID()]; ok {
+		if _, ok := m.incomingRules[ip.String()][r.ID()]; ok {
 			t.Errorf("rule2 is not in the incomingRules")
 		}
 	}

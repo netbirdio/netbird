@@ -86,21 +86,22 @@ type nsServerGroupStateOutput struct {
 }
 
 type statusOutputOverview struct {
-	Peers               peersStateOutput           `json:"peers" yaml:"peers"`
-	CliVersion          string                     `json:"cliVersion" yaml:"cliVersion"`
-	DaemonVersion       string                     `json:"daemonVersion" yaml:"daemonVersion"`
-	ManagementState     managementStateOutput      `json:"management" yaml:"management"`
-	SignalState         signalStateOutput          `json:"signal" yaml:"signal"`
-	Relays              relayStateOutput           `json:"relays" yaml:"relays"`
-	IP                  string                     `json:"netbirdIp" yaml:"netbirdIp"`
-	PubKey              string                     `json:"publicKey" yaml:"publicKey"`
-	KernelInterface     bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
-	FQDN                string                     `json:"fqdn" yaml:"fqdn"`
-	RosenpassEnabled    bool                       `json:"quantumResistance" yaml:"quantumResistance"`
-	RosenpassPermissive bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
-	Routes              []string                   `json:"routes" yaml:"routes"`
-	Networks            []string                   `json:"networks" yaml:"networks"`
-	NSServerGroups      []nsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
+	Peers                   peersStateOutput           `json:"peers" yaml:"peers"`
+	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
+	DaemonVersion           string                     `json:"daemonVersion" yaml:"daemonVersion"`
+	ManagementState         managementStateOutput      `json:"management" yaml:"management"`
+	SignalState             signalStateOutput          `json:"signal" yaml:"signal"`
+	Relays                  relayStateOutput           `json:"relays" yaml:"relays"`
+	IP                      string                     `json:"netbirdIp" yaml:"netbirdIp"`
+	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
+	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
+	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
+	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
+	Routes                  []string                   `json:"routes" yaml:"routes"`
+	Networks                []string                   `json:"networks" yaml:"networks"`
+	NumberOfForwardingRules int                        `json:"forwardingRules" yaml:"forwardingRules"`
+	NSServerGroups          []nsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
 }
 
 var (
@@ -272,21 +273,22 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 	peersOverview := mapPeers(resp.GetFullStatus().GetPeers())
 
 	overview := statusOutputOverview{
-		Peers:               peersOverview,
-		CliVersion:          version.NetbirdVersion(),
-		DaemonVersion:       resp.GetDaemonVersion(),
-		ManagementState:     managementOverview,
-		SignalState:         signalOverview,
-		Relays:              relayOverview,
-		IP:                  pbFullStatus.GetLocalPeerState().GetIP(),
-		PubKey:              pbFullStatus.GetLocalPeerState().GetPubKey(),
-		KernelInterface:     pbFullStatus.GetLocalPeerState().GetKernelInterface(),
-		FQDN:                pbFullStatus.GetLocalPeerState().GetFqdn(),
-		RosenpassEnabled:    pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
-		RosenpassPermissive: pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
-		Routes:              pbFullStatus.GetLocalPeerState().GetNetworks(),
-		Networks:            pbFullStatus.GetLocalPeerState().GetNetworks(),
-		NSServerGroups:      mapNSGroups(pbFullStatus.GetDnsServers()),
+		Peers:                   peersOverview,
+		CliVersion:              version.NetbirdVersion(),
+		DaemonVersion:           resp.GetDaemonVersion(),
+		ManagementState:         managementOverview,
+		SignalState:             signalOverview,
+		Relays:                  relayOverview,
+		IP:                      pbFullStatus.GetLocalPeerState().GetIP(),
+		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
+		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
+		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
+		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
+		Routes:                  pbFullStatus.GetLocalPeerState().GetNetworks(),
+		Networks:                pbFullStatus.GetLocalPeerState().GetNetworks(),
+		NumberOfForwardingRules: int(pbFullStatus.GetNumberOfForwardingRules()),
+		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
 	}
 
 	if anonymizeFlag {
@@ -561,6 +563,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"Quantum resistance: %s\n"+
 			"Routes: %s\n"+
 			"Networks: %s\n"+
+			"Forwarding rules: %d\n"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		overview.DaemonVersion,
@@ -575,6 +578,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 		rosenpassEnabledStatus,
 		networks,
 		networks,
+		overview.NumberOfForwardingRules,
 		peersCountString,
 	)
 	return summary
