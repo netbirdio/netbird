@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	_ firewall.Rule = &MocFwRule{}
+	_ firewall.Rule = (*MocFwRule)(nil)
 	_ DNATFirewall  = &MockDNATFirewall{}
 )
 
@@ -37,6 +37,9 @@ func (m *MockDNATFirewall) AddDNATRule(fwdRule firewall.ForwardRule) (firewall.R
 }
 
 func (m *MockDNATFirewall) DeleteDNATRule(rule firewall.Rule) error {
+	if m.throwError {
+		return fmt.Errorf("moc error")
+	}
 	return nil
 }
 
@@ -214,6 +217,40 @@ func TestManager_Cleanup(t *testing.T) {
 	rules := mgr.Rules()
 	if len(rules) != 0 {
 		t.Errorf("unexpected rules count: %d", len(rules))
+	}
+}
+
+func TestManager_DeleteBrokenRule(t *testing.T) {
+	fw := &MockDNATFirewall{}
+
+	// force to throw errors when Add DNAT Rule
+	fw.forceToThrowErrors()
+	mgr := NewManager(fw)
+
+	port, _ := firewall.NewPort(8080)
+	ruleTCP := firewall.ForwardRule{
+		Protocol:          firewall.ProtocolTCP,
+		DestinationPort:   *port,
+		TranslatedAddress: netip.MustParseAddr("172.16.254.1"),
+		TranslatedPort:    *port,
+	}
+
+	if err := mgr.Update([]firewall.ForwardRule{ruleTCP}); err == nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	rules := mgr.Rules()
+	if len(rules) != 0 {
+		t.Errorf("unexpected rules count: %d", len(rules))
+	}
+
+	// simulate that to remove a broken rule
+	if err := mgr.Update([]firewall.ForwardRule{}); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	if err := mgr.Close(); err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
