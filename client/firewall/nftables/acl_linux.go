@@ -2,7 +2,6 @@ package nftables
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"slices"
@@ -349,6 +348,10 @@ func (m *AclManager) addIOFiltering(
 		UserData: userData,
 	})
 
+	if err := m.rConn.Flush(); err != nil {
+		return nil, fmt.Errorf(flushError, err)
+	}
+
 	rule := &Rule{
 		nftRule:    nftRule,
 		mangleRule: m.createPreroutingRule(expressions, userData),
@@ -360,6 +363,7 @@ func (m *AclManager) addIOFiltering(
 	if ipset != nil {
 		m.ipsetStore.AddReferenceToIpset(ipset.Name)
 	}
+
 	return rule, nil
 }
 
@@ -698,12 +702,6 @@ func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, a
 		return "ip:" + ip.String() + rulesetID
 	}
 	return "set:" + ipset.Name + rulesetID
-}
-
-func encodePort(port firewall.Port) []byte {
-	bs := make([]byte, 2)
-	binary.BigEndian.PutUint16(bs, uint16(port.Values[0]))
-	return bs
 }
 
 func ifname(n string) []byte {
