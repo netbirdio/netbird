@@ -26,8 +26,8 @@ const (
 // Each firewall type for different OS can use different type
 // of the properties to hold data of the created rule
 type Rule interface {
-	// GetRuleID returns the rule id
-	GetRuleID() string
+	// ID returns the rule id
+	ID() string
 }
 
 // RuleDirection is the traffic direction which a rule is applied
@@ -104,7 +104,6 @@ type Manager interface {
 	AddDNATRule(ForwardRule) (Rule, error)
 
 	// DeleteDNATRule deletes a DNAT rule
-	// todo: do you need a string ID or the complete rule?
 	DeleteDNATRule(Rule) error
 }
 

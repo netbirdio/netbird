@@ -14,10 +14,10 @@ var (
 )
 
 type MocFwRule struct {
-	id firewall.ForwardRuleID
+	id string
 }
 
-func (m *MocFwRule) GetRuleID() string {
+func (m *MocFwRule) ID() string {
 	return string(m.id)
 }
 

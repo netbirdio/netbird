@@ -5,8 +5,6 @@ import (
 	"net/netip"
 )
 
-type ForwardRuleID string
-
 // ForwardRule todo figure out better place to this to avoid circular imports
 type ForwardRule struct {
 	Protocol          Protocol
@@ -15,13 +13,13 @@ type ForwardRule struct {
 	TranslatedPort    Port
 }
 
-func (r ForwardRule) ID() ForwardRuleID {
+func (r ForwardRule) ID() string {
 	id := fmt.Sprintf("%s;%s;%s;%s",
 		r.Protocol,
 		r.DestinationPort.String(),
 		r.TranslatedAddress.String(),
 		r.TranslatedPort.String())
-	return ForwardRuleID(id)
+	return id
 }
 
 func (r ForwardRule) String() string {
