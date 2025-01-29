@@ -310,8 +310,8 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
 	m.appendToEntries("INPUT", append([]string{"-i", m.wgIface.Name()}, established...))
 
-	// inbound is handled by our ACLs, the rest is dropped
-	// for outbound we respect the FORWARD policy. However, we need to allow established/related traffic for inbound rules.
+	// Inbound is handled by our ACLs, the rest is dropped.
+	// For outbound we respect the FORWARD policy. However, we need to allow established/related traffic for inbound rules.
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 
 	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", chainRTFWDOUT})

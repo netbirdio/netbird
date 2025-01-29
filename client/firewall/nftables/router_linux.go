@@ -132,7 +132,6 @@ func (r *router) removeNatPreroutingRules() error {
 	}
 	rules, err := r.conn.GetRules(table, chain)
 	if err != nil {
-		log.Debugf("err type: %T", err)
 		return fmt.Errorf("get rules from nat table: %w", err)
 	}
 
