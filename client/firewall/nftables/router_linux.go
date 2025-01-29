@@ -1002,54 +1002,19 @@ func (r *router) addDnatRedirect(rule firewall.ForwardRule, protoNum uint8, rule
 	}
 	dnatExprs = append(dnatExprs, applyPort(&rule.DestinationPort, false)...)
 
-	var regProtoMin, regProtoMax uint32
-	switch {
-	case rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2:
-		// shifted translated port is not supported in nftables, so we hand this over to xtables
+	// shifted translated port is not supported in nftables, so we hand this over to xtables
+	if rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2 {
 		if rule.TranslatedPort.Values[0] != rule.DestinationPort.Values[0] ||
 			rule.TranslatedPort.Values[1] != rule.DestinationPort.Values[1] {
 			return r.addXTablesRedirect(dnatExprs, ruleKey, rule)
 		}
-
-		dnatExprs = append(dnatExprs,
-			&expr.Immediate{
-				Register: 1,
-				Data:     rule.TranslatedAddress.AsSlice(),
-			},
-			&expr.Immediate{
-				Register: 2,
-				Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[0]),
-			},
-			&expr.Immediate{
-				Register: 3,
-				Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[1]),
-			},
-		)
-		regProtoMin = 2
-		regProtoMax = 3
-	case len(rule.TranslatedPort.Values) == 0:
-		// address only
-		dnatExprs = append(dnatExprs,
-			&expr.Immediate{
-				Register: 1,
-				Data:     rule.TranslatedAddress.AsSlice(),
-			},
-		)
-	case len(rule.TranslatedPort.Values) == 1:
-		dnatExprs = append(dnatExprs,
-			&expr.Immediate{
-				Register: 1,
-				Data:     rule.TranslatedAddress.AsSlice(),
-			},
-			&expr.Immediate{
-				Register: 2,
-				Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[0]),
-			},
-		)
-		regProtoMin = 2
-	default:
-		return fmt.Errorf("invalid translated port: %v", rule.TranslatedPort)
 	}
+
+	additionalExprs, regProtoMin, regProtoMax, err := r.handleTranslatedPort(rule)
+	if err != nil {
+		return err
+	}
+	dnatExprs = append(dnatExprs, additionalExprs...)
 
 	dnatExprs = append(dnatExprs,
 		&expr.NAT{
@@ -1071,6 +1036,61 @@ func (r *router) addDnatRedirect(rule firewall.ForwardRule, protoNum uint8, rule
 	r.rules[ruleKey+dnatSuffix] = dnatRule
 
 	return nil
+}
+
+func (r *router) handleTranslatedPort(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	switch {
+	case rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2:
+		return r.handlePortRange(rule)
+	case len(rule.TranslatedPort.Values) == 0:
+		return r.handleAddressOnly(rule)
+	case len(rule.TranslatedPort.Values) == 1:
+		return r.handleSinglePort(rule)
+	default:
+		return nil, 0, 0, fmt.Errorf("invalid translated port: %v", rule.TranslatedPort)
+	}
+}
+
+func (r *router) handlePortRange(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[0]),
+		},
+		&expr.Immediate{
+			Register: 3,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[1]),
+		},
+	}
+	return exprs, 2, 3, nil
+}
+
+func (r *router) handleAddressOnly(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+	}
+	return exprs, 0, 0, nil
+}
+
+func (r *router) handleSinglePort(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[0]),
+		},
+	}
+	return exprs, 2, 0, nil
 }
 
 func (r *router) addXTablesRedirect(dnatExprs []expr.Any, ruleKey string, rule firewall.ForwardRule) error {
