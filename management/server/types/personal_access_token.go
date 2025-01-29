@@ -75,7 +75,7 @@ type PersonalAccessTokenGenerated struct {
 
 // CreateNewPAT will generate a new PersonalAccessToken that can be assigned to a User.
 // Additionally, it will return the token in plain text once, to give to the user and only save a hashed version
-func CreateNewPAT(name string, expirationInDays int, createdBy string) (*PersonalAccessTokenGenerated, error) {
+func CreateNewPAT(name string, expirationInDays int, targetID, createdBy string) (*PersonalAccessTokenGenerated, error) {
 	hashedToken, plainToken, err := generateNewToken()
 	if err != nil {
 		return nil, err
@@ -84,6 +84,7 @@ func CreateNewPAT(name string, expirationInDays int, createdBy string) (*Persona
 	return &PersonalAccessTokenGenerated{
 		PersonalAccessToken: PersonalAccessToken{
 			ID:             xid.New().String(),
+			UserID:         targetID,
 			Name:           name,
 			HashedToken:    hashedToken,
 			ExpirationDate: util.ToPtr(currentTime.AddDate(0, 0, expirationInDays)),

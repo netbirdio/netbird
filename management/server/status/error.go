@@ -93,7 +93,7 @@ func NewPeerNotPartOfAccountError() error {
 
 // NewUserNotFoundError creates a new Error with NotFound type for a missing user
 func NewUserNotFoundError(userKey string) error {
-	return Errorf(NotFound, "user not found: %s", userKey)
+	return Errorf(NotFound, "user: %s not found", userKey)
 }
 
 // NewPeerNotRegisteredError creates a new Error with NotFound type for a missing peer
@@ -190,4 +190,19 @@ func NewResourceNotPartOfNetworkError(resourceID, networkID string) error {
 
 func NewRouterNotPartOfNetworkError(routerID, networkID string) error {
 	return Errorf(BadRequest, "router %s is not part of the network %s", routerID, networkID)
+}
+
+// NewServiceUserRoleInvalidError creates a new Error with InvalidArgument type for creating a service user with owner role
+func NewServiceUserRoleInvalidError() error {
+	return Errorf(InvalidArgument, "can't create a service user with owner role")
+}
+
+// NewOwnerDeletePermissionError creates a new Error with PermissionDenied type for attempting
+// to delete a user with the owner role.
+func NewOwnerDeletePermissionError() error {
+	return Errorf(PermissionDenied, "can't delete a user with the owner role")
+}
+
+func NewPATNotFoundError(patID string) error {
+	return Errorf(NotFound, "PAT: %s not found", patID)
 }
