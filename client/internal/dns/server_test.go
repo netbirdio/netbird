@@ -220,7 +220,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			shouldFail: true,
 		},
 		{
-			name:            "Invalid Custom Zone Records list Should Fail",
+			name:            "Invalid Custom Zone Records list Should Skip",
 			initLocalMap:    make(registrationMap),
 			initUpstreamMap: make(registeredHandlerMap),
 			initSerial:      0,
@@ -239,7 +239,7 @@ func TestUpdateDNSServer(t *testing.T) {
 					},
 				},
 			},
-			shouldFail: true,
+			expectedUpstreamMap: registeredHandlerMap{".": dummyHandler},
 		},
 		{
 			name:                "Empty Config Should Succeed and Clean Maps",
