@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -130,4 +131,8 @@ func (t *TunDevice) UpdateAddr(addr WGAddress) error {
 
 func (t *TunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
+}
+
+func (t *TunDevice) GetNet() *netstack.Net {
+	return nil
 }
