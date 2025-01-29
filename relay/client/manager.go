@@ -165,6 +165,9 @@ func (m *Manager) Ready() bool {
 }
 
 func (m *Manager) SetOnReconnectedListener(f func()) {
+	m.listenerLock.Lock()
+	defer m.listenerLock.Unlock()
+
 	m.onReconnectedListenerFn = f
 }
 
@@ -284,6 +287,9 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 }
 
 func (m *Manager) onServerConnected() {
+	m.listenerLock.Lock()
+	defer m.listenerLock.Unlock()
+
 	if m.onReconnectedListenerFn == nil {
 		return
 	}
@@ -304,8 +310,11 @@ func (m *Manager) onServerDisconnected(serverAddress string) {
 func (m *Manager) listenGuardEvent(ctx context.Context) {
 	for {
 		select {
+		case <-m.reconnectGuard.OnReconnected:
+			m.onServerConnected()
 		case rc := <-m.reconnectGuard.OnNewRelayClient:
 			m.storeClient(rc)
+			m.onServerConnected()
 		case <-ctx.Done():
 			return
 		}
@@ -317,7 +326,6 @@ func (m *Manager) storeClient(client *Client) {
 	defer m.relayClientMu.Unlock()
 
 	m.relayClient = client
-	m.relayClient.SetOnConnectedListener(m.onServerConnected)
 	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
 }
 
