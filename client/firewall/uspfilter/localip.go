@@ -93,6 +93,12 @@ func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
 	ipv4Set := make(map[string]struct{})
 	var ipv4Addresses []string
 
+	// 127.0.0.0/8
+	high := uint16(127) << 8
+	for i := uint16(0); i < 256; i++ {
+		newIPv4Bitmap[high|i] = 0xffffffff
+	}
+
 	if iface != nil {
 		if err := m.processIP(iface.Address().IP, &newIPv4Bitmap, ipv4Set, &ipv4Addresses); err != nil {
 			return err

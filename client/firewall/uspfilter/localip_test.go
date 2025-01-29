@@ -17,6 +17,42 @@ func TestLocalIPManager(t *testing.T) {
 		expected  bool
 	}{
 		{
+			name: "Localhost range",
+			setupAddr: iface.WGAddress{
+				IP: net.ParseIP("192.168.1.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("192.168.1.0"),
+					Mask: net.CIDRMask(24, 32),
+				},
+			},
+			testIP:   net.ParseIP("127.0.0.2"),
+			expected: true,
+		},
+		{
+			name: "Localhost standard address",
+			setupAddr: iface.WGAddress{
+				IP: net.ParseIP("192.168.1.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("192.168.1.0"),
+					Mask: net.CIDRMask(24, 32),
+				},
+			},
+			testIP:   net.ParseIP("127.0.0.1"),
+			expected: true,
+		},
+		{
+			name: "Localhost range edge",
+			setupAddr: iface.WGAddress{
+				IP: net.ParseIP("192.168.1.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("192.168.1.0"),
+					Mask: net.CIDRMask(24, 32),
+				},
+			},
+			testIP:   net.ParseIP("127.255.255.255"),
+			expected: true,
+		},
+		{
 			name: "Local IP matches",
 			setupAddr: iface.WGAddress{
 				IP: net.ParseIP("192.168.1.1"),
