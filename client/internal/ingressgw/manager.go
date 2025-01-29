@@ -40,7 +40,7 @@ func (h *Manager) Update(forwardRules []firewall.ForwardRule) error {
 	defer h.rulesMu.Unlock()
 
 	var mErr *multierror.Error
-	toDelete := make(map[firewall.ForwardRuleID]RulePair)
+	toDelete := make(map[firewall.ForwardRuleID]RulePair, len(h.rules))
 	for id, r := range h.rules {
 		toDelete[id] = r
 	}
