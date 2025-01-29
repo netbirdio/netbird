@@ -139,7 +139,7 @@ func (c *Client) Start(startCtx context.Context) error {
 	// TODO: make after-startup backoff err available
 	run := make(chan error, 1)
 	go func() {
-		if err := client.RunWithProbes(nil, run); err != nil {
+		if err := client.Run(run); err != nil {
 			run <- err
 		}
 	}()

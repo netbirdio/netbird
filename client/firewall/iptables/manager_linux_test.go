@@ -72,7 +72,8 @@ func TestIptablesManager(t *testing.T) {
 	t.Run("add second rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.3")
 		port := &fw.Port{
-			Values: []int{8043: 8046},
+			IsRange: true,
+			Values:  []uint16{8043, 8046},
 		}
 		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, fw.ActionAccept, "", "accept HTTPS traffic from ports range")
 		require.NoError(t, err, "failed to add rule")
@@ -95,7 +96,7 @@ func TestIptablesManager(t *testing.T) {
 	t.Run("reset check", func(t *testing.T) {
 		// add second rule
 		ip := net.ParseIP("10.20.0.3")
-		port := &fw.Port{Values: []int{5353}}
+		port := &fw.Port{Values: []uint16{5353}}
 		_, err = manager.AddPeerFiltering(ip, "udp", nil, port, fw.ActionAccept, "", "accept Fake DNS traffic")
 		require.NoError(t, err, "failed to add rule")
 
@@ -145,7 +146,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	t.Run("add second rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.3")
 		port := &fw.Port{
-			Values: []int{443},
+			Values: []uint16{443},
 		}
 		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, fw.ActionAccept, "default", "accept HTTPS traffic from ports range")
 		for _, r := range rule2 {
@@ -214,7 +215,7 @@ func TestIptablesCreatePerformance(t *testing.T) {
 			ip := net.ParseIP("10.20.0.100")
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
-				port := &fw.Port{Values: []int{1000 + i}}
+				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
 				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
 
 				require.NoError(t, err, "failed to add rule")
