@@ -90,20 +90,17 @@ func New(opts Options) (*Client, error) {
 	t := true
 	var config *internal.Config
 	var err error
+	input := internal.ConfigInput{
+		ConfigPath:          opts.ConfigPath,
+		ManagementURL:       opts.ManagementURL,
+		PreSharedKey:        &opts.PreSharedKey,
+		DisableServerRoutes: &t,
+		DisableClientRoutes: &opts.DisableClientRoutes,
+	}
 	if opts.ConfigPath != "" {
-		config, err = internal.UpdateOrCreateConfig(internal.ConfigInput{
-			ConfigPath:          opts.ConfigPath,
-			ManagementURL:       opts.ManagementURL,
-			PreSharedKey:        &opts.PreSharedKey,
-			DisableServerRoutes: &t,
-			DisableClientRoutes: &opts.DisableClientRoutes,
-		})
+		config, err = internal.UpdateOrCreateConfig(input)
 	} else {
-		config, err = internal.CreateInMemoryConfig(internal.ConfigInput{
-			ManagementURL:       opts.ManagementURL,
-			PreSharedKey:        &opts.PreSharedKey,
-			DisableServerRoutes: &t,
-		})
+		config, err = internal.CreateInMemoryConfig(input)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create config: %w", err)
