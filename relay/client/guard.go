@@ -124,14 +124,6 @@ func (g *Guard) notifyReconnected() {
 	}
 }
 
-func (g *Guard) isReadyToQuickReconnect(relayClient *Client) bool {
-	if relayClient == nil {
-		return false
-	}
-
-	return g.isServerURLStillValid(relayClient)
-}
-
 func exponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval: 2 * time.Second,
