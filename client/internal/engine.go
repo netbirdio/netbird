@@ -25,7 +25,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
-	"github.com/netbirdio/netbird/client/firewall/manager"
+	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
+	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -168,14 +169,13 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall      manager.Manager
-	routeManager  routemanager.Manager
-	acl           acl.Manager
-	dnsForwardMgr *dnsfwd.Manager
+	firewall          firewallManager.Manager
+	routeManager      routemanager.Manager
+	acl               acl.Manager
+	dnsForwardMgr     *dnsfwd.Manager
+	ingressGatewayMgr *ingressgw.Manager
 
 	dnsServer dns.Server
-
-	probes *ProbeHolder
 
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
@@ -196,7 +196,7 @@ type Peer struct {
 	WgAllowedIps string
 }
 
-// NewEngine creates a new Connection Engine
+// NewEngine creates a new Connection Engine with probes attached
 func NewEngine(
 	clientCtx context.Context,
 	clientCancel context.CancelFunc,
@@ -206,33 +206,6 @@ func NewEngine(
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-) *Engine {
-	return NewEngineWithProbes(
-		clientCtx,
-		clientCancel,
-		signalClient,
-		mgmClient,
-		relayManager,
-		config,
-		mobileDep,
-		statusRecorder,
-		nil,
-		checks,
-	)
-}
-
-// NewEngineWithProbes creates a new Connection Engine with probes attached
-func NewEngineWithProbes(
-	clientCtx context.Context,
-	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
-	config *EngineConfig,
-	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	probes *ProbeHolder,
 	checks []*mgmProto.Checks,
 ) *Engine {
 	engine := &Engine{
@@ -251,7 +224,6 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		probes:         probes,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
@@ -290,6 +262,13 @@ func (e *Engine) Stop() error {
 
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
 	e.stopDNSServer()
+
+	if e.ingressGatewayMgr != nil {
+		if err := e.ingressGatewayMgr.Close(); err != nil {
+			log.Warnf("failed to cleanup forward rules: %v", err)
+		}
+		e.ingressGatewayMgr = nil
+	}
 
 	if e.routeManager != nil {
 		e.routeManager.Stop(e.stateManager)
@@ -450,7 +429,6 @@ func (e *Engine) Start() error {
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
-	e.receiveProbeEvents()
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
@@ -495,15 +473,15 @@ func (e *Engine) initFirewall() error {
 	}
 
 	rosenpassPort := e.rpManager.GetAddress().Port
-	port := manager.Port{Values: []uint16{uint16(rosenpassPort)}}
+	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
 
 	// this rule is static and will be torn down on engine down by the firewall manager
 	if _, err := e.firewall.AddPeerFiltering(
 		net.IP{0, 0, 0, 0},
-		manager.ProtocolUDP,
+		firewallManager.ProtocolUDP,
 		nil,
 		&port,
-		manager.ActionAccept,
+		firewallManager.ActionAccept,
 		"",
 		"",
 	); err != nil {
@@ -531,10 +509,10 @@ func (e *Engine) blockLanAccess() {
 		if _, err := e.firewall.AddRouteFiltering(
 			[]netip.Prefix{v4},
 			network,
-			manager.ProtocolALL,
+			firewallManager.ProtocolALL,
 			nil,
 			nil,
-			manager.ActionDrop,
+			firewallManager.ActionDrop,
 		); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add fw rule for network %s: %w", network, err))
 		}
@@ -923,6 +901,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	routes := toRoutes(networkMap.GetRoutes())
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
+	}
+
+	// Ingress forward rules
+	if err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
+		log.Errorf("failed to update forward rules, err: %v", err)
 	}
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
@@ -1513,72 +1496,58 @@ func (e *Engine) getRosenpassAddr() string {
 	return ""
 }
 
-func (e *Engine) receiveProbeEvents() {
-	if e.probes == nil {
-		return
+// RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
+// and updates the status recorder with the latest states.
+func (e *Engine) RunHealthProbes() bool {
+	signalHealthy := e.signal.IsHealthy()
+	log.Debugf("signal health check: healthy=%t", signalHealthy)
+
+	managementHealthy := e.mgmClient.IsHealthy()
+	log.Debugf("management health check: healthy=%t", managementHealthy)
+
+	results := append(e.probeSTUNs(), e.probeTURNs()...)
+	e.statusRecorder.UpdateRelayStates(results)
+
+	relayHealthy := true
+	for _, res := range results {
+		if res.Err != nil {
+			relayHealthy = false
+			break
+		}
 	}
-	if e.probes.SignalProbe != nil {
-		go e.probes.SignalProbe.Receive(e.ctx, func() bool {
-			healthy := e.signal.IsHealthy()
-			log.Debugf("received signal probe request, healthy: %t", healthy)
-			return healthy
-		})
-	}
+	log.Debugf("relay health check: healthy=%t", relayHealthy)
 
-	if e.probes.MgmProbe != nil {
-		go e.probes.MgmProbe.Receive(e.ctx, func() bool {
-			healthy := e.mgmClient.IsHealthy()
-			log.Debugf("received management probe request, healthy: %t", healthy)
-			return healthy
-		})
-	}
-
-	if e.probes.RelayProbe != nil {
-		go e.probes.RelayProbe.Receive(e.ctx, func() bool {
-			healthy := true
-
-			results := append(e.probeSTUNs(), e.probeTURNs()...)
-			e.statusRecorder.UpdateRelayStates(results)
-
-			// A single failed server will result in a "failed" probe
-			for _, res := range results {
-				if res.Err != nil {
-					healthy = false
-					break
-				}
-			}
-
-			log.Debugf("received relay probe request, healthy: %t", healthy)
-			return healthy
-		})
+	for _, key := range e.peerStore.PeersPubKey() {
+		wgStats, err := e.wgInterface.GetStats(key)
+		if err != nil {
+			log.Debugf("failed to get wg stats for peer %s: %s", key, err)
+			continue
+		}
+		// wgStats could be zero value, in which case we just reset the stats
+		if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
+			log.Debugf("failed to update wg stats for peer %s: %s", key, err)
+		}
 	}
 
-	if e.probes.WgProbe != nil {
-		go e.probes.WgProbe.Receive(e.ctx, func() bool {
-			log.Debug("received wg probe request")
-
-			for _, key := range e.peerStore.PeersPubKey() {
-				wgStats, err := e.wgInterface.GetStats(key)
-				if err != nil {
-					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
-				}
-				// wgStats could be zero value, in which case we just reset the stats
-				if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
-					log.Debugf("failed to update wg stats for peer %s: %s", key, err)
-				}
-			}
-
-			return true
-		})
-	}
+	allHealthy := signalHealthy && managementHealthy && relayHealthy
+	log.Debugf("all health checks completed: healthy=%t", allHealthy)
+	return allHealthy
 }
 
 func (e *Engine) probeSTUNs() []relay.ProbeResult {
-	return relay.ProbeAll(e.ctx, relay.ProbeSTUN, e.STUNs)
+	e.syncMsgMux.Lock()
+	stuns := slices.Clone(e.STUNs)
+	e.syncMsgMux.Unlock()
+
+	return relay.ProbeAll(e.ctx, relay.ProbeSTUN, stuns)
 }
 
 func (e *Engine) probeTURNs() []relay.ProbeResult {
-	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
+	e.syncMsgMux.Lock()
+	turns := slices.Clone(e.TURNs)
+	e.syncMsgMux.Unlock()
+
+	return relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)
 }
 
 func (e *Engine) restartEngine() {
@@ -1735,6 +1704,70 @@ func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
 		}
 		e.dnsForwardMgr = nil
 	}
+}
+
+func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
+	if e.firewall == nil {
+		log.Warn("firewall is disabled, not updating forwarding rules")
+		return nil
+	}
+
+	if len(rules) == 0 && e.ingressGatewayMgr != nil {
+		err := e.ingressGatewayMgr.Close()
+		e.ingressGatewayMgr = nil
+		e.statusRecorder.SetIngressGwMgr(nil)
+		return err
+	}
+
+	if e.ingressGatewayMgr == nil {
+		mgr := ingressgw.NewManager(e.firewall)
+		e.ingressGatewayMgr = mgr
+		e.statusRecorder.SetIngressGwMgr(mgr)
+	}
+
+	var merr *multierror.Error
+	forwardingRules := make([]firewallManager.ForwardRule, 0, len(rules))
+	for _, rule := range rules {
+		proto, err := convertToFirewallProtocol(rule.GetProtocol())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("failed to convert protocol '%s': %w", rule.GetProtocol(), err))
+			continue
+		}
+
+		dstPortInfo, err := convertPortInfo(rule.GetDestinationPort())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("invalid destination port '%v': %w", rule.GetDestinationPort(), err))
+			continue
+		}
+
+		translateIP, err := convertToIP(rule.GetTranslatedAddress())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("failed to convert translated address '%s': %w", rule.GetTranslatedAddress(), err))
+			continue
+		}
+
+		translatePort, err := convertPortInfo(rule.GetTranslatedPort())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("invalid translate port '%v': %w", rule.GetTranslatedPort(), err))
+			continue
+		}
+
+		forwardRule := firewallManager.ForwardRule{
+			Protocol:          proto,
+			DestinationPort:   *dstPortInfo,
+			TranslatedAddress: translateIP,
+			TranslatedPort:    *translatePort,
+		}
+
+		forwardingRules = append(forwardingRules, forwardRule)
+	}
+
+	log.Infof("updating forwarding rules: %d", len(forwardingRules))
+	if err := e.ingressGatewayMgr.Update(forwardingRules); err != nil {
+		log.Errorf("failed to update forwarding rules: %v", err)
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // isChecksEqual checks if two slices of checks are equal.

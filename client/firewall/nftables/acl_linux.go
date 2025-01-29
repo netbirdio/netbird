@@ -127,7 +127,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 				log.Errorf("failed to delete mangle rule: %v", err)
 			}
 		}
-		delete(m.rules, r.GetRuleID())
+		delete(m.rules, r.ID())
 		return m.rConn.Flush()
 	}
 
@@ -141,7 +141,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 				log.Errorf("failed to delete mangle rule: %v", err)
 			}
 		}
-		delete(m.rules, r.GetRuleID())
+		delete(m.rules, r.ID())
 		return m.rConn.Flush()
 	}
 
@@ -176,7 +176,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 		return err
 	}
 
-	delete(m.rules, r.GetRuleID())
+	delete(m.rules, r.ID())
 	m.ipsetStore.DeleteReferenceFromIpSet(r.nftSet.Name)
 
 	if m.ipsetStore.HasReferenceToSet(r.nftSet.Name) {
@@ -348,6 +348,10 @@ func (m *AclManager) addIOFiltering(
 		UserData: userData,
 	})
 
+	if err := m.rConn.Flush(); err != nil {
+		return nil, fmt.Errorf(flushError, err)
+	}
+
 	rule := &Rule{
 		nftRule:    nftRule,
 		mangleRule: m.createPreroutingRule(expressions, userData),
@@ -359,6 +363,7 @@ func (m *AclManager) addIOFiltering(
 	if ipset != nil {
 		m.ipsetStore.AddReferenceToIpset(ipset.Name)
 	}
+
 	return rule, nil
 }
 
