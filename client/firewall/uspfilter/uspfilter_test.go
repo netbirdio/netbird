@@ -9,17 +9,38 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 )
 
+var logger = log.NewFromLogrus(logrus.StandardLogger())
+
 type IFaceMock struct {
-	SetFilterFunc func(device.PacketFilter) error
-	AddressFunc   func() iface.WGAddress
+	SetFilterFunc   func(device.PacketFilter) error
+	AddressFunc     func() iface.WGAddress
+	GetWGDeviceFunc func() *wgdevice.Device
+	GetDeviceFunc   func() *device.FilteredDevice
+}
+
+func (i *IFaceMock) GetWGDevice() *wgdevice.Device {
+	if i.GetWGDeviceFunc == nil {
+		return nil
+	}
+	return i.GetWGDeviceFunc()
+}
+
+func (i *IFaceMock) GetDevice() *device.FilteredDevice {
+	if i.GetDeviceFunc == nil {
+		return nil
+	}
+	return i.GetDeviceFunc()
 }
 
 func (i *IFaceMock) SetFilter(iface device.PacketFilter) error {
@@ -41,7 +62,7 @@ func TestManagerCreate(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -61,7 +82,7 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -95,7 +116,7 @@ func TestManagerDeleteRule(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -166,12 +187,12 @@ func TestAddUDPPacketHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			})
+			}, false)
 			require.NoError(t, err)
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
 
-			var addedRule Rule
+			var addedRule PeerRule
 			if tt.in {
 				if len(manager.incomingRules[tt.ip.String()]) != 1 {
 					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules))
@@ -215,7 +236,7 @@ func TestManagerReset(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -247,9 +268,18 @@ func TestManagerReset(t *testing.T) {
 func TestNotMatchByIP(t *testing.T) {
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
+		AddressFunc: func() iface.WGAddress {
+			return iface.WGAddress{
+				IP: net.ParseIP("100.10.0.100"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("100.10.0.0"),
+					Mask: net.CIDRMask(16, 32),
+				},
+			}
+		},
 	}
 
-	m, err := Create(ifaceMock)
+	m, err := Create(ifaceMock, false)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -298,7 +328,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if m.dropFilter(buf.Bytes(), m.incomingRules) {
+	if m.dropFilter(buf.Bytes()) {
 		t.Errorf("expected packet to be accepted")
 		return
 	}
@@ -317,7 +347,7 @@ func TestRemovePacketHook(t *testing.T) {
 	}
 
 	// creating manager instance
-	manager, err := Create(iface)
+	manager, err := Create(iface, false)
 	if err != nil {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
@@ -363,7 +393,7 @@ func TestRemovePacketHook(t *testing.T) {
 func TestProcessOutgoingHooks(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	})
+	}, false)
 	require.NoError(t, err)
 
 	manager.wgNetwork = &net.IPNet{
@@ -371,7 +401,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 		Mask: net.CIDRMask(16, 32),
 	}
 	manager.udpTracker.Close()
-	manager.udpTracker = conntrack.NewUDPTracker(100 * time.Millisecond)
+	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger)
 	defer func() {
 		require.NoError(t, manager.Reset(nil))
 	}()
@@ -449,7 +479,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ifaceMock := &IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}
-			manager, err := Create(ifaceMock)
+			manager, err := Create(ifaceMock, false)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
@@ -476,7 +506,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	})
+	}, false)
 	require.NoError(t, err)
 
 	manager.wgNetwork = &net.IPNet{
@@ -485,7 +515,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}
 
 	manager.udpTracker.Close() // Close the existing tracker
-	manager.udpTracker = conntrack.NewUDPTracker(200 * time.Millisecond)
+	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger)
 	manager.decoders = sync.Pool{
 		New: func() any {
 			d := &decoder{
@@ -606,7 +636,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	for _, cp := range checkPoints {
 		time.Sleep(cp.sleep)
 
-		drop = manager.dropFilter(inboundBuf.Bytes(), manager.incomingRules)
+		drop = manager.dropFilter(inboundBuf.Bytes())
 		require.Equal(t, cp.shouldAllow, !drop, cp.description)
 
 		// If the connection should still be valid, verify it exists
@@ -677,7 +707,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the invalid packet is dropped
-			drop = manager.dropFilter(testBuf.Bytes(), manager.incomingRules)
+			drop = manager.dropFilter(testBuf.Bytes())
 			require.True(t, drop, tc.description)
 		})
 	}
