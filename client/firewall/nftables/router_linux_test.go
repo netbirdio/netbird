@@ -595,16 +595,20 @@ func containsPort(exprs []expr.Any, port *firewall.Port, isSource bool) bool {
 			if ex.Base == expr.PayloadBaseTransportHeader && ex.Offset == offset && ex.Len == 2 {
 				payloadFound = true
 			}
-		case *expr.Cmp:
-			if port.IsRange {
-				if ex.Op == expr.CmpOpGte || ex.Op == expr.CmpOpLte {
+		case *expr.Range:
+			if port.IsRange && len(port.Values) == 2 {
+				fromPort := binary.BigEndian.Uint16(ex.FromData)
+				toPort := binary.BigEndian.Uint16(ex.ToData)
+				if fromPort == port.Values[0] && toPort == port.Values[1] {
 					portMatchFound = true
 				}
-			} else {
+			}
+		case *expr.Cmp:
+			if !port.IsRange {
 				if ex.Op == expr.CmpOpEq && len(ex.Data) == 2 {
 					portValue := binary.BigEndian.Uint16(ex.Data)
 					for _, p := range port.Values {
-						if uint16(p) == portValue {
+						if p == portValue {
 							portMatchFound = true
 							break
 						}
