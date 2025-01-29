@@ -14,8 +14,9 @@ var (
 
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
 type Guard struct {
-	// OnNewRelayClient is a channel that is used to notify the relay client about a new relay client instance.
+	// OnNewRelayClient is a channel that is used to notify the relay manager about a new relay client instance.
 	OnNewRelayClient chan *Client
+	OnReconnected    chan struct{}
 	serverPicker     *ServerPicker
 }
 
@@ -23,6 +24,7 @@ type Guard struct {
 func NewGuard(sp *ServerPicker) *Guard {
 	g := &Guard{
 		OnNewRelayClient: make(chan *Client, 1),
+		OnReconnected:    make(chan struct{}, 1),
 		serverPicker:     sp,
 	}
 	return g
@@ -39,14 +41,13 @@ func NewGuard(sp *ServerPicker) *Guard {
 // - relayClient: The relay client instance that was disconnected.
 // todo prevent multiple reconnection instances. In the current usage it should not happen, but it is better to prevent
 func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
-	if relayClient == nil {
-		goto RETRY
-	}
-	if g.isServerURLStillValid(relayClient) && g.quickReconnect(ctx, relayClient) {
+	// try to reconnect to the same server
+	if ok := g.tryToQuickReconnect(ctx, relayClient); ok {
+		g.notifyReconnected()
 		return
 	}
 
-RETRY:
+	// start a ticker to pick a new server
 	ticker := exponentTicker(ctx)
 	defer ticker.Stop()
 
@@ -64,6 +65,28 @@ RETRY:
 	}
 }
 
+func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool {
+	if rc == nil {
+		return false
+	}
+
+	if !g.isServerURLStillValid(rc) {
+		return false
+	}
+
+	if cancelled := waiteBeforeRetry(parentCtx); !cancelled {
+		return false
+	}
+
+	log.Infof("try to reconnect to Relay server: %s", rc.connectionURL)
+
+	if err := rc.Connect(); err != nil {
+		log.Errorf("failed to reconnect to relay server: %s", err)
+		return false
+	}
+	return true
+}
+
 func (g *Guard) retry(ctx context.Context) error {
 	log.Infof("try to pick up a new Relay server")
 	relayClient, err := g.serverPicker.PickServer(ctx)
@@ -76,23 +99,6 @@ func (g *Guard) retry(ctx context.Context) error {
 
 	g.OnNewRelayClient <- relayClient
 	return nil
-}
-
-func (g *Guard) quickReconnect(parentCtx context.Context, rc *Client) bool {
-	ctx, cancel := context.WithTimeout(parentCtx, 1500*time.Millisecond)
-	defer cancel()
-	<-ctx.Done()
-
-	if parentCtx.Err() != nil {
-		return false
-	}
-	log.Infof("try to reconnect to Relay server: %s", rc.connectionURL)
-
-	if err := rc.Connect(); err != nil {
-		log.Errorf("failed to reconnect to relay server: %s", err)
-		return false
-	}
-	return true
 }
 
 func (g *Guard) drainRelayClientChan() {
@@ -111,6 +117,21 @@ func (g *Guard) isServerURLStillValid(rc *Client) bool {
 	return false
 }
 
+func (g *Guard) notifyReconnected() {
+	select {
+	case g.OnReconnected <- struct{}{}:
+	default:
+	}
+}
+
+func (g *Guard) isReadyToQuickReconnect(relayClient *Client) bool {
+	if relayClient == nil {
+		return false
+	}
+
+	return g.isServerURLStillValid(relayClient)
+}
+
 func exponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval: 2 * time.Second,
@@ -120,4 +141,16 @@ func exponentTicker(ctx context.Context) *backoff.Ticker {
 	}, ctx)
 
 	return backoff.NewTicker(bo)
+}
+
+func waiteBeforeRetry(ctx context.Context) bool {
+	timer := time.NewTimer(1500 * time.Millisecond)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
