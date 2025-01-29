@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -128,6 +129,10 @@ func (t *WGTunDevice) WgAddress() WGAddress {
 
 func (t *WGTunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
+}
+
+func (t *WGTunDevice) GetNet() *netstack.Net {
+	return nil
 }
 
 func routesToString(routes []string) string {

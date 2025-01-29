@@ -1,15 +1,22 @@
 package netstack
 
 import (
+	"fmt"
+	"net"
 	"net/netip"
+	"os"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
+const EnvSkipProxy = "NB_NETSTACK_SKIP_PROXY"
+
 type NetStackTun struct { //nolint:revive
-	address       string
+	address       net.IP
+	dnsAddress    net.IP
 	mtu           int
 	listenAddress string
 
@@ -17,29 +24,48 @@ type NetStackTun struct { //nolint:revive
 	tundev tun.Device
 }
 
-func NewNetStackTun(listenAddress string, address string, mtu int) *NetStackTun {
+func NewNetStackTun(listenAddress string, address net.IP, dnsAddress net.IP, mtu int) *NetStackTun {
 	return &NetStackTun{
 		address:       address,
+		dnsAddress:    dnsAddress,
 		mtu:           mtu,
 		listenAddress: listenAddress,
 	}
 }
 
-func (t *NetStackTun) Create() (tun.Device, error) {
+func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
+	addr, ok := netip.AddrFromSlice(t.address)
+	if !ok {
+		return nil, nil, fmt.Errorf("convert address to netip.Addr: %v", t.address)
+	}
+
+	dnsAddr, ok := netip.AddrFromSlice(t.dnsAddress)
+	if !ok {
+		return nil, nil, fmt.Errorf("convert dns address to netip.Addr: %v", t.dnsAddress)
+	}
+
 	nsTunDev, tunNet, err := netstack.CreateNetTUN(
-		[]netip.Addr{netip.MustParseAddr(t.address)},
-		[]netip.Addr{},
+		[]netip.Addr{addr.Unmap()},
+		[]netip.Addr{dnsAddr.Unmap()},
 		t.mtu)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	t.tundev = nsTunDev
+
+	skipProxy, err := strconv.ParseBool(os.Getenv(EnvSkipProxy))
+	if err != nil {
+		log.Errorf("failed to parse NB_ETSTACK_SKIP_PROXY: %s", err)
+	}
+	if skipProxy {
+		return nsTunDev, tunNet, nil
+	}
 
 	dialer := NewNSDialer(tunNet)
 	t.proxy, err = NewSocks5(dialer)
 	if err != nil {
 		_ = t.tundev.Close()
-		return nil, err
+		return nil, nil, err
 	}
 
 	go func() {
@@ -49,7 +75,7 @@ func (t *NetStackTun) Create() (tun.Device, error) {
 		}
 	}()
 
-	return nsTunDev, nil
+	return nsTunDev, tunNet, nil
 }
 
 func (t *NetStackTun) Close() error {

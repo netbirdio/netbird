@@ -2,7 +2,6 @@ package dns
 
 import (
 	"fmt"
-	"math/big"
 	"net"
 	"sync"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type ServiceViaMemory struct {
@@ -27,7 +28,7 @@ func NewServiceViaMemory(wgIface WGIface) *ServiceViaMemory {
 		wgInterface: wgIface,
 		dnsMux:      dns.NewServeMux(),
 
-		runtimeIP:   getLastIPFromNetwork(wgIface.Address().Network, 1),
+		runtimeIP:   nbnet.GetLastIPFromNetwork(wgIface.Address().Network, 1).String(),
 		runtimePort: defaultPort,
 	}
 	return s
@@ -117,23 +118,4 @@ func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
 	}
 
 	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook), nil
-}
-
-func getLastIPFromNetwork(network *net.IPNet, fromEnd int) string {
-	// Calculate the last IP in the CIDR range
-	var endIP net.IP
-	for i := 0; i < len(network.IP); i++ {
-		endIP = append(endIP, network.IP[i]|^network.Mask[i])
-	}
-
-	// convert to big.Int
-	endInt := big.NewInt(0)
-	endInt.SetBytes(endIP)
-
-	// subtract fromEnd from the last ip
-	fromEndBig := big.NewInt(int64(fromEnd))
-	resultInt := big.NewInt(0)
-	resultInt.Sub(endInt, fromEndBig)
-
-	return net.IP(resultInt.Bytes()).String()
 }

@@ -3,6 +3,8 @@ package dns
 import (
 	"net"
 	"testing"
+
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 func TestGetLastIPFromNetwork(t *testing.T) {
@@ -23,7 +25,7 @@ func TestGetLastIPFromNetwork(t *testing.T) {
 			return
 		}
 
-		lastIP := getLastIPFromNetwork(ipnet, 1)
+		lastIP := nbnet.GetLastIPFromNetwork(ipnet, 1).String()
 		if lastIP != tt.ip {
 			t.Errorf("wrong IP address, expected %s: got %s", tt.ip, lastIP)
 		}
