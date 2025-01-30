@@ -6,6 +6,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
 )
 
@@ -14,7 +15,7 @@ type MockClient struct {
 	SyncFunc                       func(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error
 	GetServerPublicKeyFunc         func() (*wgtypes.Key, error)
 	RegisterFunc                   func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
-	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte, dnsLabels []string) (*proto.LoginResponse, error)
+	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
 	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
 	SyncMetaFunc                   func(sysInfo *system.Info) error
@@ -52,7 +53,7 @@ func (m *MockClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken s
 	return m.RegisterFunc(serverKey, setupKey, jwtToken, info, sshKey)
 }
 
-func (m *MockClient) Login(serverKey wgtypes.Key, info *system.Info, sshKey []byte, dnsLabels []string) (*proto.LoginResponse, error) {
+func (m *MockClient) Login(serverKey wgtypes.Key, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	if m.LoginFunc == nil {
 		return nil, nil
 	}

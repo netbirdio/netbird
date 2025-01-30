@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -105,6 +106,11 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
+	dnsLabelsConverted, err := validateDnsLabels(cmd.Flag(dnsLabelsFlag).Changed)
+	if err != nil {
+		return err
+	}
+
 	ic := internal.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
@@ -112,6 +118,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		NATExternalIPs:      natExternalIPs,
 		CustomDNSAddress:    customDNSAddressConverted,
 		ExtraIFaceBlackList: extraIFaceBlackList,
+		DNSLabels:           dnsLabelsConverted,
 	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
@@ -177,10 +184,6 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(blockLANAccessFlag).Changed {
 		ic.BlockLANAccess = &blockLANAccess
-	}
-
-	if cmd.Flag(dnsLabelsFlag).Changed {
-		ic.DNSLabels = dnsLabels
 	}
 
 	providedSetupKey, err := getSetupKey()
@@ -450,6 +453,20 @@ func parseCustomDNSAddress(modified bool) ([]byte, error) {
 		}
 	}
 	return parsed, nil
+}
+
+func validateDnsLabels(modified bool) (domain.List, error) {
+	var (
+		domains domain.List
+		err     error
+	)
+	if modified {
+		domains, err = domain.ValidateDomains(dnsLabels)
+		if err != nil {
+			return nil, fmt.Errorf("failed to validate dns labels: %v", err)
+		}
+	}
+	return domains, nil
 }
 
 func isValidAddrPort(input string) bool {

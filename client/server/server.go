@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -405,8 +406,10 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	if msg.DnsLabels != nil {
-		inputConfig.DNSLabels = msg.DnsLabels
-		s.latestConfigInput.DNSLabels = msg.DnsLabels
+		// TODO(hakan): discuss with @Viktor
+		dnsLabels, _ := domain.ValidateDomains(msg.DnsLabels)
+		inputConfig.DNSLabels = dnsLabels
+		s.latestConfigInput.DNSLabels = dnsLabels
 	}
 
 	s.mutex.Unlock()
