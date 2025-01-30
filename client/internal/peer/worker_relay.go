@@ -18,17 +18,12 @@ type RelayConnInfo struct {
 	rosenpassAddr   string
 }
 
-type WorkerRelayCallbacks struct {
-	OnConnReady    func(RelayConnInfo)
-	OnDisconnected func()
-}
-
 type WorkerRelay struct {
 	log          *log.Entry
 	isController bool
 	config       ConnConfig
+	conn         *Conn
 	relayManager relayClient.ManagerService
-	callBacks    WorkerRelayCallbacks
 
 	relayedConn net.Conn
 	relayLock   sync.Mutex
@@ -38,13 +33,13 @@ type WorkerRelay struct {
 	wgWatcher *WGWatcher
 }
 
-func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
+func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager relayClient.ManagerService) *WorkerRelay {
 	r := &WorkerRelay{
 		log:          log,
 		isController: ctrl,
 		config:       config,
+		conn:         conn,
 		relayManager: relayManager,
-		callBacks:    callbacks,
 		wgWatcher:    NewWGWatcher(log, config.WgConfig.WgInterface, config.Key),
 	}
 	return r
@@ -81,7 +76,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.relayedConn = relayedConn
 	w.relayLock.Unlock()
 
-	err = w.relayManager.AddCloseListener(srv, w.onRelayMGDisconnected)
+	err = w.relayManager.AddCloseListener(srv, w.onRelayClientDisconnected)
 	if err != nil {
 		log.Errorf("failed to add close listener: %s", err)
 		_ = relayedConn.Close()
@@ -89,7 +84,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	w.log.Debugf("peer conn opened via Relay: %s", srv)
-	go w.callBacks.OnConnReady(RelayConnInfo{
+	go w.conn.onRelayConnectionIsReady(RelayConnInfo{
 		relayedConn:     relayedConn,
 		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
 		rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
@@ -97,7 +92,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 }
 
 func (w *WorkerRelay) EnableWgWatcher(ctx context.Context) {
-	w.wgWatcher.EnableWgWatcher(ctx, w.disconnected)
+	w.wgWatcher.EnableWgWatcher(ctx, w.onWGDisconnected)
 }
 
 func (w *WorkerRelay) DisableWgWatcher() {
@@ -128,12 +123,12 @@ func (w *WorkerRelay) CloseConn() {
 	}
 }
 
-func (w *WorkerRelay) disconnected() {
+func (w *WorkerRelay) onWGDisconnected() {
 	w.relayLock.Lock()
 	_ = w.relayedConn.Close()
 	w.relayLock.Unlock()
 
-	w.callBacks.OnDisconnected()
+	w.conn.onRelayDisconnected()
 }
 
 func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
@@ -150,7 +145,7 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 	return remoteRelayAddress
 }
 
-func (w *WorkerRelay) onRelayMGDisconnected() {
+func (w *WorkerRelay) onRelayClientDisconnected() {
 	w.wgWatcher.DisableWgWatcher()
-	go w.callBacks.OnDisconnected()
+	go w.conn.onRelayDisconnected()
 }
