@@ -145,6 +145,9 @@ func runLargeTest(t *testing.T, store Store) {
 		account.NameServerGroups[nameserver.ID] = nameserver
 
 		setupKey, _ := types.GenerateDefaultSetupKey()
+		if _, ok := account.SetupKeys[setupKey.Key]; ok {
+			t.Errorf("setup key %s already exists", setupKey.Key)
+		}
 		account.SetupKeys[setupKey.Key] = setupKey
 	}
 
