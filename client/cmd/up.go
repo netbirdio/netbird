@@ -29,9 +29,15 @@ const (
 	interfaceInputType
 )
 
+const (
+	dnsLabelsFlag = "dns-labels"
+)
+
 var (
 	foregroundMode bool
-	upCmd          = &cobra.Command{
+	dnsLabels      []string
+
+	upCmd = &cobra.Command{
 		Use:   "up",
 		Short: "install, login and start Netbird client",
 		RunE:  upFunc,
@@ -49,6 +55,14 @@ func init() {
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
 	upCmd.PersistentFlags().BoolVar(&blockLANAccess, blockLANAccessFlag, false, "Block access to local networks (LAN) when using this peer as a router or exit node")
+
+	upCmd.PersistentFlags().StringSliceVar(&dnsLabels, dnsLabelsFlag, nil,
+		`Sets DNS labels`+
+			`You can specify a comma-separated list. `+
+			`An empty string "" clears the previous configuration. `+
+			`E.g. --dns-labels vpc1 or --dns-labels vpc1,mgmt1 `+
+			`or --dns-labels ""`,
+	)
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -163,6 +177,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(blockLANAccessFlag).Changed {
 		ic.BlockLANAccess = &blockLANAccess
+	}
+
+	if cmd.Flag(dnsLabelsFlag).Changed {
+		ic.DNSLabels = dnsLabels
 	}
 
 	providedSetupKey, err := getSetupKey()
@@ -297,6 +315,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(blockLANAccessFlag).Changed {
 		loginRequest.BlockLanAccess = &blockLANAccess
+	}
+
+	if cmd.Flag(dnsLabelsFlag).Changed {
+		loginRequest.DnsLabels = dnsLabels
 	}
 
 	var loginErr error

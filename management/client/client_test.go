@@ -177,7 +177,7 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 		t.Fatal(err)
 	}
 	sysInfo := system.GetInfo(context.TODO())
-	_, err = client.Login(*key, sysInfo, nil)
+	_, err = client.Login(*key, sysInfo, nil, nil)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}

@@ -68,6 +68,8 @@ type ConfigInput struct {
 	DisableFirewall     *bool
 
 	BlockLANAccess *bool
+
+	DNSLabels []string
 }
 
 // Config Configuration type
@@ -92,6 +94,8 @@ type Config struct {
 	DisableFirewall     bool
 
 	BlockLANAccess bool
+
+	DNSLabels []string
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
@@ -487,6 +491,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			config.ClientCertKeyPair = &cert
 			log.Info("Loaded client mTLS cert/key pair")
 		}
+	}
+
+	if input.DNSLabels != nil && !reflect.DeepEqual(config.DNSLabels, input.DNSLabels) {
+		log.Infof("updating DNS labels [ %s ] (old value: [ %s ])",
+			strings.Join(input.DNSLabels, " "),
+			strings.Join(config.DNSLabels, " "))
+		config.DNSLabels = input.DNSLabels
+		updated = true
 	}
 
 	return updated, nil

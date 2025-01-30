@@ -404,6 +404,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
 	}
 
+	if msg.DnsLabels != nil {
+		inputConfig.DNSLabels = msg.DnsLabels
+		s.latestConfigInput.DNSLabels = msg.DnsLabels
+	}
+
 	s.mutex.Unlock()
 
 	if msg.OptionalPreSharedKey != nil {

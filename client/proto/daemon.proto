@@ -114,6 +114,8 @@ message LoginRequest {
   optional bool disable_firewall = 23;
 
   optional bool block_lan_access = 24;
+
+  repeated string dns_labels = 25;
 }
 
 message LoginResponse {
