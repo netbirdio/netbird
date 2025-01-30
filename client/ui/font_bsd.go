@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build freebsd || openbsd || netbsd || dragonfly
 
 package main
 
@@ -9,18 +9,22 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const defaultFontPath = "/Library/Fonts/Arial Unicode.ttf"
-
 func (s *serviceClient) setDefaultFonts() {
-	// TODO: add other bsd paths
-	if runtime.GOOS != "darwin" {
-		return
+	paths := []string{
+		"/usr/local/share/fonts/TTF/DejaVuSans.ttf",
+		"/usr/local/share/fonts/dejavu/DejaVuSans.ttf",
+		"/usr/local/share/noto/NotoSans-Regular.ttf",
+		"/usr/local/share/fonts/noto/NotoSans-Regular.ttf",
+		"/usr/local/share/fonts/liberation-fonts-ttf/LiberationSans-Regular.ttf",
 	}
 
-	if _, err := os.Stat(defaultFontPath); err != nil {
-		log.Errorf("Failed to find default font file: %v", err)
-		return
+	for _, fontPath := range paths {
+		if _, err := os.Stat(fontPath); err == nil {
+			os.Setenv("FYNE_FONT", fontPath)
+			log.Debugf("Using font: %s", fontPath)
+			return
+		}
 	}
 
-	os.Setenv("FYNE_FONT", defaultFontPath)
+	log.Errorf("Failed to find any suitable font files for %s", runtime.GOOS)
 }

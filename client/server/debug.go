@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -132,6 +133,9 @@ const (
 	clientLogFile = "client.log"
 	errorLogFile  = "netbird.err"
 	stdoutLogFile = "netbird.out"
+
+	darwinErrorLogPath  = "/var/log/netbird.out.log"
+	darwinStdoutLogPath = "/var/log/netbird.err.log"
 )
 
 // DebugBundle creates a debug bundle and returns the location.
@@ -190,6 +194,10 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 
 	if err := s.addStateFile(req, anonymizer, archive); err != nil {
 		log.Errorf("Failed to add state file to debug bundle: %v", err)
+	}
+
+	if err := s.addCorruptedStateFiles(archive); err != nil {
+		log.Errorf("Failed to add corrupted state files to debug bundle: %v", err)
 	}
 
 	if s.logFile != "console" {
@@ -403,6 +411,36 @@ func (s *Server) addStateFile(req *proto.DebugBundleRequest, anonymizer *anonymi
 	return nil
 }
 
+func (s *Server) addCorruptedStateFiles(archive *zip.Writer) error {
+	pattern := statemanager.GetDefaultStatePath()
+	if pattern == "" {
+		return nil
+	}
+	pattern += "*.corrupted.*"
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("find corrupted state files: %w", err)
+	}
+
+	for _, match := range matches {
+		data, err := os.ReadFile(match)
+		if err != nil {
+			log.Warnf("Failed to read corrupted state file %s: %v", match, err)
+			continue
+		}
+
+		fileName := filepath.Base(match)
+		if err := addFileToZip(archive, bytes.NewReader(data), "corrupted_states/"+fileName); err != nil {
+			log.Warnf("Failed to add corrupted state file %s to zip: %v", fileName, err)
+			continue
+		}
+
+		log.Debugf("Added corrupted state file to debug bundle: %s", fileName)
+	}
+
+	return nil
+}
+
 func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
 	logDir := filepath.Dir(s.logFile)
 
@@ -410,12 +448,17 @@ func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
-	errLogPath := filepath.Join(logDir, errorLogFile)
-	if err := s.addSingleLogfile(errLogPath, errorLogFile, req, anonymizer, archive); err != nil {
+	stdErrLogPath := filepath.Join(logDir, errorLogFile)
+	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
+	if runtime.GOOS == "darwin" {
+		stdErrLogPath = darwinErrorLogPath
+		stdoutLogPath = darwinStdoutLogPath
+	}
+
+	if err := s.addSingleLogfile(stdErrLogPath, errorLogFile, req, anonymizer, archive); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", errorLogFile, err)
 	}
 
-	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
 	if err := s.addSingleLogfile(stdoutLogPath, stdoutLogFile, req, anonymizer, archive); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", stdoutLogFile, err)
 	}

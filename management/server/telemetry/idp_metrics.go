@@ -23,43 +23,73 @@ type IDPMetrics struct {
 
 // NewIDPMetrics creates new IDPMetrics struct and registers common
 func NewIDPMetrics(ctx context.Context, meter metric.Meter) (*IDPMetrics, error) {
-	metaUpdateCounter, err := meter.Int64Counter("management.idp.update.user.meta.counter", metric.WithUnit("1"))
+	metaUpdateCounter, err := meter.Int64Counter("management.idp.update.user.meta.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of updates of user metadata sent to the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	getUserByEmailCounter, err := meter.Int64Counter("management.idp.get.user.by.email.counter", metric.WithUnit("1"))
+	getUserByEmailCounter, err := meter.Int64Counter("management.idp.get.user.by.email.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of requests to get a user by email from the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	getAllAccountsCounter, err := meter.Int64Counter("management.idp.get.accounts.counter", metric.WithUnit("1"))
+	getAllAccountsCounter, err := meter.Int64Counter("management.idp.get.accounts.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of requests to get all accounts from the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	createUserCounter, err := meter.Int64Counter("management.idp.create.user.counter", metric.WithUnit("1"))
+	createUserCounter, err := meter.Int64Counter("management.idp.create.user.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of requests to create a new user in the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	deleteUserCounter, err := meter.Int64Counter("management.idp.delete.user.counter", metric.WithUnit("1"))
+	deleteUserCounter, err := meter.Int64Counter("management.idp.delete.user.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of requests to delete a user from the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	getAccountCounter, err := meter.Int64Counter("management.idp.get.account.counter", metric.WithUnit("1"))
+	getAccountCounter, err := meter.Int64Counter("management.idp.get.account.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of requests to get all users in an account from the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	getUserByIDCounter, err := meter.Int64Counter("management.idp.get.user.by.id.counter", metric.WithUnit("1"))
+	getUserByIDCounter, err := meter.Int64Counter("management.idp.get.user.by.id.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of requests to get a user by ID from the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	authenticateRequestCounter, err := meter.Int64Counter("management.idp.authenticate.request.counter", metric.WithUnit("1"))
+	authenticateRequestCounter, err := meter.Int64Counter("management.idp.authenticate.request.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of requests to authenticate the server with the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	requestErrorCounter, err := meter.Int64Counter("management.idp.request.error.counter", metric.WithUnit("1"))
+	requestErrorCounter, err := meter.Int64Counter("management.idp.request.error.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of errors that happened when doing http request to the configured identity provider"),
+	)
 	if err != nil {
 		return nil, err
 	}
-	requestStatusErrorCounter, err := meter.Int64Counter("management.idp.request.status.error.counter", metric.WithUnit("1"))
+	requestStatusErrorCounter, err := meter.Int64Counter("management.idp.request.status.error.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of responses that came from the configured identity provider with non success status code"),
+	)
 	if err != nil {
 		return nil, err
 	}
