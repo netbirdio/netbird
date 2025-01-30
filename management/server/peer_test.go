@@ -1079,6 +1079,20 @@ func TestToSyncResponse(t *testing.T) {
 		FirewallRules: []*types.FirewallRule{
 			{PeerIP: "192.168.1.2", Direction: types.FirewallRuleDirectionIN, Action: string(types.PolicyTrafficActionAccept), Protocol: string(types.PolicyRuleProtocolTCP), Port: "80"},
 		},
+		ForwardingRules: []*types.ForwardingRule{
+			{
+				RuleProtocol: "tcp",
+				DestinationPorts: types.RulePortRange{
+					Start: 1000,
+					End:   2000,
+				},
+				TranslatedAddress: net.IPv4(192, 168, 1, 2),
+				TranslatedPorts: types.RulePortRange{
+					Start: 11000,
+					End:   12000,
+				},
+			},
+		},
 	}
 	dnsName := "example.com"
 	checks := []*posture.Checks{
@@ -1170,6 +1184,14 @@ func TestToSyncResponse(t *testing.T) {
 	// assert posture checks
 	assert.Equal(t, 1, len(response.Checks))
 	assert.Equal(t, "/usr/bin/netbird", response.Checks[0].Files[0])
+	// assert network map ForwardingRules
+	assert.Equal(t, 1, len(response.NetworkMap.ForwardingRules))
+	assert.Equal(t, proto.RuleProtocol_TCP, response.NetworkMap.ForwardingRules[0].Protocol)
+	assert.Equal(t, uint32(1000), response.NetworkMap.ForwardingRules[0].DestinationPort.GetRange().Start)
+	assert.Equal(t, uint32(2000), response.NetworkMap.ForwardingRules[0].DestinationPort.GetRange().End)
+	assert.Equal(t, net.IPv4(192, 168, 1, 2), net.IP(response.NetworkMap.ForwardingRules[0].TranslatedAddress))
+	assert.Equal(t, uint32(11000), response.NetworkMap.ForwardingRules[0].TranslatedPort.GetRange().Start)
+	assert.Equal(t, uint32(12000), response.NetworkMap.ForwardingRules[0].TranslatedPort.GetRange().End)
 }
 
 func Test_RegisterPeerByUser(t *testing.T) {

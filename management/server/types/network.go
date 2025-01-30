@@ -10,6 +10,7 @@ import (
 	"github.com/rs/xid"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/proto"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
@@ -33,6 +34,45 @@ type NetworkMap struct {
 	OfflinePeers        []*nbpeer.Peer
 	FirewallRules       []*FirewallRule
 	RoutesFirewallRules []*RouteFirewallRule
+	ForwardingRules     []*ForwardingRule
+}
+
+func (nm *NetworkMap) Merge(other *NetworkMap) {
+	nm.Peers = append(nm.Peers, other.Peers...)
+	nm.Routes = append(nm.Routes, other.Routes...)
+	nm.OfflinePeers = append(nm.OfflinePeers, other.OfflinePeers...)
+	nm.FirewallRules = append(nm.FirewallRules, other.FirewallRules...)
+	nm.RoutesFirewallRules = append(nm.RoutesFirewallRules, other.RoutesFirewallRules...)
+	nm.ForwardingRules = append(nm.ForwardingRules, other.ForwardingRules...)
+}
+
+type ForwardingRule struct {
+	RuleProtocol      string
+	DestinationPorts  RulePortRange
+	TranslatedAddress net.IP
+	TranslatedPorts   RulePortRange
+}
+
+func (f *ForwardingRule) ToProto() *proto.ForwardingRule {
+	var protocol proto.RuleProtocol
+	switch f.RuleProtocol {
+	case "icmp":
+		protocol = proto.RuleProtocol_ICMP
+	case "tcp":
+		protocol = proto.RuleProtocol_TCP
+	case "udp":
+		protocol = proto.RuleProtocol_UDP
+	case "all":
+		protocol = proto.RuleProtocol_ALL
+	default:
+		protocol = proto.RuleProtocol_UNKNOWN
+	}
+	return &proto.ForwardingRule{
+		Protocol:          protocol,
+		DestinationPort:   f.DestinationPorts.ToProto(),
+		TranslatedAddress: f.TranslatedAddress,
+		TranslatedPort:    f.TranslatedPorts.ToProto(),
+	}
 }
 
 type Network struct {

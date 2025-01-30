@@ -33,6 +33,9 @@ type FirewallRule struct {
 
 	// Port of the traffic
 	Port string
+
+	// PortRange represents the range of ports for a firewall rule
+	PortRange RulePortRange
 }
 
 // IsEqual checks if two firewall rules are equal.

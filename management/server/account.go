@@ -24,6 +24,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	port_forwarding "github.com/netbirdio/management-integrations/integrations/port-forwarding"
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -167,6 +168,8 @@ type DefaultAccountManager struct {
 
 	requestBuffer *AccountRequestBuffer
 
+	proxyController port_forwarding.Controller
+
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
 	// This value will be set to false if management service has more than one account.
@@ -250,6 +253,7 @@ func BuildManager(
 	userDeleteFromIDPEnabled bool,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
+	proxyController port_forwarding.Controller,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
@@ -267,6 +271,7 @@ func BuildManager(
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
+		proxyController:          proxyController,
 	}
 	allAccounts := store.GetAllAccounts(ctx)
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
