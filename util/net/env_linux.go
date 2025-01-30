@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
@@ -72,18 +73,21 @@ func checkAdvancedRoutingSupport() bool {
 }
 
 func CheckFwmarkSupport() bool {
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
-	if err != nil {
-		log.Warnf("failed to create test socket: %v", err)
-		return false
-	}
-	defer syscall.Close(fd)
+	dialer := NewDialer()
+	dialer.Timeout = 100 * time.Millisecond
 
-	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, NetbirdFwmark)
+	conn, err := dialer.Dial("udp", "127.0.0.1:9")
 	if err != nil {
-		log.Warnf("fwmark is not supported: %v", err)
+		log.Warnf("failed to dial with fwmark: %v", err)
 		return false
 	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Warnf("failed to close connection: %v", err)
+
+		}
+	}()
+
 	return true
 }
 
