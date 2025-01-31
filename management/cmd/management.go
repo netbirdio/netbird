@@ -34,7 +34,6 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
 	"github.com/netbirdio/management-integrations/integrations"
-	port_forwarding "github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/management/server/peers"
 
@@ -208,7 +207,7 @@ var (
 			settingsManager := settings.NewManager(store)
 			permissionsManager := permissions.NewManager(userManager, settingsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
-			proxyController := port_forwarding.NewController(store)
+			proxyController := integrations.NewController(store)
 
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
 				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController)
