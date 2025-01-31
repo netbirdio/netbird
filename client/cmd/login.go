@@ -90,6 +90,7 @@ var loginCmd = &cobra.Command{
 			ManagementUrl:        managementURL,
 			IsLinuxDesktopClient: isLinuxRunningDesktop(),
 			Hostname:             hostName,
+			DnsLabels:            dnsLabels,
 		}
 
 		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {

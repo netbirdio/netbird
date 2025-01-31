@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -29,9 +30,15 @@ const (
 	interfaceInputType
 )
 
+const (
+	dnsLabelsFlag = "dns-labels"
+)
+
 var (
 	foregroundMode bool
-	upCmd          = &cobra.Command{
+	dnsLabels      []string
+
+	upCmd = &cobra.Command{
 		Use:   "up",
 		Short: "install, login and start Netbird client",
 		RunE:  upFunc,
@@ -49,6 +56,14 @@ func init() {
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
 	upCmd.PersistentFlags().BoolVar(&blockLANAccess, blockLANAccessFlag, false, "Block access to local networks (LAN) when using this peer as a router or exit node")
+
+	upCmd.PersistentFlags().StringSliceVar(&dnsLabels, dnsLabelsFlag, nil,
+		`Sets DNS labels`+
+			`You can specify a comma-separated list. `+
+			`An empty string "" clears the previous configuration. `+
+			`E.g. --dns-labels vpc1 or --dns-labels vpc1,mgmt1 `+
+			`or --dns-labels ""`,
+	)
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -63,6 +78,11 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	err = validateNATExternalIPs(natExternalIPs)
+	if err != nil {
+		return err
+	}
+
+	_, err = validateDnsLabels(dnsLabels)
 	if err != nil {
 		return err
 	}
@@ -91,6 +111,11 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
+	dnsLabelsConverted, err := validateDnsLabels(dnsLabels)
+	if err != nil {
+		return err
+	}
+
 	ic := internal.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
@@ -98,6 +123,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		NATExternalIPs:      natExternalIPs,
 		CustomDNSAddress:    customDNSAddressConverted,
 		ExtraIFaceBlackList: extraIFaceBlackList,
+		DNSLabels:           dnsLabelsConverted,
 	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
@@ -240,6 +266,8 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		Hostname:             hostName,
 		ExtraIFaceBlacklist:  extraIFaceBlackList,
+		DnsLabels:            dnsLabels,
+		CleanDNSLabels:       dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -428,6 +456,24 @@ func parseCustomDNSAddress(modified bool) ([]byte, error) {
 		}
 	}
 	return parsed, nil
+}
+
+func validateDnsLabels(labels []string) (domain.List, error) {
+	var (
+		domains domain.List
+		err     error
+	)
+
+	if len(labels) == 0 {
+		return domains, nil
+	}
+
+	domains, err = domain.ValidateDomains(labels)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate dns labels: %v", err)
+	}
+
+	return domains, nil
 }
 
 func isValidAddrPort(input string) bool {
