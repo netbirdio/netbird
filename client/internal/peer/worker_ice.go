@@ -149,7 +149,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}
-	w.log.Debugf("on ICE conn read to use ready")
+	w.log.Debugf("on ICE conn is ready to use")
 	go w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
 }
 
