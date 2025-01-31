@@ -83,6 +83,18 @@ const (
 	GroupMinimumIssuedJwt         GroupMinimumIssued = "jwt"
 )
 
+// Defines values for IngressPortAllocationPortMappingProtocol.
+const (
+	IngressPortAllocationPortMappingProtocolTcp IngressPortAllocationPortMappingProtocol = "tcp"
+	IngressPortAllocationPortMappingProtocolUdp IngressPortAllocationPortMappingProtocol = "udp"
+)
+
+// Defines values for IngressPortAllocationRequestPortRangeProtocol.
+const (
+	IngressPortAllocationRequestPortRangeProtocolTcp IngressPortAllocationRequestPortRangeProtocol = "tcp"
+	IngressPortAllocationRequestPortRangeProtocolUdp IngressPortAllocationRequestPortRangeProtocol = "udp"
+)
+
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
@@ -141,18 +153,6 @@ const (
 	PolicyRuleUpdateProtocolIcmp PolicyRuleUpdateProtocol = "icmp"
 	PolicyRuleUpdateProtocolTcp  PolicyRuleUpdateProtocol = "tcp"
 	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
-)
-
-// Defines values for ProxyConfigurationPortMappingProtocol.
-const (
-	ProxyConfigurationPortMappingProtocolTcp ProxyConfigurationPortMappingProtocol = "tcp"
-	ProxyConfigurationPortMappingProtocolUdp ProxyConfigurationPortMappingProtocol = "udp"
-)
-
-// Defines values for ProxyConfigurationRequestPortRangeProtocol.
-const (
-	ProxyConfigurationRequestPortRangeProtocolTcp ProxyConfigurationRequestPortRangeProtocol = "tcp"
-	ProxyConfigurationRequestPortRangeProtocolUdp ProxyConfigurationRequestPortRangeProtocol = "udp"
 )
 
 // Defines values for ResourceType.
@@ -434,6 +434,126 @@ type GroupRequest struct {
 	Peers     *[]string   `json:"peers,omitempty"`
 	Resources *[]Resource `json:"resources,omitempty"`
 }
+
+// IngressPeer defines model for IngressPeer.
+type IngressPeer struct {
+	// AvailablePorts Number of available ports left on the ingress peer
+	AvailablePorts int `json:"available_ports"`
+
+	// Connected Indicates if an ingress peer is connected to the management server
+	Connected bool `json:"connected"`
+
+	// Enabled Indicates if an ingress peer is enabled
+	Enabled bool `json:"enabled"`
+
+	// Fallback Indicates if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
+	Fallback bool `json:"fallback"`
+
+	// Id ID of the ingress peer
+	Id string `json:"id"`
+
+	// IngressIp Ingress IP address of the ingress peer where the traffic arrives
+	IngressIp string `json:"ingress_ip"`
+
+	// PeerId ID of the peer that is used as an ingress peer
+	PeerId string `json:"peer_id"`
+
+	// Region Region of the ingress peer
+	Region string `json:"region"`
+}
+
+// IngressPeerCreateRequest defines model for IngressPeerCreateRequest.
+type IngressPeerCreateRequest struct {
+	// Enabled Defines if an ingress peer is enabled
+	Enabled bool `json:"enabled"`
+
+	// Fallback Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
+	Fallback bool `json:"fallback"`
+
+	// PeerId ID of the peer that is used as an ingress peer
+	PeerId string `json:"peer_id"`
+}
+
+// IngressPeerUpdateRequest defines model for IngressPeerUpdateRequest.
+type IngressPeerUpdateRequest struct {
+	// Enabled Defines if an ingress peer is enabled
+	Enabled bool `json:"enabled"`
+
+	// Fallback Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
+	Fallback bool `json:"fallback"`
+}
+
+// IngressPortAllocation defines model for IngressPortAllocation.
+type IngressPortAllocation struct {
+	// Enabled Indicates if an ingress port allocation is enabled
+	Enabled bool `json:"enabled"`
+
+	// Id ID of the ingress port allocation
+	Id string `json:"id"`
+
+	// IngressIp Ingress IP address of the ingress peer where the traffic arrives
+	IngressIp string `json:"ingress_ip"`
+
+	// IngressPeerId ID of the ingress peer that forwards the ports
+	IngressPeerId string `json:"ingress_peer_id"`
+
+	// Name Name of the ingress port allocation
+	Name string `json:"name"`
+
+	// PortRangeMappings List of port ranges that are allowed to be used by the ingress peer
+	PortRangeMappings []IngressPortAllocationPortMapping `json:"port_range_mappings"`
+
+	// Region Region of the ingress peer
+	Region string `json:"region"`
+}
+
+// IngressPortAllocationPortMapping defines model for IngressPortAllocationPortMapping.
+type IngressPortAllocationPortMapping struct {
+	// IngressEnd The ending port of the range of ingress ports mapped to the forwarded ports
+	IngressEnd int `json:"ingress_end"`
+
+	// IngressStart The starting port of the range of ingress ports mapped to the forwarded ports
+	IngressStart int `json:"ingress_start"`
+
+	// Protocol Protocol accepted by the ports
+	Protocol IngressPortAllocationPortMappingProtocol `json:"protocol"`
+
+	// TranslatedEnd The ending port of the translated range of forwarded ports
+	TranslatedEnd int `json:"translated_end"`
+
+	// TranslatedStart The starting port of the translated range of forwarded ports
+	TranslatedStart int `json:"translated_start"`
+}
+
+// IngressPortAllocationPortMappingProtocol Protocol accepted by the ports
+type IngressPortAllocationPortMappingProtocol string
+
+// IngressPortAllocationRequest defines model for IngressPortAllocationRequest.
+type IngressPortAllocationRequest struct {
+	// Enabled Indicates if an ingress port allocation is enabled
+	Enabled bool `json:"enabled"`
+
+	// Name Name of the ingress port allocation
+	Name string `json:"name"`
+
+	// PortRanges List of port ranges that are forwarded by the ingress peer
+	PortRanges []IngressPortAllocationRequestPortRange `json:"port_ranges"`
+}
+
+// IngressPortAllocationRequestPortRange defines model for IngressPortAllocationRequestPortRange.
+type IngressPortAllocationRequestPortRange struct {
+	// End The ending port of the range of forwarded ports
+	End int `json:"end"`
+
+	// Protocol The protocol accepted by the port range
+	Protocol IngressPortAllocationRequestPortRangeProtocol `json:"protocol"`
+
+	// Start The starting port of the range of forwarded ports
+	Start int `json:"start"`
+}
+
+// IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
+type IngressPortAllocationRequestPortRangeProtocol string
 
 // Location Describe geographical location information
 type Location struct {
@@ -1137,126 +1257,6 @@ type ProcessCheck struct {
 	Processes []Process `json:"processes"`
 }
 
-// Proxy defines model for Proxy.
-type Proxy struct {
-	// AvailablePorts Number of available ports left on the proxy
-	AvailablePorts int `json:"available_ports"`
-
-	// Connected Indicates if a proxy is connected to the management server
-	Connected bool `json:"connected"`
-
-	// Enabled Indicates if a proxy is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Indicates if a proxy can be used as a fallback if no proxy can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-
-	// Id ID of the proxy
-	Id string `json:"id"`
-
-	// IngressIp Ingress IP address of the proxy where the traffic arrives
-	IngressIp string `json:"ingress_ip"`
-
-	// PeerId ID of the peer that is used as a proxy
-	PeerId string `json:"peer_id"`
-
-	// Region Region of the proxy
-	Region string `json:"region"`
-}
-
-// ProxyConfiguration defines model for ProxyConfiguration.
-type ProxyConfiguration struct {
-	// Enabled Indicates if a proxy configuration is enabled
-	Enabled bool `json:"enabled"`
-
-	// Id ID of the proxy configuration
-	Id string `json:"id"`
-
-	// IngressIp Ingress IP address of the proxy where the traffic arrives
-	IngressIp string `json:"ingress_ip"`
-
-	// Name Name of the proxy configuration
-	Name string `json:"name"`
-
-	// PortRangeMappings List of port ranges that are allowed to be used by the proxy
-	PortRangeMappings []ProxyConfigurationPortMapping `json:"port_range_mappings"`
-
-	// ProxyId ID of the proxy that forwards the ports
-	ProxyId string `json:"proxy_id"`
-
-	// Region Region of the proxy
-	Region string `json:"region"`
-}
-
-// ProxyConfigurationPortMapping defines model for ProxyConfigurationPortMapping.
-type ProxyConfigurationPortMapping struct {
-	// IngressEnd The ending port of the range of ingress ports mapped to the forwarded ports
-	IngressEnd int `json:"ingress_end"`
-
-	// IngressStart The starting port of the range of ingress ports mapped to the forwarded ports
-	IngressStart int `json:"ingress_start"`
-
-	// Protocol Protocol accepted by the ports
-	Protocol ProxyConfigurationPortMappingProtocol `json:"protocol"`
-
-	// TranslatedEnd The ending port of the translated range of forwarded ports
-	TranslatedEnd int `json:"translated_end"`
-
-	// TranslatedStart The starting port of the translated range of forwarded ports
-	TranslatedStart int `json:"translated_start"`
-}
-
-// ProxyConfigurationPortMappingProtocol Protocol accepted by the ports
-type ProxyConfigurationPortMappingProtocol string
-
-// ProxyConfigurationRequest defines model for ProxyConfigurationRequest.
-type ProxyConfigurationRequest struct {
-	// Enabled Indicates if a proxy configuration is enabled
-	Enabled bool `json:"enabled"`
-
-	// Name Name of the proxy configuration
-	Name string `json:"name"`
-
-	// PortRanges List of port ranges that are forwarded by the proxy
-	PortRanges []ProxyConfigurationRequestPortRange `json:"port_ranges"`
-}
-
-// ProxyConfigurationRequestPortRange defines model for ProxyConfigurationRequestPortRange.
-type ProxyConfigurationRequestPortRange struct {
-	// End The ending port of the range of forwarded ports
-	End int `json:"end"`
-
-	// Protocol The protocol accepted by the port range
-	Protocol ProxyConfigurationRequestPortRangeProtocol `json:"protocol"`
-
-	// Start The starting port of the range of forwarded ports
-	Start int `json:"start"`
-}
-
-// ProxyConfigurationRequestPortRangeProtocol The protocol accepted by the port range
-type ProxyConfigurationRequestPortRangeProtocol string
-
-// ProxyCreateRequest defines model for ProxyCreateRequest.
-type ProxyCreateRequest struct {
-	// Enabled Defines if a proxy is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Defines if a proxy can be used as a fallback if no proxy can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-
-	// PeerId ID of the peer that is used as a proxy
-	PeerId string `json:"peer_id"`
-}
-
-// ProxyUpdateRequest defines model for ProxyUpdateRequest.
-type ProxyUpdateRequest struct {
-	// Enabled Defines if a proxy is enabled
-	Enabled bool `json:"enabled"`
-
-	// Fallback Defines if a proxy can be used as a fallback if no proxy can be found in the region of the forwarded peer
-	Fallback bool `json:"fallback"`
-}
-
 // Resource defines model for Resource.
 type Resource struct {
 	// Id ID of the resource
@@ -1580,9 +1580,9 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
-// GetApiPeersPeerIdProxyConfigurationsParams defines parameters for GetApiPeersPeerIdProxyConfigurations.
-type GetApiPeersPeerIdProxyConfigurationsParams struct {
-	// Name Filters proxy configurations by name
+// GetApiPeersPeerIdIngressPortsParams defines parameters for GetApiPeersPeerIdIngressPorts.
+type GetApiPeersPeerIdIngressPortsParams struct {
+	// Name Filters ingress port allocations by name
 	Name *string `form:"name,omitempty" json:"name,omitempty"`
 }
 
@@ -1610,6 +1610,12 @@ type PostApiGroupsJSONRequestBody = GroupRequest
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
 type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
 
+// PostApiIngressPeersJSONRequestBody defines body for PostApiIngressPeers for application/json ContentType.
+type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
+
+// PutApiIngressPeersIngressPeerIdJSONRequestBody defines body for PutApiIngressPeersIngressPeerId for application/json ContentType.
+type PutApiIngressPeersIngressPeerIdJSONRequestBody = IngressPeerUpdateRequest
+
 // PostApiNetworksJSONRequestBody defines body for PostApiNetworks for application/json ContentType.
 type PostApiNetworksJSONRequestBody = NetworkRequest
 
@@ -1631,11 +1637,11 @@ type PutApiNetworksNetworkIdRoutersRouterIdJSONRequestBody = NetworkRouterReques
 // PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
 type PutApiPeersPeerIdJSONRequestBody = PeerRequest
 
-// PostApiPeersPeerIdProxyConfigurationsJSONRequestBody defines body for PostApiPeersPeerIdProxyConfigurations for application/json ContentType.
-type PostApiPeersPeerIdProxyConfigurationsJSONRequestBody = ProxyConfigurationRequest
+// PostApiPeersPeerIdIngressPortsJSONRequestBody defines body for PostApiPeersPeerIdIngressPorts for application/json ContentType.
+type PostApiPeersPeerIdIngressPortsJSONRequestBody = IngressPortAllocationRequest
 
-// PutApiPeersPeerIdProxyConfigurationsConfigurationIdJSONRequestBody defines body for PutApiPeersPeerIdProxyConfigurationsConfigurationId for application/json ContentType.
-type PutApiPeersPeerIdProxyConfigurationsConfigurationIdJSONRequestBody = ProxyConfigurationRequest
+// PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody defines body for PutApiPeersPeerIdIngressPortsAllocationId for application/json ContentType.
+type PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody = IngressPortAllocationRequest
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
 type PostApiPoliciesJSONRequestBody = PolicyUpdate
@@ -1648,12 +1654,6 @@ type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
 
 // PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
 type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
-
-// PostApiProxiesJSONRequestBody defines body for PostApiProxies for application/json ContentType.
-type PostApiProxiesJSONRequestBody = ProxyCreateRequest
-
-// PutApiProxiesProxyIdJSONRequestBody defines body for PutApiProxiesProxyId for application/json ContentType.
-type PutApiProxiesProxyIdJSONRequestBody = ProxyUpdateRequest
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest

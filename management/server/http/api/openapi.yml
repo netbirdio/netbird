@@ -29,8 +29,8 @@ tags:
     description: View information about the account and network events.
   - name: Accounts
     description: View information about the accounts.
-  - name: Proxies
-    description: Interact with and view information about the proxy.
+  - name: Ingress Peers
+    description: Interact with and view information about the ingress peers.
     x-cloud-only: true
 components:
   schemas:
@@ -1584,72 +1584,72 @@ components:
         - initiator_email
         - target_id
         - meta
-    ProxyCreateRequest:
+    IngressPeerCreateRequest:
       type: object
       properties:
         peer_id:
-          description: ID of the peer that is used as a proxy
+          description: ID of the peer that is used as an ingress peer
           type: string
           example: ch8i4ug6lnn4g9hqv7m0
         enabled:
-          description: Defines if a proxy is enabled
+          description: Defines if an ingress peer is enabled
           type: boolean
           example: true
         fallback:
-          description: Defines if a proxy can be used as a fallback if no proxy can be found in the region of the forwarded peer
+          description: Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
           type: boolean
           example: true
       required:
         - peer_id
         - enabled
         - fallback
-    ProxyUpdateRequest:
+    IngressPeerUpdateRequest:
       type: object
       properties:
         enabled:
-          description: Defines if a proxy is enabled
+          description: Defines if an ingress peer is enabled
           type: boolean
           example: true
         fallback:
-          description: Defines if a proxy can be used as a fallback if no proxy can be found in the region of the forwarded peer
+          description: Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
           type: boolean
           example: true
       required:
         - enabled
         - fallback
-    Proxy:
+    IngressPeer:
       type: object
       properties:
         id:
-          description: ID of the proxy
+          description: ID of the ingress peer
           type: string
           example: ch8i4ug6lnn4g9hqv7m0
         peer_id:
-          description: ID of the peer that is used as a proxy
+          description: ID of the peer that is used as an ingress peer
           type: string
           example: x7p3kqf2rdd8j5zxw4n9
         ingress_ip:
-          description: Ingress IP address of the proxy where the traffic arrives
+          description: Ingress IP address of the ingress peer where the traffic arrives
           type: string
           example: 192.34.0.123
         available_ports:
-          description: Number of available ports left on the proxy
+          description: Number of available ports left on the ingress peer
           type: integer
           example: 45765
         enabled:
-          description: Indicates if a proxy is enabled
+          description: Indicates if an ingress peer is enabled
           type: boolean
           example: true
         connected:
-          description: Indicates if a proxy is connected to the management server
+          description: Indicates if an ingress peer is connected to the management server
           type: boolean
           example: true
         fallback:
-          description: Indicates if a proxy can be used as a fallback if no proxy can be found in the region of the forwarded peer
+          description: Indicates if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
           type: boolean
           example: true
         region:
-          description: Region of the proxy
+          description: Region of the ingress peer
           type: string
           example: germany
       required:
@@ -1661,27 +1661,27 @@ components:
         - connected
         - fallback
         - region
-    ProxyConfigurationRequest:
+    IngressPortAllocationRequest:
       type: object
       properties:
         name:
-          description: Name of the proxy configuration
+          description: Name of the ingress port allocation
           type: string
-          example: Proxy Configuration 1
+          example: Ingress Port Allocation 1
         enabled:
-          description: Indicates if a proxy configuration is enabled
+          description: Indicates if an ingress port allocation is enabled
           type: boolean
           example: true
         port_ranges:
-          description: List of port ranges that are forwarded by the proxy
+          description: List of port ranges that are forwarded by the ingress peer
           type: array
           items:
-            $ref: '#/components/schemas/ProxyConfigurationRequestPortRange'
+            $ref: '#/components/schemas/IngressPortAllocationRequestPortRange'
       required:
         - name
         - enabled
         - port_ranges
-    ProxyConfigurationRequestPortRange:
+    IngressPortAllocationRequestPortRange:
       type: object
       properties:
         start:
@@ -1701,47 +1701,47 @@ components:
         - start
         - end
         - protocol
-    ProxyConfiguration:
+    IngressPortAllocation:
       type: object
       properties:
         id:
-          description: ID of the proxy configuration
+          description: ID of the ingress port allocation
           type: string
           example: ch8i4ug6lnn4g9hqv7m0
         name:
-          description: Name of the proxy configuration
+          description: Name of the ingress port allocation
           type: string
-          example: Proxy Configuration 1
-        proxy_id:
-          description: ID of the proxy that forwards the ports
+          example: Ingress Peer Allocation 1
+        ingress_peer_id:
+          description: ID of the ingress peer that forwards the ports
           type: string
           example: x7p3kqf2rdd8j5zxw4n9
         region:
-          description: Region of the proxy
+          description: Region of the ingress peer
           type: string
           example: germany
         enabled:
-          description: Indicates if a proxy configuration is enabled
+          description: Indicates if an ingress port allocation is enabled
           type: boolean
           example: true
         ingress_ip:
-          description: Ingress IP address of the proxy where the traffic arrives
+          description: Ingress IP address of the ingress peer where the traffic arrives
           type: string
           example:
         port_range_mappings:
-          description: List of port ranges that are allowed to be used by the proxy
+          description: List of port ranges that are allowed to be used by the ingress peer
           type: array
           items:
-            $ref: '#/components/schemas/ProxyConfigurationPortMapping'
+            $ref: '#/components/schemas/IngressPortAllocationPortMapping'
       required:
         - id
         - name
-        - proxy_id
+        - ingress_peer_id
         - region
         - enabled
         - ingress_ip
         - port_range_mappings
-    ProxyConfigurationPortMapping:
+    IngressPortAllocationPortMapping:
       type: object
       properties:
         translated_start:
@@ -2326,10 +2326,10 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/peers/{peerId}/proxy_configurations:
+  /api/peers/{peerId}/ingress/ports:
     get:
-      summary: List all Proxy Configurations
-      description: Returns a list of all proxy configurations for a peer
+      summary: List all Ingress Port Allocations for a Peer
+      description: Returns a list of all ingress port allocations for a peer
       tags: [ Peers ]
       security:
         - BearerAuth: [ ]
@@ -2345,16 +2345,16 @@ paths:
           name: name
           schema:
             type: string
-          description: Filters proxy configurations by name
+          description: Filters ingress port allocations by name
       responses:
         '200':
-          description: A JSON Array of Proxy Configurations
+          description: A JSON Array of Ingress Port Allocations
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/ProxyConfiguration'
+                  $ref: '#/components/schemas/IngressPortAllocation'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2365,8 +2365,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       x-cloud-only: true
-      summary: Create a Proxy Configuration
-      description: Creates a new proxy configuration for a peer
+      summary: Create a Ingress Port Allocation
+      description: Creates a new ingress port allocation for a peer
       tags: [ Peers ]
       security:
         - BearerAuth: [ ]
@@ -2379,18 +2379,18 @@ paths:
             type: string
           description: The unique identifier of a peer
       requestBody:
-        description: New Proxy Configuration request
+        description: New Ingress Port Allocation request
         content:
           'application/json':
             schema:
-              $ref: '#/components/schemas/ProxyConfigurationRequest'
+              $ref: '#/components/schemas/IngressPortAllocationRequest'
       responses:
         '200':
-          description: A Proxy Configuration object
+          description: A Ingress Port Allocation object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProxyConfiguration'
+                $ref: '#/components/schemas/IngressPortAllocation'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2399,11 +2399,11 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/peers/{peerId}/proxy_configurations/{configurationId}:
+  /api/peers/{peerId}/ingress/ports/{allocationId}:
     get:
       x-cloud-only: true
-      summary: Retrieve a Proxy Configuration
-      description: Get information about a proxy configuration
+      summary: Retrieve a Ingress Port Allocation
+      description: Get information about an ingress port allocation
       tags: [ Peers ]
       security:
         - BearerAuth: [ ]
@@ -2416,18 +2416,18 @@ paths:
             type: string
           description: The unique identifier of a peer
         - in: path
-          name: configurationId
+          name: allocationId
           required: true
           schema:
             type: string
-          description: The unique identifier of a proxy configuration
+          description: The unique identifier of an ingress port allocation
       responses:
         '200':
-          description: A Proxy Configuration object
+          description: A Ingress Port Allocation object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProxyConfiguration'
+                $ref: '#/components/schemas/IngressPortAllocation'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2446,24 +2446,24 @@ paths:
               type: string
           description: The unique identifier of a peer
         - in: path
-          name: configurationId
+          name: allocationId
           required: true
           schema:
               type: string
-          description: The unique identifier of a proxy configuration
+          description: The unique identifier of an ingress port allocation
       requestBody:
-        description: update a proxy configuration
+        description: update an ingress port allocation
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ProxyConfigurationRequest'
+              $ref: '#/components/schemas/IngressPortAllocationRequest'
       responses:
         '200':
-          description: A Proxy Configuration object
+          description: A Ingress Port Allocation object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProxyConfiguration'
+                $ref: '#/components/schemas/IngressPortAllocation'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2474,8 +2474,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       x-cloud-only: true
-      summary: Delete a Proxy Configuration
-      description: Delete a proxy configuration
+      summary: Delete a Ingress Port Allocation
+      description: Delete an ingress port allocation
       tags: [ Peers ]
       security:
         - BearerAuth: [ ]
@@ -2488,11 +2488,11 @@ paths:
             type: string
           description: The unique identifier of a peer
         - in: path
-          name: configurationId
+          name: allocationId
           required: true
           schema:
             type: string
-          description: The unique identifier of a proxy configuration
+          description: The unique identifier of an ingress port allocation
       responses:
         '200':
           description: Delete status code
@@ -2505,24 +2505,24 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/proxies:
+  /api/ingress/peers:
     get:
       x-cloud-only: true
-      summary: List all Proxies
-      description: Returns a list of all proxies
+      summary: List all Ingress Peers
+      description: Returns a list of all ingress peers
       tags: [ Proxies ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       responses:
         '200':
-          description: A JSON Array of Proxies
+          description: A JSON Array of Ingress Peers
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Proxy'
+                  $ref: '#/components/schemas/IngressPeer'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2533,25 +2533,25 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       x-cloud-only: true
-      summary: Create a Proxy
-      description: Creates a new proxy
+      summary: Create a Ingress Peer
+      description: Creates a new ingress peer
       tags: [ Proxies ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       requestBody:
-        description: New Proxy request
+        description: New Ingress Peer request
         content:
           'application/json':
             schema:
-              $ref: '#/components/schemas/ProxyCreateRequest'
+              $ref: '#/components/schemas/IngressPeerCreateRequest'
       responses:
         '200':
-          description: A Proxy object
+          description: A Ingress Peer object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Proxy'
+                $ref: '#/components/schemas/IngressPeer'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2560,29 +2560,29 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/proxies/{proxyId}:
+  /api/ingress/peers/{ingressPeerId}:
     get:
       x-cloud-only: true
-      summary: Retrieve a Proxy
-      description: Get information about a proxy
+      summary: Retrieve a Ingress Peer
+      description: Get information about an ingress peer
       tags: [ Proxies ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: proxyId
+          name: ingressPeerId
           required: true
           schema:
             type: string
-          description: The unique identifier of a proxy
+          description: The unique identifier of an ingress peer
       responses:
         '200':
-          description: A Proxy object
+          description: A Ingress Peer object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Proxy'
+                $ref: '#/components/schemas/IngressPeer'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2593,32 +2593,32 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       x-cloud-only: true
-      summary: Update a Proxy
-      description: Update information about a proxy
+      summary: Update a Ingress Peer
+      description: Update information about an ingress peer
       tags: [ Proxies ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: proxyId
+          name: ingressPeerId
           required: true
           schema:
               type: string
-          description: The unique identifier of a proxy
+          description: The unique identifier of an ingress peer
       requestBody:
-        description: update a proxy
+        description: update an ingress peer
         content:
           'application/json':
             schema:
-              $ref: '#/components/schemas/ProxyUpdateRequest'
+              $ref: '#/components/schemas/IngressPeerUpdateRequest'
       responses:
         '200':
-          description: A Proxy object
+          description: A Ingress Peer object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Proxy'
+                $ref: '#/components/schemas/IngressPeer'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2629,19 +2629,19 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       x-cloud-only: true
-      summary: Delete a Proxy
-      description: Delete a proxy
+      summary: Delete a Ingress Peer
+      description: Delete an ingress peer
       tags: [ Proxies ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: proxyId
+          name: ingressPeerId
           required: true
           schema:
             type: string
-          description: The unique identifier of a proxy
+          description: The unique identifier of an ingress peer
       responses:
         '200':
           description: Delete status code
