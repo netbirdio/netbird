@@ -34,7 +34,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
 	"github.com/netbirdio/management-integrations/integrations"
-	port_forwarding "github.com/netbirdio/management-integrations/integrations/port-forwarding"
+	port_forwarding "github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/server/peers"
 
 	"github.com/netbirdio/netbird/encryption"
