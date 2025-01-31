@@ -116,6 +116,12 @@ message LoginRequest {
   optional bool block_lan_access = 24;
 
   repeated string dns_labels = 25;
+
+  // cleanDNSLabels clean map list of DNS labels.
+  // This is needed because the generated code
+  // omits initialized empty slices due to omitempty tags
+  bool cleanDNSLabels = 26;
+
 }
 
 message LoginResponse {

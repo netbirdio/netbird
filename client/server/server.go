@@ -405,7 +405,10 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
 	}
 
-	if msg.DnsLabels != nil {
+	if msg.CleanDNSLabels {
+		inputConfig.DNSLabels = domain.List{}
+		s.latestConfigInput.DNSLabels = nil
+	} else if msg.DnsLabels != nil {
 		// TODO(hakan): discuss with @Viktor
 		dnsLabels, _ := domain.ValidateDomains(msg.DnsLabels)
 		inputConfig.DNSLabels = dnsLabels

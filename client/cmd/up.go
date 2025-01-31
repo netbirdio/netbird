@@ -82,6 +82,11 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	_, err = validateDnsLabels(dnsLabels)
+	if err != nil {
+		return err
+	}
+
 	ctx := internal.CtxInitState(cmd.Context())
 
 	if hostName != "" {
@@ -106,7 +111,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	dnsLabelsConverted, err := validateDnsLabels(cmd.Flag(dnsLabelsFlag).Changed)
+	dnsLabelsConverted, err := validateDnsLabels(dnsLabels)
 	if err != nil {
 		return err
 	}
@@ -261,6 +266,8 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		Hostname:             hostName,
 		ExtraIFaceBlacklist:  extraIFaceBlackList,
+		DnsLabels:            dnsLabels,
+		CleanDNSLabels:       dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -318,10 +325,6 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(blockLANAccessFlag).Changed {
 		loginRequest.BlockLanAccess = &blockLANAccess
-	}
-
-	if cmd.Flag(dnsLabelsFlag).Changed {
-		loginRequest.DnsLabels = dnsLabels
 	}
 
 	var loginErr error
@@ -455,17 +458,21 @@ func parseCustomDNSAddress(modified bool) ([]byte, error) {
 	return parsed, nil
 }
 
-func validateDnsLabels(modified bool) (domain.List, error) {
+func validateDnsLabels(labels []string) (domain.List, error) {
 	var (
 		domains domain.List
 		err     error
 	)
-	if modified {
-		domains, err = domain.ValidateDomains(dnsLabels)
-		if err != nil {
-			return nil, fmt.Errorf("failed to validate dns labels: %v", err)
-		}
+
+	if len(labels) == 0 {
+		return domains, nil
 	}
+
+	domains, err = domain.ValidateDomains(labels)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate dns labels: %v", err)
+	}
+
 	return domains, nil
 }
 
