@@ -395,9 +395,10 @@ func (conn *Conn) onICEStateDisconnected() {
 	}
 
 	changed := conn.statusICE.Get() != StatusDisconnected
+	if changed {
+		conn.guard.SetICEConnDisconnected()
+	}
 	conn.statusICE.Set(StatusDisconnected)
-
-	conn.guard.SetICEConnDisconnected(changed)
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -487,8 +488,10 @@ func (conn *Conn) onRelayDisconnected() {
 	}
 
 	changed := conn.statusRelay.Get() != StatusDisconnected
+	if changed {
+		conn.guard.SetRelayedConnDisconnected()
+	}
 	conn.statusRelay.Set(StatusDisconnected)
-	conn.guard.SetRelayedConnDisconnected(changed)
 
 	peerState := State{
 		PubKey:           conn.config.Key,
