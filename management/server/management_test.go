@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pb "github.com/golang/protobuf/proto" //nolint
+	"github.com/netbirdio/management-integrations/integrations"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
@@ -507,7 +508,7 @@ func startServer(config *server.Config, dataDir string, testFile string) (*grpc.
 		log.Fatalf("failed creating metrics: %v", err)
 	}
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, server.MocIntegratedValidator{}, metrics)
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, server.MocIntegratedValidator{}, metrics, integrations.NewController(store))
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/management/server/util"
 
@@ -2900,7 +2901,7 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, integrations.NewController(store))
 	if err != nil {
 		return nil, err
 	}

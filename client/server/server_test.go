@@ -128,7 +128,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics)
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, integrations.NewController(store))
 	if err != nil {
 		return nil, "", err
 	}

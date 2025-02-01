@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -430,7 +431,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	require.NoError(t, err)
 
 	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MocIntegratedValidator{}, metrics)
+		eventStore, nil, false, MocIntegratedValidator{}, metrics, integrations.NewController(store))
 
 	if err != nil {
 		cleanup()
