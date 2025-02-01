@@ -1712,7 +1712,11 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 		return nil
 	}
 
-	if len(rules) == 0 && e.ingressGatewayMgr != nil {
+	if len(rules) == 0 {
+		if e.ingressGatewayMgr == nil {
+			return nil
+		}
+
 		err := e.ingressGatewayMgr.Close()
 		e.ingressGatewayMgr = nil
 		e.statusRecorder.SetIngressGwMgr(nil)
