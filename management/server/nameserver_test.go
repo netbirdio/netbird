@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -771,7 +771,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, integrations.NewController(store))
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
 }
 
 func createNSStore(t *testing.T) (store.Store, error) {
