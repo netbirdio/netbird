@@ -766,10 +766,11 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		DisableNotifications: s.config.DisableNotifications,
 	}, nil
 }
+
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
 		isUIActive := internal.CheckUIApp()
-		if !isUIActive {
+		if !isUIActive && !s.config.DisableNotifications {
 			if err := sendTerminalNotification(); err != nil {
 				log.Errorf("send session expire terminal notification: %v", err)
 			}
