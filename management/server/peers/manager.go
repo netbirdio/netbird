@@ -20,9 +20,6 @@ type managerImpl struct {
 	permissionsManager permissions.Manager
 }
 
-type managerMock struct {
-}
-
 func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
 	return &managerImpl{
 		store:              store,
