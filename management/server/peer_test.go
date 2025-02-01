@@ -1190,7 +1190,7 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, proto.RuleProtocol_TCP, response.NetworkMap.ForwardingRules[0].Protocol)
 	assert.Equal(t, uint32(1000), response.NetworkMap.ForwardingRules[0].DestinationPort.GetRange().Start)
 	assert.Equal(t, uint32(2000), response.NetworkMap.ForwardingRules[0].DestinationPort.GetRange().End)
-	assert.Equal(t, net.IPv4(192, 168, 1, 2), net.IP(response.NetworkMap.ForwardingRules[0].TranslatedAddress))
+	assert.Equal(t, net.IPv4(192, 168, 1, 2).To4(), net.IP(response.NetworkMap.ForwardingRules[0].TranslatedAddress))
 	assert.Equal(t, uint32(11000), response.NetworkMap.ForwardingRules[0].TranslatedPort.GetRange().Start)
 	assert.Equal(t, uint32(12000), response.NetworkMap.ForwardingRules[0].TranslatedPort.GetRange().End)
 }
