@@ -11,7 +11,7 @@ import (
 func Test_LocalWTVersion(t *testing.T) {
 	got := GetInfo(context.TODO())
 	want := "development"
-	assert.Equal(t, want, got.WiretrusteeVersion)
+	assert.Equal(t, want, got.NetbirdVersion)
 }
 
 func Test_UIVersion(t *testing.T) {
