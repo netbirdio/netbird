@@ -70,9 +70,16 @@ func (f *ForwardingRule) ToProto() *proto.ForwardingRule {
 	return &proto.ForwardingRule{
 		Protocol:          protocol,
 		DestinationPort:   f.DestinationPorts.ToProto(),
-		TranslatedAddress: f.TranslatedAddress,
+		TranslatedAddress: ipToBytes(f.TranslatedAddress),
 		TranslatedPort:    f.TranslatedPorts.ToProto(),
 	}
+}
+
+func ipToBytes(ip net.IP) []byte {
+	if ip4 := ip.To4(); ip4 != nil {
+		return ip4
+	}
+	return ip.To16()
 }
 
 type Network struct {
