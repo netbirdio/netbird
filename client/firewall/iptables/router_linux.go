@@ -586,7 +586,7 @@ func (r *router) updateState() {
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+	if err := r.ipFwdState.RequestForwarding(); err != nil {
 		return nil, err
 	}
 

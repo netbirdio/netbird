@@ -2,6 +2,9 @@ package ipfwdstate
 
 import (
 	"fmt"
+
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
@@ -23,6 +26,7 @@ func (f *IPForwardingState) RequestForwarding() error {
 		return fmt.Errorf("failed to enable IP forwarding with sysctl: %w", err)
 	}
 	f.enabledCounter = 1
+	log.Info("IP forwarding enabled")
 
 	return nil
 }
@@ -43,5 +47,7 @@ func (f *IPForwardingState) ReleaseForwarding() error {
 	if err := systemops.DisableIPForwarding(); err != nil {
 		return fmt.Errorf("failed to disable IP forwarding with sysctl: %w", err)
 	}
+	log.Info("IP forwarding disabled")
+
 	return nil
 }
