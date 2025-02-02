@@ -375,6 +375,11 @@ func EnableIPForwarding() error {
 	return err
 }
 
+func DisableIPForwarding() error {
+	_, err := sysctl.Set(ipv4ForwardingPath, 0, false)
+	return err
+}
+
 // entryExists checks if the specified ID or name already exists in the rt_tables file
 // and verifies if existing names start with "netbird_".
 func entryExists(file *os.File, id int) (bool, error) {

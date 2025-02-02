@@ -21,6 +21,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
+	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -56,16 +57,18 @@ type router struct {
 	ipsetCounter *refcounter.Counter[string, []netip.Prefix, *nftables.Set]
 
 	wgIface          iFaceMapper
+	ipFwdState       *ipfwdstate.IPForwardingState
 	legacyManagement bool
 }
 
 func newRouter(workTable *nftables.Table, wgIface iFaceMapper) (*router, error) {
 	r := &router{
-		conn:      &nftables.Conn{},
-		workTable: workTable,
-		chains:    make(map[string]*nftables.Chain),
-		rules:     make(map[string]*nftables.Rule),
-		wgIface:   wgIface,
+		conn:       &nftables.Conn{},
+		workTable:  workTable,
+		chains:     make(map[string]*nftables.Chain),
+		rules:      make(map[string]*nftables.Rule),
+		wgIface:    wgIface,
+		ipFwdState: ipfwdstate.NewIPForwardingState(),
 	}
 
 	r.ipsetCounter = refcounter.New(
@@ -464,6 +467,10 @@ func (r *router) deleteNftRule(rule *nftables.Rule, ruleKey string) error {
 
 // AddNatRule appends a nftables rule pair to the nat chain
 func (r *router) AddNatRule(pair firewall.RouterPair) error {
+	if err := r.ipFwdState.RequestForwarding(); err != nil {
+		return err
+	}
+
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
@@ -890,6 +897,10 @@ func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error 
 
 // RemoveNatRule removes the prerouting mark rule
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
+	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+		log.Errorf("failed to disable sysctl IP forwarding: %v", err)
+	}
+
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
@@ -951,6 +962,10 @@ func (r *router) refreshRulesMap() error {
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+		return nil, err
+	}
+
 	ruleKey := rule.ID()
 	if _, exists := r.rules[ruleKey+dnatSuffix]; exists {
 		return rule, nil
@@ -1174,6 +1189,10 @@ func (r *router) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleKey 
 }
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
+	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+		log.Errorf("failed to disable sysctl IP forwarding: %v", err)
+	}
+
 	ruleKey := rule.ID()
 
 	if err := r.refreshRulesMap(); err != nil {
