@@ -2,6 +2,8 @@ package ws
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -13,6 +15,7 @@ import (
 	"nhooyr.io/websocket"
 
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	"github.com/netbirdio/netbird/util/embeddedroots"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -29,8 +32,12 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		return nil, err
 	}
 
+	httpClient, err := httpClientNbDialer()
+	if err != nil {
+		return nil, err
+	}
 	opts := &websocket.DialOptions{
-		HTTPClient: httpClientNbDialer(),
+		HTTPClient: httpClient,
 	}
 
 	parsedURL, err := url.Parse(wsURL)
@@ -63,16 +70,25 @@ func prepareURL(address string) (string, error) {
 	return strings.Replace(address, "rel", "ws", 1), nil
 }
 
-func httpClientNbDialer() *http.Client {
+func httpClientNbDialer() (*http.Client, error) {
 	customDialer := nbnet.NewDialer()
+
+	certPool, err := x509.SystemCertPool()
+	if err != nil || certPool == nil {
+		log.Debug("System cert pool not available; falling back to embedded cert.")
+		certPool = embeddedroots.Get()
+	}
 
 	customTransport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return customDialer.DialContext(ctx, network, addr)
 		},
+		TLSClientConfig: &tls.Config{
+			RootCAs: certPool,
+		},
 	}
 
 	return &http.Client{
 		Transport: customTransport,
-	}
+	}, nil
 }
