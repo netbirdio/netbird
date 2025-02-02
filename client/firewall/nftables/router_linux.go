@@ -898,7 +898,7 @@ func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error 
 // RemoveNatRule removes the prerouting mark rule
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
-		log.Errorf("failed to disable sysctl IP forwarding: %v", err)
+		log.Errorf("%v", err)
 	}
 
 	if err := r.refreshRulesMap(); err != nil {
@@ -1190,7 +1190,7 @@ func (r *router) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleKey 
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
-		log.Errorf("failed to disable sysctl IP forwarding: %v", err)
+		log.Errorf("%v", err)
 	}
 
 	ruleKey := rule.ID()

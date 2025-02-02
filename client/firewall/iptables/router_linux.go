@@ -251,7 +251,7 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 // RemoveNatRule removes an iptables rule pair from forwarding and nat chains
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
-		log.Errorf("failed to disable sysctl IP forwarding: %v", err)
+		log.Errorf("%v", err)
 	}
 
 	if err := r.removeNatRule(pair); err != nil {
@@ -685,7 +685,7 @@ func (r *router) rollbackRules(rules map[string]ruleInfo) error {
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
-		log.Errorf("failed to disable sysctl IP forwarding: %v", err)
+		log.Errorf("%v", err)
 	}
 
 	ruleKey := rule.ID()
