@@ -49,9 +49,9 @@ func (nm *NetworkMap) Merge(other *NetworkMap) {
 
 type ForwardingRule struct {
 	RuleProtocol      string
-	DestinationPorts  *RulePortRange
+	DestinationPorts  RulePortRange
 	TranslatedAddress net.IP
-	TranslatedPorts   *RulePortRange
+	TranslatedPorts   RulePortRange
 }
 
 func (f *ForwardingRule) ToProto() *proto.ForwardingRule {
@@ -78,9 +78,9 @@ func (f *ForwardingRule) ToProto() *proto.ForwardingRule {
 
 func (f *ForwardingRule) Equal(other *ForwardingRule) bool {
 	return f.RuleProtocol == other.RuleProtocol &&
-		f.DestinationPorts.Equal(other.DestinationPorts) &&
+		f.DestinationPorts.Equal(&other.DestinationPorts) &&
 		f.TranslatedAddress.Equal(other.TranslatedAddress) &&
-		f.TranslatedPorts.Equal(other.TranslatedPorts)
+		f.TranslatedPorts.Equal(&other.TranslatedPorts)
 }
 
 func ipToBytes(ip net.IP) []byte {
