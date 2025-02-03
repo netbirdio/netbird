@@ -1,5 +1,9 @@
 package types
 
+import (
+	"github.com/netbirdio/netbird/management/proto"
+)
+
 // PolicyUpdateOperationType operation type
 type PolicyUpdateOperationType int
 
@@ -16,6 +20,17 @@ type PolicyRuleDirection string
 type RulePortRange struct {
 	Start uint16
 	End   uint16
+}
+
+func (r *RulePortRange) ToProto() *proto.PortInfo {
+	return &proto.PortInfo{
+		PortSelection: &proto.PortInfo_Range_{
+			Range: &proto.PortInfo_Range{
+				Start: uint32(r.Start),
+				End:   uint32(r.End),
+			},
+		},
+	}
 }
 
 // PolicyRule is the metadata of the policy
