@@ -49,7 +49,7 @@ func (nm *NetworkMap) Merge(other *NetworkMap) {
 }
 
 func mergeUniquePeersByID(peers1, peers2 []*nbpeer.Peer) []*nbpeer.Peer {
-	var result map[string]*nbpeer.Peer
+	result := make(map[string]*nbpeer.Peer)
 	for _, peer := range peers1 {
 		result[peer.ID] = peer
 	}
