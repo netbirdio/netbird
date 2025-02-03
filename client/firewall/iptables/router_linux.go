@@ -16,6 +16,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
+	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -76,6 +77,7 @@ type router struct {
 	legacyManagement bool
 
 	stateManager *statemanager.Manager
+	ipFwdState   *ipfwdstate.IPForwardingState
 }
 
 func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router, error) {
@@ -83,6 +85,7 @@ func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router,
 		iptablesClient: iptablesClient,
 		rules:          make(map[string][]string),
 		wgIface:        wgIface,
+		ipFwdState:     ipfwdstate.NewIPForwardingState(),
 	}
 
 	r.ipsetCounter = refcounter.New(
@@ -217,6 +220,10 @@ func (r *router) deleteIpSet(setName string) error {
 
 // AddNatRule inserts an iptables rule pair into the nat chain
 func (r *router) AddNatRule(pair firewall.RouterPair) error {
+	if err := r.ipFwdState.RequestForwarding(); err != nil {
+		return err
+	}
+
 	if r.legacyManagement {
 		log.Warnf("This peer is connected to a NetBird Management service with an older version. Allowing all traffic for %s", pair.Destination)
 		if err := r.addLegacyRouteRule(pair); err != nil {
@@ -243,6 +250,10 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 
 // RemoveNatRule removes an iptables rule pair from forwarding and nat chains
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
+	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+		log.Errorf("%v", err)
+	}
+
 	if err := r.removeNatRule(pair); err != nil {
 		return fmt.Errorf("remove nat rule: %w", err)
 	}
@@ -575,6 +586,10 @@ func (r *router) updateState() {
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	if err := r.ipFwdState.RequestForwarding(); err != nil {
+		return nil, err
+	}
+
 	ruleKey := rule.ID()
 	if _, exists := r.rules[ruleKey+dnatSuffix]; exists {
 		return rule, nil
@@ -669,6 +684,10 @@ func (r *router) rollbackRules(rules map[string]ruleInfo) error {
 }
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
+	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+		log.Errorf("%v", err)
+	}
+
 	ruleKey := rule.ID()
 
 	var merr *multierror.Error
