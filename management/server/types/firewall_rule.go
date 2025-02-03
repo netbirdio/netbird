@@ -38,8 +38,8 @@ type FirewallRule struct {
 	PortRange RulePortRange
 }
 
-// IsEqual checks if two firewall rules are equal.
-func (r *FirewallRule) IsEqual(other *FirewallRule) bool {
+// Equal checks if two firewall rules are equal.
+func (r *FirewallRule) Equal(other *FirewallRule) bool {
 	return r.PeerIP == other.PeerIP &&
 		r.Direction == other.Direction &&
 		r.Action == other.Action &&

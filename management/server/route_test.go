@@ -459,7 +459,7 @@ func TestCreateRoute(t *testing.T) {
 			// assign generated ID
 			testCase.expectedRoute.ID = outRoute.ID
 
-			if !testCase.expectedRoute.IsEqual(outRoute) {
+			if !testCase.expectedRoute.Equal(outRoute) {
 				t.Errorf("new route didn't match expected route:\nGot %#v\nExpected:%#v\n", outRoute, testCase.expectedRoute)
 			}
 		})
@@ -1000,7 +1000,7 @@ func TestSaveRoute(t *testing.T) {
 			savedRoute, saved := account.Routes[testCase.expectedRoute.ID]
 			require.True(t, saved)
 
-			if !testCase.expectedRoute.IsEqual(savedRoute) {
+			if !testCase.expectedRoute.Equal(savedRoute) {
 				t.Errorf("new route didn't match expected route:\nGot %#v\nExpected:%#v\n", savedRoute, testCase.expectedRoute)
 			}
 		})
@@ -1194,7 +1194,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	peer1Routes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1Routes.Routes, 1, "we should receive one route for peer1")
-	require.True(t, expectedRoute.IsEqual(peer1Routes.Routes[0]), "received route should be equal")
+	require.True(t, expectedRoute.Equal(peer1Routes.Routes[0]), "received route should be equal")
 
 	peer2Routes, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
@@ -1206,7 +1206,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	peer2Routes, err = am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
-	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
+	require.True(t, peer1Routes.Routes[0].Equal(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
 
 	newGroup := &types.Group{
 		ID:    xid.New().String(),

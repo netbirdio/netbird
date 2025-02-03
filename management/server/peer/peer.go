@@ -70,6 +70,13 @@ type Location struct {
 	GeoNameID    uint // city level geoname id
 }
 
+func (l Location) Equal(other Location) bool {
+	return l.ConnectionIP.Equal(other.ConnectionIP) &&
+		l.CountryCode == other.CountryCode &&
+		l.CityName == other.CityName &&
+		l.GeoNameID == other.GeoNameID
+}
+
 // NetworkAddress is the IP address with network and MAC address of a network interface
 type NetworkAddress struct {
 	NetIP netip.Prefix `gorm:"serializer:json"`
@@ -300,6 +307,13 @@ func (p *PeerStatus) Copy() *PeerStatus {
 	}
 }
 
+func (p *PeerStatus) Equal(status *PeerStatus) bool {
+	return p.LastSeen.Equal(status.LastSeen) &&
+		p.Connected == status.Connected &&
+		p.LoginExpired == status.LoginExpired &&
+		p.RequiresApproval == status.RequiresApproval
+}
+
 // UpdateLastLogin and set login expired false
 func (p *Peer) UpdateLastLogin() *Peer {
 	p.LastLogin = util.ToPtr(time.Now().UTC())
@@ -307,4 +321,57 @@ func (p *Peer) UpdateLastLogin() *Peer {
 	newStatus.LoginExpired = false
 	p.Status = newStatus
 	return p
+}
+
+func (p *Peer) Equal(other *Peer) bool {
+	if p.ID != other.ID {
+		return false
+	}
+	if p.AccountID != other.AccountID {
+		return false
+	}
+	if p.Key != other.Key {
+		return false
+	}
+	if p.IP != nil && !p.IP.Equal(other.IP) {
+		return false
+	}
+	if p.IP != nil && !p.Meta.isEqual(other.Meta) {
+		return false
+	}
+	if p.Name != other.Name {
+		return false
+	}
+	if p.DNSLabel != other.DNSLabel {
+		return false
+	}
+	if p.IP != nil && !p.Status.Equal(other.Status) {
+		return false
+	}
+
+	if p.UserID != other.UserID {
+		return false
+	}
+	if p.SSHKey != other.SSHKey {
+		return false
+	}
+	if p.SSHEnabled != other.SSHEnabled {
+		return false
+	}
+	if p.LoginExpirationEnabled != other.LoginExpirationEnabled {
+		return false
+	}
+	if p.LastLogin != other.LastLogin {
+		return false
+	}
+	if p.CreatedAt != other.CreatedAt {
+		return false
+	}
+	if p.Ephemeral != other.Ephemeral {
+		return false
+	}
+	if p.Location.Equal(other.Location) {
+		return false
+	}
+	return true
 }

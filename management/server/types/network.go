@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -38,19 +39,19 @@ type NetworkMap struct {
 }
 
 func (nm *NetworkMap) Merge(other *NetworkMap) {
-	nm.Peers = append(nm.Peers, other.Peers...)
-	nm.Routes = append(nm.Routes, other.Routes...)
-	nm.OfflinePeers = append(nm.OfflinePeers, other.OfflinePeers...)
-	nm.FirewallRules = append(nm.FirewallRules, other.FirewallRules...)
-	nm.RoutesFirewallRules = append(nm.RoutesFirewallRules, other.RoutesFirewallRules...)
-	nm.ForwardingRules = append(nm.ForwardingRules, other.ForwardingRules...)
+	nm.Peers = util.MergeUnique(nm.Peers, other.Peers)
+	nm.Routes = util.MergeUnique(nm.Routes, other.Routes)
+	nm.OfflinePeers = util.MergeUnique(nm.OfflinePeers, other.OfflinePeers)
+	nm.FirewallRules = util.MergeUnique(nm.FirewallRules, other.FirewallRules)
+	nm.RoutesFirewallRules = util.MergeUnique(nm.RoutesFirewallRules, other.RoutesFirewallRules)
+	nm.ForwardingRules = util.MergeUnique(nm.ForwardingRules, other.ForwardingRules)
 }
 
 type ForwardingRule struct {
 	RuleProtocol      string
-	DestinationPorts  RulePortRange
+	DestinationPorts  *RulePortRange
 	TranslatedAddress net.IP
-	TranslatedPorts   RulePortRange
+	TranslatedPorts   *RulePortRange
 }
 
 func (f *ForwardingRule) ToProto() *proto.ForwardingRule {
@@ -73,6 +74,13 @@ func (f *ForwardingRule) ToProto() *proto.ForwardingRule {
 		TranslatedAddress: ipToBytes(f.TranslatedAddress),
 		TranslatedPort:    f.TranslatedPorts.ToProto(),
 	}
+}
+
+func (f *ForwardingRule) Equal(other *ForwardingRule) bool {
+	return f.RuleProtocol == other.RuleProtocol &&
+		f.DestinationPorts.Equal(other.DestinationPorts) &&
+		f.TranslatedAddress.Equal(other.TranslatedAddress) &&
+		f.TranslatedPorts.Equal(other.TranslatedPorts)
 }
 
 func ipToBytes(ip net.IP) []byte {
