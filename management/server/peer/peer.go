@@ -300,13 +300,6 @@ func (p *PeerStatus) Copy() *PeerStatus {
 	}
 }
 
-func (p *PeerStatus) Equal(status *PeerStatus) bool {
-	return p.LastSeen.Equal(status.LastSeen) &&
-		p.Connected == status.Connected &&
-		p.LoginExpired == status.LoginExpired &&
-		p.RequiresApproval == status.RequiresApproval
-}
-
 // UpdateLastLogin and set login expired false
 func (p *Peer) UpdateLastLogin() *Peer {
 	p.LastLogin = util.ToPtr(time.Now().UTC())
