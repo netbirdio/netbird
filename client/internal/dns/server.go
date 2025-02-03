@@ -564,6 +564,7 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 }
 
 func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord) {
+	// remove old records that are no longer present
 	for key := range s.localResolver.registeredMap {
 		_, found := update[key]
 		if !found {
@@ -571,13 +572,25 @@ func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord
 		}
 	}
 
+	nameGroups := make(map[string][]nbdns.SimpleRecord)
+	for _, rec := range update {
+		fqdnName := dns.Fqdn(rec.Name)
+		nameGroups[fqdnName] = append(nameGroups[fqdnName], rec)
+	}
+
 	updatedMap := make(registrationMap)
-	for key, record := range update {
-		err := s.localResolver.registerRecord(record)
-		if err != nil {
-			log.Warnf("got an error while registering the record (%s), error: %v", record.String(), err)
+	for _, recs := range nameGroups {
+		for _, rec := range recs {
+			// convert the record to a dns.RR and register
+			key, err := s.localResolver.registerRecord(rec)
+			if err != nil {
+				log.Warnf("got an error while registering the record (%s), error: %v",
+					rec.String(), err)
+				continue
+			}
+
+			updatedMap[key] = struct{}{}
 		}
-		updatedMap[key] = struct{}{}
 	}
 
 	s.localResolver.registeredMap = updatedMap
