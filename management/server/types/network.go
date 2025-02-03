@@ -8,6 +8,7 @@ import (
 
 	"github.com/c-robinson/iplib"
 	"github.com/rs/xid"
+	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/proto"
@@ -39,12 +40,26 @@ type NetworkMap struct {
 }
 
 func (nm *NetworkMap) Merge(other *NetworkMap) {
-	nm.Peers = util.MergeUnique(nm.Peers, other.Peers)
+	nm.Peers = mergeUniquePeersByID(nm.Peers, other.Peers)
 	nm.Routes = util.MergeUnique(nm.Routes, other.Routes)
-	nm.OfflinePeers = util.MergeUnique(nm.OfflinePeers, other.OfflinePeers)
+	nm.OfflinePeers = mergeUniquePeersByID(nm.OfflinePeers, other.OfflinePeers)
 	nm.FirewallRules = util.MergeUnique(nm.FirewallRules, other.FirewallRules)
 	nm.RoutesFirewallRules = util.MergeUnique(nm.RoutesFirewallRules, other.RoutesFirewallRules)
 	nm.ForwardingRules = util.MergeUnique(nm.ForwardingRules, other.ForwardingRules)
+}
+
+func mergeUniquePeersByID(peers1, peers2 []*nbpeer.Peer) []*nbpeer.Peer {
+	var result map[string]*nbpeer.Peer
+	for _, peer := range peers1 {
+		result[peer.ID] = peer
+	}
+	for _, peer := range peers2 {
+		if _, ok := result[peer.ID]; !ok {
+			result[peer.ID] = peer
+		}
+	}
+
+	return maps.Values(result)
 }
 
 type ForwardingRule struct {
