@@ -8,6 +8,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
+// IPForwardingState is a struct that keeps track of the IP forwarding state.
+// todo: read initial state of the IP forwarding from the system and reset the state based on it
 type IPForwardingState struct {
 	enabledCounter int
 }
@@ -44,10 +46,6 @@ func (f *IPForwardingState) ReleaseForwarding() error {
 	// if failed to disable IP forwarding we anyway decrement the counter
 	f.enabledCounter = 0
 
-	if err := systemops.DisableIPForwarding(); err != nil {
-		return fmt.Errorf("failed to disable IP forwarding with sysctl: %w", err)
-	}
-	log.Info("IP forwarding disabled")
-
+	// todo call systemops.DisableIPForwarding()
 	return nil
 }
