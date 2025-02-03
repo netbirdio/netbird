@@ -32,12 +32,8 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	httpClient, err := httpClientNbDialer()
-	if err != nil {
-		return nil, err
-	}
 	opts := &websocket.DialOptions{
-		HTTPClient: httpClient,
+		HTTPClient: httpClientNbDialer(),
 	}
 
 	parsedURL, err := url.Parse(wsURL)
@@ -70,7 +66,7 @@ func prepareURL(address string) (string, error) {
 	return strings.Replace(address, "rel", "ws", 1), nil
 }
 
-func httpClientNbDialer() (*http.Client, error) {
+func httpClientNbDialer() *http.Client {
 	customDialer := nbnet.NewDialer()
 
 	certPool, err := x509.SystemCertPool()
@@ -90,5 +86,5 @@ func httpClientNbDialer() (*http.Client, error) {
 
 	return &http.Client{
 		Transport: customTransport,
-	}, nil
+	}
 }
