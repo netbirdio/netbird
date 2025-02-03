@@ -31,7 +31,7 @@ const (
 )
 
 const (
-	dnsLabelsFlag = "dns-labels"
+	dnsLabelsFlag = "extra-dns-labels"
 )
 
 var (
@@ -61,8 +61,8 @@ func init() {
 		`Sets DNS labels`+
 			`You can specify a comma-separated list. `+
 			`An empty string "" clears the previous configuration. `+
-			`E.g. --dns-labels vpc1 or --dns-labels vpc1,mgmt1 `+
-			`or --dns-labels ""`,
+			`E.g. --extra-dns-labels vpc1 or --extra-dns-labels vpc1,mgmt1 `+
+			`or --extra-dns-labels ""`,
 	)
 }
 
