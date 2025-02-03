@@ -63,7 +63,7 @@ func NewDeviceAuthorizationFlow(config internal.DeviceAuthProviderConfig) (*Devi
 
 	certPool, err := x509.SystemCertPool()
 	if err != nil || certPool == nil {
-		log.Debug("System cert pool not available; falling back to embedded cert.")
+		log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
 		certPool = embeddedroots.Get()
 	} else {
 		log.Debug("Using system certificate pool.")

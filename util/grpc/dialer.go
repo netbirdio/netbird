@@ -63,7 +63,7 @@ func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 	if tlsEnabled {
 		certPool, err := x509.SystemCertPool()
 		if err != nil || certPool == nil {
-			log.Debug("System cert pool not available or empty, falling back to embedded cert.")
+			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
 			certPool = embeddedroots.Get()
 		}
 
