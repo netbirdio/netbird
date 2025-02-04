@@ -28,6 +28,7 @@ type WGWatcher struct {
 	wgIfaceStater WGInterfaceStater
 	peerKey       string
 
+	ctx       context.Context
 	ctxCancel context.CancelFunc
 	ctxLock   sync.Mutex
 	waitGroup sync.WaitGroup
@@ -47,12 +48,13 @@ func (w *WGWatcher) EnableWgWatcher(parentCtx context.Context, onDisconnectedFn 
 	w.ctxLock.Lock()
 	defer w.ctxLock.Unlock()
 
-	if w.ctxCancel != nil {
+	if w.ctx != nil && w.ctx.Err() == nil {
 		w.log.Errorf("WireGuard watcher already enabled")
 		return
 	}
 
 	ctx, ctxCancel := context.WithCancel(parentCtx)
+	w.ctx = ctx
 	w.ctxCancel = ctxCancel
 
 	initialHandshake, err := w.wgState()
@@ -61,7 +63,7 @@ func (w *WGWatcher) EnableWgWatcher(parentCtx context.Context, onDisconnectedFn 
 	}
 
 	w.waitGroup.Add(1)
-	go w.periodicHandshakeCheck(ctx, w.ctxCancel, onDisconnectedFn, initialHandshake)
+	go w.periodicHandshakeCheck(ctx, ctxCancel, onDisconnectedFn, initialHandshake)
 }
 
 // DisableWgWatcher stops the WireGuard watcher and wait for the watcher to exit
