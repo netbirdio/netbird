@@ -2183,6 +2183,17 @@ paths:
       summary: List all Peers
       description: Returns a list of all peers
       tags: [ Peers ]
+      parameters:
+        - in: query
+          name: name
+          schema:
+            type: string
+          description: Filter peers by name
+        - in: query
+          name: ip
+          schema:
+            type: string
+          description: Filter peers by IP address
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
