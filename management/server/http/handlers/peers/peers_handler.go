@@ -186,7 +186,10 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	nameFilter := r.URL.Query().Get("name")
+	ipFilter := r.URL.Query().Get("ip")
+
+	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
