@@ -2666,6 +2666,8 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 	tests := []struct {
 		name          string
 		accountID     string
+		nameFilter    string
+		ipFilter      string
 		expectedCount int
 	}{
 		{
@@ -2683,11 +2685,29 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 			accountID:     "",
 			expectedCount: 0,
 		},
+		{
+			name:          "should filter peers by name",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			nameFilter:    "expiredhost",
+			expectedCount: 1,
+		},
+		{
+			name:          "should filter peers by partial name",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			nameFilter:    "host",
+			expectedCount: 3,
+		},
+		{
+			name:          "should filter peers by ip",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			ipFilter:      "100.64.39.54",
+			expectedCount: 1,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthShare, tt.accountID)
+			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthShare, tt.accountID, tt.nameFilter, tt.ipFilter)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
