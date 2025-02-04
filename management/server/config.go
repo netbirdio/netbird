@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/netip"
-	"net/url"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -179,10 +178,4 @@ type ReverseProxy struct {
 	// request headers if the peer's address falls within one of these
 	// trusted IP prefixes.
 	TrustedPeers []netip.Prefix
-}
-
-// validateURL validates input http url
-func validateURL(httpURL string) bool {
-	_, err := url.ParseRequestURI(httpURL)
-	return err == nil
 }

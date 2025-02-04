@@ -20,8 +20,8 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -39,11 +39,10 @@ type GRPCServer struct {
 	peersUpdateManager *PeersUpdateManager
 	config             *Config
 	secretsManager     SecretsManager
-	jwtValidator       jwtclaims.JWTValidator
-	jwtClaimsExtractor *jwtclaims.ClaimsExtractor
 	appMetrics         telemetry.AppMetrics
 	ephemeralManager   *EphemeralManager
 	peerLocks          sync.Map
+	authManager        auth.Manager
 }
 
 // NewServer creates a new Management server
@@ -56,27 +55,11 @@ func NewServer(
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
 	ephemeralManager *EphemeralManager,
+	authManager auth.Manager,
 ) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
-	}
-
-	var jwtValidator jwtclaims.JWTValidator
-
-	if config.HttpConfig != nil && config.HttpConfig.AuthIssuer != "" && config.HttpConfig.AuthAudience != "" && validateURL(config.HttpConfig.AuthKeysLocation) {
-		jwtValidator, err = jwtclaims.NewJWTValidator(
-			ctx,
-			config.HttpConfig.AuthIssuer,
-			config.GetAuthAudiences(),
-			config.HttpConfig.AuthKeysLocation,
-			config.HttpConfig.IdpSignKeyRefreshEnabled,
-		)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
-		}
-	} else {
-		log.WithContext(ctx).Debug("unable to use http config to create new jwt middleware")
 	}
 
 	if appMetrics != nil {
@@ -89,16 +72,6 @@ func NewServer(
 		}
 	}
 
-	var audience, userIDClaim string
-	if config.HttpConfig != nil {
-		audience = config.HttpConfig.AuthAudience
-		userIDClaim = config.HttpConfig.AuthUserIDClaim
-	}
-	jwtClaimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(audience),
-		jwtclaims.WithUserIDClaim(userIDClaim),
-	)
-
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -107,8 +80,7 @@ func NewServer(
 		settingsManager:    settingsManager,
 		config:             config,
 		secretsManager:     secretsManager,
-		jwtValidator:       jwtValidator,
-		jwtClaimsExtractor: jwtClaimsExtractor,
+		authManager:        authManager,
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
 	}, nil
@@ -294,26 +266,32 @@ func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, p
 }
 
 func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string, error) {
-	if s.jwtValidator == nil {
-		return "", status.Error(codes.Internal, "no jwt validator set")
+	if s.authManager == nil {
+		return "", status.Errorf(codes.Internal, "missing auth manager")
 	}
 
-	token, err := s.jwtValidator.ValidateAndParse(ctx, jwtToken)
+	userAuth, token, err := s.authManager.ValidateAndParseToken(ctx, jwtToken)
 	if err != nil {
 		return "", status.Errorf(codes.InvalidArgument, "invalid jwt token, err: %v", err)
 	}
-	claims := s.jwtClaimsExtractor.FromToken(token)
+
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
-	_, _, err = s.accountManager.GetAccountIDFromToken(ctx, claims)
+	_, _, err = s.accountManager.GetAccountIDFromUserAuth(ctx, userAuth)
 	if err != nil {
 		return "", status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
 	}
 
-	if err := s.accountManager.CheckUserAccessByJWTGroups(ctx, claims); err != nil {
+	userAuth, err = s.authManager.EnsureUserAccessByJWTGroups(ctx, userAuth, token)
+	if err != nil {
 		return "", status.Error(codes.PermissionDenied, err.Error())
 	}
 
-	return claims.UserId, nil
+	err = s.accountManager.SyncUserJWTGroups(ctx, userAuth)
+	if err != nil {
+		log.WithContext(ctx).Errorf("gRPC server failed to sync user JWT groups: %s", err)
+	}
+
+	return userAuth.UserId, nil
 }
 
 func (s *GRPCServer) acquirePeerLockByUID(ctx context.Context, uniqueID string) (unlock func()) {

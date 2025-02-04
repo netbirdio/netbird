@@ -7,22 +7,20 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/server"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // patHandler is the nameserver group handler of the account
 type patHandler struct {
-	accountManager  server.AccountManager
-	claimsExtractor *jwtclaims.ClaimsExtractor
+	accountManager server.AccountManager
 }
 
-func addUsersTokensEndpoint(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
-	tokenHandler := newPATsHandler(accountManager, authCfg)
+func addUsersTokensEndpoint(accountManager server.AccountManager, router *mux.Router) {
+	tokenHandler := newPATsHandler(accountManager)
 	router.HandleFunc("/users/{userId}/tokens", tokenHandler.getAllTokens).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}/tokens", tokenHandler.createToken).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/tokens/{tokenId}", tokenHandler.getToken).Methods("GET", "OPTIONS")
@@ -30,25 +28,21 @@ func addUsersTokensEndpoint(accountManager server.AccountManager, authCfg config
 }
 
 // newPATsHandler creates a new patHandler HTTP handler
-func newPATsHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *patHandler {
+func newPATsHandler(accountManager server.AccountManager) *patHandler {
 	return &patHandler{
 		accountManager: accountManager,
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithAudience(authCfg.Audience),
-			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
-		),
 	}
 }
 
 // getAllTokens is HTTP GET handler that returns a list of all personal access tokens for the given user
 func (h *patHandler) getAllTokens(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(userID) == 0 {
@@ -72,13 +66,13 @@ func (h *patHandler) getAllTokens(w http.ResponseWriter, r *http.Request) {
 
 // getToken is HTTP GET handler that returns a personal access token for the given user
 func (h *patHandler) getToken(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
@@ -103,13 +97,13 @@ func (h *patHandler) getToken(w http.ResponseWriter, r *http.Request) {
 
 // createToken is HTTP POST handler that creates a personal access token for the given user
 func (h *patHandler) createToken(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
@@ -135,13 +129,13 @@ func (h *patHandler) createToken(w http.ResponseWriter, r *http.Request) {
 
 // deleteToken is HTTP DELETE handler that deletes a personal access token for the given user
 func (h *patHandler) deleteToken(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {

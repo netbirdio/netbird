@@ -11,9 +11,9 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 
 	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/handlers/accounts"
 	"github.com/netbirdio/netbird/management/server/http/handlers/dns"
 	"github.com/netbirdio/netbird/management/server/http/handlers/events"
@@ -26,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
@@ -36,55 +35,51 @@ import (
 const apiPrefix = "/api"
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager s.AccountManager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg configs.AuthCfg, integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
-	claimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(authCfg.Audience),
-		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
-	)
+func NewAPIHandler(
+	ctx context.Context,
+	accountManager s.AccountManager,
+	networksManager nbnetworks.Manager,
+	resourceManager resources.Manager,
+	routerManager routers.Manager,
+	groupsManager nbgroups.Manager,
+	LocationManager geolocation.Geolocation,
+	authManager auth.Manager,
+	appMetrics telemetry.AppMetrics,
+	config *s.Config,
+	integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
 
 	authMiddleware := middleware.NewAuthMiddleware(
-		accountManager.GetPATInfo,
-		jwtValidator.ValidateAndParse,
-		accountManager.MarkPATUsed,
-		accountManager.CheckUserAccessByJWTGroups,
-		claimsExtractor,
-		authCfg.Audience,
-		authCfg.UserIDClaim,
+		authManager,
+		accountManager.GetAccountIDFromUserAuth,
+		accountManager.SyncUserJWTGroups,
 	)
 
 	corsMiddleware := cors.AllowAll()
 
-	claimsExtractor = jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(authCfg.Audience),
-		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
-	)
-
-	acMiddleware := middleware.NewAccessControl(
-		authCfg.Audience,
-		authCfg.UserIDClaim,
-		accountManager.GetUser)
+	acMiddleware := middleware.NewAccessControl(accountManager.GetUserFromUserAuth)
 
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()
 
 	prefix := apiPrefix
 	router := rootRouter.PathPrefix(prefix).Subrouter()
+
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, claimsExtractor, integratedValidator, appMetrics.GetMeter()); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter()); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, authCfg, router)
-	peers.AddEndpoints(accountManager, authCfg, router)
-	users.AddEndpoints(accountManager, authCfg, router)
-	setup_keys.AddEndpoints(accountManager, authCfg, router)
-	policies.AddEndpoints(accountManager, LocationManager, authCfg, router)
-	groups.AddEndpoints(accountManager, authCfg, router)
-	routes.AddEndpoints(accountManager, authCfg, router)
-	dns.AddEndpoints(accountManager, authCfg, router)
-	events.AddEndpoints(accountManager, authCfg, router)
-	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, accountManager.GetAccountIDFromToken, authCfg, router)
+	accounts.AddEndpoints(accountManager, router)
+	peers.AddEndpoints(accountManager, router)
+	users.AddEndpoints(accountManager, router)
+	setup_keys.AddEndpoints(accountManager, router)
+	policies.AddEndpoints(accountManager, LocationManager, router)
+	groups.AddEndpoints(accountManager, router)
+	routes.AddEndpoints(accountManager, router)
+	dns.AddEndpoints(accountManager, router)
+	events.AddEndpoints(accountManager, router)
+	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
 
 	return rootRouter, nil
 }

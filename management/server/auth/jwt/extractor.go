@@ -1,10 +1,13 @@
-package jwtclaims
+package jwt
 
 import (
-	"net/http"
+	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
+
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
 
 const (
@@ -26,15 +29,14 @@ const (
 	IsToken = "is_token"
 )
 
-// ExtractClaims Extract function type
-type ExtractClaims func(r *http.Request) AuthorizationClaims
+var (
+	errUserIDClaimEmpty = errors.New("user ID claim token value is empty")
+)
 
 // ClaimsExtractor struct that holds the extract function
 type ClaimsExtractor struct {
 	authAudience string
 	userIDClaim  string
-
-	FromRequestContext ExtractClaims
 }
 
 // ClaimsExtractorOption is a function that configures the ClaimsExtractor
@@ -54,13 +56,6 @@ func WithUserIDClaim(userIDClaim string) ClaimsExtractorOption {
 	}
 }
 
-// WithFromRequestContext sets the function that extracts claims from the request context
-func WithFromRequestContext(ec ExtractClaims) ClaimsExtractorOption {
-	return func(c *ClaimsExtractor) {
-		c.FromRequestContext = ec
-	}
-}
-
 // NewClaimsExtractor returns an extractor, and if provided with a function with ExtractClaims signature,
 // then it will use that logic. Uses ExtractClaimsFromRequestContext by default
 func NewClaimsExtractor(options ...ClaimsExtractorOption) *ClaimsExtractor {
@@ -68,47 +63,11 @@ func NewClaimsExtractor(options ...ClaimsExtractorOption) *ClaimsExtractor {
 	for _, option := range options {
 		option(ce)
 	}
-	if ce.FromRequestContext == nil {
-		ce.FromRequestContext = ce.fromRequestContext
-	}
+
 	if ce.userIDClaim == "" {
 		ce.userIDClaim = UserIDClaim
 	}
 	return ce
-}
-
-// FromToken extracts claims from the token (after auth)
-func (c *ClaimsExtractor) FromToken(token *jwt.Token) AuthorizationClaims {
-	claims := token.Claims.(jwt.MapClaims)
-	jwtClaims := AuthorizationClaims{
-		Raw: claims,
-	}
-	userID, ok := claims[c.userIDClaim].(string)
-	if !ok {
-		return jwtClaims
-	}
-	jwtClaims.UserId = userID
-	accountIDClaim, ok := claims[c.authAudience+AccountIDSuffix]
-	if ok {
-		jwtClaims.AccountId = accountIDClaim.(string)
-	}
-	domainClaim, ok := claims[c.authAudience+DomainIDSuffix]
-	if ok {
-		jwtClaims.Domain = domainClaim.(string)
-	}
-	domainCategoryClaim, ok := claims[c.authAudience+DomainCategorySuffix]
-	if ok {
-		jwtClaims.DomainCategory = domainCategoryClaim.(string)
-	}
-	LastLoginClaimString, ok := claims[c.authAudience+LastLoginSuffix]
-	if ok {
-		jwtClaims.LastLogin = parseTime(LastLoginClaimString.(string))
-	}
-	invitedBool, ok := claims[c.authAudience+Invited]
-	if ok {
-		jwtClaims.Invited = invitedBool.(bool)
-	}
-	return jwtClaims
 }
 
 func parseTime(timeString string) time.Time {
@@ -122,11 +81,56 @@ func parseTime(timeString string) time.Time {
 	return parsedTime
 }
 
-// fromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
-func (c *ClaimsExtractor) fromRequestContext(r *http.Request) AuthorizationClaims {
-	if r.Context().Value(TokenUserProperty) == nil {
-		return AuthorizationClaims{}
+func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (nbcontext.UserAuth, error) {
+	claims := token.Claims.(jwt.MapClaims)
+	userAuth := nbcontext.UserAuth{}
+
+	userID, ok := claims[c.userIDClaim].(string)
+	if !ok {
+		return userAuth, errUserIDClaimEmpty
 	}
-	token := r.Context().Value(TokenUserProperty).(*jwt.Token)
-	return c.FromToken(token)
+	userAuth.UserId = userID
+	accountIDClaim, ok := claims[c.authAudience+AccountIDSuffix]
+	if ok {
+		userAuth.AccountId = accountIDClaim.(string)
+	}
+	domainClaim, ok := claims[c.authAudience+DomainIDSuffix]
+	if ok {
+		userAuth.Domain = domainClaim.(string)
+	}
+	domainCategoryClaim, ok := claims[c.authAudience+DomainCategorySuffix]
+	if ok {
+		userAuth.DomainCategory = domainCategoryClaim.(string)
+	}
+	LastLoginClaimString, ok := claims[c.authAudience+LastLoginSuffix]
+	if ok {
+		userAuth.LastLogin = parseTime(LastLoginClaimString.(string))
+	}
+	invitedBool, ok := claims[c.authAudience+Invited]
+	if ok {
+		userAuth.Invited = invitedBool.(bool)
+	}
+
+	return userAuth, nil
+}
+
+func (c *ClaimsExtractor) ToGroups(token *jwt.Token, claimName string) []string {
+	claims := token.Claims.(jwt.MapClaims)
+	userJWTGroups := make([]string, 0)
+
+	if claim, ok := claims[claimName]; ok {
+		if claimGroups, ok := claim.([]interface{}); ok {
+			for _, g := range claimGroups {
+				if group, ok := g.(string); ok {
+					userJWTGroups = append(userJWTGroups, group)
+				} else {
+					log.Debugf("JWT claim %q contains a non-string group (type: %T): %v", claimName, g, g)
+				}
+			}
+		}
+	} else {
+		log.Debugf("JWT claim %q is not a string array", claimName)
+	}
+
+	return userJWTGroups
 }
