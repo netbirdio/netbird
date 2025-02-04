@@ -101,7 +101,9 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 				onDisconnectedFn()
 				return
 			}
-			timer.Reset(time.Until(handshake.Add(checkPeriod)))
+			resetTime := time.Until(handshake.Add(checkPeriod))
+			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
+			timer.Reset(resetTime)
 			lastHandshake = *handshake
 		case <-ctx.Done():
 			w.log.Debugf("WireGuard watcher stopped")
@@ -125,7 +127,7 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 		return nil, false
 	}
 
-	w.log.Tracef("previous handshake, handshake: %v, %v", lastHandshake, handshake)
+	w.log.Debugf("previous handshake, handshake: %v, %v", lastHandshake, handshake)
 
 	if handshake.Equal(lastHandshake) {
 		w.log.Infof("WireGuard handshake timed out, closing relay connection: %v", handshake)
