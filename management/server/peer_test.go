@@ -708,7 +708,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			peers, err := manager.GetPeers(context.Background(), accountID, someUser)
+			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "")
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -914,7 +914,7 @@ func BenchmarkGetPeers(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := manager.GetPeers(context.Background(), accountID, userID)
+				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "")
 				if err != nil {
 					b.Fatalf("GetPeers failed: %v", err)
 				}

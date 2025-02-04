@@ -125,7 +125,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				}
 				return p, nil
 			},
-			GetPeersFunc: func(_ context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
 			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
