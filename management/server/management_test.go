@@ -1,5 +1,7 @@
 package server_test
 
+// @todo investigate failures
+
 import (
 	"context"
 	"math/rand"
@@ -202,6 +204,7 @@ func startServer(
 		settings.NewManager(str),
 		peersUpdateManager,
 		secretsManager,
+		nil,
 		nil,
 		nil,
 	)

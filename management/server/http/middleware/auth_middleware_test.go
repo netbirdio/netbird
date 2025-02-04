@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+
+	"github.com/netbirdio/netbird/management/server/auth"
+	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -58,17 +61,21 @@ func mockGetAccountInfoFromPAT(_ context.Context, token string) (user *types.Use
 	return nil, nil, "", "", fmt.Errorf("PAT invalid")
 }
 
-func mockValidateAndParseToken(_ context.Context, token string) (*jwt.Token, error) {
+func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {
 	if token == JWT {
-		return &jwt.Token{
-			Claims: jwt.MapClaims{
-				userIDClaim:                          userID,
-				audience + jwtclaims.AccountIDSuffix: accountID,
+		return nbcontext.UserAuth{
+				UserId:    userID,
+				AccountId: accountID,
 			},
-			Valid: true,
-		}, nil
+			&jwt.Token{
+				Claims: jwt.MapClaims{
+					userIDClaim:                      userID,
+					audience + nbjwt.AccountIDSuffix: accountID,
+				},
+				Valid: true,
+			}, nil
 	}
-	return nil, fmt.Errorf("JWT invalid")
+	return nbcontext.UserAuth{}, nil, fmt.Errorf("JWT invalid")
 }
 
 func mockMarkPATUsed(_ context.Context, token string) error {
@@ -78,16 +85,16 @@ func mockMarkPATUsed(_ context.Context, token string) error {
 	return fmt.Errorf("Should never get reached")
 }
 
-func mockCheckUserAccessByJWTGroups(_ context.Context, claims jwtclaims.AuthorizationClaims) error {
-	if testAccount.Id != claims.AccountId {
-		return fmt.Errorf("account with id %s does not exist", claims.AccountId)
+func mockEnsureUserAccessByJWTGroups(_ context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error) {
+	if testAccount.Id != userAuth.AccountId {
+		return userAuth, fmt.Errorf("account with id %s does not exist", userAuth.AccountId)
 	}
 
-	if _, ok := testAccount.Users[claims.UserId]; !ok {
-		return fmt.Errorf("user with id %s does not exist", claims.UserId)
+	if _, ok := testAccount.Users[userAuth.UserId]; !ok {
+		return userAuth, fmt.Errorf("user with id %s does not exist", userAuth.UserId)
 	}
 
-	return nil
+	return userAuth, nil
 }
 
 func TestAuthMiddleware_Handler(t *testing.T) {
@@ -158,22 +165,24 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 	}
 
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// do nothing
+
 	})
 
-	claimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(audience),
-		jwtclaims.WithUserIDClaim(userIDClaim),
-	)
+	mockAuth := &auth.MockManager{
+		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
+		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
+		MarkPATUsedFunc:                 mockMarkPATUsed,
+		GetAccountInfoFromPATFunc:       mockGetAccountInfoFromPAT,
+	}
 
 	authMiddleware := NewAuthMiddleware(
-		mockGetAccountInfoFromPAT,
-		mockValidateAndParseToken,
-		mockMarkPATUsed,
-		mockCheckUserAccessByJWTGroups,
-		claimsExtractor,
-		audience,
-		userIDClaim,
+		mockAuth,
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			return userAuth.AccountId, userAuth.UserId, nil
+		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			return nil
+		},
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -195,6 +204,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 
 			result := rec.Result()
 			defer result.Body.Close()
+
 			if result.StatusCode != tc.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tc.expectedStatusCode, result.StatusCode)
 			}
