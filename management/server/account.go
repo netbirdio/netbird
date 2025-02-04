@@ -86,7 +86,7 @@ type AccountManager interface {
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
+	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)

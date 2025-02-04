@@ -50,5 +50,5 @@ func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string)
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID)
+	return m.store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
 }

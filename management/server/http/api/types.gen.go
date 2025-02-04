@@ -1580,6 +1580,15 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
+// GetApiPeersParams defines parameters for GetApiPeers.
+type GetApiPeersParams struct {
+	// Name Filter peers by name
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// Ip Filter peers by IP address
+	Ip *string `form:"ip,omitempty" json:"ip,omitempty"`
+}
+
 // GetApiPeersPeerIdIngressPortsParams defines parameters for GetApiPeersPeerIdIngressPorts.
 type GetApiPeersPeerIdIngressPortsParams struct {
 	// Name Filters ingress port allocations by name
