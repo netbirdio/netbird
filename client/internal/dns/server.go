@@ -378,10 +378,11 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		s.service.Stop()
 	}
 
-	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
+	localMuxUpdates, localRecordsByDomain, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("not applying dns update, error: %v", err)
 	}
+
 	upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
 	if err != nil {
 		return fmt.Errorf("not applying dns update, error: %v", err)
@@ -389,7 +390,10 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...) //nolint:gocritic
 
 	s.updateMux(muxUpdates)
-	s.updateLocalResolver(localRecords)
+
+	// register local records
+	s.updateLocalResolver(localRecordsByDomain)
+
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
 	hostUpdate := s.currentConfig
@@ -419,9 +423,12 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	return nil
 }
 
-func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxUpdate, map[string]nbdns.SimpleRecord, error) {
+func (s *DefaultServer) buildLocalHandlerUpdate(
+	customZones []nbdns.CustomZone,
+) ([]muxUpdate, map[string][]nbdns.SimpleRecord, error) {
+
 	var muxUpdates []muxUpdate
-	localRecords := make(map[string]nbdns.SimpleRecord, 0)
+	localRecords := make(map[string][]nbdns.SimpleRecord)
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
@@ -434,15 +441,18 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 			priority: PriorityMatchDomain,
 		})
 
+		// group all records under this domain
 		for _, record := range customZone.Records {
 			var class uint16 = dns.ClassINET
 			if record.Class != nbdns.DefaultClass {
 				return nil, nil, fmt.Errorf("received an invalid class type: %s", record.Class)
 			}
 			key := buildRecordKey(record.Name, class, uint16(record.Type))
-			localRecords[key] = record
+
+			localRecords[key] = append(localRecords[key], record)
 		}
 	}
+
 	return muxUpdates, localRecords, nil
 }
 
@@ -563,7 +573,7 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 	s.handlerPriorities = handlersByPriority
 }
 
-func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord) {
+func (s *DefaultServer) updateLocalResolver(update map[string][]nbdns.SimpleRecord) {
 	// remove old records that are no longer present
 	for key := range s.localResolver.registeredMap {
 		_, found := update[key]
@@ -572,14 +582,8 @@ func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord
 		}
 	}
 
-	nameGroups := make(map[string][]nbdns.SimpleRecord)
-	for _, rec := range update {
-		fqdnName := dns.Fqdn(rec.Name)
-		nameGroups[fqdnName] = append(nameGroups[fqdnName], rec)
-	}
-
 	updatedMap := make(registrationMap)
-	for _, recs := range nameGroups {
+	for _, recs := range update {
 		for _, rec := range recs {
 			// convert the record to a dns.RR and register
 			key, err := s.localResolver.registerRecord(rec)
