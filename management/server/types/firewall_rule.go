@@ -44,7 +44,8 @@ func (r *FirewallRule) Equal(other *FirewallRule) bool {
 		r.Direction == other.Direction &&
 		r.Action == other.Action &&
 		r.Protocol == other.Protocol &&
-		r.Port == other.Port
+		r.Port == other.Port &&
+		r.PortRange.Equal(&other.PortRange)
 }
 
 // generateRouteFirewallRules generates a list of firewall rules for a given route.
