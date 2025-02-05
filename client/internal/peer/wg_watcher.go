@@ -15,7 +15,7 @@ const (
 )
 
 var (
-	wgHandshakeOvertime = 30 * time.Second
+	wgHandshakeOvertime = 30 * time.Second // allowed delay in network
 	checkPeriod         = wgHandshakePeriod + wgHandshakeOvertime
 )
 
@@ -101,10 +101,12 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 				onDisconnectedFn()
 				return
 			}
-			resetTime := time.Until(handshake.Add(checkPeriod))
-			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
-			timer.Reset(resetTime)
 			lastHandshake = *handshake
+
+			resetTime := time.Until(handshake.Add(checkPeriod))
+			timer.Reset(resetTime)
+
+			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
 		case <-ctx.Done():
 			w.log.Debugf("WireGuard watcher stopped")
 			return
@@ -120,6 +122,7 @@ func (w *WGWatcher) wgState() (time.Time, error) {
 	return wgState.LastHandshake, nil
 }
 
+// handshakeCheck checks the WireGuard handshake and return the new handshake time if it is different from the previous one
 func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 	handshake, err := w.wgState()
 	if err != nil {
@@ -130,6 +133,12 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 	w.log.Debugf("previous handshake, handshake: %v, %v", lastHandshake, handshake)
 
 	if handshake.Equal(lastHandshake) {
+		w.log.Infof("WireGuard handshake timed out, closing relay connection: %v", handshake)
+		return nil, false
+	}
+
+	// in case if the machine is suspended, the handshake time will be in the past
+	if handshake.Add(checkPeriod).Before(time.Now()) {
 		w.log.Infof("WireGuard handshake timed out, closing relay connection: %v", handshake)
 		return nil, false
 	}
