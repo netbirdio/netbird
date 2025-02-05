@@ -33,6 +33,10 @@ func (r *RulePortRange) ToProto() *proto.PortInfo {
 	}
 }
 
+func (r *RulePortRange) Equal(other *RulePortRange) bool {
+	return r.Start == other.Start && r.End == other.End
+}
+
 // PolicyRule is the metadata of the policy
 type PolicyRule struct {
 	// ID of the policy rule

@@ -40,7 +40,7 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 
 	for routeID := range m.routes {
 		update, found := routesMap[routeID]
-		if !found || !update.IsEqual(m.routes[routeID]) {
+		if !found || !update.Equal(m.routes[routeID]) {
 			serverRoutesToRemove = append(serverRoutesToRemove, routeID)
 		}
 	}
