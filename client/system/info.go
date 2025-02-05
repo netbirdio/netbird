@@ -50,7 +50,7 @@ type Info struct {
 	OSVersion          string
 	Hostname           string
 	CPUs               int
-	WiretrusteeVersion string
+	NetbirdVersion     string
 	UIVersion          string
 	KernelVersion      string
 	NetworkAddresses   []NetworkAddress

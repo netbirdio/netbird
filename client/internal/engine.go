@@ -617,8 +617,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if update.GetWiretrusteeConfig() != nil {
-		wCfg := update.GetWiretrusteeConfig()
+	if update.GetNetbirdConfig() != nil {
+		wCfg := update.GetNetbirdConfig()
 		err := e.updateTURNs(wCfg.GetTurns())
 		if err != nil {
 			return fmt.Errorf("update TURNs: %w", err)

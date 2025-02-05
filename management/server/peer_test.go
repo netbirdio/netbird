@@ -1114,13 +1114,13 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, "192.168.1.1/24", response.PeerConfig.Address)
 	assert.Equal(t, "peer1.example.com", response.PeerConfig.Fqdn)
 	assert.Equal(t, true, response.PeerConfig.SshConfig.SshEnabled)
-	// assert wiretrustee config
-	assert.Equal(t, "signal.uri", response.WiretrusteeConfig.Signal.Uri)
-	assert.Equal(t, proto.HostConfig_HTTPS, response.WiretrusteeConfig.Signal.GetProtocol())
-	assert.Equal(t, "stun.uri", response.WiretrusteeConfig.Stuns[0].Uri)
-	assert.Equal(t, "turn.uri", response.WiretrusteeConfig.Turns[0].HostConfig.GetUri())
-	assert.Equal(t, "turn-user", response.WiretrusteeConfig.Turns[0].User)
-	assert.Equal(t, "turn-pass", response.WiretrusteeConfig.Turns[0].Password)
+	// assert netbird config
+	assert.Equal(t, "signal.uri", response.NetbirdConfig.Signal.Uri)
+	assert.Equal(t, proto.HostConfig_HTTPS, response.NetbirdConfig.Signal.GetProtocol())
+	assert.Equal(t, "stun.uri", response.NetbirdConfig.Stuns[0].Uri)
+	assert.Equal(t, "turn.uri", response.NetbirdConfig.Turns[0].HostConfig.GetUri())
+	assert.Equal(t, "turn-user", response.NetbirdConfig.Turns[0].User)
+	assert.Equal(t, "turn-pass", response.NetbirdConfig.Turns[0].Password)
 	// assert RemotePeers
 	assert.Equal(t, 1, len(response.RemotePeers))
 	assert.Equal(t, "192.168.1.2/32", response.RemotePeers[0].AllowedIps[0])

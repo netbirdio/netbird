@@ -48,7 +48,7 @@ var _ = Describe("Management service", func() {
 		level, _ := log.ParseLevel("Debug")
 		log.SetLevel(level)
 		var err error
-		dataDir, err = os.MkdirTemp("", "wiretrustee_mgmt_test_tmp_*")
+		dataDir, err = os.MkdirTemp("", "netbird_mgmt_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
 
 		var listener net.Listener
@@ -110,23 +110,23 @@ var _ = Describe("Management service", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				expectedSignalConfig := &mgmtProto.HostConfig{
-					Uri:      "signal.wiretrustee.com:10000",
+					Uri:      "signal.netbird.io:10000",
 					Protocol: mgmtProto.HostConfig_HTTP,
 				}
 				expectedStunsConfig := &mgmtProto.HostConfig{
-					Uri:      "stun:stun.wiretrustee.com:3468",
+					Uri:      "stun:stun.netbird.io:3468",
 					Protocol: mgmtProto.HostConfig_UDP,
 				}
 				expectedTRUNHost := &mgmtProto.HostConfig{
-					Uri:      "turn:stun.wiretrustee.com:3468",
+					Uri:      "turn:stun.netbird.io:3468",
 					Protocol: mgmtProto.HostConfig_UDP,
 				}
 
-				Expect(resp.WiretrusteeConfig.Signal).To(BeEquivalentTo(expectedSignalConfig))
-				Expect(resp.WiretrusteeConfig.Stuns).To(ConsistOf(expectedStunsConfig))
+				Expect(resp.NetbirdConfig.Signal).To(BeEquivalentTo(expectedSignalConfig))
+				Expect(resp.NetbirdConfig.Stuns).To(ConsistOf(expectedStunsConfig))
 				// TURN validation is special because credentials are dynamically generated
-				Expect(resp.WiretrusteeConfig.Turns).To(HaveLen(1))
-				actualTURN := resp.WiretrusteeConfig.Turns[0]
+				Expect(resp.NetbirdConfig.Turns).To(HaveLen(1))
+				actualTURN := resp.NetbirdConfig.Turns[0]
 				Expect(len(actualTURN.User) > 0).To(BeTrue())
 				Expect(actualTURN.HostConfig).To(BeEquivalentTo(expectedTRUNHost))
 				Expect(len(resp.NetworkMap.OfflinePeers) == 0).To(BeTrue())
@@ -287,25 +287,25 @@ var _ = Describe("Management service", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				expectedSignalConfig := &mgmtProto.HostConfig{
-					Uri:      "signal.wiretrustee.com:10000",
+					Uri:      "signal.netbird.io:10000",
 					Protocol: mgmtProto.HostConfig_HTTP,
 				}
 				expectedStunsConfig := &mgmtProto.HostConfig{
-					Uri:      "stun:stun.wiretrustee.com:3468",
+					Uri:      "stun:stun.netbird.io:3468",
 					Protocol: mgmtProto.HostConfig_UDP,
 				}
 				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
 					HostConfig: &mgmtProto.HostConfig{
-						Uri:      "turn:stun.wiretrustee.com:3468",
+						Uri:      "turn:stun.netbird.io:3468",
 						Protocol: mgmtProto.HostConfig_UDP,
 					},
 					User:     "some_user",
 					Password: "some_password",
 				}
 
-				Expect(decryptedResp.GetWiretrusteeConfig().Signal).To(BeEquivalentTo(expectedSignalConfig))
-				Expect(decryptedResp.GetWiretrusteeConfig().Stuns).To(ConsistOf(expectedStunsConfig))
-				Expect(decryptedResp.GetWiretrusteeConfig().Turns).To(ConsistOf(expectedTurnsConfig))
+				Expect(decryptedResp.GetNetbirdConfig().Signal).To(BeEquivalentTo(expectedSignalConfig))
+				Expect(decryptedResp.GetNetbirdConfig().Stuns).To(ConsistOf(expectedStunsConfig))
+				Expect(decryptedResp.GetNetbirdConfig().Turns).To(ConsistOf(expectedTurnsConfig))
 			})
 		})
 	})
@@ -450,13 +450,13 @@ func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, clien
 	defer GinkgoRecover()
 
 	meta := &mgmtProto.PeerSystemMeta{
-		Hostname:           key.PublicKey().String(),
-		GoOS:               runtime.GOOS,
-		OS:                 runtime.GOOS,
-		Core:               "core",
-		Platform:           "platform",
-		Kernel:             "kernel",
-		WiretrusteeVersion: "",
+		Hostname:       key.PublicKey().String(),
+		GoOS:           runtime.GOOS,
+		OS:             runtime.GOOS,
+		Core:           "core",
+		Platform:       "platform",
+		Kernel:         "kernel",
+		NetbirdVersion: "",
 	}
 	message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: ValidSetupKey, Meta: meta})
 	Expect(err).NotTo(HaveOccurred())

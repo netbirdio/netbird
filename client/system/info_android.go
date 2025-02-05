@@ -36,7 +36,7 @@ func GetInfo(ctx context.Context) *Info {
 		OSVersion:          osVersion(),
 		Hostname:           extractDeviceName(ctx, "android"),
 		CPUs:               runtime.NumCPU(),
-		WiretrusteeVersion: version.NetbirdVersion(),
+		NetbirdVersion:     version.NetbirdVersion(),
 		UIVersion:          extractUIVersion(ctx),
 		KernelVersion:      kernelVersion,
 		SystemSerialNumber: serial(),

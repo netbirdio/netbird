@@ -3,10 +3,10 @@
 We are incredibly thankful for the contributions we receive from the community.
 We require our external contributors to sign a Contributor License Agreement ("CLA") in
 order to ensure that our projects remain licensed under Free and Open Source licenses such
-as BSD-3 while allowing Wiretrustee to build a sustainable business.
+as BSD-3 while allowing NetBird to build a sustainable business.
 
-Wiretrustee is committed to having a true Open Source Software ("OSS") license for
-our software. A CLA enables Wiretrustee to safely commercialize our products
+NetBird is committed to having a true Open Source Software ("OSS") license for
+our software. A CLA enables NetBird to safely commercialize our products
 while keeping a standard OSS license with all the rights that license grants to users: the
 ability to use the project in their own projects or businesses, to republish modified
 source, or to completely fork the project.
@@ -20,11 +20,11 @@ This is a human-readable summary of (and not a substitute for) the full agreemen
 This highlights only some of key terms of the CLA. It has no legal value and you should
 carefully review all the terms of the actual CLA before agreeing.
 
-<li>Grant of copyright license. You give Wiretrustee permission to use your copyrighted work
+<li>Grant of copyright license. You give NetBird permission to use your copyrighted work
 in commercial products.
 </li>
 
-<li>Grant of patent license. If your contributed work uses a patent, you give Wiretrustee a
+<li>Grant of patent license. If your contributed work uses a patent, you give NetBird a
 license to use that patent including within commercial products. You also agree that you
 have permission to grant this license.
 </li>
@@ -45,7 +45,7 @@ more.
 # Why require a CLA?
 
 Agreeing to a CLA explicitly states that you are entitled to provide a contribution, that you cannot withdraw permission
-to use your contribution at a later date, and that Wiretrustee has permission to use your contribution in our commercial
+to use your contribution at a later date, and that NetBird has permission to use your contribution in our commercial
 products.
 
 This removes any ambiguities or uncertainties caused by not having a CLA and allows users and customers to confidently
@@ -65,25 +65,25 @@ Follow the steps given by the bot to sign the CLA. This will require you to log 
 information from your account) and to fill in a few additional details such as your name and email address. We will only
 use this information for CLA tracking; none of your submitted information will be used for marketing purposes.
 
-You only have to sign the CLA once. Once you've signed the CLA, future contributions to any Wiretrustee project will not
+You only have to sign the CLA once. Once you've signed the CLA, future contributions to any NetBird project will not
 require you to sign again.
 
 # Legal Terms and Agreement
 
-In order to clarify the intellectual property license granted with Contributions from any person or entity, Wiretrustee
-UG (haftungsbeschränkt) ("Wiretrustee") must have a Contributor License Agreement ("CLA") on file that has been signed
+In order to clarify the intellectual property license granted with Contributions from any person or entity, NetBird
+GmbH ("NetBird") must have a Contributor License Agreement ("CLA") on file that has been signed
 by each Contributor, indicating agreement to the license terms below. This license does not change your rights to use
 your own Contributions for any other purpose.
 
 You accept and agree to the following terms and conditions for Your present and future Contributions submitted to
-Wiretrustee. Except for the license granted herein to Wiretrustee and recipients of software distributed by Wiretrustee,
+NetBird. Except for the license granted herein to NetBird and recipients of software distributed by NetBird,
 You reserve all right, title, and interest in and to Your Contributions.
 
 1. Definitions.
 
     ```
    "You" (or "Your") shall mean the copyright owner or legal entity authorized by the copyright owner 
-   that is making this Agreement with Wiretrustee. For legal entities, the entity making a Contribution and all other 
+   that is making this Agreement with NetBird. For legal entities, the entity making a Contribution and all other 
    entities that control, are controlled by, or are under common control with that entity are considered 
    to be a single Contributor. For the purposes of this definition, "control" means (i) the power, direct or indirect,
     to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty 
@@ -91,23 +91,23 @@ You reserve all right, title, and interest in and to Your Contributions.
    ```
    ```
     "Contribution" shall mean any original work of authorship, including any modifications or additions to 
-   an existing work, that is or previously has been intentionally submitted by You to Wiretrustee for inclusion in, 
-   or documentation of, any of the products owned or managed by Wiretrustee (the "Work"). 
+   an existing work, that is or previously has been intentionally submitted by You to NetBird for inclusion in, 
+   or documentation of, any of the products owned or managed by NetBird (the "Work"). 
    For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication 
-   sent to Wiretrustee or its representatives, including but not limited to communication on electronic mailing lists, 
+   sent to NetBird or its representatives, including but not limited to communication on electronic mailing lists, 
    source code control systems, and issue tracking systems that are managed by, or on behalf of, 
-   Wiretrustee for the purpose of discussing and improving the Work, but excluding communication that is conspicuously 
+   NetBird for the purpose of discussing and improving the Work, but excluding communication that is conspicuously 
    marked or otherwise designated in writing by You as "Not a Contribution."
    ```
 
-2. Grant of Copyright License. Subject to the terms and conditions of this Agreement, You hereby grant to Wiretrustee
-   and to recipients of software distributed by Wiretrustee a perpetual, worldwide, non-exclusive, no-charge,
+2. Grant of Copyright License. Subject to the terms and conditions of this Agreement, You hereby grant to NetBird
+   and to recipients of software distributed by NetBird a perpetual, worldwide, non-exclusive, no-charge,
    royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly display, publicly
    perform, sublicense, and distribute Your Contributions and such derivative works.
 
 
-3. Grant of Patent License. Subject to the terms and conditions of this Agreement, You hereby grant to Wiretrustee and
-   to recipients of software distributed by Wiretrustee a perpetual, worldwide, non-exclusive, no-charge, royalty-free,
+3. Grant of Patent License. Subject to the terms and conditions of this Agreement, You hereby grant to NetBird and
+   to recipients of software distributed by NetBird a perpetual, worldwide, non-exclusive, no-charge, royalty-free,
    irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import,
    and otherwise transfer the Work, where such license applies only to those patent claims licensable by You that are
    necessarily infringed by Your Contribution(s) alone or by combination of Your Contribution(s) with the Work to which
@@ -121,8 +121,8 @@ You reserve all right, title, and interest in and to Your Contributions.
    intellectual property that you create that includes your Contributions, you represent that you have received
    permission to make Contributions on behalf of that employer, that you will have received permission from your current
    and future employers for all future Contributions, that your applicable employer has waived such rights for all of
-   your current and future Contributions to Wiretrustee, or that your employer has executed a separate Corporate CLA
-   with Wiretrustee.
+   your current and future Contributions to NetBird, or that your employer has executed a separate Corporate CLA
+   with NetBird.
 
 
 5. You represent that each of Your Contributions is Your original creation (see section 7 for submissions on behalf of
@@ -138,11 +138,11 @@ You reserve all right, title, and interest in and to Your Contributions.
    MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
 
 
-7. Should You wish to submit work that is not Your original creation, You may submit it to Wiretrustee separately from
+7. Should You wish to submit work that is not Your original creation, You may submit it to NetBird separately from
    any Contribution, identifying the complete details of its source and of any license or other restriction (including,
    but not limited to, related patents, trademarks, and license agreements) of which you are personally aware, and
    conspicuously marking the work as "Submitted on behalf of a third-party: [named here]".
 
 
-8. You agree to notify Wiretrustee of any facts or circumstances of which you become aware that would make these
+8. You agree to notify NetBird of any facts or circumstances of which you become aware that would make these
    representations inaccurate in any respect.
