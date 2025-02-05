@@ -18,7 +18,7 @@ import (
 
 var TurnTestHost = &Host{
 	Proto:    UDP,
-	URI:      "turn:turn.wiretrustee.com:77777",
+	URI:      "turn:turn.netbird.io:77777",
 	Username: "username",
 	Password: "",
 }
@@ -124,7 +124,7 @@ loop:
 	var firstRelayUpdate, secondRelayUpdate *proto.RelayConfig
 
 	for _, update := range updates {
-		if turns := update.Update.GetWiretrusteeConfig().GetTurns(); len(turns) > 0 {
+		if turns := update.Update.GetNetbirdConfig().GetTurns(); len(turns) > 0 {
 			turnUpdates++
 			if turnUpdates == 1 {
 				firstTurnUpdate = turns[0]
@@ -132,9 +132,9 @@ loop:
 				secondTurnUpdate = turns[0]
 			}
 		}
-		if relay := update.Update.GetWiretrusteeConfig().GetRelay(); relay != nil {
+		if relay := update.Update.GetNetbirdConfig().GetRelay(); relay != nil {
 			// avoid updating on turn updates since they also send relay credentials
-			if update.Update.GetWiretrusteeConfig().GetTurns() == nil {
+			if update.Update.GetNetbirdConfig().GetTurns() == nil {
 				relayUpdates++
 				if relayUpdates == 1 {
 					firstRelayUpdate = relay
