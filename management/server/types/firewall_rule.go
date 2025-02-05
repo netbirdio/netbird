@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -40,12 +41,7 @@ type FirewallRule struct {
 
 // Equal checks if two firewall rules are equal.
 func (r *FirewallRule) Equal(other *FirewallRule) bool {
-	return r.PeerIP == other.PeerIP &&
-		r.Direction == other.Direction &&
-		r.Action == other.Action &&
-		r.Protocol == other.Protocol &&
-		r.Port == other.Port &&
-		r.PortRange.Equal(&other.PortRange)
+	return reflect.DeepEqual(r, other)
 }
 
 // generateRouteFirewallRules generates a list of firewall rules for a given route.
