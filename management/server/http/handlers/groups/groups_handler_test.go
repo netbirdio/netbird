@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
-	"github.com/magiconair/properties/assert"
+	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/server"
