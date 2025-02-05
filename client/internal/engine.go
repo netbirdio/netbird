@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -146,7 +145,7 @@ type Engine struct {
 	STUNs []*stun.URI
 	// TURNs is a list of STUN servers used by ICE
 	TURNs    []*stun.URI
-	stunTurn atomic.Value
+	stunTurn icemaker.StunTurn
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
