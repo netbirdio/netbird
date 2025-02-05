@@ -2,13 +2,13 @@
 
 export PATH=$PATH:/usr/local/bin:/opt/homebrew/bin
 
-# check if wiretrustee is installed
-WT_BIN=$(which wiretrustee)
-if [ -n "$WT_BIN" ]
+# check if netbird is installed
+NB_BIN=$(which netbird)
+if [ -n "$NB_BIN" ]
 then
-  echo "Stopping and uninstalling Wiretrustee daemon"
-  wiretrustee service stop || true
-  wiretrustee service uninstall || true
+  echo "Stopping and uninstalling Netbird daemon"
+  netbird service stop || true
+  netbird service uninstall || true
 fi
 
 # check if netbird is installed
