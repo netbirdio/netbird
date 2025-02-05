@@ -114,14 +114,6 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 	}
 }
 
-func (w *WGWatcher) wgState() (time.Time, error) {
-	wgState, err := w.wgIfaceStater.GetStats(w.peerKey)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return wgState.LastHandshake, nil
-}
-
 // handshakeCheck checks the WireGuard handshake and return the new handshake time if it is different from the previous one
 func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 	handshake, err := w.wgState()
@@ -132,6 +124,7 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 
 	w.log.Debugf("previous handshake, handshake: %v, %v", lastHandshake, handshake)
 
+	// the current know handshake did not change
 	if handshake.Equal(lastHandshake) {
 		w.log.Infof("WireGuard handshake timed out, closing relay connection: %v", handshake)
 		return nil, false
@@ -143,5 +136,19 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 		return nil, false
 	}
 
+	// error handling for handshake time in the future
+	if handshake.After(time.Now()) {
+		w.log.Infof("WireGuard handshake is in the future, closing relay connection: %v", handshake)
+		return nil, false
+	}
+
 	return &handshake, true
+}
+
+func (w *WGWatcher) wgState() (time.Time, error) {
+	wgState, err := w.wgIfaceStater.GetStats(w.peerKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return wgState.LastHandshake, nil
 }
