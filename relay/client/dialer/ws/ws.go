@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	"github.com/netbirdio/netbird/util/embeddedroots"
