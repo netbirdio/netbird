@@ -3,7 +3,7 @@ package domain
 import (
 	"testing"
 
-	"github.com/magiconair/properties/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestValidateDomains(t *testing.T) {
