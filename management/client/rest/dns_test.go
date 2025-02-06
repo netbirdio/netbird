@@ -255,6 +255,7 @@ func TestDNS_Integration(t *testing.T) {
 	nsGroupReq := api.NameserverGroupRequest{
 		Description: "Test",
 		Enabled:     true,
+		Domains:     []string{},
 		Groups:      []string{"cs1tnh0hhcjnqoiuebeg"},
 		Name:        "test",
 		Nameservers: []api.Nameserver{
