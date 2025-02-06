@@ -39,17 +39,17 @@ func GetInfo(ctx context.Context) *Info {
 	systemHostname, _ := os.Hostname()
 
 	return &Info{
-		GoOS:               runtime.GOOS,
-		Kernel:             osInfo[0],
-		Platform:           runtime.GOARCH,
-		OS:                 osName,
-		OSVersion:          osVersion,
-		Hostname:           extractDeviceName(ctx, systemHostname),
-		CPUs:               runtime.NumCPU(),
-		WiretrusteeVersion: version.NetbirdVersion(),
-		UIVersion:          extractUserAgent(ctx),
-		KernelVersion:      osInfo[1],
-		Environment:        env,
+		GoOS:           runtime.GOOS,
+		Kernel:         osInfo[0],
+		Platform:       runtime.GOARCH,
+		OS:             osName,
+		OSVersion:      osVersion,
+		Hostname:       extractDeviceName(ctx, systemHostname),
+		CPUs:           runtime.NumCPU(),
+		NetbirdVersion: version.NetbirdVersion(),
+		UIVersion:      extractUserAgent(ctx),
+		KernelVersion:  osInfo[1],
+		Environment:    env,
 	}
 }
 

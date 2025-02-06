@@ -381,7 +381,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		Platform:           meta.GetPlatform(),
 		OS:                 meta.GetOS(),
 		OSVersion:          osVersion,
-		WtVersion:          meta.GetWiretrusteeVersion(),
+		WtVersion:          meta.GetNetbirdVersion(),
 		UIVersion:          meta.GetUiVersion(),
 		KernelVersion:      meta.GetKernelVersion(),
 		NetworkAddresses:   networkAddresses,
@@ -489,9 +489,9 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil, relayToken),
-		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
-		Checks:            toProtocolChecks(ctx, postureChecks),
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken),
+		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
+		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -547,7 +547,7 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toWiretrusteeConfig(config *Config, turnCredentials *Token, relayToken *Token) *proto.WiretrusteeConfig {
+func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -595,7 +595,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *Token, relayToken *Tok
 		}
 	}
 
-	return &proto.WiretrusteeConfig{
+	return &proto.NetbirdConfig{
 		Stuns: stuns,
 		Turns: turns,
 		Signal: &proto.HostConfig{
@@ -619,8 +619,8 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dns
 
 func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnbled bool) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(config, turnCredentials, relayCredentials),
-		PeerConfig:        toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
+		NetbirdConfig: toNetbirdConfig(config, turnCredentials, relayCredentials),
+		PeerConfig:    toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),

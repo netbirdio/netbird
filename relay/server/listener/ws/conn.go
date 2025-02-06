@@ -9,7 +9,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 const (

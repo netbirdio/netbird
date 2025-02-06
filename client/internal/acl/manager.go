@@ -268,7 +268,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	}
 
 	var port *firewall.Port
-	if r.PortInfo != nil {
+	if !portInfoEmpty(r.PortInfo) {
 		port = convertPortInfo(r.PortInfo)
 	} else if r.Port != "" {
 		// old version of management, single port
@@ -303,6 +303,22 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	}
 
 	return ruleID, rules, nil
+}
+
+func portInfoEmpty(portInfo *mgmProto.PortInfo) bool {
+	if portInfo == nil {
+		return true
+	}
+
+	switch portInfo.GetPortSelection().(type) {
+	case *mgmProto.PortInfo_Port:
+		return portInfo.GetPort() == 0
+	case *mgmProto.PortInfo_Range_:
+		r := portInfo.GetRange()
+		return r == nil || r.Start == 0 || r.End == 0
+	default:
+		return true
+	}
 }
 
 func (d *DefaultManager) addInRules(
@@ -491,7 +507,7 @@ func (d *DefaultManager) squashAcceptRules(
 
 // getRuleGroupingSelector takes all rule properties except IP address to build selector
 func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) string {
-	return fmt.Sprintf("%v:%v:%v:%s", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port)
+	return fmt.Sprintf("%v:%v:%v:%s:%v", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port, rule.PortInfo)
 }
 
 func (d *DefaultManager) rollBack(newRulePairs map[id.RuleID][]firewall.Rule) {

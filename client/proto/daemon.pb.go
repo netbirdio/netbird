@@ -92,7 +92,7 @@ type LoginRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// setupKey wiretrustee setup key.
+	// setupKey netbird setup key.
 	SetupKey string `protobuf:"bytes,1,opt,name=setupKey,proto3" json:"setupKey,omitempty"`
 	// This is the old PreSharedKey field which will be deprecated in favor of optionalPreSharedKey field that is defined as optional
 	// to allow clearing of preshared key while being able to persist in the config file.
