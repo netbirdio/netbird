@@ -54,7 +54,7 @@ type MockAccountManager struct {
 	DeletePolicyFunc                    func(ctx context.Context, accountID, policyID, userID string) error
 	ListPoliciesFunc                    func(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetUsersFromAccountFunc             func(ctx context.Context, accountID, userID string) ([]*types.UserInfo, error)
-	GetAccountInfoFromPATFunc           func(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, string, string, error)
+	GetPATInfoFunc                      func(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, string, string, error)
 	MarkPATUsedFunc                     func(ctx context.Context, pat string) error
 	UpdatePeerMetaFunc                  func(ctx context.Context, peerID string, meta nbpeer.PeerSystemMeta) error
 	UpdatePeerFunc                      func(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
@@ -238,12 +238,12 @@ func (am *MockAccountManager) MarkPeerConnected(ctx context.Context, peerKey str
 	return status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
-// GetAccountInfoFromPAT mock implementation of GetAccountInfoFromPAT from server.AccountManager interface
-func (am *MockAccountManager) GetAccountInfoFromPAT(ctx context.Context, pat string) (*types.User, *types.PersonalAccessToken, string, string, error) {
-	if am.GetAccountInfoFromPATFunc != nil {
-		return am.GetAccountInfoFromPATFunc(ctx, pat)
+// GetPATInfo mock implementation of GetPATInfo from server.AccountManager interface
+func (am *MockAccountManager) GetPATInfo(ctx context.Context, pat string) (*types.User, *types.PersonalAccessToken, string, string, error) {
+	if am.GetPATInfoFunc != nil {
+		return am.GetPATInfoFunc(ctx, pat)
 	}
-	return nil, nil, "", "", status.Errorf(codes.Unimplemented, "method GetAccountInfoFromPAT is not implemented")
+	return nil, nil, "", "", status.Errorf(codes.Unimplemented, "method GetPATInfo is not implemented")
 }
 
 // DeleteAccount mock implementation of DeleteAccount from server.AccountManager interface

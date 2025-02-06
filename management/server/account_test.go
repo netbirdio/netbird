@@ -746,7 +746,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		Store: store,
 	}
 
-	user, pat, _, _, err := am.GetAccountInfoFromPAT(context.Background(), token)
+	user, pat, _, _, err := am.GetPATInfo(context.Background(), token)
 	if err != nil {
 		t.Fatalf("Error when getting Account from PAT: %s", err)
 	}

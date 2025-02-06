@@ -79,7 +79,7 @@ type AccountManager interface {
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
-	GetAccountInfoFromPAT(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, string, string, error)
+	GetPATInfo(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, string, string, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	MarkPATUsed(ctx context.Context, tokenID string) error
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
@@ -1105,8 +1105,8 @@ func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID strin
 	return am.Store.GetAccount(ctx, accountID)
 }
 
-// GetAccountInfoFromPAT retrieves user, personal access token, domain, and category details from a personal access token.
-func (am *DefaultAccountManager) GetAccountInfoFromPAT(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error) {
+// GetPATInfo retrieves user, personal access token, domain, and category details from a personal access token.
+func (am *DefaultAccountManager) GetPATInfo(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error) {
 	user, pat, err = am.extractPATFromToken(ctx, token)
 	if err != nil {
 		return nil, nil, "", "", err
