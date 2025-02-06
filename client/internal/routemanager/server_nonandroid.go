@@ -13,7 +13,6 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -41,7 +40,7 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 
 	for routeID := range m.routes {
 		update, found := routesMap[routeID]
-		if !found || !update.IsEqual(m.routes[routeID]) {
+		if !found || !update.Equal(m.routes[routeID]) {
 			serverRoutesToRemove = append(serverRoutesToRemove, routeID)
 		}
 	}
@@ -68,13 +67,6 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 			continue
 		}
 		m.routes[id] = newRoute
-	}
-
-	if len(m.routes) > 0 {
-		err := systemops.EnableIPForwarding()
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil

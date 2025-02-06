@@ -9,6 +9,8 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -25,18 +27,19 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
-	"github.com/netbirdio/netbird/management/server/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	nbpeers "github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 const apiPrefix = "/api"
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager s.AccountManager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg configs.AuthCfg, integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager s.AccountManager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg configs.AuthCfg, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -71,7 +74,7 @@ func NewAPIHandler(ctx context.Context, accountManager s.AccountManager, network
 	router := rootRouter.PathPrefix(prefix).Subrouter()
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, claimsExtractor, integratedValidator, appMetrics.GetMeter()); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, claimsExtractor, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 

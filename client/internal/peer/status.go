@@ -11,7 +11,9 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/management/domain"
 	relayClient "github.com/netbirdio/netbird/relay/client"
@@ -122,13 +124,14 @@ type NSGroupState struct {
 
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
-	Peers           []State
-	ManagementState ManagementState
-	SignalState     SignalState
-	LocalPeerState  LocalPeerState
-	RosenpassState  RosenpassState
-	Relays          []relay.ProbeResult
-	NSGroupStates   []NSGroupState
+	Peers                []State
+	ManagementState      ManagementState
+	SignalState          SignalState
+	LocalPeerState       LocalPeerState
+	RosenpassState       RosenpassState
+	Relays               []relay.ProbeResult
+	NSGroupStates        []NSGroupState
+	NumOfForwardingRules int
 }
 
 // Status holds a state of peers, signal, management connections and relays
@@ -157,6 +160,8 @@ type Status struct {
 	peerListChangedForNotification bool
 
 	relayMgr *relayClient.Manager
+
+	ingressGwMgr *ingressgw.Manager
 }
 
 // NewRecorder returns a new Status instance
@@ -175,6 +180,12 @@ func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.relayMgr = manager
+}
+
+func (d *Status) SetIngressGwMgr(ingressGwMgr *ingressgw.Manager) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.ingressGwMgr = ingressGwMgr
 }
 
 // ReplaceOfflinePeers replaces
@@ -217,6 +228,18 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 		return State{}, configurer.ErrPeerNotFound
 	}
 	return state, nil
+}
+
+func (d *Status) PeerByIP(ip string) (string, bool) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	for _, state := range d.peers {
+		if state.IP == ip {
+			return state.FQDN, true
+		}
+	}
+	return "", false
 }
 
 // RemovePeer removes peer from Daemon status map
@@ -718,6 +741,16 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	return append(relayStates, relayState)
 }
 
+func (d *Status) ForwardingRules() []firewall.ForwardRule {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	if d.ingressGwMgr == nil {
+		return nil
+	}
+
+	return d.ingressGwMgr.Rules()
+}
+
 func (d *Status) GetDNSStates() []NSGroupState {
 	d.mux.Lock()
 	defer d.mux.Unlock()
@@ -733,11 +766,12 @@ func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo
 // GetFullStatus gets full status
 func (d *Status) GetFullStatus() FullStatus {
 	fullStatus := FullStatus{
-		ManagementState: d.GetManagementState(),
-		SignalState:     d.GetSignalState(),
-		Relays:          d.GetRelayStates(),
-		RosenpassState:  d.GetRosenpassState(),
-		NSGroupStates:   d.GetDNSStates(),
+		ManagementState:      d.GetManagementState(),
+		SignalState:          d.GetSignalState(),
+		Relays:               d.GetRelayStates(),
+		RosenpassState:       d.GetRosenpassState(),
+		NSGroupStates:        d.GetDNSStates(),
+		NumOfForwardingRules: len(d.ForwardingRules()),
 	}
 
 	d.mux.Lock()

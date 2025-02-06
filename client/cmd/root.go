@@ -145,6 +145,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
 	rootCmd.AddCommand(networksCMD)
+	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
@@ -152,6 +153,8 @@ func init() {
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
+
+	forwardingRulesCmd.AddCommand(forwardingRulesListCmd)
 
 	debugCmd.AddCommand(debugBundleCmd)
 	debugCmd.AddCommand(logCmd)

@@ -245,7 +245,7 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 		return "", fmt.Errorf("add route rule: %w", err)
 	}
 
-	return id.RuleID(addedRule.GetRuleID()), nil
+	return id.RuleID(addedRule.ID()), nil
 }
 
 func (d *DefaultManager) protoRuleToFirewallRule(
@@ -515,7 +515,7 @@ func (d *DefaultManager) rollBack(newRulePairs map[id.RuleID][]firewall.Rule) {
 	for _, rules := range newRulePairs {
 		for _, rule := range rules {
 			if err := d.firewall.DeletePeerRule(rule); err != nil {
-				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
+				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.ID(), err)
 			}
 		}
 	}

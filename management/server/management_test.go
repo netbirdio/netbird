@@ -22,6 +22,7 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -507,7 +508,7 @@ func startServer(config *server.Config, dataDir string, testFile string) (*grpc.
 		log.Fatalf("failed creating metrics: %v", err)
 	}
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, server.MocIntegratedValidator{}, metrics)
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, server.MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}

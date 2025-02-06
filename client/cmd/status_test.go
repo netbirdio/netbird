@@ -372,6 +372,7 @@ func TestParsingToJSON(t *testing.T) {
           "networks": [
             "10.10.0.0/24"
           ],
+          "forwardingRules": 0,
           "dnsServers": [
             {
               "servers": [
@@ -483,6 +484,7 @@ routes:
     - 10.10.0.0/24
 networks:
     - 10.10.0.0/24
+forwardingRules: 0
 dnsServers:
     - servers:
         - 8.8.8.8:53
@@ -564,6 +566,7 @@ Interface type: Kernel
 Quantum resistance: false
 Routes: 10.10.0.0/24
 Networks: 10.10.0.0/24
+Forwarding rules: 0
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
@@ -586,6 +589,7 @@ Interface type: Kernel
 Quantum resistance: false
 Routes: 10.10.0.0/24
 Networks: 10.10.0.0/24
+Forwarding rules: 0
 Peers count: 2/2 Connected
 `
 
