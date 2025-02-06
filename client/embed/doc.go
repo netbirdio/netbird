@@ -129,10 +129,7 @@ package embed
 //	    }
 //
 //	    // Create HTTP client that uses netbird network
-//	    httpClient, err := client.NewHTTPClient()
-//	    if err != nil {
-//	        log.Fatal(err)
-//	    }
+//	    httpClient := client.NewHTTPClient()
 //	    httpClient.Timeout = 10 * time.Second
 //
 //	    // Make request to server in netbird network

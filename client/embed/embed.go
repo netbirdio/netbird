@@ -258,14 +258,14 @@ func (c *Client) ListenUDP(address string) (net.PacketConn, error) {
 
 // NewHTTPClient returns a configured http.Client that uses the netbird network for requests.
 // Not applicable if the userspace networking mode is disabled.
-func (c *Client) NewHTTPClient() (*http.Client, error) {
+func (c *Client) NewHTTPClient() *http.Client {
 	transport := &http.Transport{
 		DialContext: c.Dial,
 	}
 
 	return &http.Client{
 		Transport: transport,
-	}, nil
+	}
 }
 
 func (c *Client) getNet() (*wgnetstack.Net, netip.Addr, error) {
