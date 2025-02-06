@@ -468,6 +468,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
 		ConnectionIP:    realIP,
+		ExtraDNSLabels:  loginReq.GetDnsLabels(),
 	})
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)

@@ -53,6 +53,9 @@ type PeerLogin struct {
 	SetupKey string
 	// ConnectionIP is the real IP of the peer
 	ConnectionIP net.IP
+
+	// ExtraDNSLabels is a list of extra DNS labels that the peer wants to use
+	ExtraDNSLabels []string
 }
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
@@ -284,6 +287,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			peer.InactivityExpirationEnabled = update.InactivityExpirationEnabled
 			inactivityExpirationChanged = true
 		}
+
+		//TODO(hakan): do we need to update extra dns labels here?
 
 		return transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
 	})
@@ -567,6 +572,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			Ephemeral:                   ephemeral,
 			Location:                    peer.Location,
 			InactivityExpirationEnabled: addedByUser,
+			// TODO(hakan): how should we validate extra dns labels?
+			ExtraDNSLabels: peer.ExtraDNSLabels,
 		}
 		opEvent.TargetID = newPeer.ID
 		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
@@ -857,6 +864,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
+			shouldStorePeer = true
+		}
+
+		if !slices.Equal(peer.ExtraDNSLabels, login.ExtraDNSLabels) {
+			peer.ExtraDNSLabels = login.ExtraDNSLabels
 			shouldStorePeer = true
 		}
 

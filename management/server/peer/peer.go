@@ -49,6 +49,9 @@ type Peer struct {
 	Ephemeral bool `gorm:"index"`
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
+
+	// ExtraDNSLabels is a list of additional DNS labels that can be used to resolve the peer
+	ExtraDNSLabels []string `gorm:"serializer:json"`
 }
 
 type PeerStatus struct { //nolint:revive
