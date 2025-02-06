@@ -205,6 +205,7 @@ func (p *Peer) Copy() *Peer {
 		Ephemeral:                   p.Ephemeral,
 		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
+		ExtraDNSLabels:              slices.Clone(p.ExtraDNSLabels),
 	}
 }
 
