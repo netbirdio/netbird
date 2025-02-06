@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -281,7 +282,12 @@ func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, ne
 		}
 		if len(router.PeerGroups) > 0 {
 			for _, groupID := range router.PeerGroups {
-				peerCounter += len(groups[groupID].Peers)
+				group, ok := groups[groupID]
+				if !ok {
+					log.WithContext(ctx).Warnf("group %s not found", groupID)
+					continue
+				}
+				peerCounter += len(group.Peers)
 			}
 		}
 	}
