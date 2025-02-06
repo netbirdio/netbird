@@ -590,10 +590,10 @@ func applyPort(flag string, port *firewall.Port) []string {
 	if len(port.Values) > 1 {
 		portList := make([]string, len(port.Values))
 		for i, p := range port.Values {
-			portList[i] = strconv.Itoa(p)
+			portList[i] = strconv.Itoa(int(p))
 		}
 		return []string{"-m", "multiport", flag, strings.Join(portList, ",")}
 	}
 
-	return []string{flag, strconv.Itoa(port.Values[0])}
+	return []string{flag, strconv.Itoa(int(port.Values[0]))}
 }

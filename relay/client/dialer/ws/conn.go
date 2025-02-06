@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 type Conn struct {

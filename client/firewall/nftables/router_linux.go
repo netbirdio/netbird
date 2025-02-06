@@ -956,12 +956,12 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 			&expr.Cmp{
 				Op:       expr.CmpOpGte,
 				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(uint16(port.Values[0])),
+				Data:     binaryutil.BigEndian.PutUint16(port.Values[0]),
 			},
 			&expr.Cmp{
 				Op:       expr.CmpOpLte,
 				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(uint16(port.Values[1])),
+				Data:     binaryutil.BigEndian.PutUint16(port.Values[1]),
 			},
 		)
 	} else {
@@ -980,7 +980,7 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 			exprs = append(exprs, &expr.Cmp{
 				Op:       expr.CmpOpEq,
 				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(uint16(p)),
+				Data:     binaryutil.BigEndian.PutUint16(p),
 			})
 		}
 	}

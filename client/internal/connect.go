@@ -59,13 +59,8 @@ func NewConnectClient(
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run() error {
-	return c.run(MobileDependency{}, nil, nil)
-}
-
-// RunWithProbes runs the client's main logic with probes attached
-func (c *ConnectClient) RunWithProbes(probes *ProbeHolder, runningChan chan error) error {
-	return c.run(MobileDependency{}, probes, runningChan)
+func (c *ConnectClient) Run(runningChan chan error) error {
+	return c.run(MobileDependency{}, runningChan)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -84,7 +79,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.run(mobileDependency, nil, nil)
+	return c.run(mobileDependency, nil)
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -102,10 +97,10 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.run(mobileDependency, nil, nil)
+	return c.run(mobileDependency, nil)
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHolder, runningChan chan error) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan error) error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
@@ -182,7 +177,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 			}
 		}()
 
-		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
+		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Netbird config
 		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
 		if err != nil {
 			log.Debug(err)
@@ -204,8 +199,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 		c.statusRecorder.UpdateLocalPeerState(localPeerState)
 
 		signalURL := fmt.Sprintf("%s://%s",
-			strings.ToLower(loginResp.GetWiretrusteeConfig().GetSignal().GetProtocol().String()),
-			loginResp.GetWiretrusteeConfig().GetSignal().GetUri(),
+			strings.ToLower(loginResp.GetNetbirdConfig().GetSignal().GetProtocol().String()),
+			loginResp.GetNetbirdConfig().GetSignal().GetUri(),
 		)
 
 		c.statusRecorder.UpdateSignalAddress(signalURL)
@@ -216,8 +211,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 			c.statusRecorder.MarkSignalDisconnected(err)
 		}()
 
-		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
-		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
+		// with the global Netbird config in hand connect (just a connection, no stream yet) Signal
+		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -261,7 +256,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
+		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
 		c.engine.SetNetworkMapPersistence(c.persistNetworkMap)
 		c.engineMutex.Unlock()
 
@@ -316,7 +311,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, probes *ProbeHold
 }
 
 func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
-	relayCfg := loginResp.GetWiretrusteeConfig().GetRelay()
+	relayCfg := loginResp.GetNetbirdConfig().GetRelay()
 	if relayCfg == nil {
 		return nil, nil
 	}
@@ -445,7 +440,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 }
 
 // connectToSignal creates Signal Service client and established a connection
-func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, ourPrivateKey wgtypes.Key) (*signal.GrpcClient, error) {
+func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key) (*signal.GrpcClient, error) {
 	var sigTLSEnabled bool
 	if wtConfig.Signal.Protocol == mgmProto.HostConfig_HTTPS {
 		sigTLSEnabled = true
@@ -462,7 +457,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 	return signalClient, nil
 }
 
-// loginToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
+// loginToManagement creates Management Services client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *Config) (*mgmProto.LoginResponse, error) {
 
 	serverPublicKey, err := client.GetServerPublicKey()
