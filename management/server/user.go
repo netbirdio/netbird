@@ -143,7 +143,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 // createNewIdpUser validates the invite and creates a new user in the IdP
 func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID string, inviterID string, invite *types.UserInfo) (*idp.UserData, error) {
 	// inviterUser is the one who is inviting the new user
-	inviterUser, err := am.lookupUserInCache(ctx, am.Store, inviterID, accountID)
+	inviterUser, err := am.lookupUserInCache(ctx, inviterID, accountID)
 	if err != nil {
 		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
 	}
@@ -295,7 +295,7 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 	}
 
 	// check if the user is already registered with this ID
-	user, err := am.lookupUserInCache(ctx, am.Store, targetUserID, accountID)
+	user, err := am.lookupUserInCache(ctx, targetUserID, accountID)
 	if err != nil {
 		return err
 	}
@@ -493,7 +493,6 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	var peersToExpire []*nbpeer.Peer
 	var addUserEvents []func()
 	var usersToSave = make([]*types.User, 0, len(updates))
-	var updatedUsersInfo = make([]*types.UserInfo, 0, len(updates))
 
 	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
@@ -524,18 +523,20 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			if userHadPeers {
 				updateAccountPeers = true
 			}
-
-			updatedUserInfo, err := am.getUserInfo(ctx, transaction, updatedUser, accountID)
-			if err != nil {
-				return fmt.Errorf("failed to get user info: %w", err)
-			}
-			updatedUsersInfo = append(updatedUsersInfo, updatedUserInfo)
 		}
-
 		return transaction.SaveUsers(ctx, store.LockingStrengthUpdate, usersToSave)
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	var updatedUsersInfo = make([]*types.UserInfo, 0, len(updates))
+	for _, updatedUser := range usersToSave {
+		updatedUserInfo, err := am.getUserInfo(ctx, updatedUser, accountID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user info: %w", err)
+		}
+		updatedUsersInfo = append(updatedUsersInfo, updatedUserInfo)
 	}
 
 	for _, addUserEvent := range addUserEvents {
@@ -680,14 +681,14 @@ func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initi
 // getUserInfo retrieves the UserInfo for a given User and Account.
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
-func (am *DefaultAccountManager) getUserInfo(ctx context.Context, transaction store.Store, user *types.User, accountID string) (*types.UserInfo, error) {
-	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.User, accountID string) (*types.UserInfo, error) {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	if !isNil(am.idpManager) && !user.IsServiceUser {
-		userData, err := am.lookupUserInCache(ctx, transaction, user.Id, accountID)
+		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
 		}

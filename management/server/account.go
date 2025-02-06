@@ -690,7 +690,7 @@ func isNil(i idp.Manager) bool {
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
 		// user can be nil if it wasn't found (e.g., just created)
-		user, err := am.lookupUserInCache(ctx, am.Store, userID, accountID)
+		user, err := am.lookupUserInCache(ctx, userID, accountID)
 		if err != nil {
 			return err
 		}
@@ -766,8 +766,8 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(ctx context.Context, e
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
-func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, transaction store.Store, userID string, accountID string) (*idp.UserData, error) {
-	accountUsers, err := transaction.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
+func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID string, accountID string) (*idp.UserData, error) {
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -797,7 +797,7 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, transact
 
 	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
 	// or it didn't have its metadata updated with am.addAccountIDToIDPAppMeta
-	user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, accountID)
 		return nil, err
@@ -1068,7 +1068,7 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 		return nil
 	}
 
-	user, err := am.lookupUserInCache(ctx, am.Store, userID, accountID)
+	user, err := am.lookupUserInCache(ctx, userID, accountID)
 	if err != nil {
 		return err
 	}
