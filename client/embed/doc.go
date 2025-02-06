@@ -1,9 +1,7 @@
-package embed
-
 // Package embed provides a way to embed the NetBird client directly
 // into Go programs without requiring a separate NetBird client installation.
-//
-//
+package embed
+
 // Basic Usage:
 //
 //	client, err := embed.New(embed.Options{
