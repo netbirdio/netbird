@@ -207,8 +207,6 @@ func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.A
 // ListUsers returns lists of all users under the account.
 // It doesn't populate user information such as email or name.
 func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string) ([]*types.User, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 	return am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 }
 
