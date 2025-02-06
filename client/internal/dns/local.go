@@ -70,6 +70,7 @@ func (d *localResolver) lookupRecords(r *dns.Msg) []dns.RR {
 
 	records, ok := value.([]dns.RR)
 	if !ok {
+		log.Errorf("failed to cast records to []dns.RR, records: %v", value)
 		return nil
 	}
 	return records

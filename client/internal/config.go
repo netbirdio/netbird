@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -494,7 +495,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		}
 	}
 
-	if input.DNSLabels != nil && !reflect.DeepEqual(config.DNSLabels, input.DNSLabels) {
+	if input.DNSLabels != nil && slices.Equal(config.DNSLabels, input.DNSLabels) {
 		log.Infof("updating DNS labels [ %s ] (old value: [ %s ])",
 			input.DNSLabels.SafeString(),
 			config.DNSLabels.SafeString())
