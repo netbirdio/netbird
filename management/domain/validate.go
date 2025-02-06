@@ -27,7 +27,7 @@ func ValidateDomains(domains []string) (List, error) {
 		// handles length and idna conversion
 		punycode, err := FromString(d)
 		if err != nil {
-			return domainList, fmt.Errorf("failed to convert domain to punycode: %s: %v", d, err)
+			return domainList, fmt.Errorf("convert domain to punycode: %s: %w", d, err)
 		}
 
 		if !domainRegex.MatchString(string(punycode)) {
