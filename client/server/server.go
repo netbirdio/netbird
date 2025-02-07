@@ -409,8 +409,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		inputConfig.DNSLabels = domain.List{}
 		s.latestConfigInput.DNSLabels = nil
 	} else if msg.DnsLabels != nil {
-		// TODO(hakan): discuss with @Viktor
-		dnsLabels, _ := domain.ValidateDomains(msg.DnsLabels)
+		dnsLabels := domain.FromPunycodeList(msg.DnsLabels)
 		inputConfig.DNSLabels = dnsLabels
 		s.latestConfigInput.DNSLabels = dnsLabels
 	}
