@@ -114,6 +114,12 @@ func NewServer(
 }
 
 func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
+	log.WithContext(ctx).Tracef("GetServerKey request")
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetServerKey took %v", time.Since(start))
+	}()
+
 	// todo introduce something more meaningful with the key expiration/rotation
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountGetKeyRequest()
@@ -717,6 +723,12 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
 func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow request")
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow took %v", time.Since(start))
+	}()
+
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetDeviceAuthorizationFlow request.", req.WgPubKey)
@@ -769,6 +781,12 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 // This is used for initiating an Oauth 2 pkce authorization grant flow
 // which will be used by our clients to Login
 func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow request")
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow took %v", time.Since(start))
+	}()
+
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetPKCEAuthorizationFlow request.", req.WgPubKey)
