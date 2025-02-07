@@ -4,6 +4,7 @@ import (
 	"net"
 	"time"
 
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -30,6 +31,7 @@ type MockWGIface struct {
 	SetFilterFunc              func(filter device.PacketFilter) error
 	GetFilterFunc              func() device.PacketFilter
 	GetDeviceFunc              func() *device.FilteredDevice
+	GetWGDeviceFunc            func() *wgdevice.Device
 	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
@@ -104,13 +106,16 @@ func (m *MockWGIface) GetDevice() *device.FilteredDevice {
 	return m.GetDeviceFunc()
 }
 
+func (m *MockWGIface) GetWGDevice() *wgdevice.Device {
+	return m.GetWGDeviceFunc()
+}
+
 func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 	return m.GetStatsFunc(peerKey)
 }
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
-	//TODO implement me
-	panic("implement me")
+	return m.GetProxyFunc()
 }
 
 func (m *MockWGIface) GetNet() *netstack.Net {

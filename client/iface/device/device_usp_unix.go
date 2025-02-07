@@ -125,6 +125,11 @@ func (t *USPDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
+// Device returns the wireguard device
+func (t *USPDevice) Device() *device.Device {
+	return t.device
+}
+
 // assignAddr Adds IP address to the tunnel interface
 func (t *USPDevice) assignAddr() error {
 	link := newWGLink(t.name)

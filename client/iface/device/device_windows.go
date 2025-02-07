@@ -151,6 +151,11 @@ func (t *TunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
+// Device returns the wireguard device
+func (t *TunDevice) Device() *device.Device {
+	return t.device
+}
+
 func (t *TunDevice) GetInterfaceGUIDString() (string, error) {
 	if t.nativeTunDevice == nil {
 		return "", fmt.Errorf("interface has not been initialized yet")

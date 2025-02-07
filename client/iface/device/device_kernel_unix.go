@@ -9,6 +9,7 @@ import (
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -150,6 +151,11 @@ func (t *TunKernelDevice) WgAddress() WGAddress {
 
 func (t *TunKernelDevice) DeviceName() string {
 	return t.name
+}
+
+// Device returns the wireguard device, not applicable for kernel devices
+func (t *TunKernelDevice) Device() *device.Device {
+	return nil
 }
 
 func (t *TunKernelDevice) FilteredDevice() *FilteredDevice {

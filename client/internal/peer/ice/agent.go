@@ -5,7 +5,6 @@ import (
 
 	"github.com/pion/ice/v3"
 	"github.com/pion/randutil"
-	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -39,7 +38,7 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                   config.StunTurn.Load().([]*stun.URI),
+		Urls:                   config.StunTurn.Load(),
 		CandidateTypes:         candidateTypes,
 		InterfaceFilter:        stdnet.InterfaceFilter(config.InterfaceBlackList),
 		UDPMux:                 config.UDPMux,
