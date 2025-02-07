@@ -1,4 +1,7 @@
-package rest
+//go:build integration
+// +build integration
+
+package rest_test
 
 import (
 	"context"
@@ -7,10 +10,12 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/client/rest"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 )
 
 var (
@@ -30,7 +35,7 @@ var (
 )
 
 func TestNetworks_List_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.Network{testNetwork})
 			_, err := w.Write(retBytes)
@@ -44,7 +49,7 @@ func TestNetworks_List_200(t *testing.T) {
 }
 
 func TestNetworks_List_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -59,7 +64,7 @@ func TestNetworks_List_Err(t *testing.T) {
 }
 
 func TestNetworks_Get_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(testNetwork)
 			_, err := w.Write(retBytes)
@@ -72,7 +77,7 @@ func TestNetworks_Get_200(t *testing.T) {
 }
 
 func TestNetworks_Get_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -87,7 +92,7 @@ func TestNetworks_Get_Err(t *testing.T) {
 }
 
 func TestNetworks_Create_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -109,7 +114,7 @@ func TestNetworks_Create_200(t *testing.T) {
 }
 
 func TestNetworks_Create_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -126,7 +131,7 @@ func TestNetworks_Create_Err(t *testing.T) {
 }
 
 func TestNetworks_Update_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -148,7 +153,7 @@ func TestNetworks_Update_200(t *testing.T) {
 }
 
 func TestNetworks_Update_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -165,7 +170,7 @@ func TestNetworks_Update_Err(t *testing.T) {
 }
 
 func TestNetworks_Delete_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "DELETE", r.Method)
 			w.WriteHeader(200)
@@ -176,7 +181,7 @@ func TestNetworks_Delete_200(t *testing.T) {
 }
 
 func TestNetworks_Delete_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
@@ -190,7 +195,7 @@ func TestNetworks_Delete_Err(t *testing.T) {
 }
 
 func TestNetworks_Integration(t *testing.T) {
-	withBlackBoxServer(t, func(c *Client) {
+	withBlackBoxServer(t, func(c *rest.Client) {
 		network, err := c.Networks.Create(context.Background(), api.NetworkRequest{
 			Description: ptr("TestNetwork"),
 			Name:        "Test",
@@ -216,7 +221,7 @@ func TestNetworks_Integration(t *testing.T) {
 }
 
 func TestNetworkResources_List_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.NetworkResource{testNetworkResource})
 			_, err := w.Write(retBytes)
@@ -230,7 +235,7 @@ func TestNetworkResources_List_200(t *testing.T) {
 }
 
 func TestNetworkResources_List_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -245,7 +250,7 @@ func TestNetworkResources_List_Err(t *testing.T) {
 }
 
 func TestNetworkResources_Get_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(testNetworkResource)
 			_, err := w.Write(retBytes)
@@ -258,7 +263,7 @@ func TestNetworkResources_Get_200(t *testing.T) {
 }
 
 func TestNetworkResources_Get_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -273,7 +278,7 @@ func TestNetworkResources_Get_Err(t *testing.T) {
 }
 
 func TestNetworkResources_Create_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -295,7 +300,7 @@ func TestNetworkResources_Create_200(t *testing.T) {
 }
 
 func TestNetworkResources_Create_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -312,7 +317,7 @@ func TestNetworkResources_Create_Err(t *testing.T) {
 }
 
 func TestNetworkResources_Update_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -334,7 +339,7 @@ func TestNetworkResources_Update_200(t *testing.T) {
 }
 
 func TestNetworkResources_Update_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -351,7 +356,7 @@ func TestNetworkResources_Update_Err(t *testing.T) {
 }
 
 func TestNetworkResources_Delete_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "DELETE", r.Method)
 			w.WriteHeader(200)
@@ -362,7 +367,7 @@ func TestNetworkResources_Delete_200(t *testing.T) {
 }
 
 func TestNetworkResources_Delete_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/resources/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
@@ -376,7 +381,7 @@ func TestNetworkResources_Delete_Err(t *testing.T) {
 }
 
 func TestNetworkResources_Integration(t *testing.T) {
-	withBlackBoxServer(t, func(c *Client) {
+	withBlackBoxServer(t, func(c *rest.Client) {
 		_, err := c.Networks.Resources("TestNetwork").Create(context.Background(), api.NetworkResourceRequest{
 			Address:     "test.com",
 			Description: ptr("Description"),
@@ -403,7 +408,7 @@ func TestNetworkResources_Integration(t *testing.T) {
 }
 
 func TestNetworkRouters_List_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.NetworkRouter{testNetworkRouter})
 			_, err := w.Write(retBytes)
@@ -417,7 +422,7 @@ func TestNetworkRouters_List_200(t *testing.T) {
 }
 
 func TestNetworkRouters_List_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -432,7 +437,7 @@ func TestNetworkRouters_List_Err(t *testing.T) {
 }
 
 func TestNetworkRouters_Get_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(testNetworkRouter)
 			_, err := w.Write(retBytes)
@@ -445,7 +450,7 @@ func TestNetworkRouters_Get_200(t *testing.T) {
 }
 
 func TestNetworkRouters_Get_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -460,7 +465,7 @@ func TestNetworkRouters_Get_Err(t *testing.T) {
 }
 
 func TestNetworkRouters_Create_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -482,7 +487,7 @@ func TestNetworkRouters_Create_200(t *testing.T) {
 }
 
 func TestNetworkRouters_Create_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -499,7 +504,7 @@ func TestNetworkRouters_Create_Err(t *testing.T) {
 }
 
 func TestNetworkRouters_Update_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -521,7 +526,7 @@ func TestNetworkRouters_Update_200(t *testing.T) {
 }
 
 func TestNetworkRouters_Update_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -538,7 +543,7 @@ func TestNetworkRouters_Update_Err(t *testing.T) {
 }
 
 func TestNetworkRouters_Delete_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "DELETE", r.Method)
 			w.WriteHeader(200)
@@ -549,7 +554,7 @@ func TestNetworkRouters_Delete_200(t *testing.T) {
 }
 
 func TestNetworkRouters_Delete_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/networks/Meow/routers/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
@@ -563,7 +568,7 @@ func TestNetworkRouters_Delete_Err(t *testing.T) {
 }
 
 func TestNetworkRouters_Integration(t *testing.T) {
-	withBlackBoxServer(t, func(c *Client) {
+	withBlackBoxServer(t, func(c *rest.Client) {
 		_, err := c.Networks.Routers("TestNetwork").Create(context.Background(), api.NetworkRouterRequest{
 			Enabled:    false,
 			Masquerade: false,
