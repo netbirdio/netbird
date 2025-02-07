@@ -29,8 +29,8 @@ tags:
     description: View information about the account and network events.
   - name: Accounts
     description: View information about the accounts.
-  - name: Ingress Peers
-    description: Interact with and view information about the ingress peers.
+  - name: Ingress Ports
+    description: Interact with and view information about the ingress peers and ports.
     x-cloud-only: true
 components:
   schemas:
@@ -2342,7 +2342,7 @@ paths:
       x-cloud-only: true
       summary: List all Ingress Port Allocations for a Peer
       description: Returns a list of all ingress port allocations for a peer
-      tags: [ Peers ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2379,7 +2379,7 @@ paths:
       x-cloud-only: true
       summary: Create a Ingress Port Allocation
       description: Creates a new ingress port allocation for a peer
-      tags: [ Peers ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2416,7 +2416,7 @@ paths:
       x-cloud-only: true
       summary: Retrieve a Ingress Port Allocation
       description: Get information about an ingress port allocation
-      tags: [ Peers ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2488,7 +2488,7 @@ paths:
       x-cloud-only: true
       summary: Delete a Ingress Port Allocation
       description: Delete an ingress port allocation
-      tags: [ Peers ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2522,7 +2522,7 @@ paths:
       x-cloud-only: true
       summary: List all Ingress Peers
       description: Returns a list of all ingress peers
-      tags: [ Proxies ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2547,7 +2547,7 @@ paths:
       x-cloud-only: true
       summary: Create a Ingress Peer
       description: Creates a new ingress peer
-      tags: [ Proxies ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2577,7 +2577,7 @@ paths:
       x-cloud-only: true
       summary: Retrieve a Ingress Peer
       description: Get information about an ingress peer
-      tags: [ Proxies ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2607,7 +2607,7 @@ paths:
       x-cloud-only: true
       summary: Update a Ingress Peer
       description: Update information about an ingress peer
-      tags: [ Proxies ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2643,7 +2643,7 @@ paths:
       x-cloud-only: true
       summary: Delete a Ingress Peer
       description: Delete an ingress peer
-      tags: [ Proxies ]
+      tags: [ Ingress Ports ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
