@@ -723,10 +723,10 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
 func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow request")
+	log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow request for pubKey: %s", req.WgPubKey)
 	start := time.Now()
 	defer func() {
-		log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow took %v", time.Since(start))
+		log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow for pubKey: %s took %v", req.WgPubKey, time.Since(start))
 	}()
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
@@ -781,10 +781,10 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 // This is used for initiating an Oauth 2 pkce authorization grant flow
 // which will be used by our clients to Login
 func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow request")
+	log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow request for pubKey: %s", req.WgPubKey)
 	start := time.Now()
 	defer func() {
-		log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow took %v", time.Since(start))
+		log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow for pubKey %s took %v", req.WgPubKey, time.Since(start))
 	}()
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
