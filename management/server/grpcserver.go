@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -114,10 +115,16 @@ func NewServer(
 }
 
 func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
-	log.WithContext(ctx).Tracef("GetServerKey request")
+	ip := ""
+	p, ok := peer.FromContext(ctx)
+	if ok {
+		ip = p.Addr.String()
+	}
+
+	log.WithContext(ctx).Tracef("GetServerKey request from %s", ip)
 	start := time.Now()
 	defer func() {
-		log.WithContext(ctx).Tracef("GetServerKey took %v", time.Since(start))
+		log.WithContext(ctx).Tracef("GetServerKey from %s took %v", ip, time.Since(start))
 	}()
 
 	// todo introduce something more meaningful with the key expiration/rotation
