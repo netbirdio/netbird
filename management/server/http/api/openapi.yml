@@ -2339,6 +2339,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/peers/{peerId}/ingress/ports:
     get:
+      x-cloud-only: true
       summary: List all Ingress Port Allocations for a Peer
       description: Returns a list of all ingress port allocations for a peer
       tags: [ Peers ]
