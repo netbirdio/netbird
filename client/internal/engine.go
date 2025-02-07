@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -146,7 +145,7 @@ type Engine struct {
 	STUNs []*stun.URI
 	// TURNs is a list of STUN servers used by ICE
 	TURNs    []*stun.URI
-	stunTurn atomic.Value
+	stunTurn icemaker.StunTurn
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -612,8 +611,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if update.GetWiretrusteeConfig() != nil {
-		wCfg := update.GetWiretrusteeConfig()
+	if update.GetNetbirdConfig() != nil {
+		wCfg := update.GetNetbirdConfig()
 		err := e.updateTURNs(wCfg.GetTurns())
 		if err != nil {
 			return fmt.Errorf("update TURNs: %w", err)

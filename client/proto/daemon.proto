@@ -63,7 +63,7 @@ service DaemonService {
 
 
 message LoginRequest {
-  // setupKey wiretrustee setup key.
+  // setupKey netbird setup key.
   string setupKey = 1;
 
   // This is the old PreSharedKey field which will be deprecated in favor of optionalPreSharedKey field that is defined as optional
