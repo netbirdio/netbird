@@ -11,6 +11,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	wgdevice "golang.zx2c4.com/wireguard/device"
+
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -201,6 +203,11 @@ func (w *WGIface) GetDevice() *device.FilteredDevice {
 	defer w.mu.Unlock()
 
 	return w.tun.FilteredDevice()
+}
+
+// GetWGDevice returns the WireGuard device
+func (w *WGIface) GetWGDevice() *wgdevice.Device {
+	return w.tun.Device()
 }
 
 // GetStats returns the last handshake time, rx and tx bytes for the given peer
