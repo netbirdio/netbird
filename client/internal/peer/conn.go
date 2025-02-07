@@ -32,8 +32,8 @@ const (
 	defaultWgKeepAlive = 25 * time.Second
 
 	connPriorityRelay   ConnPriority = 1
-	connPriorityICETurn ConnPriority = 1
-	connPriorityICEP2P  ConnPriority = 2
+	connPriorityICETurn ConnPriority = 2
+	connPriorityICEP2P  ConnPriority = 3
 )
 
 type WgConfig struct {
@@ -64,14 +64,6 @@ type ConnConfig struct {
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
-}
-
-type WorkerCallbacks struct {
-	OnRelayReadyCallback func(info RelayConnInfo)
-	OnRelayStatusChanged func(ConnStatus)
-
-	OnICEConnReadyCallback func(ConnPriority, ICEConnInfo)
-	OnICEStatusChanged     func(ConnStatus)
 }
 
 type Conn struct {
