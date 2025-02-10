@@ -532,6 +532,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			ephemeral = sk.Ephemeral
 			setupKeyID = sk.Id
 			setupKeyName = sk.Name
+
+			// TODO(hakan): do we need to return an error and/or log this?
+			if !sk.AllowExtraDNSLabels {
+				peer.ExtraDNSLabels = nil
+			}
 		}
 
 		if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {

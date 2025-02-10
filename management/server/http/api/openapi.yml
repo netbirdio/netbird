@@ -503,6 +503,10 @@ components:
           description: Indicate that the peer will be ephemeral or not
           type: boolean
           example: true
+        allow_extra_dns_labels:
+          description: Allow extra DNS labels to be added to the peer
+          type: boolean
+          example: true
       required:
         - id
         - key
@@ -518,6 +522,7 @@ components:
         - updated_at
         - usage_limit
         - ephemeral
+        - allow_extra_dns_labels
     SetupKeyClear:
       allOf:
         - $ref: '#/components/schemas/SetupKeyBase'
@@ -585,6 +590,10 @@ components:
           example: 0
         ephemeral:
           description: Indicate that the peer will be ephemeral or not
+          type: boolean
+          example: true
+        allow_extra_dns_labels:
+          description: Allow extra DNS labels to be added to the peer
           type: boolean
           example: true
       required:

@@ -297,6 +297,9 @@ type CountryCode = string
 
 // CreateSetupKeyRequest defines model for CreateSetupKeyRequest.
 type CreateSetupKeyRequest struct {
+	// AllowExtraDnsLabels Allow extra DNS labels to be added to the peer
+	AllowExtraDnsLabels *bool `json:"allow_extra_dns_labels,omitempty"`
+
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
@@ -1230,6 +1233,9 @@ type RulePortRange struct {
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
+	// AllowExtraDnsLabels Allow extra DNS labels to be added to the peer
+	AllowExtraDnsLabels bool `json:"allow_extra_dns_labels"`
+
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
@@ -1275,6 +1281,9 @@ type SetupKey struct {
 
 // SetupKeyBase defines model for SetupKeyBase.
 type SetupKeyBase struct {
+	// AllowExtraDnsLabels Allow extra DNS labels to be added to the peer
+	AllowExtraDnsLabels bool `json:"allow_extra_dns_labels"`
+
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
@@ -1317,6 +1326,9 @@ type SetupKeyBase struct {
 
 // SetupKeyClear defines model for SetupKeyClear.
 type SetupKeyClear struct {
+	// AllowExtraDnsLabels Allow extra DNS labels to be added to the peer
+	AllowExtraDnsLabels bool `json:"allow_extra_dns_labels"`
+
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
