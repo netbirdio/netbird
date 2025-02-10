@@ -141,7 +141,6 @@ type Client struct {
 	muInstanceURL    sync.Mutex
 
 	onDisconnectListener func(string)
-	onConnectedListener  func()
 	listenerMutex        sync.Mutex
 }
 
@@ -190,7 +189,6 @@ func (c *Client) Connect() error {
 
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
-	go c.notifyConnected()
 
 	return nil
 }
@@ -236,12 +234,6 @@ func (c *Client) SetOnDisconnectListener(fn func(string)) {
 	c.listenerMutex.Lock()
 	defer c.listenerMutex.Unlock()
 	c.onDisconnectListener = fn
-}
-
-func (c *Client) SetOnConnectedListener(fn func()) {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-	c.onConnectedListener = fn
 }
 
 // HasConns returns true if there are connections.
@@ -557,16 +549,6 @@ func (c *Client) notifyDisconnected() {
 		return
 	}
 	go c.onDisconnectListener(c.connectionURL)
-}
-
-func (c *Client) notifyConnected() {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-
-	if c.onConnectedListener == nil {
-		return
-	}
-	go c.onConnectedListener()
 }
 
 func (c *Client) writeCloseMsg() {

@@ -32,8 +32,8 @@ const (
 	defaultWgKeepAlive = 25 * time.Second
 
 	connPriorityRelay   ConnPriority = 1
-	connPriorityICETurn ConnPriority = 1
-	connPriorityICEP2P  ConnPriority = 2
+	connPriorityICETurn ConnPriority = 2
+	connPriorityICEP2P  ConnPriority = 3
 )
 
 type WgConfig struct {
@@ -64,14 +64,6 @@ type ConnConfig struct {
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
-}
-
-type WorkerCallbacks struct {
-	OnRelayReadyCallback func(info RelayConnInfo)
-	OnRelayStatusChanged func(ConnStatus)
-
-	OnICEConnReadyCallback func(ConnPriority, ICEConnInfo)
-	OnICEStatusChanged     func(ConnStatus)
 }
 
 type Conn struct {
@@ -135,21 +127,11 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		semaphore:      semaphore,
 	}
 
-	rFns := WorkerRelayCallbacks{
-		OnConnReady:    conn.relayConnectionIsReady,
-		OnDisconnected: conn.onWorkerRelayStateDisconnected,
-	}
-
-	wFns := WorkerICECallbacks{
-		OnConnReady:     conn.iCEConnectionIsReady,
-		OnStatusChanged: conn.onWorkerICEStateDisconnected,
-	}
-
 	ctrl := isController(config)
-	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, relayManager, rFns)
+	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, conn, relayManager)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally, wFns)
+	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, conn, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +286,7 @@ func (conn *Conn) GetKey() string {
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICEConnInfo) {
+func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -376,7 +358,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 }
 
 // todo review to make sense to handle connecting and disconnected status also?
-func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
+func (conn *Conn) onICEStateDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -384,7 +366,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		return
 	}
 
-	conn.log.Tracef("ICE connection state changed to %s", newState)
+	conn.log.Tracef("ICE connection state changed to disconnected")
 
 	if conn.wgProxyICE != nil {
 		if err := conn.wgProxyICE.CloseConn(); err != nil {
@@ -404,10 +386,11 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		conn.currentConnPriority = connPriorityRelay
 	}
 
-	changed := conn.statusICE.Get() != newState && newState != StatusConnecting
-	conn.statusICE.Set(newState)
-
-	conn.guard.SetICEConnDisconnected(changed)
+	changed := conn.statusICE.Get() != StatusDisconnected
+	if changed {
+		conn.guard.SetICEConnDisconnected()
+	}
+	conn.statusICE.Set(StatusDisconnected)
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -422,7 +405,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	}
 }
 
-func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
+func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -474,7 +457,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr)
 }
 
-func (conn *Conn) onWorkerRelayStateDisconnected() {
+func (conn *Conn) onRelayDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -497,8 +480,10 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 	}
 
 	changed := conn.statusRelay.Get() != StatusDisconnected
+	if changed {
+		conn.guard.SetRelayedConnDisconnected()
+	}
 	conn.statusRelay.Set(StatusDisconnected)
-	conn.guard.SetRelayedConnDisconnected(changed)
 
 	peerState := State{
 		PubKey:           conn.config.Key,
