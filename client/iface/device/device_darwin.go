@@ -117,6 +117,11 @@ func (t *TunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
+// Device returns the wireguard device
+func (t *TunDevice) Device() *device.Device {
+	return t.device
+}
+
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (t *TunDevice) assignAddr() error {
 	cmd := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), t.address.IP.String())
