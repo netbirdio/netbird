@@ -59,7 +59,7 @@ func (w *WGWatcher) EnableWgWatcher(parentCtx context.Context, onDisconnectedFn 
 
 	initialHandshake, err := w.wgState()
 	if err != nil {
-		w.log.Warnf("failed to read wg stats: %v", err)
+		w.log.Warnf("failed to read initial wg stats: %v", err)
 	}
 
 	w.waitGroup.Add(1)
@@ -84,7 +84,7 @@ func (w *WGWatcher) DisableWgWatcher() {
 
 // wgStateCheck help to check the state of the WireGuard handshake and relay connection
 func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel context.CancelFunc, onDisconnectedFn func(), initialHandshake time.Time) {
-	w.log.Debugf("WireGuard watcher started")
+	w.log.Infof("WireGuard watcher started")
 	defer w.waitGroup.Done()
 
 	timer := time.NewTimer(wgHandshakeOvertime)
@@ -108,7 +108,7 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 
 			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
 		case <-ctx.Done():
-			w.log.Debugf("WireGuard watcher stopped")
+			w.log.Infof("WireGuard watcher stopped")
 			return
 		}
 	}
@@ -122,23 +122,23 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 		return nil, false
 	}
 
-	w.log.Debugf("previous handshake, handshake: %v, %v", lastHandshake, handshake)
+	w.log.Tracef("previous handshake, handshake: %v, %v", lastHandshake, handshake)
 
 	// the current know handshake did not change
 	if handshake.Equal(lastHandshake) {
-		w.log.Infof("WireGuard handshake timed out, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake timed out, closing relay connection: %v", handshake)
 		return nil, false
 	}
 
 	// in case if the machine is suspended, the handshake time will be in the past
 	if handshake.Add(checkPeriod).Before(time.Now()) {
-		w.log.Infof("WireGuard handshake timed out, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake timed out, closing relay connection: %v", handshake)
 		return nil, false
 	}
 
 	// error handling for handshake time in the future
 	if handshake.After(time.Now()) {
-		w.log.Infof("WireGuard handshake is in the future, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake is in the future, closing relay connection: %v", handshake)
 		return nil, false
 	}
 
