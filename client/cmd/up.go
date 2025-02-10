@@ -59,7 +59,7 @@ func init() {
 
 	upCmd.PersistentFlags().StringSliceVar(&dnsLabels, dnsLabelsFlag, nil,
 		`Sets DNS labels`+
-			`You can specify a comma-separated list. `+
+			`You can specify a comma-separated list of up to 32 labels. `+
 			`An empty string "" clears the previous configuration. `+
 			`E.g. --extra-dns-labels vpc1 or --extra-dns-labels vpc1,mgmt1 `+
 			`or --extra-dns-labels ""`,
