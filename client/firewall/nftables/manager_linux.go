@@ -318,6 +318,11 @@ func (m *Manager) cleanupNetbirdTables() error {
 	return nil
 }
 
+// SetLogLevel sets the log level for the firewall manager
+func (m *Manager) SetLogLevel(log.Level) {
+	// not supported
+}
+
 // Flush rule/chain/set operations from the buffer
 //
 // Method also get all rules after flush and refreshes handle values in the rulesets

@@ -8,6 +8,8 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	wgdevice "golang.zx2c4.com/wireguard/device"
+
 	iface "github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 )
@@ -89,4 +91,32 @@ func (m *MockIFaceMapper) SetFilter(arg0 device.PacketFilter) error {
 func (mr *MockIFaceMapperMockRecorder) SetFilter(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFilter", reflect.TypeOf((*MockIFaceMapper)(nil).SetFilter), arg0)
+}
+
+// GetDevice mocks base method.
+func (m *MockIFaceMapper) GetDevice() *device.FilteredDevice {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevice")
+	ret0, _ := ret[0].(*device.FilteredDevice)
+	return ret0
+}
+
+// GetDevice indicates an expected call of GetDevice.
+func (mr *MockIFaceMapperMockRecorder) GetDevice() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockIFaceMapper)(nil).GetDevice))
+}
+
+// GetWGDevice mocks base method.
+func (m *MockIFaceMapper) GetWGDevice() *wgdevice.Device {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWGDevice")
+	ret0, _ := ret[0].(*wgdevice.Device)
+	return ret0
+}
+
+// GetWGDevice indicates an expected call of GetWGDevice.
+func (mr *MockIFaceMapperMockRecorder) GetWGDevice() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWGDevice", reflect.TypeOf((*MockIFaceMapper)(nil).GetWGDevice))
 }
