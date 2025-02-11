@@ -106,10 +106,10 @@ type HttpServerConfig struct {
 	ExtraAuthAudience string
 }
 
-// Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)
+// Host represents a Netbird host (e.g. STUN, TURN, Signal)
 type Host struct {
 	Proto Protocol
-	// URI e.g. turns://stun.wiretrustee.com:4430 or signal.wiretrustee.com:10000
+	// URI e.g. turns://stun.netbird.io:4430 or signal.netbird.io:10000
 	URI      string
 	Username string
 	Password string

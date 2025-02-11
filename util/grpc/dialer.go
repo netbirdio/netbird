@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"os/user"
@@ -19,6 +20,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/netbird/util/embeddedroots"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -57,9 +59,16 @@ func Backoff(ctx context.Context) backoff.BackOff {
 
 func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
-
 	if tlsEnabled {
-		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
+		certPool, err := x509.SystemCertPool()
+		if err != nil || certPool == nil {
+			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
+			certPool = embeddedroots.Get()
+		}
+
+		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			RootCAs: certPool,
+		}))
 	}
 
 	connCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -114,6 +115,18 @@ func NewServer(
 }
 
 func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
+	ip := ""
+	p, ok := peer.FromContext(ctx)
+	if ok {
+		ip = p.Addr.String()
+	}
+
+	log.WithContext(ctx).Tracef("GetServerKey request from %s", ip)
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetServerKey from %s took %v", ip, time.Since(start))
+	}()
+
 	// todo introduce something more meaningful with the key expiration/rotation
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountGetKeyRequest()
@@ -381,7 +394,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		Platform:           meta.GetPlatform(),
 		OS:                 meta.GetOS(),
 		OSVersion:          osVersion,
-		WtVersion:          meta.GetWiretrusteeVersion(),
+		WtVersion:          meta.GetNetbirdVersion(),
 		UIVersion:          meta.GetUiVersion(),
 		KernelVersion:      meta.GetKernelVersion(),
 		NetworkAddresses:   networkAddresses,
@@ -489,9 +502,9 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil, relayToken),
-		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
-		Checks:            toProtocolChecks(ctx, postureChecks),
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken),
+		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
+		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -547,7 +560,7 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toWiretrusteeConfig(config *Config, turnCredentials *Token, relayToken *Token) *proto.WiretrusteeConfig {
+func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -595,7 +608,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *Token, relayToken *Tok
 		}
 	}
 
-	return &proto.WiretrusteeConfig{
+	return &proto.NetbirdConfig{
 		Stuns: stuns,
 		Turns: turns,
 		Signal: &proto.HostConfig{
@@ -619,8 +632,8 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dns
 
 func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnbled bool) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(config, turnCredentials, relayCredentials),
-		PeerConfig:        toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
+		NetbirdConfig: toNetbirdConfig(config, turnCredentials, relayCredentials),
+		PeerConfig:    toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
@@ -717,6 +730,12 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
 func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow request for pubKey: %s", req.WgPubKey)
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow for pubKey: %s took %v", req.WgPubKey, time.Since(start))
+	}()
+
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetDeviceAuthorizationFlow request.", req.WgPubKey)
@@ -769,6 +788,12 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 // This is used for initiating an Oauth 2 pkce authorization grant flow
 // which will be used by our clients to Login
 func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow request for pubKey: %s", req.WgPubKey)
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow for pubKey %s took %v", req.WgPubKey, time.Since(start))
+	}()
+
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetPKCEAuthorizationFlow request.", req.WgPubKey)

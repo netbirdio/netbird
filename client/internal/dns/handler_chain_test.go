@@ -21,9 +21,9 @@ func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 	dnsRouteHandler := &nbdns.MockHandler{}
 
 	// Setup handlers with different priorities
-	chain.AddHandler("example.com.", defaultHandler, nbdns.PriorityDefault, nil)
-	chain.AddHandler("example.com.", matchDomainHandler, nbdns.PriorityMatchDomain, nil)
-	chain.AddHandler("example.com.", dnsRouteHandler, nbdns.PriorityDNSRoute, nil)
+	chain.AddHandler("example.com.", defaultHandler, nbdns.PriorityDefault)
+	chain.AddHandler("example.com.", matchDomainHandler, nbdns.PriorityMatchDomain)
+	chain.AddHandler("example.com.", dnsRouteHandler, nbdns.PriorityDNSRoute)
 
 	// Create test request
 	r := new(dns.Msg)
@@ -138,7 +138,7 @@ func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 				pattern = "*." + tt.handlerDomain[2:]
 			}
 
-			chain.AddHandler(pattern, handler, nbdns.PriorityDefault, nil)
+			chain.AddHandler(pattern, handler, nbdns.PriorityDefault)
 
 			r := new(dns.Msg)
 			r.SetQuestion(tt.queryDomain, dns.TypeA)
@@ -253,7 +253,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 					handler.On("ServeDNS", mock.Anything, mock.Anything).Maybe()
 				}
 
-				chain.AddHandler(tt.handlers[i].pattern, handler, tt.handlers[i].priority, nil)
+				chain.AddHandler(tt.handlers[i].pattern, handler, tt.handlers[i].priority)
 			}
 
 			// Create and execute request
@@ -280,9 +280,9 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 	handler3 := &nbdns.MockHandler{}
 
 	// Add handlers in priority order
-	chain.AddHandler("example.com.", handler1, nbdns.PriorityDNSRoute, nil)
-	chain.AddHandler("example.com.", handler2, nbdns.PriorityMatchDomain, nil)
-	chain.AddHandler("example.com.", handler3, nbdns.PriorityDefault, nil)
+	chain.AddHandler("example.com.", handler1, nbdns.PriorityDNSRoute)
+	chain.AddHandler("example.com.", handler2, nbdns.PriorityMatchDomain)
+	chain.AddHandler("example.com.", handler3, nbdns.PriorityDefault)
 
 	// Create test request
 	r := new(dns.Msg)
@@ -416,7 +416,7 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 				if op.action == "add" {
 					handler := &nbdns.MockHandler{}
 					handlers[op.priority] = handler
-					chain.AddHandler(op.pattern, handler, op.priority, nil)
+					chain.AddHandler(op.pattern, handler, op.priority)
 				} else {
 					chain.RemoveHandler(op.pattern, op.priority)
 				}
@@ -471,9 +471,9 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	r.SetQuestion(testQuery, dns.TypeA)
 
 	// Add handlers in mixed order
-	chain.AddHandler(testDomain, defaultHandler, nbdns.PriorityDefault, nil)
-	chain.AddHandler(testDomain, routeHandler, nbdns.PriorityDNSRoute, nil)
-	chain.AddHandler(testDomain, matchHandler, nbdns.PriorityMatchDomain, nil)
+	chain.AddHandler(testDomain, defaultHandler, nbdns.PriorityDefault)
+	chain.AddHandler(testDomain, routeHandler, nbdns.PriorityDNSRoute)
+	chain.AddHandler(testDomain, matchHandler, nbdns.PriorityMatchDomain)
 
 	// Test 1: Initial state with all three handlers
 	w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
@@ -653,7 +653,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 					handler = mockHandler
 				}
 
-				chain.AddHandler(pattern, handler, h.priority, nil)
+				chain.AddHandler(pattern, handler, h.priority)
 			}
 
 			// Execute request
@@ -795,7 +795,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				if op.action == "add" {
 					handler := &nbdns.MockSubdomainHandler{Subdomains: op.subdomain}
 					handlers[op.pattern] = handler
-					chain.AddHandler(op.pattern, handler, op.priority, nil)
+					chain.AddHandler(op.pattern, handler, op.priority)
 				} else {
 					chain.RemoveHandler(op.pattern, op.priority)
 				}
