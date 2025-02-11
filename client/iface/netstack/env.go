@@ -8,9 +8,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const EnvUseNetstackMode = "NB_USE_NETSTACK_MODE"
+
 // IsEnabled todo: move these function to cmd layer
 func IsEnabled() bool {
-	return os.Getenv("NB_USE_NETSTACK_MODE") == "true"
+	return os.Getenv(EnvUseNetstackMode) == "true"
 }
 
 func ListenAddr() string {

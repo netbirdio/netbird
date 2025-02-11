@@ -5,6 +5,7 @@ import (
 	"time"
 
 	wgdevice "golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -34,6 +35,7 @@ type MockWGIface struct {
 	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
+	GetNetFunc                 func() *netstack.Net
 }
 
 func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
@@ -114,4 +116,8 @@ func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 	return m.GetProxyFunc()
+}
+
+func (m *MockWGIface) GetNet() *netstack.Net {
+	return m.GetNetFunc()
 }
