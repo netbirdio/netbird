@@ -795,7 +795,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				if op.action == "add" {
 					handler := &nbdns.MockSubdomainHandler{Subdomains: op.subdomain}
 					handlers[op.pattern] = handler
-					chain.AddHandler(op.pattern, handler, op.priority, nil)
+					chain.AddHandler(op.pattern, handler, op.priority)
 				} else {
 					chain.RemoveHandler(op.pattern, op.priority)
 				}
