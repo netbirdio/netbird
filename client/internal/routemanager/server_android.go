@@ -22,14 +22,6 @@ func (r serverRouter) updateRoutes(map[route.ID]*route.Route) error {
 	return nil
 }
 
-func (r *serverRouter) enableRouting() error {
-	return nil
-}
-
-func (r *serverRouter) disableRouting() error {
-	return nil
-}
-
 func newServerRouter(context.Context, iface.IWGIface, firewall.Manager, *peer.Status) (*serverRouter, error) {
 	return nil, fmt.Errorf("server route not supported on this os")
 }

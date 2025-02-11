@@ -1007,7 +1007,7 @@ func (m *Manager) DisableRouting() error {
 	m.forwarder.Stop()
 	m.forwarder = nil
 
-	log.Debug("Forwarder stopped")
+	log.Debug("forwarder stopped")
 
 	return nil
 }
