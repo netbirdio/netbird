@@ -73,6 +73,14 @@ func (d *localResolver) lookupRecords(r *dns.Msg) []dns.RR {
 		log.Errorf("failed to cast records to []dns.RR, records: %v", value)
 		return nil
 	}
+
+	// if there's more than one record, rotate them (round-robin)
+	if len(records) > 1 {
+		first := records[0]
+		records = append(records[1:], first)
+		d.records.Store(key, records)
+	}
+
 	return records
 }
 
