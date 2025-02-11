@@ -507,6 +507,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		var setupKeyName string
 		var ephemeral bool
 		var groupsToAdd []string
+		var allowExtraDNSLabels bool
 		if addedByUser {
 			user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, userID)
 			if err != nil {
@@ -532,10 +533,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			ephemeral = sk.Ephemeral
 			setupKeyID = sk.Id
 			setupKeyName = sk.Name
+			allowExtraDNSLabels = sk.AllowExtraDNSLabels
 
-			// TODO(hakan): do we need to return an error and/or log this?
-			if !sk.AllowExtraDNSLabels {
-				peer.ExtraDNSLabels = nil
+			if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
+				return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
 			}
 		}
 
@@ -577,8 +578,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			Ephemeral:                   ephemeral,
 			Location:                    peer.Location,
 			InactivityExpirationEnabled: addedByUser,
-			// TODO(hakan): how should we validate extra dns labels?
-			ExtraDNSLabels: peer.ExtraDNSLabels,
+			ExtraDNSLabels:              peer.ExtraDNSLabels,
+			AllowExtraDNSLabels:         allowExtraDNSLabels,
 		}
 		opEvent.TargetID = newPeer.ID
 		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
@@ -870,6 +871,10 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
 			shouldStorePeer = true
+		}
+
+		if !peer.AllowExtraDNSLabels && len(login.ExtraDNSLabels) > 0 {
+			return status.Errorf(status.PreconditionFailed, "couldn't login peer: setup key doesn't allow extra DNS labels")
 		}
 
 		if !slices.Equal(peer.ExtraDNSLabels, login.ExtraDNSLabels) {

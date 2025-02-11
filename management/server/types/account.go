@@ -461,7 +461,6 @@ func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdn
 		})
 		sb.Reset()
 
-		// TODO(hakan): do we need emptycheck here?
 		for _, extraLabel := range peer.ExtraDNSLabels {
 			sb.Grow(len(extraLabel) + len(domainSuffix))
 			sb.WriteString(extraLabel)
