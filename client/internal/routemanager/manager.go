@@ -286,15 +286,25 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		m.updateClientNetworks(updateSerial, filteredClientRoutes)
 		m.notifier.OnNewRoutes(filteredClientRoutes)
 	}
+	m.clientRoutes = newClientRoutesIDMap
 
-	if m.serverRouter != nil {
-		err := m.serverRouter.updateRoutes(newServerRoutesMap)
-		if err != nil {
-			return err
+	if m.serverRouter == nil {
+		return nil
+	}
+
+	if len(newServerRoutesMap) > 0 {
+		if err := m.serverRouter.EnableRouting(); err != nil {
+			return fmt.Errorf("enable routing: %w", err)
+		}
+	} else {
+		if err := m.serverRouter.DisableRouting(); err != nil {
+			return fmt.Errorf("disable routing: %w", err)
 		}
 	}
 
-	m.clientRoutes = newClientRoutesIDMap
+	if err := m.serverRouter.updateRoutes(newServerRoutesMap); err != nil {
+		return fmt.Errorf("update routes: %w", err)
+	}
 
 	return nil
 }

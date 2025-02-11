@@ -167,6 +167,14 @@ func (m *serverRouter) cleanUp() {
 	m.statusRecorder.UpdateLocalPeerState(state)
 }
 
+func (r *serverRouter) EnableRouting() error {
+	return r.firewall.EnableRouting()
+}
+
+func (r *serverRouter) DisableRouting() error {
+	return r.firewall.DisableRouting()
+}
+
 func routeToRouterPair(route *route.Route) (firewall.RouterPair, error) {
 	// TODO: add ipv6
 	source := getDefaultPrefix(route.Network)
