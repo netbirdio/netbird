@@ -74,7 +74,7 @@ type Manager struct {
 
 	mutex sync.RWMutex
 
-	// indicates whether we server routes are disabled
+	// indicates whether server routes are disabled
 	disableServerRoutes bool
 	// indicates whether we forward packets not destined for ourselves
 	routingEnabled bool
@@ -128,13 +128,19 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 }
 
 func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
-	disableConntrack, err := strconv.ParseBool(os.Getenv(EnvDisableConntrack))
-	if err != nil {
-		log.Warnf("failed to parse %s: %v", EnvDisableConntrack, err)
+	var disableConntrack, enableLocalForwarding bool
+	var err error
+	if val := os.Getenv(EnvDisableConntrack); val != "" {
+		disableConntrack, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", EnvDisableConntrack, err)
+		}
 	}
-	enableLocalForwarding, err := strconv.ParseBool(os.Getenv(EnvEnableNetstackLocalForwarding))
-	if err != nil {
-		log.Warnf("failed to parse %s: %v", EnvEnableNetstackLocalForwarding, err)
+	if val := os.Getenv(EnvEnableNetstackLocalForwarding); val != "" {
+		enableLocalForwarding, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", EnvEnableNetstackLocalForwarding, err)
+		}
 	}
 
 	m := &Manager{
@@ -610,7 +616,6 @@ func (m *Manager) dropFilter(packetData []byte) bool {
 	defer m.decoders.Put(d)
 
 	if !m.isValidPacket(d, packetData) {
-		m.logger.Trace("Invalid packet structure")
 		return true
 	}
 
@@ -682,11 +687,9 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 		return false
 	}
 
-	// Get protocol and ports for route ACL check
 	proto := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
 
-	// Check route ACLs
 	if !m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort) {
 		m.logger.Trace("Dropping routed packet (ACL denied): src=%s:%d dst=%s:%d proto=%v",
 			srcIP, srcPort, dstIP, dstPort, proto)
@@ -728,12 +731,12 @@ func getPortsFromPacket(d *decoder) (srcPort, dstPort uint16) {
 
 func (m *Manager) isValidPacket(d *decoder, packetData []byte) bool {
 	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-		log.Tracef("couldn't decode layer, err: %s", err)
+		m.logger.Trace("couldn't decode packet, err: %s", err)
 		return false
 	}
 
 	if len(d.decoded) < 2 {
-		log.Tracef("not enough levels in network packet")
+		m.logger.Trace("packet doesn't have network and transport layers")
 		return false
 	}
 	return true

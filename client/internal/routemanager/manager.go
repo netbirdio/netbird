@@ -293,11 +293,11 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 	}
 
 	if len(newServerRoutesMap) > 0 {
-		if err := m.serverRouter.EnableRouting(); err != nil {
+		if err := m.serverRouter.enableRouting(); err != nil {
 			return fmt.Errorf("enable routing: %w", err)
 		}
 	} else {
-		if err := m.serverRouter.DisableRouting(); err != nil {
+		if err := m.serverRouter.disableRouting(); err != nil {
 			return fmt.Errorf("disable routing: %w", err)
 		}
 	}

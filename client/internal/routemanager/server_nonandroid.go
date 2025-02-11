@@ -167,11 +167,11 @@ func (m *serverRouter) cleanUp() {
 	m.statusRecorder.UpdateLocalPeerState(state)
 }
 
-func (r *serverRouter) EnableRouting() error {
+func (r *serverRouter) enableRouting() error {
 	return r.firewall.EnableRouting()
 }
 
-func (r *serverRouter) DisableRouting() error {
+func (r *serverRouter) disableRouting() error {
 	return r.firewall.DisableRouting()
 }
 

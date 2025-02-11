@@ -303,6 +303,7 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 	}
 
 	manager, err := Create(ifaceMock, false)
+	manager.EnableRouting()
 	require.NoError(tb, err)
 	require.NotNil(tb, manager)
 	require.True(tb, manager.routingEnabled)
