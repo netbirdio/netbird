@@ -73,6 +73,13 @@ func checkAdvancedRoutingSupport() bool {
 }
 
 func CheckFwmarkSupport() bool {
+	// temporarily enable advanced routing to check fwmarks are supported
+	old := advancedRoutingSupported
+	advancedRoutingSupported = true
+	defer func() {
+		advancedRoutingSupported = old
+	}()
+
 	dialer := NewDialer()
 	dialer.Timeout = 100 * time.Millisecond
 
@@ -81,12 +88,10 @@ func CheckFwmarkSupport() bool {
 		log.Warnf("failed to dial with fwmark: %v", err)
 		return false
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Warnf("failed to close connection: %v", err)
+	if err := conn.Close(); err != nil {
+		log.Warnf("failed to close connection: %v", err)
 
-		}
-	}()
+	}
 
 	return true
 }
