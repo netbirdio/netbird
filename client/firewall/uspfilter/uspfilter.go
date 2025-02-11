@@ -127,7 +127,7 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 	return mgr, nil
 }
 
-func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
+func parseCreateEnv() (bool, bool) {
 	var disableConntrack, enableLocalForwarding bool
 	var err error
 	if val := os.Getenv(EnvDisableConntrack); val != "" {
@@ -142,6 +142,12 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 			log.Warnf("failed to parse %s: %v", EnvEnableNetstackLocalForwarding, err)
 		}
 	}
+
+	return disableConntrack, enableLocalForwarding
+}
+
+func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
+	disableConntrack, enableLocalForwarding := parseCreateEnv()
 
 	m := &Manager{
 		decoders: sync.Pool{
