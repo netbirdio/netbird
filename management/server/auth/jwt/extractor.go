@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"errors"
+	"net/url"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -11,8 +12,6 @@ import (
 )
 
 const (
-	// TokenUserProperty key for the user property in the request context
-	TokenUserProperty = "user"
 	// AccountIDSuffix suffix for the account id claim
 	AccountIDSuffix = "wt_account_id"
 	// DomainIDSuffix suffix for the domain id claim
@@ -25,8 +24,6 @@ const (
 	LastLoginSuffix = "nb_last_login"
 	// Invited claim indicates that an incoming JWT is from a user that just accepted an invitation
 	Invited = "nb_invited"
-	// IsToken claim indicates that auth type from the user is a token
-	IsToken = "is_token"
 )
 
 var (
@@ -81,6 +78,15 @@ func parseTime(timeString string) time.Time {
 	return parsedTime
 }
 
+func (c ClaimsExtractor) audienceClaim(claimName string) string {
+	url, err := url.JoinPath(c.authAudience, claimName)
+	if err != nil {
+		return c.authAudience + claimName // as it was previously
+	}
+
+	return url
+}
+
 func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (nbcontext.UserAuth, error) {
 	claims := token.Claims.(jwt.MapClaims)
 	userAuth := nbcontext.UserAuth{}
@@ -90,25 +96,27 @@ func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (nbcontext.UserAuth, erro
 		return userAuth, errUserIDClaimEmpty
 	}
 	userAuth.UserId = userID
-	accountIDClaim, ok := claims[c.authAudience+AccountIDSuffix]
-	if ok {
+
+	if accountIDClaim, ok := claims[c.audienceClaim(AccountIDSuffix)]; ok {
 		userAuth.AccountId = accountIDClaim.(string)
 	}
-	domainClaim, ok := claims[c.authAudience+DomainIDSuffix]
-	if ok {
+
+	if domainClaim, ok := claims[c.audienceClaim(DomainIDSuffix)]; ok {
 		userAuth.Domain = domainClaim.(string)
 	}
-	domainCategoryClaim, ok := claims[c.authAudience+DomainCategorySuffix]
-	if ok {
+
+	if domainCategoryClaim, ok := claims[c.audienceClaim(DomainCategorySuffix)]; ok {
 		userAuth.DomainCategory = domainCategoryClaim.(string)
 	}
-	LastLoginClaimString, ok := claims[c.authAudience+LastLoginSuffix]
-	if ok {
-		userAuth.LastLogin = parseTime(LastLoginClaimString.(string))
+
+	if lastLoginClaimString, ok := claims[c.audienceClaim(LastLoginSuffix)]; ok {
+		userAuth.LastLogin = parseTime(lastLoginClaimString.(string))
 	}
-	invitedBool, ok := claims[c.authAudience+Invited]
-	if ok {
-		userAuth.Invited = invitedBool.(bool)
+
+	if invitedBool, ok := claims[c.audienceClaim(Invited)]; ok {
+		if value, ok := invitedBool.(bool); ok {
+			userAuth.Invited = value
+		}
 	}
 
 	return userAuth, nil

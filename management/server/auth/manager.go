@@ -62,6 +62,9 @@ func (m *manager) ValidateAndParseToken(ctx context.Context, value string) (nbco
 	}
 
 	userAuth, err := m.extractor.ToUserAuth(token)
+	if err != nil {
+		return nbcontext.UserAuth{}, nil, err
+	}
 	return userAuth, token, err
 }
 

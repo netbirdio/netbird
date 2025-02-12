@@ -67,7 +67,6 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	accountID := vars["accountId"]
-	// @todo additional check for account access, consider child account
 	if len(accountID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid accountID ID"), w)
 		return
@@ -130,7 +129,6 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	targetAccountID := vars["accountId"]
-	// @todo additional check for account access, consider child account
 	if len(targetAccountID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid account ID"), w)
 		return
