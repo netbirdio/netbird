@@ -42,7 +42,7 @@ func ValidateDomains(domains []string) (List, error) {
 // ValidateDomainsStrSlice checks if each domain in the list is valid
 func ValidateDomainsStrSlice(domains []string) ([]string, error) {
 	if len(domains) == 0 {
-		return nil, fmt.Errorf("domains list is empty")
+		return nil, nil
 	}
 	if len(domains) > maxDomains {
 		return nil, fmt.Errorf("domains list exceeds maximum allowed domains: %d", maxDomains)
