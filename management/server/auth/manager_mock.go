@@ -18,7 +18,7 @@ type MockManager struct {
 	ValidateAndParseTokenFunc       func(ctx context.Context, value string) (nbcontext.UserAuth, *jwt.Token, error)
 	EnsureUserAccessByJWTGroupsFunc func(ctx context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error)
 	MarkPATUsedFunc                 func(ctx context.Context, tokenID string) error
-	GetAccountInfoFromPATFunc       func(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error)
+	GetPATInfoFunc                  func(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error)
 }
 
 // EnsureUserAccessByJWTGroups implements Manager.
@@ -31,8 +31,8 @@ func (m *MockManager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth 
 
 // GetPATInfo implements Manager.
 func (m *MockManager) GetPATInfo(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error) {
-	if m.GetAccountInfoFromPATFunc != nil {
-		return m.GetAccountInfoFromPATFunc(ctx, token)
+	if m.GetPATInfoFunc != nil {
+		return m.GetPATInfoFunc(ctx, token)
 	}
 	return &types.User{}, &types.PersonalAccessToken{}, "", "", nil
 }
