@@ -105,9 +105,6 @@ func TestValidateDomainsStrSlice(t *testing.T) {
 		validDomains[i] = fmt.Sprintf("example%d.com", i)
 	}
 
-	// Generate a slice of length maxDomains+1 to test exceeding limit
-	tooManyDomains := append(validDomains, "extra.com")
-
 	tests := []struct {
 		name     string
 		domains  []string
@@ -187,7 +184,7 @@ func TestValidateDomainsStrSlice(t *testing.T) {
 		},
 		{
 			name:     "Exceeds maxDomains items",
-			domains:  tooManyDomains,
+			domains:  append(validDomains, "extra.com"),
 			expected: nil,
 			wantErr:  true,
 		},
