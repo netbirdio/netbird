@@ -19,6 +19,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
 	nbgrpc "github.com/netbirdio/netbird/util/grpc"
 )
@@ -373,12 +374,12 @@ func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken s
 }
 
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
-func (c *GrpcClient) Login(serverKey wgtypes.Key, sysInfo *system.Info, pubSSHKey []byte) (*proto.LoginResponse, error) {
+func (c *GrpcClient) Login(serverKey wgtypes.Key, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys})
+	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.

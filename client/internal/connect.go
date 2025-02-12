@@ -478,7 +478,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.DisableDNS,
 		config.DisableFirewall,
 	)
-	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey)
+	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {
 		return nil, err
 	}
