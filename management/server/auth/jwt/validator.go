@@ -279,7 +279,6 @@ func getPublicKeyFromRSA(jwk JSONWebKey) (*rsa.PublicKey, error) {
 	}, nil
 }
 
-// @todo propose min timeout, for example the cache-control from auth0 is 15s, we might as well not cache them at all for such short duration
 // getMaxAgeFromCacheHeader extracts max-age directive from the Cache-Control header
 func getMaxAgeFromCacheHeader(cacheControl string) int {
 	// Split into individual directives
