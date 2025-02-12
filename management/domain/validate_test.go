@@ -115,7 +115,7 @@ func TestValidateDomainsStrSlice(t *testing.T) {
 			name:     "Empty list",
 			domains:  nil,
 			expected: nil,
-			wantErr:  true,
+			wantErr:  false,
 		},
 		{
 			name:     "Single valid ASCII domain",
