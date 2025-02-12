@@ -35,8 +35,9 @@ const (
 )
 
 var (
-	foregroundMode bool
-	dnsLabels      []string
+	foregroundMode     bool
+	dnsLabels          []string
+	dnsLabelsValidated domain.List
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -82,7 +83,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, err = validateDnsLabels(dnsLabels)
+	dnsLabelsValidated, err = validateDnsLabels(dnsLabels)
 	if err != nil {
 		return err
 	}
