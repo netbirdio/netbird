@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
@@ -64,8 +65,10 @@ func mockGetAccountInfoFromPAT(_ context.Context, token string) (user *types.Use
 func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {
 	if token == JWT {
 		return nbcontext.UserAuth{
-				UserId:    userID,
-				AccountId: accountID,
+				UserId:         userID,
+				AccountId:      accountID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
 			},
 			&jwt.Token{
 				Claims: jwt.MapClaims{
@@ -86,6 +89,10 @@ func mockMarkPATUsed(_ context.Context, token string) error {
 }
 
 func mockEnsureUserAccessByJWTGroups(_ context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error) {
+	if userAuth.IsChild || userAuth.IsPAT {
+		return userAuth, nil
+	}
+
 	if testAccount.Id != userAuth.AccountId {
 		return userAuth, fmt.Errorf("account with id %s does not exist", userAuth.AccountId)
 	}
@@ -207,6 +214,111 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 
 			if result.StatusCode != tc.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tc.expectedStatusCode, result.StatusCode)
+			}
+		})
+	}
+}
+
+func TestAuthMiddleware_Handler_Child(t *testing.T) {
+	tt := []struct {
+		name             string
+		path             string
+		authHeader       string
+		expectedUserAuth *nbcontext.UserAuth // nil expects 401 response status
+	}{
+		{
+			name:       "Valid PAT Token",
+			path:       "/test",
+			authHeader: "Token " + PAT,
+			expectedUserAuth: &nbcontext.UserAuth{
+				AccountId:      accountID,
+				UserId:         userID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
+				IsPAT:          true,
+			},
+		},
+		{
+			name:       "Valid PAT Token ignores child",
+			path:       "/test?account=xyz",
+			authHeader: "Token " + PAT,
+			expectedUserAuth: &nbcontext.UserAuth{
+				AccountId:      accountID,
+				UserId:         userID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
+				IsPAT:          true,
+			},
+		},
+		{
+			name:       "Valid JWT Token",
+			path:       "/test",
+			authHeader: "Bearer " + JWT,
+			expectedUserAuth: &nbcontext.UserAuth{
+				AccountId:      accountID,
+				UserId:         userID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
+			},
+		},
+
+		{
+			name:       "Valid JWT Token with child",
+			path:       "/test?account=xyz",
+			authHeader: "Bearer " + JWT,
+			expectedUserAuth: &nbcontext.UserAuth{
+				AccountId:      "xyz",
+				UserId:         userID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
+				IsChild:        true,
+			},
+		},
+	}
+
+	mockAuth := &auth.MockManager{
+		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
+		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
+		MarkPATUsedFunc:                 mockMarkPATUsed,
+		GetAccountInfoFromPATFunc:       mockGetAccountInfoFromPAT,
+	}
+
+	authMiddleware := NewAuthMiddleware(
+		mockAuth,
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			return userAuth.AccountId, userAuth.UserId, nil
+		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			return nil
+		},
+	)
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				userAuth, err := nbcontext.GetUserAuthFromRequest(r)
+				if tc.expectedUserAuth != nil {
+					assert.NoError(t, err)
+					assert.Equal(t, *tc.expectedUserAuth, userAuth)
+				} else {
+					assert.Error(t, err)
+					assert.Empty(t, userAuth)
+				}
+			}))
+
+			req := httptest.NewRequest("GET", "http://testing"+tc.path, nil)
+			req.Header.Set("Authorization", tc.authHeader)
+			rec := httptest.NewRecorder()
+
+			handlerToTest.ServeHTTP(rec, req)
+
+			result := rec.Result()
+			defer result.Body.Close()
+
+			if tc.expectedUserAuth != nil {
+				assert.Equal(t, 200, result.StatusCode)
+			} else {
+				assert.Equal(t, 401, result.StatusCode)
 			}
 		})
 	}
