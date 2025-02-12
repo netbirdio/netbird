@@ -40,7 +40,6 @@ func WithCustomDialer() grpc.DialOption {
 			}
 		}
 
-		log.Debug("Using nbnet.NewDialer()")
 		conn, err := nbnet.NewDialer().DialContext(ctx, "tcp", addr)
 		if err != nil {
 			log.Errorf("Failed to dial: %s", err)
