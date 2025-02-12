@@ -112,11 +112,6 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	dnsLabelsConverted, err := validateDnsLabels(dnsLabels)
-	if err != nil {
-		return err
-	}
-
 	ic := internal.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
@@ -124,7 +119,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		NATExternalIPs:      natExternalIPs,
 		CustomDNSAddress:    customDNSAddressConverted,
 		ExtraIFaceBlackList: extraIFaceBlackList,
-		DNSLabels:           dnsLabelsConverted,
+		DNSLabels:           dnsLabelsValidated,
 	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
