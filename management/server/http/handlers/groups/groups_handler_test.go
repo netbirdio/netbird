@@ -18,9 +18,9 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/server"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -59,9 +59,6 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return group, nil
 			},
-			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return claims.AccountId, claims.UserId, nil
-			},
 			GetGroupByNameFunc: func(ctx context.Context, groupName, _ string) (*types.Group, error) {
 				if groupName == "All" {
 					return &types.Group{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI}, nil
@@ -87,15 +84,6 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 				return nil
 			},
 		},
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
-					Domain:    "hotmail.com",
-					AccountId: "test_id",
-				}
-			}),
-		),
 	}
 }
 
@@ -134,6 +122,11 @@ func TestGetGroup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/groups/{groupId}", p.getGroup).Methods("GET")
@@ -255,6 +248,11 @@ func TestWriteGroup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/groups", p.createGroup).Methods("POST")
@@ -332,7 +330,11 @@ func TestDeleteGroup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
-
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
 			router := mux.NewRouter()
 			router.HandleFunc("/api/groups/{groupId}", p.deleteGroup).Methods("DELETE")
 			router.ServeHTTP(recorder, req)

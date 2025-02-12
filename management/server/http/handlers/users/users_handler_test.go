@@ -13,8 +13,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -64,9 +64,6 @@ var usersTestAccount = &types.Account{
 func initUsersTestData() *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return usersTestAccount.Id, claims.UserId, nil
-			},
 			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
 				return usersTestAccount.Users[id], nil
 			},
@@ -127,15 +124,6 @@ func initUsersTestData() *handler {
 				return nil
 			},
 		},
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				return jwtclaims.AuthorizationClaims{
-					UserId:    existingUserID,
-					Domain:    testDomain,
-					AccountId: existingAccountID,
-				}
-			}),
-		),
 	}
 }
 
@@ -158,6 +146,11 @@ func TestGetUsers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    existingUserID,
+				Domain:    testDomain,
+				AccountId: existingAccountID,
+			})
 
 			userHandler.getAllUsers(recorder, req)
 
@@ -263,6 +256,11 @@ func TestUpdateUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    existingUserID,
+				Domain:    testDomain,
+				AccountId: existingAccountID,
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/users/{userId}", userHandler.updateUser).Methods("PUT")
@@ -355,6 +353,11 @@ func TestCreateUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 			rr := httptest.NewRecorder()
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    existingUserID,
+				Domain:    testDomain,
+				AccountId: existingAccountID,
+			})
 
 			userHandler.createUser(rr, req)
 
@@ -399,6 +402,12 @@ func TestInviteUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 			req = mux.SetURLVars(req, tc.requestVars)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    existingUserID,
+				Domain:    testDomain,
+				AccountId: existingAccountID,
+			})
+
 			rr := httptest.NewRecorder()
 
 			userHandler.inviteUser(rr, req)
@@ -452,6 +461,12 @@ func TestDeleteUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 			req = mux.SetURLVars(req, tc.requestVars)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    existingUserID,
+				Domain:    testDomain,
+				AccountId: existingAccountID,
+			})
+
 			rr := httptest.NewRecorder()
 
 			userHandler.deleteUser(rr, req)
