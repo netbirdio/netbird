@@ -179,7 +179,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
 		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
 		MarkPATUsedFunc:                 mockMarkPATUsed,
-		GetAccountInfoFromPATFunc:       mockGetAccountInfoFromPAT,
+		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
 	authMiddleware := NewAuthMiddleware(
@@ -280,7 +280,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
 		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
 		MarkPATUsedFunc:                 mockMarkPATUsed,
-		GetAccountInfoFromPATFunc:       mockGetAccountInfoFromPAT,
+		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
 	authMiddleware := NewAuthMiddleware(
