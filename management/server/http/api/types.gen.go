@@ -692,6 +692,9 @@ type Peer struct {
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
+	// ExtraDnsLabels Extra DNS labels added to the peer
+	ExtraDnsLabels []string `json:"extra_dns_labels"`
+
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
 	GeonameId int `json:"geoname_id"`
 
@@ -769,6 +772,9 @@ type PeerBatch struct {
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// ExtraDnsLabels Extra DNS labels added to the peer
+	ExtraDnsLabels []string `json:"extra_dns_labels"`
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
 	GeonameId int `json:"geoname_id"`

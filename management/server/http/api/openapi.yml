@@ -361,6 +361,12 @@ components:
               description: System serial number
               type: string
               example: "C02XJ0J0JGH7"
+            extra_dns_labels:
+              description: Extra DNS labels added to the peer
+              type: array
+              items:
+                type: string
+                example: "stage-host-1"
           required:
             - city_name
             - connected
@@ -384,6 +390,7 @@ components:
             - ui_version
             - approval_required
             - serial_number
+            - extra_dns_labels
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
