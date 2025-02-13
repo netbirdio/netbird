@@ -53,7 +53,7 @@ type MockAccountManager struct {
 	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
 	DeletePolicyFunc                    func(ctx context.Context, accountID, policyID, userID string) error
 	ListPoliciesFunc                    func(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
-	GetUsersFromAccountFunc             func(ctx context.Context, accountID, userID string) ([]*types.UserInfo, error)
+	GetUsersFromAccountFunc             func(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
 	GetPATInfoFunc                      func(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, string, string, error)
 	MarkPATUsedFunc                     func(ctx context.Context, pat string) error
 	UpdatePeerMetaFunc                  func(ctx context.Context, peerID string, meta nbpeer.PeerSystemMeta) error
@@ -165,7 +165,7 @@ func (am *MockAccountManager) GetAllGroups(ctx context.Context, accountID, userI
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
-func (am *MockAccountManager) GetUsersFromAccount(ctx context.Context, accountID string, userID string) ([]*types.UserInfo, error) {
+func (am *MockAccountManager) GetUsersFromAccount(ctx context.Context, accountID string, userID string) (map[string]*types.UserInfo, error) {
 	if am.GetUsersFromAccountFunc != nil {
 		return am.GetUsersFromAccountFunc(ctx, accountID, userID)
 	}

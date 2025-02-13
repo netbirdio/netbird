@@ -18,7 +18,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 )
 
 // createServiceUser creates a new service user under the given account.
@@ -775,7 +774,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
 // based on provided user role.
-func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInfo, error) {
+func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accountID, initiatorUserID string) (map[string]*types.UserInfo, error) {
 	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
@@ -790,8 +789,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	userInfosMap, err := am.buildUserInfosForAccount(ctx, accountID, initiatorUser, accountUsers)
-	return maps.Values(userInfosMap), err
+	return am.buildUserInfosForAccount(ctx, accountID, initiatorUser, accountUsers)
 }
 
 func (am *DefaultAccountManager) buildUserInfosForAccount(ctx context.Context, accountID string, initiatorUser *types.User, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
