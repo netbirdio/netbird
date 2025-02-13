@@ -536,10 +536,16 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	var updatedUsersInfo = make([]*types.UserInfo, 0, len(updates))
+
+	userInfos, err := am.GetUsersFromAccount(ctx, accountID, initiatorUserID)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, updatedUser := range usersToSave {
-		updatedUserInfo, err := am.getUserInfo(ctx, updatedUser, accountID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user info: %w", err)
+		updatedUserInfo, ok := userInfos[updatedUser.Id]
+		if !ok || updatedUserInfo == nil {
+			return nil, fmt.Errorf("failed to get user: %s updated user info", updatedUser.Id)
 		}
 		updatedUsersInfo = append(updatedUsersInfo, updatedUserInfo)
 	}
