@@ -11,6 +11,7 @@ import (
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
 	"github.com/netbirdio/netbird/management/server/util"
+	"golang.org/x/exp/maps"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -867,7 +868,10 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err = am.DeleteRegularUsers(context.Background(), mockAccountID, mockUserID, tc.userIDs)
+			userInfos, err := am.buildUserInfosForAccount(context.Background(), mockAccountID, account.Users[mockUserID], maps.Values(account.Users))
+			assert.NoError(t, err)
+
+			err = am.DeleteRegularUsers(context.Background(), mockAccountID, mockUserID, tc.userIDs, userInfos)
 			if len(tc.expectedReasons) > 0 {
 				assert.Error(t, err)
 				var foundExpectedErrors int
