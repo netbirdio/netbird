@@ -868,7 +868,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			userInfos, err := am.buildUserInfosForAccount(context.Background(), mockAccountID, account.Users[mockUserID], maps.Values(account.Users))
+			userInfos, err := am.BuildUserInfosForAccount(context.Background(), mockAccountID, mockUserID, maps.Values(account.Users))
 			assert.NoError(t, err)
 
 			err = am.DeleteRegularUsers(context.Background(), mockAccountID, mockUserID, tc.userIDs, userInfos)

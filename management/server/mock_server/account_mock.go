@@ -110,6 +110,7 @@ type MockAccountManager struct {
 	GetUserByIDFunc                     func(ctx context.Context, id string) (*types.User, error)
 	GetAccountSettingsFunc              func(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
+	BuildUserInfosForAccountFunc        func(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -848,4 +849,12 @@ func (am *MockAccountManager) GetPeerGroups(ctx context.Context, accountID, peer
 		return am.GetPeerGroupsFunc(ctx, accountID, peerID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerGroups is not implemented")
+}
+
+// BuildUserInfosForAccount mocks BuildUserInfosForAccount of the AccountManager interface
+func (am *MockAccountManager) BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
+	if am.BuildUserInfosForAccountFunc != nil {
+		return am.BuildUserInfosForAccountFunc(ctx, accountID, initiatorUserID, accountUsers)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method BuildUserInfosForAccount is not implemented")
 }

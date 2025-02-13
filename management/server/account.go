@@ -149,6 +149,7 @@ type AccountManager interface {
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	UpdateAccountPeers(ctx context.Context, accountID string)
+	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 }
 
 type DefaultAccountManager struct {
@@ -618,7 +619,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
 
-	userInfosMap, err := am.buildUserInfosForAccount(ctx, accountID, user, maps.Values(account.Users))
+	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
 	}

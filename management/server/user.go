@@ -264,8 +264,12 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return am.deleteServiceUser(ctx, accountID, initiatorUserID, targetUser)
 	}
 
-	// TODO: handle single user info
-	updateAccountPeers, err := am.deleteRegularUser(ctx, accountID, initiatorUserID, nil)
+	userInfo, err := am.getUserInfo(ctx, targetUser, accountID)
+	if err != nil {
+		return err
+	}
+
+	updateAccountPeers, err := am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
 	if err != nil {
 		return err
 	}
@@ -789,12 +793,18 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return nil, status.NewUserNotPartOfAccountError()
 	}
 
-	return am.buildUserInfosForAccount(ctx, accountID, initiatorUser, accountUsers)
+	return am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
 }
 
-func (am *DefaultAccountManager) buildUserInfosForAccount(ctx context.Context, accountID string, initiatorUser *types.User, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
+// BuildUserInfosForAccount builds user info for the given account.
+func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
 	var queriedUsers []*idp.UserData
 	var err error
+
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+	if err != nil {
+		return nil, err
+	}
 
 	if !isNil(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
