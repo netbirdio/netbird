@@ -6,7 +6,7 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-// AuthorizationClaims stores authorization information from JWTs
+// deprecated, use UserAuth instead
 type AuthorizationClaims struct {
 	UserId         string
 	AccountId      string

@@ -13,9 +13,9 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
@@ -43,23 +43,11 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 
 	return &geolocationsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return claims.AccountId, claims.UserId, nil
-			},
 			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
 				return types.NewAdminUser(id), nil
 			},
 		},
 		geolocationManager: geo,
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
-					Domain:    "hotmail.com",
-					AccountId: "test_id",
-				}
-			}),
-		),
 	}
 }
 
@@ -112,6 +100,11 @@ func TestGetCitiesByCountry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/locations/countries/{country}/cities", geolocationHandler.getCitiesByCountry).Methods("GET")
@@ -200,6 +193,11 @@ func TestGetAllCountries(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/locations/countries", geolocationHandler.getAllCountries).Methods("GET")
