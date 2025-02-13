@@ -2,11 +2,8 @@ package routes
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/netip"
-	"regexp"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/gorilla/mux"
@@ -21,7 +18,6 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-const maxDomains = 32
 const failedToConvertRoute = "failed to convert route to response: %v"
 
 // handler is the routes handler of the account
@@ -102,7 +98,7 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 	var networkType route.NetworkType
 	var newPrefix netip.Prefix
 	if req.Domains != nil {
-		d, err := validateDomains(*req.Domains)
+		d, err := domain.ValidateDomains(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
@@ -225,7 +221,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Domains != nil {
-		d, err := validateDomains(*req.Domains)
+		d, err := domain.ValidateDomains(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
@@ -349,35 +345,4 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 		route.AccessControlGroups = &serverRoute.AccessControlGroups
 	}
 	return route, nil
-}
-
-// validateDomains checks if each domain in the list is valid and returns a punycode-encoded DomainList.
-func validateDomains(domains []string) (domain.List, error) {
-	if len(domains) == 0 {
-		return nil, fmt.Errorf("domains list is empty")
-	}
-	if len(domains) > maxDomains {
-		return nil, fmt.Errorf("domains list exceeds maximum allowed domains: %d", maxDomains)
-	}
-
-	domainRegex := regexp.MustCompile(`^(?:\*\.)?(?:(?:xn--)?[a-zA-Z0-9_](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?\.)*(?:xn--)?[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?$`)
-
-	var domainList domain.List
-
-	for _, d := range domains {
-		d := strings.ToLower(d)
-
-		// handles length and idna conversion
-		punycode, err := domain.FromString(d)
-		if err != nil {
-			return domainList, fmt.Errorf("failed to convert domain to punycode: %s: %v", d, err)
-		}
-
-		if !domainRegex.MatchString(string(punycode)) {
-			return domainList, fmt.Errorf("invalid domain format: %s", d)
-		}
-
-		domainList = append(domainList, punycode)
-	}
-	return domainList, nil
 }

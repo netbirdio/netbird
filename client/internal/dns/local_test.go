@@ -55,7 +55,7 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 			resolver := &localResolver{
 				registeredMap: make(registrationMap),
 			}
-			_ = resolver.registerRecord(testCase.inputRecord)
+			_, _ = resolver.registerRecord(testCase.inputRecord)
 			var responseMSG *dns.Msg
 			responseWriter := &mockResponseWriter{
 				WriteMsgFunc: func(m *dns.Msg) error {
