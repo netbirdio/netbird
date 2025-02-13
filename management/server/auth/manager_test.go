@@ -180,7 +180,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 
 		userAuth, err := manager.EnsureUserAccessByJWTGroups(context.Background(), userAuth, token)
 		require.NoError(t, err, "ensure user access by JWT groups failed")
-		require.Len(t, userAuth.Groups, 0, "account missing allowed groups")
+		require.Equal(t, []string{"group1", "group2"}, userAuth.Groups, "group parsed do not match")
 	})
 
 	t.Run("User in allowed JWT groups", func(t *testing.T) {
