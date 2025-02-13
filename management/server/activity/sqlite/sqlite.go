@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -95,6 +96,7 @@ func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(runtime.NumCPU())
 
 	crypt, err := NewFieldEncrypt(encryptionKey)
 	if err != nil {
