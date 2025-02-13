@@ -81,9 +81,8 @@ func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbco
 	// Ensures JWT group synchronization to the management is enabled before,
 	// filtering access based on the allowed groups.
 	if settings != nil && settings.JWTGroupsEnabled {
+		userAuth.Groups = m.extractor.ToGroups(token, settings.JWTGroupsClaimName)
 		if allowedGroups := settings.JWTAllowGroups; len(allowedGroups) > 0 {
-			userAuth.Groups = m.extractor.ToGroups(token, settings.JWTGroupsClaimName)
-
 			if !userHasAllowedGroup(allowedGroups, userAuth.Groups) {
 				return userAuth, fmt.Errorf("user does not belong to any of the allowed JWT groups")
 			}
