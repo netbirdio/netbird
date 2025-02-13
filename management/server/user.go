@@ -946,20 +946,6 @@ func (am *DefaultAccountManager) deleteUserFromIDP(ctx context.Context, targetUs
 	return nil
 }
 
-func (am *DefaultAccountManager) getEmailAndNameOfTargetUser(ctx context.Context, accountId, initiatorId, targetId string) (string, string, error) {
-	userInfos, err := am.GetUsersFromAccount(ctx, accountId, initiatorId)
-	if err != nil {
-		return "", "", err
-	}
-	for _, ui := range userInfos {
-		if ui.ID == targetId {
-			return ui.Email, ui.Name, nil
-		}
-	}
-
-	return "", "", fmt.Errorf("user info not found for user: %s", targetId)
-}
-
 // DeleteRegularUsers deletes regular users from an account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
