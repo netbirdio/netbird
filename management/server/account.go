@@ -67,7 +67,7 @@ type AccountManager interface {
 	SaveSetupKey(ctx context.Context, accountID string, key *types.SetupKey, userID string) (*types.SetupKey, error)
 	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *types.UserInfo) (*types.UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
-	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
+	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error)
@@ -617,6 +617,12 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	if user.Role != types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
+
+	userInfosMap, err := am.buildUserInfosForAccount(ctx, accountID, user, maps.Values(account.Users))
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
+	}
+
 	for _, otherUser := range account.Users {
 		if otherUser.IsServiceUser {
 			continue
@@ -626,13 +632,23 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 			continue
 		}
 
-		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, otherUser.Id)
+		userInfo, ok := userInfosMap[otherUser.Id]
+		if !ok {
+			return status.Errorf(status.NotFound, "user info not found for user %s", otherUser.Id)
+		}
+
+		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, userInfo)
 		if deleteUserErr != nil {
 			return deleteUserErr
 		}
 	}
 
-	_, err = am.deleteRegularUser(ctx, accountID, userID, userID)
+	userInfo, ok := userInfosMap[userID]
+	if !ok {
+		return status.Errorf(status.NotFound, "user info not found for user %s", userID)
+	}
+
+	_, err = am.deleteRegularUser(ctx, accountID, userID, userInfo)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
 		return err

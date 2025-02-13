@@ -69,7 +69,7 @@ type MockAccountManager struct {
 	SaveOrAddUserFunc                   func(ctx context.Context, accountID, userID string, user *types.User, addIfNotExists bool) (*types.UserInfo, error)
 	SaveOrAddUsersFunc                  func(ctx context.Context, accountID, initiatorUserID string, update []*types.User, addIfNotExists bool) ([]*types.UserInfo, error)
 	DeleteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
-	DeleteRegularUsersFunc              func(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
+	DeleteRegularUsersFunc              func(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
 	CreatePATFunc                       func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                       func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) error
 	GetPATFunc                          func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) (*types.PersonalAccessToken, error)
@@ -550,9 +550,9 @@ func (am *MockAccountManager) DeleteUser(ctx context.Context, accountID string, 
 }
 
 // DeleteRegularUsers mocks DeleteRegularUsers of the AccountManager interface
-func (am *MockAccountManager) DeleteRegularUsers(ctx context.Context, accountID string, initiatorUserID string, targetUserIDs []string) error {
+func (am *MockAccountManager) DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error {
 	if am.DeleteRegularUsersFunc != nil {
-		return am.DeleteRegularUsersFunc(ctx, accountID, initiatorUserID, targetUserIDs)
+		return am.DeleteRegularUsersFunc(ctx, accountID, initiatorUserID, targetUserIDs, userInfos)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeleteRegularUsers is not implemented")
 }
