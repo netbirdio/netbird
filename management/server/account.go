@@ -67,7 +67,7 @@ type AccountManager interface {
 	SaveSetupKey(ctx context.Context, accountID string, key *types.SetupKey, userID string) (*types.SetupKey, error)
 	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *types.UserInfo) (*types.UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
-	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
+	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error)
@@ -96,7 +96,7 @@ type AccountManager interface {
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error)
-	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*types.UserInfo, error)
+	GetUsersFromAccount(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
@@ -149,6 +149,7 @@ type AccountManager interface {
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	UpdateAccountPeers(ctx context.Context, accountID string)
+	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 }
 
 type DefaultAccountManager struct {
@@ -617,6 +618,12 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	if user.Role != types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
+
+	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
+	}
+
 	for _, otherUser := range account.Users {
 		if otherUser.IsServiceUser {
 			continue
@@ -626,13 +633,23 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 			continue
 		}
 
-		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, otherUser.Id)
+		userInfo, ok := userInfosMap[otherUser.Id]
+		if !ok {
+			return status.Errorf(status.NotFound, "user info not found for user %s", otherUser.Id)
+		}
+
+		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, userInfo)
 		if deleteUserErr != nil {
 			return deleteUserErr
 		}
 	}
 
-	_, err = am.deleteRegularUser(ctx, accountID, userID, userID)
+	userInfo, ok := userInfosMap[userID]
+	if !ok {
+		return status.Errorf(status.NotFound, "user info not found for user %s", userID)
+	}
+
+	_, err = am.deleteRegularUser(ctx, accountID, userID, userInfo)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
 		return err
