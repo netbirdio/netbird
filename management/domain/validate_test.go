@@ -201,8 +201,6 @@ func TestValidateDomainsStrSlice(t *testing.T) {
 			}
 
 			// Compare the returned domains to what we expect
-			// Note: in the case of an error, you might not care about the partial result.
-			// If you do, you can change the assertion logic accordingly.
 			assert.Equal(t, tt.expected, got)
 		})
 	}
