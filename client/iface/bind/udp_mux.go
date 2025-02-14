@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 
@@ -152,46 +153,7 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
 	}
 
-	var localAddrsForUnspecified []net.Addr
-	if addr, ok := params.UDPConn.LocalAddr().(*net.UDPAddr); !ok {
-		params.Logger.Errorf("LocalAddr is not a net.UDPAddr, got %T", params.UDPConn.LocalAddr())
-	} else if ok && addr.IP.IsUnspecified() {
-		// For unspecified addresses, the correct behavior is to return errListenUnspecified, but
-		// it will break the applications that are already using unspecified UDP connection
-		// with UDPMuxDefault, so print a warn log and create a local address list for mux.
-		params.Logger.Warn("UDPMuxDefault should not listening on unspecified address, use NewMultiUDPMuxFromPort instead")
-		var networks []ice.NetworkType
-		switch {
-
-		case addr.IP.To16() != nil:
-			networks = []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6}
-
-		case addr.IP.To4() != nil:
-			networks = []ice.NetworkType{ice.NetworkTypeUDP4}
-
-		default:
-			params.Logger.Errorf("LocalAddr expected IPV4 or IPV6, got %T", params.UDPConn.LocalAddr())
-		}
-		if len(networks) > 0 {
-			if params.Net == nil {
-				var err error
-				if params.Net, err = stdnet.NewNet(); err != nil {
-					params.Logger.Errorf("failed to get create network: %v", err)
-				}
-			}
-
-			ips, err := localInterfaces(params.Net, params.InterfaceFilter, nil, networks, true)
-			if err == nil {
-				for _, ip := range ips {
-					localAddrsForUnspecified = append(localAddrsForUnspecified, &net.UDPAddr{IP: ip, Port: addr.Port})
-				}
-			} else {
-				params.Logger.Errorf("failed to get local interfaces for unspecified addr: %v", err)
-			}
-		}
-	}
-
-	return &UDPMuxDefault{
+	mux := &UDPMuxDefault{
 		addressMap: map[string][]*udpMuxedConn{},
 		params:     params,
 		connsIPv4:  make(map[string]*udpMuxedConn),
@@ -203,8 +165,55 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 				return newBufferHolder(receiveMTU + maxAddrSize)
 			},
 		},
-		localAddrsForUnspecified: localAddrsForUnspecified,
 	}
+
+	mux.updateLocalAddresses()
+	return mux
+}
+
+func (m *UDPMuxDefault) updateLocalAddresses() {
+	var localAddrsForUnspecified []net.Addr
+	if addr, ok := m.params.UDPConn.LocalAddr().(*net.UDPAddr); !ok {
+		m.params.Logger.Errorf("LocalAddr is not a net.UDPAddr, got %T", m.params.UDPConn.LocalAddr())
+	} else if ok && addr.IP.IsUnspecified() {
+		// For unspecified addresses, the correct behavior is to return errListenUnspecified, but
+		// it will break the applications that are already using unspecified UDP connection
+		// with UDPMuxDefault, so print a warn log and create a local address list for mux.
+		m.params.Logger.Warn("UDPMuxDefault should not listening on unspecified address, use NewMultiUDPMuxFromPort instead")
+		var networks []ice.NetworkType
+		switch {
+
+		case addr.IP.To16() != nil:
+			networks = []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6}
+
+		case addr.IP.To4() != nil:
+			networks = []ice.NetworkType{ice.NetworkTypeUDP4}
+
+		default:
+			m.params.Logger.Errorf("LocalAddr expected IPV4 or IPV6, got %T", m.params.UDPConn.LocalAddr())
+		}
+		if len(networks) > 0 {
+			if m.params.Net == nil {
+				var err error
+				if m.params.Net, err = stdnet.NewNet(); err != nil {
+					m.params.Logger.Errorf("failed to get create network: %v", err)
+				}
+			}
+
+			ips, err := localInterfaces(m.params.Net, m.params.InterfaceFilter, nil, networks, true)
+			if err == nil {
+				for _, ip := range ips {
+					localAddrsForUnspecified = append(localAddrsForUnspecified, &net.UDPAddr{IP: ip, Port: addr.Port})
+				}
+			} else {
+				m.params.Logger.Errorf("failed to get local interfaces for unspecified addr: %v", err)
+			}
+		}
+	}
+
+	m.mu.Lock()
+	m.localAddrsForUnspecified = localAddrsForUnspecified
+	m.mu.Unlock()
 }
 
 // LocalAddr returns the listening address of this UDPMuxDefault
@@ -214,8 +223,12 @@ func (m *UDPMuxDefault) LocalAddr() net.Addr {
 
 // GetListenAddresses returns the list of addresses that this mux is listening on
 func (m *UDPMuxDefault) GetListenAddresses() []net.Addr {
+	m.updateLocalAddresses()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if len(m.localAddrsForUnspecified) > 0 {
-		return m.localAddrsForUnspecified
+		return slices.Clone(m.localAddrsForUnspecified)
 	}
 
 	return []net.Addr{m.LocalAddr()}
@@ -225,7 +238,10 @@ func (m *UDPMuxDefault) GetListenAddresses() []net.Addr {
 // creates the connection if an existing one can't be found
 func (m *UDPMuxDefault) GetConn(ufrag string, addr net.Addr) (net.PacketConn, error) {
 	// don't check addr for mux using unspecified address
-	if len(m.localAddrsForUnspecified) == 0 && m.params.UDPConn.LocalAddr().String() != addr.String() {
+	m.mu.Lock()
+	lenLocalAddrs := len(m.localAddrsForUnspecified)
+	m.mu.Unlock()
+	if lenLocalAddrs == 0 && m.params.UDPConn.LocalAddr().String() != addr.String() {
 		return nil, fmt.Errorf("invalid address %s", addr.String())
 	}
 
