@@ -54,6 +54,9 @@ func (n *Net) UpdateInterfaces() (err error) {
 // Interfaces returns a slice of interfaces which are available on the
 // system
 func (n *Net) Interfaces() ([]*transport.Interface, error) {
+	if err := n.UpdateInterfaces(); err != nil {
+		return nil, fmt.Errorf("update interfaces: %w", err)
+	}
 	return n.interfaces, nil
 }
 
