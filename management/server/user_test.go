@@ -10,7 +10,10 @@ import (
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
+
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/util"
+	"golang.org/x/exp/maps"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -24,7 +27,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 const (
@@ -45,7 +47,7 @@ const (
 )
 
 func TestUser_CreatePAT_ForSameUser(t *testing.T) {
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
 		t.Fatalf("Error when creating store: %s", err)
 	}
@@ -53,13 +55,13 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err = store.SaveAccount(context.Background(), account)
+	err = s.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
 	am := DefaultAccountManager{
-		Store:      store,
+		Store:      s,
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
@@ -81,7 +83,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.ID, tokenID)
 
-	user, err := am.Store.GetUserByTokenID(context.Background(), tokenID)
+	user, err := am.Store.GetUserByPATID(context.Background(), store.LockingStrengthShare, tokenID)
 	if err != nil {
 		t.Fatalf("Error when getting user by token ID: %s", err)
 	}
@@ -855,7 +857,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 		{
 			name:               "Delete non-existent user",
 			userIDs:            []string{"non-existent-user"},
-			expectedReasons:    []string{"target user: non-existent-user not found"},
+			expectedReasons:    []string{"user: non-existent-user not found"},
 			expectedNotDeleted: []string{},
 		},
 		{
@@ -867,7 +869,10 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err = am.DeleteRegularUsers(context.Background(), mockAccountID, mockUserID, tc.userIDs)
+			userInfos, err := am.BuildUserInfosForAccount(context.Background(), mockAccountID, mockUserID, maps.Values(account.Users))
+			assert.NoError(t, err)
+
+			err = am.DeleteRegularUsers(context.Background(), mockAccountID, mockUserID, tc.userIDs, userInfos)
 			if len(tc.expectedReasons) > 0 {
 				assert.Error(t, err)
 				var foundExpectedErrors int
@@ -921,11 +926,12 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	claims := jwtclaims.AuthorizationClaims{
-		UserId: mockUserID,
+	claims := nbcontext.UserAuth{
+		UserId:    mockUserID,
+		AccountId: mockAccountID,
 	}
 
-	user, err := am.GetUser(context.Background(), claims)
+	user, err := am.GetUserFromUserAuth(context.Background(), claims)
 	if err != nil {
 		t.Fatalf("Error when checking user role: %s", err)
 	}
