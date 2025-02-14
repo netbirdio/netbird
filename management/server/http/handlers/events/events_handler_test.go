@@ -32,8 +32,8 @@ func initEventsTestData(account string, events ...*activity.Event) *handler {
 			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
 				return claims.AccountId, claims.UserId, nil
 			},
-			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*types.UserInfo, error) {
-				return make([]*types.UserInfo, 0), nil
+			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) (map[string]*types.UserInfo, error) {
+				return make(map[string]*types.UserInfo), nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
