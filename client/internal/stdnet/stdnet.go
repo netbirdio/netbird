@@ -5,10 +5,13 @@ package stdnet
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
 )
+
+const updateInterval = 30 * time.Second
 
 // Net is an implementation of the net.Net interface
 // based on functions of the standard net package.
@@ -18,6 +21,7 @@ type Net struct {
 	iFaceDiscover iFaceDiscover
 	// interfaceFilter should return true if the given interfaceName is allowed
 	interfaceFilter func(interfaceName string) bool
+	lastUpdate      time.Time
 }
 
 // NewNetWithDiscover creates a new StdNet instance.
@@ -48,15 +52,22 @@ func (n *Net) UpdateInterfaces() (err error) {
 		return err
 	}
 	n.interfaces = n.filterInterfaces(allIfaces)
+
 	return nil
 }
 
 // Interfaces returns a slice of interfaces which are available on the
 // system
 func (n *Net) Interfaces() ([]*transport.Interface, error) {
+	if time.Since(n.lastUpdate) < updateInterval {
+		return n.interfaces, nil
+	}
+
 	if err := n.UpdateInterfaces(); err != nil {
 		return nil, fmt.Errorf("update interfaces: %w", err)
 	}
+	n.lastUpdate = time.Now()
+
 	return n.interfaces, nil
 }
 
