@@ -71,9 +71,15 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 	}
 
 	if len(m.routes) > 0 {
-		err := systemops.EnableIPForwarding()
-		if err != nil {
-			return err
+		if err := systemops.EnableIPForwarding(); err != nil {
+			return fmt.Errorf("enable ip forwarding: %w", err)
+		}
+		if err := m.firewall.EnableRouting(); err != nil {
+			return fmt.Errorf("enable routing: %w", err)
+		}
+	} else {
+		if err := m.firewall.DisableRouting(); err != nil {
+			return fmt.Errorf("disable routing: %w", err)
 		}
 	}
 

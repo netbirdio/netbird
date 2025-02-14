@@ -273,8 +273,8 @@ func TestClient_Sync(t *testing.T) {
 		if resp.GetPeerConfig() == nil {
 			t.Error("expecting non nil PeerConfig got nil")
 		}
-		if resp.GetWiretrusteeConfig() == nil {
-			t.Error("expecting non nil WiretrusteeConfig got nil")
+		if resp.GetNetbirdConfig() == nil {
+			t.Error("expecting non nil NetbirdConfig got nil")
 		}
 		if len(resp.GetRemotePeers()) != 1 {
 			t.Errorf("expecting RemotePeers size %d got %d", 1, len(resp.GetRemotePeers()))
@@ -366,15 +366,15 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	}
 
 	expectedMeta := &mgmtProto.PeerSystemMeta{
-		Hostname:           info.Hostname,
-		GoOS:               info.GoOS,
-		Kernel:             info.Kernel,
-		Platform:           info.Platform,
-		OS:                 info.OS,
-		Core:               info.OSVersion,
-		OSVersion:          info.OSVersion,
-		WiretrusteeVersion: info.WiretrusteeVersion,
-		KernelVersion:      info.KernelVersion,
+		Hostname:       info.Hostname,
+		GoOS:           info.GoOS,
+		Kernel:         info.Kernel,
+		Platform:       info.Platform,
+		OS:             info.OS,
+		Core:           info.OSVersion,
+		OSVersion:      info.OSVersion,
+		NetbirdVersion: info.NetbirdVersion,
+		KernelVersion:  info.KernelVersion,
 
 		NetworkAddresses: protoNetAddr,
 		SysSerialNumber:  info.SystemSerialNumber,
@@ -417,7 +417,7 @@ func isEqual(a, b *mgmtProto.PeerSystemMeta) bool {
 		a.GetPlatform() == b.GetPlatform() &&
 		a.GetOS() == b.GetOS() &&
 		a.GetOSVersion() == b.GetOSVersion() &&
-		a.GetWiretrusteeVersion() == b.GetWiretrusteeVersion() &&
+		a.GetNetbirdVersion() == b.GetNetbirdVersion() &&
 		a.GetUiVersion() == b.GetUiVersion() &&
 		a.GetSysSerialNumber() == b.GetSysSerialNumber() &&
 		a.GetSysProductName() == b.GetSysProductName() &&

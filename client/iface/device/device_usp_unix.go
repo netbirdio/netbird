@@ -4,8 +4,6 @@ package device
 
 import (
 	"fmt"
-	"os"
-	"runtime"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
@@ -31,8 +29,6 @@ type USPDevice struct {
 
 func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind) *USPDevice {
 	log.Infof("using userspace bind mode")
-
-	checkUser()
 
 	return &USPDevice{
 		name:    name,
@@ -128,18 +124,14 @@ func (t *USPDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
+// Device returns the wireguard device
+func (t *USPDevice) Device() *device.Device {
+	return t.device
+}
+
 // assignAddr Adds IP address to the tunnel interface
 func (t *USPDevice) assignAddr() error {
 	link := newWGLink(t.name)
 
 	return link.assignAddr(t.address)
-}
-
-func checkUser() {
-	if runtime.GOOS == "freebsd" {
-		euid := os.Geteuid()
-		if euid != 0 {
-			log.Warn("newTunUSPDevice: on netbird must run as root to be able to assign address to the tun interface with ifconfig")
-		}
-	}
 }

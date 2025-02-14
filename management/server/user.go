@@ -287,6 +287,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 	}
 
 	delete(account.Users, targetUserID)
+	if updateAccountPeers {
+		account.Network.IncSerial()
+	}
+
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return err
@@ -311,12 +315,20 @@ func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorU
 		return false, nil
 	}
 
-	peerIDs := make([]string, 0, len(peers))
-	for _, peer := range peers {
-		peerIDs = append(peerIDs, peer.ID)
+	eventsToStore, err := deletePeers(ctx, am, am.Store, account.Id, initiatorUserID, peers)
+	if err != nil {
+		return false, err
 	}
 
-	return hadPeers, am.deletePeers(ctx, account, peerIDs, initiatorUserID)
+	for _, storeEvent := range eventsToStore {
+		storeEvent()
+	}
+
+	for _, peer := range peers {
+		account.DeletePeer(peer.ID)
+	}
+
+	return hadPeers, nil
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
@@ -628,7 +640,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if len(expiredPeers) > 0 {
-		if err := am.expireAndUpdatePeers(ctx, account, expiredPeers); err != nil {
+		if err := am.expireAndUpdatePeers(ctx, account.Id, expiredPeers); err != nil {
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
@@ -955,7 +967,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 }
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
-func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, account *types.Account, peers []*nbpeer.Peer) error {
+func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
@@ -966,16 +978,13 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		}
 		peerIDs = append(peerIDs, peer.ID)
 		peer.MarkLoginExpired(true)
-		account.UpdatePeer(peer)
-		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
-			return fmt.Errorf("failed saving peer status for peer %s: %s", peer.ID, err)
+
+		if err := am.Store.SavePeerStatus(ctx, store.LockingStrengthUpdate, accountID, peer.ID, *peer.Status); err != nil {
+			return err
 		}
-
-		log.WithContext(ctx).Tracef("mark peer %s login expired", peer.ID)
-
 		am.StoreEvent(
 			ctx,
-			peer.UserID, peer.ID, account.Id,
+			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
 		)
 	}
@@ -983,7 +992,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.UpdateAccountPeers(ctx, account.Id)
+		am.UpdateAccountPeers(ctx, accountID)
 	}
 	return nil
 }
@@ -1085,6 +1094,9 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		deletedUsersMeta[targetUserID] = meta
 	}
 
+	if updateAccountPeers {
+		account.Network.IncSerial()
+	}
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return fmt.Errorf("failed to delete users: %w", err)
