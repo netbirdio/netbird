@@ -956,7 +956,7 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 	}
 
 	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), getGormConfig(SqliteStoreEngine))
+	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -966,7 +966,7 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 
 // NewPostgresqlStore creates a new Postgres store.
 func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	db, err := gorm.Open(postgres.Open(dsn), getGormConfig(PostgresStoreEngine))
+	db, err := gorm.Open(postgres.Open(dsn), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -976,7 +976,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 
 // NewMysqlStore creates a new MySQL store.
 func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), getGormConfig(MysqlStoreEngine))
+	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -984,15 +984,10 @@ func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics
 	return NewSqlStore(ctx, db, MysqlStoreEngine, metrics)
 }
 
-func getGormConfig(engine Engine) *gorm.Config {
-	prepStmt := true
-	if engine == SqliteStoreEngine {
-		prepStmt = false
-	}
+func getGormConfig() *gorm.Config {
 	return &gorm.Config{
 		Logger:          logger.Default.LogMode(logger.Silent),
 		CreateBatchSize: 400,
-		PrepareStmt:     prepStmt,
 	}
 }
 
