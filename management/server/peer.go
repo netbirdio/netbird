@@ -289,8 +289,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			inactivityExpirationChanged = true
 		}
 
-		//TODO(hakan): do we need to update extra dns labels here?
-
 		return transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
 	})
 	if err != nil {
