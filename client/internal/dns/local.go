@@ -2,6 +2,7 @@ package dns
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/miekg/dns"
@@ -60,6 +61,7 @@ func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 func (d *localResolver) lookupRecord(r *dns.Msg) dns.RR {
 	question := r.Question[0]
+	question.Name = strings.ToLower(question.Name)
 	record, found := d.records.Load(buildRecordKey(question.Name, question.Qclass, question.Qtype))
 	if !found {
 		return nil
