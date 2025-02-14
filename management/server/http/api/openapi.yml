@@ -361,6 +361,12 @@ components:
               description: System serial number
               type: string
               example: "C02XJ0J0JGH7"
+            extra_dns_labels:
+              description: Extra DNS labels added to the peer
+              type: array
+              items:
+                type: string
+                example: "stage-host-1"
           required:
             - city_name
             - connected
@@ -384,6 +390,7 @@ components:
             - ui_version
             - approval_required
             - serial_number
+            - extra_dns_labels
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -503,6 +510,10 @@ components:
           description: Indicate that the peer will be ephemeral or not
           type: boolean
           example: true
+        allow_extra_dns_labels:
+          description: Allow extra DNS labels to be added to the peer
+          type: boolean
+          example: true
       required:
         - id
         - key
@@ -518,6 +529,7 @@ components:
         - updated_at
         - usage_limit
         - ephemeral
+        - allow_extra_dns_labels
     SetupKeyClear:
       allOf:
         - $ref: '#/components/schemas/SetupKeyBase'
@@ -585,6 +597,10 @@ components:
           example: 0
         ephemeral:
           description: Indicate that the peer will be ephemeral or not
+          type: boolean
+          example: true
+        allow_extra_dns_labels:
+          description: Allow extra DNS labels to be added to the peer
           type: boolean
           example: true
       required:

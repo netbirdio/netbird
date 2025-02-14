@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -53,6 +54,9 @@ type PeerLogin struct {
 	SetupKey string
 	// ConnectionIP is the real IP of the peer
 	ConnectionIP net.IP
+
+	// ExtraDNSLabels is a list of extra DNS labels that the peer wants to use
+	ExtraDNSLabels []string
 }
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
@@ -502,6 +506,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		var setupKeyName string
 		var ephemeral bool
 		var groupsToAdd []string
+		var allowExtraDNSLabels bool
 		if addedByUser {
 			user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, userID)
 			if err != nil {
@@ -527,6 +532,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			ephemeral = sk.Ephemeral
 			setupKeyID = sk.Id
 			setupKeyName = sk.Name
+			allowExtraDNSLabels = sk.AllowExtraDNSLabels
+
+			if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
+				return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
+			}
 		}
 
 		if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
@@ -567,6 +577,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			Ephemeral:                   ephemeral,
 			Location:                    peer.Location,
 			InactivityExpirationEnabled: addedByUser,
+			ExtraDNSLabels:              peer.ExtraDNSLabels,
+			AllowExtraDNSLabels:         allowExtraDNSLabels,
 		}
 		opEvent.TargetID = newPeer.ID
 		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
@@ -857,6 +869,20 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
+			shouldStorePeer = true
+		}
+
+		if !peer.AllowExtraDNSLabels && len(login.ExtraDNSLabels) > 0 {
+			return status.Errorf(status.PreconditionFailed, "couldn't login peer: setup key doesn't allow extra DNS labels")
+		}
+
+		extraLabels, err := domain.ValidateDomainsStrSlice(login.ExtraDNSLabels)
+		if err != nil {
+			return status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
+		}
+
+		if !slices.Equal(peer.ExtraDNSLabels, extraLabels) {
+			peer.ExtraDNSLabels = extraLabels
 			shouldStorePeer = true
 		}
 
