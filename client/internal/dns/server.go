@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/miekg/dns"
@@ -454,6 +455,9 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 			if record.Class != nbdns.DefaultClass {
 				return nil, nil, fmt.Errorf("received an invalid class type: %s", record.Class)
 			}
+
+			record.Name = strings.ToLower(record.Name)
+
 			key := buildRecordKey(record.Name, class, uint16(record.Type))
 			localRecords[key] = record
 		}
