@@ -152,7 +152,6 @@ func TestValidateDomainsStrSlice(t *testing.T) {
 		{
 			// The function stops on the first invalid domain and returns an error,
 			// so only the first domain is definitely valid, but the second is invalid.
-			// We verify that the error is returned (we do not expect a partially filled list).
 			name:     "Multiple domains with a valid one, then invalid",
 			domains:  []string{"google.com", "invalid_domain.com-"},
 			expected: []string{"google.com"},
