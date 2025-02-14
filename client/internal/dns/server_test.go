@@ -285,7 +285,11 @@ func TestUpdateDNSServer(t *testing.T) {
 					},
 				},
 			},
-			expectedUpstreamMap: registeredHandlerMap{".": handlerWrapper{handler: &localResolver{}}},
+			expectedUpstreamMap: registeredHandlerMap{generateDummyHandler(".", nameServers).id(): handlerWrapper{
+				domain:   ".",
+				handler:  dummyHandler,
+				priority: PriorityDefault,
+			}},
 		},
 		{
 			name:         "Empty Config Should Succeed and Clean Maps",
