@@ -32,10 +32,8 @@ func TestProxyCloseByRemoteConnEBPF(t *testing.T) {
 		proxy Proxy
 	}{
 		{
-			name: "ebpf proxy",
-			proxy: &ebpf.ProxyWrapper{
-				WgeBPFProxy: ebpfProxy,
-			},
+			name:  "ebpf proxy",
+			proxy: ebpf.NewProxyWrapper(ebpfProxy),
 		},
 	}
 

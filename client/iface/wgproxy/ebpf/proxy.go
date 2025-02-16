@@ -26,6 +26,10 @@ const (
 	loopbackAddr = "127.0.0.1"
 )
 
+var (
+	localHostNetIP = net.ParseIP("127.0.0.1")
+)
+
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
 	localWGListenPort int
@@ -249,19 +253,17 @@ func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
 	return packetConn, nil
 }
 
-func (p *WGEBPFProxy) sendPkg(data []byte, port int) error {
-	localhost := net.ParseIP("127.0.0.1")
-
+func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
 	payload := gopacket.Payload(data)
 	ipH := &layers.IPv4{
-		DstIP:    localhost,
-		SrcIP:    localhost,
+		DstIP:    localHostNetIP,
+		SrcIP:    endpointAddr.IP,
 		Version:  4,
 		TTL:      64,
 		Protocol: layers.IPProtocolUDP,
 	}
 	udpH := &layers.UDP{
-		SrcPort: layers.UDPPort(port),
+		SrcPort: layers.UDPPort(endpointAddr.Port),
 		DstPort: layers.UDPPort(p.localWGListenPort),
 	}
 
@@ -276,7 +278,7 @@ func (p *WGEBPFProxy) sendPkg(data []byte, port int) error {
 	if err != nil {
 		return fmt.Errorf("serialize layers: %w", err)
 	}
-	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localhost}); err != nil {
+	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localHostNetIP}); err != nil {
 		return fmt.Errorf("write to raw conn: %w", err)
 	}
 	return nil

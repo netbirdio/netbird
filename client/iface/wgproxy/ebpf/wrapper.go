@@ -15,32 +15,39 @@ import (
 
 // ProxyWrapper help to keep the remoteConn instance for net.Conn.Close function call
 type ProxyWrapper struct {
-	WgeBPFProxy *WGEBPFProxy
+	wgeBPFProxy *WGEBPFProxy
 
 	remoteConn net.Conn
 	ctx        context.Context
 	cancel     context.CancelFunc
 
-	wgEndpointAddr *net.UDPAddr
+	wgRelayedEndpointAddr     *net.UDPAddr
+	wgEndpointCurrentUsedAddr *net.UDPAddr
 
-	pausedMu  sync.Mutex
-	paused    bool
-	isStarted bool
+	paused     bool
+	pausedCond *sync.Cond
+	isStarted  bool
 }
 
+func NewProxyWrapper(proxy *WGEBPFProxy) *ProxyWrapper {
+	return &ProxyWrapper{
+		wgeBPFProxy: proxy,
+		pausedCond:  sync.NewCond(&sync.Mutex{}),
+	}
+}
 func (p *ProxyWrapper) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
-	addr, err := p.WgeBPFProxy.AddTurnConn(remoteConn)
+	addr, err := p.wgeBPFProxy.AddTurnConn(remoteConn)
 	if err != nil {
 		return fmt.Errorf("add turn conn: %w", err)
 	}
 	p.remoteConn = remoteConn
 	p.ctx, p.cancel = context.WithCancel(ctx)
-	p.wgEndpointAddr = addr
+	p.wgRelayedEndpointAddr = addr
 	return err
 }
 
 func (p *ProxyWrapper) EndpointAddr() *net.UDPAddr {
-	return p.wgEndpointAddr
+	return p.wgRelayedEndpointAddr
 }
 
 func (p *ProxyWrapper) Work() {
@@ -48,14 +55,19 @@ func (p *ProxyWrapper) Work() {
 		return
 	}
 
-	p.pausedMu.Lock()
+	p.pausedCond.L.Lock()
 	p.paused = false
-	p.pausedMu.Unlock()
+
+	p.wgEndpointCurrentUsedAddr = p.wgRelayedEndpointAddr
 
 	if !p.isStarted {
 		p.isStarted = true
 		go p.proxyToLocal(p.ctx)
 	}
+
+	p.pausedCond.L.Unlock()
+	// todo: review to should be inside the lock scope
+	p.pausedCond.Signal()
 }
 
 func (p *ProxyWrapper) Pause() {
@@ -64,31 +76,42 @@ func (p *ProxyWrapper) Pause() {
 	}
 
 	log.Tracef("pause proxy reading from: %s", p.remoteConn.RemoteAddr())
-	p.pausedMu.Lock()
+	p.pausedCond.L.Lock()
 	p.paused = true
-	p.pausedMu.Unlock()
+	p.pausedCond.L.Unlock()
 }
 
 func (p *ProxyWrapper) RedirectTo(endpoint *net.UDPAddr) {
-	// todo implement me
+	p.pausedCond.L.Lock()
+	p.paused = false
+
+	p.wgEndpointCurrentUsedAddr = endpoint
+
+	p.pausedCond.L.Unlock()
+	p.pausedCond.Signal()
 }
 
 // CloseConn close the remoteConn and automatically remove the conn instance from the map
-func (e *ProxyWrapper) CloseConn() error {
-	if e.cancel == nil {
+func (p *ProxyWrapper) CloseConn() error {
+	if p.cancel == nil {
 		return fmt.Errorf("proxy not started")
 	}
 
-	e.cancel()
+	p.cancel()
 
-	if err := e.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+	p.pausedCond.L.Lock()
+	p.paused = false
+	p.pausedCond.L.Unlock()
+	p.pausedCond.Signal()
+
+	if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		return fmt.Errorf("failed to close remote conn: %w", err)
 	}
 	return nil
 }
 
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
-	defer p.WgeBPFProxy.removeTurnConn(uint16(p.wgEndpointAddr.Port))
+	defer p.wgeBPFProxy.removeTurnConn(uint16(p.wgRelayedEndpointAddr.Port))
 
 	buf := make([]byte, 1500)
 	for {
@@ -97,14 +120,21 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 			return
 		}
 
-		p.pausedMu.Lock()
-		if p.paused {
-			p.pausedMu.Unlock()
-			continue
+		for {
+			p.pausedCond.L.Lock()
+			if p.paused {
+				p.pausedCond.Wait()
+				if !p.paused {
+					break
+				}
+				p.pausedCond.L.Unlock()
+				continue
+			}
+			break
 		}
 
-		err = p.WgeBPFProxy.sendPkg(buf[:n], p.wgEndpointAddr.Port)
-		p.pausedMu.Unlock()
+		err = p.wgeBPFProxy.sendPkg(buf[:n], p.wgEndpointCurrentUsedAddr)
+		p.pausedCond.L.Unlock()
 
 		if err != nil {
 			if ctx.Err() != nil {
@@ -122,7 +152,7 @@ func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, err
 			return 0, ctx.Err()
 		}
 		if !errors.Is(err, io.EOF) {
-			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgEndpointAddr.Port, err)
+			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgRelayedEndpointAddr.Port, err)
 		}
 		return 0, err
 	}
