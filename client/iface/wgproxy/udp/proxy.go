@@ -95,6 +95,10 @@ func (p *WGUDPProxy) Pause() {
 	p.pausedMu.Unlock()
 }
 
+func (p *WGUDPProxy) RedirectTo(endpoint *net.UDPAddr) {
+	// todo implement me
+}
+
 // CloseConn close the localConn
 func (p *WGUDPProxy) CloseConn() error {
 	if p.cancel == nil {

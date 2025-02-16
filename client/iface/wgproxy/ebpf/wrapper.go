@@ -69,6 +69,10 @@ func (p *ProxyWrapper) Pause() {
 	p.pausedMu.Unlock()
 }
 
+func (p *ProxyWrapper) RedirectTo(endpoint *net.UDPAddr) {
+	// todo implement me
+}
+
 // CloseConn close the remoteConn and automatically remove the conn instance from the map
 func (e *ProxyWrapper) CloseConn() error {
 	if e.cancel == nil {
