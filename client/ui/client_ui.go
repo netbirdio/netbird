@@ -91,7 +91,13 @@ func main() {
 	}
 
 	client := newServiceClient(daemonAddr, a, showSettings, showRoutes)
-	client.registerSettingsChangeChan()
+	settingsChangeChan := make(chan fyne.Settings)
+	a.Settings().AddChangeListener(settingsChangeChan)
+	go func() {
+		for range settingsChangeChan {
+			client.updateIcon()
+		}
+	}()
 
 	if showSettings || showRoutes {
 		a.Run()
@@ -329,29 +335,23 @@ func (s *serviceClient) setNewIcons() {
 	}
 }
 
-func (s *serviceClient) registerSettingsChangeChan() {
-	settingsChangeChan := make(chan fyne.Settings)
-	s.app.Settings().AddChangeListener(settingsChangeChan)
-	go func() {
-		for range settingsChangeChan {
-			s.setNewIcons()
-			s.updateIndicationLock.Lock()
-			if s.connected {
-				if s.isUpdateIconActive {
-					systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
-				} else {
-					systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
-				}
-			} else {
-				if s.isUpdateIconActive {
-					systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
-				} else {
-					systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
-				}
-			}
-			s.updateIndicationLock.Unlock()
+func (s *serviceClient) updateIcon() {
+	s.setNewIcons()
+	s.updateIndicationLock.Lock()
+	if s.connected {
+		if s.isUpdateIconActive {
+			systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
+		} else {
+			systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
 		}
-	}()
+	} else {
+		if s.isUpdateIconActive {
+			systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
+		} else {
+			systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
+		}
+	}
+	s.updateIndicationLock.Unlock()
 }
 
 func (s *serviceClient) showSettingsUI() {
