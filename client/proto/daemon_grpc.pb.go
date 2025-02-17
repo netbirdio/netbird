@@ -51,6 +51,7 @@ type DaemonServiceClient interface {
 	DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error)
 	// SetNetworkMapPersistence enables or disables network map persistence
 	SetNetworkMapPersistence(ctx context.Context, in *SetNetworkMapPersistenceRequest, opts ...grpc.CallOption) (*SetNetworkMapPersistenceResponse, error)
+	TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -205,6 +206,15 @@ func (c *daemonServiceClient) SetNetworkMapPersistence(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *daemonServiceClient) TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error) {
+	out := new(TracePacketResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/TracePacket", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -242,6 +252,7 @@ type DaemonServiceServer interface {
 	DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error)
 	// SetNetworkMapPersistence enables or disables network map persistence
 	SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error)
+	TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -296,6 +307,9 @@ func (UnimplementedDaemonServiceServer) DeleteState(context.Context, *DeleteStat
 }
 func (UnimplementedDaemonServiceServer) SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetNetworkMapPersistence not implemented")
+}
+func (UnimplementedDaemonServiceServer) TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TracePacket not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -598,6 +612,24 @@ func _DaemonService_SetNetworkMapPersistence_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_TracePacket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TracePacketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).TracePacket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/TracePacket",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).TracePacket(ctx, req.(*TracePacketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -668,6 +700,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetNetworkMapPersistence",
 			Handler:    _DaemonService_SetNetworkMapPersistence_Handler,
+		},
+		{
+			MethodName: "TracePacket",
+			Handler:    _DaemonService_TracePacket_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -43,13 +42,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	mgm "github.com/netbirdio/netbird/management/client"
-	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/relay/client"
@@ -146,7 +145,7 @@ type Engine struct {
 	STUNs []*stun.URI
 	// TURNs is a list of STUN servers used by ICE
 	TURNs    []*stun.URI
-	stunTurn atomic.Value
+	stunTurn icemaker.StunTurn
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -175,8 +174,6 @@ type Engine struct {
 
 	dnsServer dns.Server
 
-	probes *ProbeHolder
-
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
@@ -196,7 +193,11 @@ type Peer struct {
 	WgAllowedIps string
 }
 
-// NewEngine creates a new Connection Engine
+type localIpUpdater interface {
+	UpdateLocalIPs() error
+}
+
+// NewEngine creates a new Connection Engine with probes attached
 func NewEngine(
 	clientCtx context.Context,
 	clientCancel context.CancelFunc,
@@ -206,33 +207,6 @@ func NewEngine(
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-) *Engine {
-	return NewEngineWithProbes(
-		clientCtx,
-		clientCancel,
-		signalClient,
-		mgmClient,
-		relayManager,
-		config,
-		mobileDep,
-		statusRecorder,
-		nil,
-		checks,
-	)
-}
-
-// NewEngineWithProbes creates a new Connection Engine with probes attached
-func NewEngineWithProbes(
-	clientCtx context.Context,
-	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
-	config *EngineConfig,
-	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	probes *ProbeHolder,
 	checks []*mgmProto.Checks,
 ) *Engine {
 	engine := &Engine{
@@ -251,7 +225,6 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		probes:         probes,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
@@ -450,7 +423,6 @@ func (e *Engine) Start() error {
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
-	e.receiveProbeEvents()
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
@@ -465,7 +437,7 @@ func (e *Engine) createFirewall() error {
 	}
 
 	var err error
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.config.DisableServerRoutes)
 	if err != nil || e.firewall == nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 		return nil
@@ -495,7 +467,7 @@ func (e *Engine) initFirewall() error {
 	}
 
 	rosenpassPort := e.rpManager.GetAddress().Port
-	port := manager.Port{Values: []int{rosenpassPort}}
+	port := manager.Port{Values: []uint16{uint16(rosenpassPort)}}
 
 	// this rule is static and will be torn down on engine down by the firewall manager
 	if _, err := e.firewall.AddPeerFiltering(
@@ -639,8 +611,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if update.GetWiretrusteeConfig() != nil {
-		wCfg := update.GetWiretrusteeConfig()
+	if update.GetNetbirdConfig() != nil {
+		wCfg := update.GetNetbirdConfig()
 		err := e.updateTURNs(wCfg.GetTurns())
 		if err != nil {
 			return fmt.Errorf("update TURNs: %w", err)
@@ -913,6 +885,14 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	// Apply ACLs in the beginning to avoid security leaks
 	if e.acl != nil {
 		e.acl.ApplyFiltering(networkMap)
+	}
+
+	if e.firewall != nil {
+		if localipfw, ok := e.firewall.(localIpUpdater); ok {
+			if err := localipfw.UpdateLocalIPs(); err != nil {
+				log.Errorf("failed to update local IPs: %v", err)
+			}
+		}
 	}
 
 	// DNS forwarder
@@ -1478,6 +1458,11 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 	return e.routeManager
 }
 
+// GetFirewallManager returns the firewall manager
+func (e *Engine) GetFirewallManager() manager.Manager {
+	return e.firewall
+}
+
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
@@ -1513,72 +1498,58 @@ func (e *Engine) getRosenpassAddr() string {
 	return ""
 }
 
-func (e *Engine) receiveProbeEvents() {
-	if e.probes == nil {
-		return
+// RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
+// and updates the status recorder with the latest states.
+func (e *Engine) RunHealthProbes() bool {
+	signalHealthy := e.signal.IsHealthy()
+	log.Debugf("signal health check: healthy=%t", signalHealthy)
+
+	managementHealthy := e.mgmClient.IsHealthy()
+	log.Debugf("management health check: healthy=%t", managementHealthy)
+
+	results := append(e.probeSTUNs(), e.probeTURNs()...)
+	e.statusRecorder.UpdateRelayStates(results)
+
+	relayHealthy := true
+	for _, res := range results {
+		if res.Err != nil {
+			relayHealthy = false
+			break
+		}
 	}
-	if e.probes.SignalProbe != nil {
-		go e.probes.SignalProbe.Receive(e.ctx, func() bool {
-			healthy := e.signal.IsHealthy()
-			log.Debugf("received signal probe request, healthy: %t", healthy)
-			return healthy
-		})
-	}
+	log.Debugf("relay health check: healthy=%t", relayHealthy)
 
-	if e.probes.MgmProbe != nil {
-		go e.probes.MgmProbe.Receive(e.ctx, func() bool {
-			healthy := e.mgmClient.IsHealthy()
-			log.Debugf("received management probe request, healthy: %t", healthy)
-			return healthy
-		})
-	}
-
-	if e.probes.RelayProbe != nil {
-		go e.probes.RelayProbe.Receive(e.ctx, func() bool {
-			healthy := true
-
-			results := append(e.probeSTUNs(), e.probeTURNs()...)
-			e.statusRecorder.UpdateRelayStates(results)
-
-			// A single failed server will result in a "failed" probe
-			for _, res := range results {
-				if res.Err != nil {
-					healthy = false
-					break
-				}
-			}
-
-			log.Debugf("received relay probe request, healthy: %t", healthy)
-			return healthy
-		})
+	for _, key := range e.peerStore.PeersPubKey() {
+		wgStats, err := e.wgInterface.GetStats(key)
+		if err != nil {
+			log.Debugf("failed to get wg stats for peer %s: %s", key, err)
+			continue
+		}
+		// wgStats could be zero value, in which case we just reset the stats
+		if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
+			log.Debugf("failed to update wg stats for peer %s: %s", key, err)
+		}
 	}
 
-	if e.probes.WgProbe != nil {
-		go e.probes.WgProbe.Receive(e.ctx, func() bool {
-			log.Debug("received wg probe request")
-
-			for _, key := range e.peerStore.PeersPubKey() {
-				wgStats, err := e.wgInterface.GetStats(key)
-				if err != nil {
-					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
-				}
-				// wgStats could be zero value, in which case we just reset the stats
-				if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
-					log.Debugf("failed to update wg stats for peer %s: %s", key, err)
-				}
-			}
-
-			return true
-		})
-	}
+	allHealthy := signalHealthy && managementHealthy && relayHealthy
+	log.Debugf("all health checks completed: healthy=%t", allHealthy)
+	return allHealthy
 }
 
 func (e *Engine) probeSTUNs() []relay.ProbeResult {
-	return relay.ProbeAll(e.ctx, relay.ProbeSTUN, e.STUNs)
+	e.syncMsgMux.Lock()
+	stuns := slices.Clone(e.STUNs)
+	e.syncMsgMux.Unlock()
+
+	return relay.ProbeAll(e.ctx, relay.ProbeSTUN, stuns)
 }
 
 func (e *Engine) probeTURNs() []relay.ProbeResult {
-	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
+	e.syncMsgMux.Lock()
+	turns := slices.Clone(e.TURNs)
+	e.syncMsgMux.Unlock()
+
+	return relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)
 }
 
 func (e *Engine) restartEngine() {
@@ -1701,6 +1672,14 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	}
 
 	return nm, nil
+}
+
+// GetWgAddr returns the wireguard address
+func (e *Engine) GetWgAddr() net.IP {
+	if e.wgInterface == nil {
+		return nil
+	}
+	return e.wgInterface.Address().IP
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag

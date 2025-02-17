@@ -60,7 +60,7 @@ subdomain sub.mydomain.com).
 
 ```bash
 # create a volume
-docker volume create wiretrustee-signal
+docker volume create netbird-signal
 # run the docker container
 docker run -d --name netbird-signal \
 -p 10000:10000  \

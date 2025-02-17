@@ -47,6 +47,7 @@ type MockAccountManager struct {
 	DeleteGroupsFunc                    func(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeerFunc                    func(ctx context.Context, accountID, groupID, peerID string) error
 	GroupDeletePeerFunc                 func(ctx context.Context, accountID, groupID, peerID string) error
+	GetPeerGroupsFunc                   func(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	DeleteRuleFunc                      func(ctx context.Context, accountID, ruleID, userID string) error
 	GetPolicyFunc                       func(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
 	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
@@ -90,7 +91,7 @@ type MockAccountManager struct {
 	GetPeerFunc                         func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error)
 	LoginPeerFunc                       func(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
-	SyncPeerFunc                        func(ctx context.Context, sync server.PeerSync, account *types.Account) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	SyncPeerFunc                        func(ctx context.Context, sync server.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	InviteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc            func() (map[string]struct{}, error)
 	HasConnectedChannelFunc             func(peerID string) bool
@@ -134,7 +135,12 @@ func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID st
 	panic("implement me")
 }
 
-func (am *MockAccountManager) GetValidatedPeers(account *types.Account) (map[string]struct{}, error) {
+func (am *MockAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error) {
+	account, err := am.GetAccountFunc(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	approvedPeers := make(map[string]struct{})
 	for id := range account.Peers {
 		approvedPeers[id] = struct{}{}
@@ -225,7 +231,7 @@ func (am *MockAccountManager) GetAccountIDByUserID(ctx context.Context, userId, 
 }
 
 // MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
-func (am *MockAccountManager) MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, account *types.Account) error {
+func (am *MockAccountManager) MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error {
 	if am.MarkPeerConnectedFunc != nil {
 		return am.MarkPeerConnectedFunc(ctx, peerKey, connected, realIP)
 	}
@@ -686,9 +692,9 @@ func (am *MockAccountManager) LoginPeer(ctx context.Context, login server.PeerLo
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
-func (am *MockAccountManager) SyncPeer(ctx context.Context, sync server.PeerSync, account *types.Account) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) SyncPeer(ctx context.Context, sync server.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if am.SyncPeerFunc != nil {
-		return am.SyncPeerFunc(ctx, sync, account)
+		return am.SyncPeerFunc(ctx, sync, accountID)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method SyncPeer is not implemented")
 }
@@ -834,4 +840,12 @@ func (am *MockAccountManager) GetAccount(ctx context.Context, accountID string) 
 		return am.GetAccountFunc(ctx, accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccount is not implemented")
+}
+
+// GetPeerGroups mocks GetPeerGroups of the AccountManager interface
+func (am *MockAccountManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
+	if am.GetPeerGroupsFunc != nil {
+		return am.GetPeerGroupsFunc(ctx, accountID, peerID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeerGroups is not implemented")
 }

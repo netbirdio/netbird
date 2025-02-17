@@ -29,37 +29,53 @@ type Metrics struct {
 }
 
 func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
-	bytesSent, err := meter.Int64Counter("relay_transfer_sent_bytes_total")
+	bytesSent, err := meter.Int64Counter("relay_transfer_sent_bytes_total",
+		metric.WithDescription("Total number of bytes sent to peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	bytesRecv, err := meter.Int64Counter("relay_transfer_received_bytes_total")
+	bytesRecv, err := meter.Int64Counter("relay_transfer_received_bytes_total",
+		metric.WithDescription("Total number of bytes received from peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	peers, err := meter.Int64UpDownCounter("relay_peers")
+	peers, err := meter.Int64UpDownCounter("relay_peers",
+		metric.WithDescription("Number of connected peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	peersActive, err := meter.Int64ObservableGauge("relay_peers_active")
+	peersActive, err := meter.Int64ObservableGauge("relay_peers_active",
+		metric.WithDescription("Number of active connected peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	peersIdle, err := meter.Int64ObservableGauge("relay_peers_idle")
+	peersIdle, err := meter.Int64ObservableGauge("relay_peers_idle",
+		metric.WithDescription("Number of idle connected peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	authTime, err := meter.Float64Histogram("relay_peer_authentication_time_milliseconds", metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
+	authTime, err := meter.Float64Histogram("relay_peer_authentication_time_milliseconds",
+		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...),
+		metric.WithDescription("Time taken to authenticate a peer"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	peerStoreTime, err := meter.Float64Histogram("relay_peer_store_time_milliseconds", metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
+	peerStoreTime, err := meter.Float64Histogram("relay_peer_store_time_milliseconds",
+		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...),
+		metric.WithDescription("Time taken to store a new peer connection"),
+	)
 	if err != nil {
 		return nil, err
 	}

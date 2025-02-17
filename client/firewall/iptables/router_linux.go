@@ -135,7 +135,16 @@ func (r *router) AddRouteFiltering(
 	}
 
 	rule := genRouteFilteringRuleSpec(params)
-	if err := r.iptablesClient.Append(tableFilter, chainRTFWD, rule...); err != nil {
+	// Insert DROP rules at the beginning, append ACCEPT rules at the end
+	var err error
+	if action == firewall.ActionDrop {
+		// after the established rule
+		err = r.iptablesClient.Insert(tableFilter, chainRTFWD, 2, rule...)
+	} else {
+		err = r.iptablesClient.Append(tableFilter, chainRTFWD, rule...)
+	}
+
+	if err != nil {
 		return nil, fmt.Errorf("add route rule: %v", err)
 	}
 
@@ -590,10 +599,10 @@ func applyPort(flag string, port *firewall.Port) []string {
 	if len(port.Values) > 1 {
 		portList := make([]string, len(port.Values))
 		for i, p := range port.Values {
-			portList[i] = strconv.Itoa(p)
+			portList[i] = strconv.Itoa(int(p))
 		}
 		return []string{"-m", "multiport", flag, strings.Join(portList, ",")}
 	}
 
-	return []string{flag, strconv.Itoa(port.Values[0])}
+	return []string{flag, strconv.Itoa(int(port.Values[0]))}
 }

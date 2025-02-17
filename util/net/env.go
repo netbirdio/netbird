@@ -2,6 +2,7 @@ package net
 
 import (
 	"os"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 
@@ -10,20 +11,24 @@ import (
 
 const (
 	envDisableCustomRouting = "NB_DISABLE_CUSTOM_ROUTING"
-	envSkipSocketMark       = "NB_SKIP_SOCKET_MARK"
 )
 
+// CustomRoutingDisabled returns true if custom routing is disabled.
+// This will fall back to the operation mode before the exit node functionality was implemented.
+// In particular exclusion routes won't be set up and all dialers and listeners will use net.Dial and net.Listen, respectively.
 func CustomRoutingDisabled() bool {
 	if netstack.IsEnabled() {
 		return true
 	}
-	return os.Getenv(envDisableCustomRouting) == "true"
-}
 
-func SkipSocketMark() bool {
-	if skipSocketMark := os.Getenv(envSkipSocketMark); skipSocketMark == "true" {
-		log.Infof("%s is set to true, skipping SO_MARK", envSkipSocketMark)
-		return true
+	var customRoutingDisabled bool
+	if val := os.Getenv(envDisableCustomRouting); val != "" {
+		var err error
+		customRoutingDisabled, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", envDisableCustomRouting, err)
+		}
 	}
-	return false
+
+	return customRoutingDisabled
 }

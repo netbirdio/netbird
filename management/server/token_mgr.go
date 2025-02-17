@@ -199,7 +199,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 	}
 
 	update := &proto.SyncResponse{
-		WiretrusteeConfig: &proto.WiretrusteeConfig{
+		NetbirdConfig: &proto.NetbirdConfig{
 			Turns: turns,
 		},
 	}
@@ -208,7 +208,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 	if m.relayCfg != nil {
 		token, err := m.GenerateRelayToken()
 		if err == nil {
-			update.WiretrusteeConfig.Relay = &proto.RelayConfig{
+			update.NetbirdConfig.Relay = &proto.RelayConfig{
 				Urls:           m.relayCfg.Addresses,
 				TokenPayload:   token.Payload,
 				TokenSignature: token.Signature,
@@ -228,7 +228,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, pe
 	}
 
 	update := &proto.SyncResponse{
-		WiretrusteeConfig: &proto.WiretrusteeConfig{
+		NetbirdConfig: &proto.NetbirdConfig{
 			Relay: &proto.RelayConfig{
 				Urls:           m.relayCfg.Addresses,
 				TokenPayload:   string(relayToken.Payload),
