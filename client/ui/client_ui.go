@@ -91,29 +91,7 @@ func main() {
 	}
 
 	client := newServiceClient(daemonAddr, a, showSettings, showRoutes)
-
-	settingsChangeChan := make(chan fyne.Settings)
-	a.Settings().AddChangeListener(settingsChangeChan)
-	go func() {
-		for range settingsChangeChan {
-			client.setNewIcons(a)
-			client.updateIndicationLock.Lock()
-			if client.connected {
-				if client.isUpdateIconActive {
-					systray.SetTemplateIcon(iconUpdateConnectedMacOS, client.icUpdateConnected)
-				} else {
-					systray.SetTemplateIcon(iconConnectedMacOS, client.icConnected)
-				}
-			} else {
-				if client.isUpdateIconActive {
-					systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, client.icUpdateDisconnected)
-				} else {
-					systray.SetTemplateIcon(iconDisconnectedMacOS, client.icDisconnected)
-				}
-			}
-			client.updateIndicationLock.Unlock()
-		}
-	}()
+	client.registerSettingsChangeChan()
 
 	if showSettings || showRoutes {
 		a.Run()
@@ -301,7 +279,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 		update:               version.NewUpdate(),
 	}
 
-	s.setNewIcons(a)
+	s.setNewIcons()
 
 	if showSettings {
 		s.showSettingsUI()
@@ -313,10 +291,10 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 	return s
 }
 
-func (s *serviceClient) setNewIcons(a fyne.App) {
+func (s *serviceClient) setNewIcons() {
 	if runtime.GOOS == "windows" {
 		s.icAbout = iconAboutICO
-		if a.Settings().ThemeVariant() == theme.VariantDark {
+		if s.app.Settings().ThemeVariant() == theme.VariantDark {
 			s.icConnected = iconConnectedDarkICO
 			s.icDisconnected = iconDisconnectedICO
 			s.icUpdateConnected = iconUpdateConnectedDarkICO
@@ -333,7 +311,7 @@ func (s *serviceClient) setNewIcons(a fyne.App) {
 		}
 	} else {
 		s.icAbout = iconAboutPNG
-		if a.Settings().ThemeVariant() == theme.VariantDark {
+		if s.app.Settings().ThemeVariant() == theme.VariantDark {
 			s.icConnected = iconConnectedDarkPNG
 			s.icDisconnected = iconDisconnectedPNG
 			s.icUpdateConnected = iconUpdateConnectedDarkPNG
@@ -349,6 +327,31 @@ func (s *serviceClient) setNewIcons(a fyne.App) {
 			s.icError = iconErrorPNG
 		}
 	}
+}
+
+func (s *serviceClient) registerSettingsChangeChan() {
+	settingsChangeChan := make(chan fyne.Settings)
+	s.app.Settings().AddChangeListener(settingsChangeChan)
+	go func() {
+		for range settingsChangeChan {
+			s.setNewIcons()
+			s.updateIndicationLock.Lock()
+			if s.connected {
+				if s.isUpdateIconActive {
+					systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
+				} else {
+					systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
+				}
+			} else {
+				if s.isUpdateIconActive {
+					systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
+				} else {
+					systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
+				}
+			}
+			s.updateIndicationLock.Unlock()
+		}
+	}()
 }
 
 func (s *serviceClient) showSettingsUI() {
