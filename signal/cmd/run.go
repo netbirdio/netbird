@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	// nolint:gosec
 	_ "net/http/pprof"
 	"strings"
 	"time"
@@ -176,7 +177,6 @@ var (
 func startPprof() {
 	go func() {
 		log.Debugf("Starting pprof server on 127.0.0.1:6060")
-		// nolint:gosec
 		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
 			log.Fatalf("pprof server failed: %v", err)
 		}
