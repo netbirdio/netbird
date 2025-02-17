@@ -12,6 +12,7 @@ import (
 
 	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -87,6 +88,7 @@ func tearDownTest(t *testing.T, ts *testSuite) {
 	if err := ts.conn.Close(); err != nil {
 		t.Fatalf("failed to close client connection: %v", err)
 	}
+	time.Sleep(100 * time.Millisecond)
 	if err := os.RemoveAll(ts.dataDir); err != nil {
 		t.Fatalf("failed to remove data directory %s: %v", ts.dataDir, err)
 	}
@@ -100,13 +102,13 @@ func loginPeerWithValidSetupKey(
 ) *mgmtProto.LoginResponse {
 	t.Helper()
 	meta := &mgmtProto.PeerSystemMeta{
-		Hostname:           key.PublicKey().String(),
-		GoOS:               runtime.GOOS,
-		OS:                 runtime.GOOS,
-		Core:               "core",
-		Platform:           "platform",
-		Kernel:             "kernel",
-		WiretrusteeVersion: "",
+		Hostname:       key.PublicKey().String(),
+		GoOS:           runtime.GOOS,
+		OS:             runtime.GOOS,
+		Core:           "core",
+		Platform:       "platform",
+		Kernel:         "kernel",
+		NetbirdVersion: "",
 	}
 	msgToEncrypt := &mgmtProto.LoginRequest{SetupKey: ValidSetupKey, Meta: meta}
 	message, err := encryption.EncryptMessage(serverPubKey, key, msgToEncrypt)
@@ -278,21 +280,14 @@ func TestSyncNewPeerConfiguration(t *testing.T) {
 		Protocol: mgmtProto.HostConfig_UDP,
 	}
 
-	if resp.NetbirdConfig == nil {
-		t.Fatal("WiretrusteeConfig is nil in SyncResponse")
-	}
-	if resp.NetbirdConfig.Signal == nil {
-		t.Fatal("Expected Signal config in SyncResponse, got nil")
-	}
-	if len(resp.NetbirdConfig.Stuns) == 0 {
-		t.Fatal("Expected at least one STUN config in SyncResponse, got none")
-	}
-	if len(resp.NetbirdConfig.Turns) == 0 {
-		t.Fatal("Expected at least one TURN config in SyncResponse, got none")
-	}
-	if len(resp.NetworkMap.OfflinePeers) != 0 {
-		t.Fatalf("Expected 0 offline peers, got %d", len(resp.NetworkMap.OfflinePeers))
-	}
+	assert.NotNil(t, resp.NetbirdConfig)
+	assert.Equal(t, resp.NetbirdConfig.Signal, expectedSignalConfig)
+	assert.Contains(t, resp.NetbirdConfig.Stuns, expectedStunsConfig)
+	assert.Equal(t, len(resp.NetbirdConfig.Turns), 1)
+	actualTURN := resp.NetbirdConfig.Turns[0]
+	assert.Greater(t, len(actualTURN.User), 0)
+	assert.Equal(t, actualTURN.HostConfig, expectedTRUNHost)
+	assert.Equal(t, len(resp.NetworkMap.OfflinePeers), 0)
 }
 
 func TestSyncThreePeers(t *testing.T) {
@@ -553,15 +548,10 @@ func TestLoginRegisteredPeer(t *testing.T) {
 		Password: "some_password",
 	}
 
-	if loginResp.GetNetbirdConfig() == nil {
-		t.Fatal("WiretrusteeConfig is nil in login response")
-	}
-	if len(loginResp.GetNetbirdConfig().Stuns) == 0 {
-		t.Fatal("Expected STUN servers in login response, got none")
-	}
-	if len(loginResp.GetNetbirdConfig().Turns) == 0 {
-		t.Fatal("Expected TURN servers in login response, got none")
-	}
+	assert.NotNil(t, loginResp.GetNetbirdConfig())
+	assert.Equal(t, loginResp.GetNetbirdConfig().Signal, expectedSignalConfig)
+	assert.Contains(t, loginResp.GetNetbirdConfig().Stuns, expectedStunsConfig)
+	assert.Contains(t, loginResp.GetNetbirdConfig().Turns, expectedTurnsConfig)
 }
 
 func TestSync10PeersGetUpdates(t *testing.T) {
