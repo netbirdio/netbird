@@ -115,10 +115,10 @@ func main() {
 	}
 }
 
-//go:embed netbird-systemtray-about.ico
+//go:embed netbird.ico
 var iconAboutICO []byte
 
-//go:embed netbird-systemtray-about.png
+//go:embed netbird.png
 var iconAboutPNG []byte
 
 //go:embed netbird-systemtray-connected.ico
