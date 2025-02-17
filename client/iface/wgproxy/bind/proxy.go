@@ -110,6 +110,10 @@ func (p *ProxyBind) CloseConn() error {
 }
 
 func (p *ProxyBind) close() error {
+	if p.remoteConn == nil {
+		return nil
+	}
+
 	p.closeMu.Lock()
 	defer p.closeMu.Unlock()
 
@@ -125,7 +129,7 @@ func (p *ProxyBind) close() error {
 	p.pausedCond.L.Unlock()
 	p.pausedCond.Signal()
 
-	p.bind.RemoveEndpoint(bind.EndpointToUDPAddr(*p.wgCurrentUsed))
+	p.bind.RemoveEndpoint(bind.EndpointToUDPAddr(*p.wgRelayedEndpoint))
 
 	if rErr := p.remoteConn.Close(); rErr != nil && !errors.Is(rErr, net.ErrClosed) {
 		return rErr
