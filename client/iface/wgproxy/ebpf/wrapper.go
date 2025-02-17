@@ -81,7 +81,7 @@ func (p *ProxyWrapper) Pause() {
 	p.pausedCond.L.Unlock()
 }
 
-func (p *ProxyWrapper) RedirectTo(endpoint *net.UDPAddr) {
+func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
 	p.pausedCond.L.Lock()
 	p.paused = false
 

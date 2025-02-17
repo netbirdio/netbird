@@ -92,7 +92,7 @@ func (p *ProxyBind) Pause() {
 	p.pausedCond.L.Unlock()
 }
 
-func (p *ProxyBind) RedirectTo(endpoint *net.UDPAddr) {
+func (p *ProxyBind) RedirectAs(endpoint *net.UDPAddr) {
 	p.pausedCond.L.Lock()
 	p.paused = false
 
