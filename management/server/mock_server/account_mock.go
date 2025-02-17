@@ -15,7 +15,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -32,7 +31,7 @@ type MockAccountManager struct {
 	GetSetupKeyFunc                     func(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error)
 	AccountExistsFunc                   func(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserIdFunc            func(ctx context.Context, userId, domain string) (string, error)
-	GetUserFunc                         func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error)
+	GetUserFromUserAuthFunc             func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeersFunc                        func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc               func(ctx context.Context, peerKey string, connected bool, realIP net.IP) error
@@ -81,7 +80,7 @@ type MockAccountManager struct {
 	DeleteNameServerGroupFunc           func(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroupsFunc            func(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                      func(ctx context.Context, accountID, userID string, key *types.UserInfo) (*types.UserInfo, error)
-	GetAccountIDFromTokenFunc           func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
+	GetAccountIDFromUserAuthFunc        func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
 	DeleteAccountFunc                   func(ctx context.Context, accountID, userID string) error
 	GetDNSDomainFunc                    func() string
 	StoreEventFunc                      func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
@@ -414,11 +413,11 @@ func (am *MockAccountManager) UpdatePeerMeta(ctx context.Context, peerID string,
 }
 
 // GetUser mock implementation of GetUser from server.AccountManager interface
-func (am *MockAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error) {
-	if am.GetUserFunc != nil {
-		return am.GetUserFunc(ctx, claims)
+func (am *MockAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+	if am.GetUserFromUserAuthFunc != nil {
+		return am.GetUserFromUserAuthFunc(ctx, userAuth)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetUser is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserFromUserAuth is not implemented")
 }
 
 func (am *MockAccountManager) ListUsers(ctx context.Context, accountID string) ([]*types.User, error) {
@@ -598,12 +597,11 @@ func (am *MockAccountManager) CreateUser(ctx context.Context, accountID, userID 
 	return nil, status.Errorf(codes.Unimplemented, "method CreateUser is not implemented")
 }
 
-// GetAccountIDFromToken mocks GetAccountIDFromToken of the AccountManager interface
-func (am *MockAccountManager) GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-	if am.GetAccountIDFromTokenFunc != nil {
-		return am.GetAccountIDFromTokenFunc(ctx, claims)
+func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+	if am.GetAccountIDFromUserAuthFunc != nil {
+		return am.GetAccountIDFromUserAuthFunc(ctx, userAuth)
 	}
-	return "", "", status.Errorf(codes.Unimplemented, "method GetAccountIDFromToken is not implemented")
+	return "", "", status.Errorf(codes.Unimplemented, "method GetAccountIDFromUserAuth is not implemented")
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface
@@ -835,14 +833,6 @@ func (am *MockAccountManager) BuildUserInfosForAccount(ctx context.Context, acco
 		return am.BuildUserInfosForAccountFunc(ctx, accountID, initiatorUserID, accountUsers)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method BuildUserInfosForAccount is not implemented")
-}
-
-func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
-	return "", "", status.Errorf(codes.Unimplemented, "method GetAccountIDFromUserAuth is not implemented")
-}
-
-func (am *MockAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetUserFromUserAuth is not implemented")
 }
 
 func (am *MockAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error {

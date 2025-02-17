@@ -13,7 +13,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -175,25 +174,9 @@ func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*t
 	return am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, id)
 }
 
-// GetUser looks up a user by provided authorization claims.
-// It will also create an account if didn't exist for this user before.
-func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error) {
-	userAuth, err := nbContext.GetUserAuthFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return am.GetUserFromUserAuth(ctx, userAuth)
-}
-
-// GetUser looks up a user by provided authorization claims.
-// It will also create an account if didn't exist for this user before.
+// GetUser looks up a user by provided nbContext.UserAuths.
+// Expects account to have been created already.
 func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbContext.UserAuth) (*types.User, error) {
-	// @note below is unnecessary, auth middleware not ensures that the account is created
-	// accountID, userID, err := am.GetAccountIDFromToken(ctx, claims)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to get account with token claims %v", err)
-	// }
-
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
 	if err != nil {
 		return nil, err

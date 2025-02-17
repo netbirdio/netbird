@@ -28,7 +28,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -74,13 +73,9 @@ type AccountManager interface {
 	GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error)
 	AccountExists(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
-	// deprecated, use GetAccountIDFromUserAuth instead
-	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
-	// deprecated, use GetUserFromUserAuth instead
-	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error)
 	GetUserFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
@@ -1169,15 +1164,6 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	}
 
 	return accountID, user.Id, nil
-}
-
-// GetAccountIDFromToken returns an account ID associated with this token.
-func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	return am.GetAccountIDFromUserAuth(ctx, userAuth)
 }
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
