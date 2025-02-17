@@ -420,7 +420,7 @@ func (s *SqlStore) SaveUsers(ctx context.Context, lockStrength LockingStrength, 
 		return nil
 	}
 
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&users)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}, clause.OnConflict{UpdateAll: true}).Create(&users)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save users to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save users to store")
@@ -444,7 +444,7 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 		return nil
 	}
 
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&groups)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}, clause.OnConflict{UpdateAll: true}).Create(&groups)
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "failed to save groups to store: %v", result.Error)
 	}
