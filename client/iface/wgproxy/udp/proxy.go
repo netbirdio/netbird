@@ -168,8 +168,10 @@ func (p *WGUDPProxy) close() error {
 		result = multierror.Append(result, fmt.Errorf("local conn: %s", err))
 	}
 
-	if err := p.srcFakerConn.Close(); err != nil {
-		result = multierror.Append(result, fmt.Errorf("src faker raw conn: %s", err))
+	if p.srcFakerConn != nil {
+		if err := p.srcFakerConn.Close(); err != nil {
+			result = multierror.Append(result, fmt.Errorf("src faker raw conn: %s", err))
+		}
 	}
 
 	return cerrors.FormatErrorOrNil(result)
