@@ -379,6 +379,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 		wgProxy.Work()
 	}
 
+	conn.log.Infof("configure WireGuard endpoint to: %s", ep.String())
 	if err = conn.endpointUpdater.configureWGEndpoint(ep); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
