@@ -104,6 +104,9 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 		metric.WithUnit("bytes"),
 		metric.WithDescription("Records the size of each message sent"),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &AppMetrics{
 		Meter: meter,

@@ -176,5 +176,6 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 	// in milliseconds
 	s.metrics.MessageForwardLatency.Record(ctx, float64(time.Since(start).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream)))
 	s.metrics.MessagesForwarded.Add(ctx, 1)
+	log.Debugf("message size: %d", gproto.Size(msg))
 	s.metrics.MessageSize.Record(ctx, int64(gproto.Size(msg)), metric.WithAttributes(attribute.String(labelType, labelTypeMessage)))
 }
