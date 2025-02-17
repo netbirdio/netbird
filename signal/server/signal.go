@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -175,4 +176,5 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 	// in milliseconds
 	s.metrics.MessageForwardLatency.Record(ctx, float64(time.Since(start).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream)))
 	s.metrics.MessagesForwarded.Add(ctx, 1)
+	s.metrics.MessageSize.Record(ctx, int64(gproto.Size(msg)), metric.WithAttributes(attribute.String(labelType, labelTypeMessage)))
 }

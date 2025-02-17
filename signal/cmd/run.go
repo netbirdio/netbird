@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"strings"
 	"time"
 
@@ -81,6 +82,13 @@ var (
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
+
+			go func() {
+				log.Debugf("Starting pprof server on :6060")
+				if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+					log.Fatalf("pprof server failed: %v", err)
+				}
+			}()
 
 			opts, certManager, err := getTLSConfigurations()
 			if err != nil {
