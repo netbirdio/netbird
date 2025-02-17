@@ -102,6 +102,7 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 	messageSize, err := meter.Int64Histogram(
 		"message.size.bytes",
 		metric.WithUnit("bytes"),
+		metric.WithExplicitBucketBoundaries(getMessageSizeBucketBoundaries()...),
 		metric.WithDescription("Records the size of each message sent"),
 	)
 	if err != nil {
@@ -126,6 +127,22 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 
 		MessageSize: messageSize,
 	}, nil
+}
+
+func getMessageSizeBucketBoundaries() []float64 {
+	return []float64{
+		100,
+		500,
+		1000,
+		5000,
+		10000,
+		50000,
+		100000,
+		500000,
+		1000000,
+		5000000,
+		10000000,
+	}
 }
 
 func getStandardBucketBoundaries() []float64 {
