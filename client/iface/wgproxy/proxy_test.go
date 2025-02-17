@@ -72,14 +72,14 @@ func redirectTraffic(t *testing.T, proxy Proxy, wgPort int, endPointAddr *net.UD
 		t.Fatalf("failed to listen on udp port: %s", err)
 	}
 
-	relayedServer, err := net.ListenUDP("udp",
+	relayedServer, _ := net.ListenUDP("udp",
 		&net.UDPAddr{
 			IP:   net.IPv4(127, 0, 0, 1),
 			Port: 1234,
 		},
 	)
 
-	relayedConn, err := net.Dial("udp", "127.0.0.1:1234")
+	relayedConn, _ := net.Dial("udp", "127.0.0.1:1234")
 
 	defer func() {
 		_ = dummyWgListener.Close()
