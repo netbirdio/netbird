@@ -81,6 +81,13 @@ func (p *WGUDPProxy) Work() {
 	p.paused = false
 	p.sendPkg = p.localConn.Write
 
+	if p.srcFakerConn != nil {
+		if err := p.srcFakerConn.Close(); err != nil {
+			log.Errorf("failed to close src faker conn: %s", err)
+		}
+		p.srcFakerConn = nil
+	}
+
 	if !p.isStarted {
 		p.isStarted = true
 		go p.proxyToRemote(p.ctx)
