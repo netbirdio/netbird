@@ -388,7 +388,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 
 	if conn.wgProxyRelay != nil {
 		conn.log.Debugf("redirect packages from relayed conn to WireGuard")
-		conn.wgProxyRelay.RedirectTo(ep)
+		conn.wgProxyRelay.RedirectAs(ep)
 	}
 
 	conn.currentConnPriority = priority
