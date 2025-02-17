@@ -848,7 +848,7 @@ func (s *serviceClient) updateConfig() error {
 
 // restartClient restarts the client connection.
 func (s *serviceClient) restartClient(loginRequest *proto.LoginRequest) error {
-	ctx, cancel := context.WithTimeout(s.ctx, failFastTimeout)
+	ctx, cancel := context.WithTimeout(s.ctx, defaultFailTimeout)
 	defer cancel()
 
 	client, err := s.getSrvClient(failFastTimeout)
