@@ -348,67 +348,19 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
 	var cleanup func()
+	var err error
 	switch kind {
 	case PostgresStoreEngine:
-		if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
-			var err error
-			_, err = testutil.CreatePostgresTestContainer()
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-
-		dsn, ok := os.LookupEnv(postgresDsnEnv)
-		if !ok {
-			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
-		}
-
-		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
-		}
-
-		dsn, cleanup, err = createRandomDB(dsn, db, kind)
-		if err != nil {
-			return nil, cleanup, err
-		}
-
-		store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
-		if err != nil {
-			return nil, cleanup, err
-		}
+		store, cleanup, err = newReusedPostgresStore(ctx, store, kind)
 	case MysqlStoreEngine:
-		if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
-			var err error
-			_, err = testutil.CreateMysqlTestContainer()
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-
-		dsn, ok := os.LookupEnv(mysqlDsnEnv)
-		if !ok {
-			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
-		}
-
-		db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open mysql connection: %v", err)
-		}
-
-		dsn, cleanup, err = createRandomDB(dsn, db, kind)
-		if err != nil {
-			return nil, cleanup, err
-		}
-
-		store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
-		if err != nil {
-			return nil, nil, err
-		}
+		store, cleanup, err = newReusedMysqlStore(ctx, store, kind)
 	default:
 		cleanup = func() {
 			// sqlite doesn't need to be cleaned up
 		}
+	}
+	if err != nil {
+		return nil, cleanup, fmt.Errorf("failed to create test store: %v", err)
 	}
 
 	closeConnection := func() {
@@ -417,6 +369,70 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 	}
 
 	return store, closeConnection, nil
+}
+
+func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind Engine) (*SqlStore, func(), error) {
+	if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
+		var err error
+		_, err = testutil.CreatePostgresTestContainer()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok {
+		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
+	}
+
+	dsn, cleanup, err := createRandomDB(dsn, db, kind)
+	if err != nil {
+		return nil, cleanup, err
+	}
+
+	store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
+	if err != nil {
+		return nil, cleanup, err
+	}
+
+	return store, cleanup, nil
+}
+
+func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*SqlStore, func(), error) {
+	if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
+		var err error
+		_, err = testutil.CreateMysqlTestContainer()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	if !ok {
+		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
+	}
+
+	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open mysql connection: %v", err)
+	}
+
+	dsn, cleanup, err := createRandomDB(dsn, db, kind)
+	if err != nil {
+		return nil, cleanup, err
+	}
+
+	store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return store, cleanup, nil
 }
 
 func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), error) {
