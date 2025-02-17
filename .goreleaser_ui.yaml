@@ -53,7 +53,7 @@ nfpms:
     contents:
       - src: client/ui/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/netbird-systemtray-connected.png
+      - src: client/ui/netbird.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
@@ -70,7 +70,7 @@ nfpms:
     contents:
       - src: client/ui/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/netbird-systemtray-connected.png
+      - src: client/ui/netbird.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
