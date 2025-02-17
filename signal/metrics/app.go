@@ -132,6 +132,7 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 func getMessageSizeBucketBoundaries() []float64 {
 	return []float64{
 		100,
+		250,
 		500,
 		1000,
 		5000,
@@ -140,8 +141,6 @@ func getMessageSizeBucketBoundaries() []float64 {
 		100000,
 		500000,
 		1000000,
-		5000000,
-		10000000,
 	}
 }
 
