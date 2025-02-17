@@ -49,7 +49,7 @@ func setupTest(t *testing.T) *testSuite {
 	ts := &testSuite{t: t}
 
 	var err error
-	ts.dataDir, err = os.MkdirTemp("", "wiretrustee_mgmt_test_tmp_*")
+	ts.dataDir, err = os.MkdirTemp("", "netbird_mgmt_test_tmp_*")
 	if err != nil {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
@@ -265,16 +265,29 @@ func TestSyncNewPeerConfiguration(t *testing.T) {
 		t.Fatalf("failed to decrypt sync response: %v", err)
 	}
 
-	if resp.WiretrusteeConfig == nil {
+	expectedSignalConfig := &mgmtProto.HostConfig{
+		Uri:      "signal.netbird.io:10000",
+		Protocol: mgmtProto.HostConfig_HTTP,
+	}
+	expectedStunsConfig := &mgmtProto.HostConfig{
+		Uri:      "stun:stun.netbird.io:3468",
+		Protocol: mgmtProto.HostConfig_UDP,
+	}
+	expectedTRUNHost := &mgmtProto.HostConfig{
+		Uri:      "turn:stun.netbird.io:3468",
+		Protocol: mgmtProto.HostConfig_UDP,
+	}
+
+	if resp.NetbirdConfig == nil {
 		t.Fatal("WiretrusteeConfig is nil in SyncResponse")
 	}
-	if resp.WiretrusteeConfig.Signal == nil {
+	if resp.NetbirdConfig.Signal == nil {
 		t.Fatal("Expected Signal config in SyncResponse, got nil")
 	}
-	if len(resp.WiretrusteeConfig.Stuns) == 0 {
+	if len(resp.NetbirdConfig.Stuns) == 0 {
 		t.Fatal("Expected at least one STUN config in SyncResponse, got none")
 	}
-	if len(resp.WiretrusteeConfig.Turns) == 0 {
+	if len(resp.NetbirdConfig.Turns) == 0 {
 		t.Fatal("Expected at least one TURN config in SyncResponse, got none")
 	}
 	if len(resp.NetworkMap.OfflinePeers) != 0 {
@@ -523,13 +536,30 @@ func TestLoginRegisteredPeer(t *testing.T) {
 		t.Fatalf("failed to decrypt login response: %v", err)
 	}
 
-	if loginResp.GetWiretrusteeConfig() == nil {
+	expectedSignalConfig := &mgmtProto.HostConfig{
+		Uri:      "signal.netbird.io:10000",
+		Protocol: mgmtProto.HostConfig_HTTP,
+	}
+	expectedStunsConfig := &mgmtProto.HostConfig{
+		Uri:      "stun:stun.netbird.io:3468",
+		Protocol: mgmtProto.HostConfig_UDP,
+	}
+	expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
+		HostConfig: &mgmtProto.HostConfig{
+			Uri:      "turn:stun.netbird.io:3468",
+			Protocol: mgmtProto.HostConfig_UDP,
+		},
+		User:     "some_user",
+		Password: "some_password",
+	}
+
+	if loginResp.GetNetbirdConfig() == nil {
 		t.Fatal("WiretrusteeConfig is nil in login response")
 	}
-	if len(loginResp.GetWiretrusteeConfig().Stuns) == 0 {
+	if len(loginResp.GetNetbirdConfig().Stuns) == 0 {
 		t.Fatal("Expected STUN servers in login response, got none")
 	}
-	if len(loginResp.GetWiretrusteeConfig().Turns) == 0 {
+	if len(loginResp.GetNetbirdConfig().Turns) == 0 {
 		t.Fatal("Expected TURN servers in login response, got none")
 	}
 }

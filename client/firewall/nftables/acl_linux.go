@@ -2,9 +2,9 @@ package nftables
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +46,7 @@ type AclManager struct {
 
 	workTable       *nftables.Table
 	chainInputRules *nftables.Chain
+	chainPrerouting *nftables.Chain
 
 	ipsetStore *ipsetStore
 	rules      map[string]*Rule
@@ -118,9 +119,13 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 	}
 
 	if r.nftSet == nil {
-		err := m.rConn.DelRule(r.nftRule)
-		if err != nil {
+		if err := m.rConn.DelRule(r.nftRule); err != nil {
 			log.Errorf("failed to delete rule: %v", err)
+		}
+		if r.mangleRule != nil {
+			if err := m.rConn.DelRule(r.mangleRule); err != nil {
+				log.Errorf("failed to delete mangle rule: %v", err)
+			}
 		}
 		delete(m.rules, r.GetRuleID())
 		return m.rConn.Flush()
@@ -128,13 +133,18 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 
 	ips, ok := m.ipsetStore.ips(r.nftSet.Name)
 	if !ok {
-		err := m.rConn.DelRule(r.nftRule)
-		if err != nil {
+		if err := m.rConn.DelRule(r.nftRule); err != nil {
 			log.Errorf("failed to delete rule: %v", err)
+		}
+		if r.mangleRule != nil {
+			if err := m.rConn.DelRule(r.mangleRule); err != nil {
+				log.Errorf("failed to delete mangle rule: %v", err)
+			}
 		}
 		delete(m.rules, r.GetRuleID())
 		return m.rConn.Flush()
 	}
+
 	if _, ok := ips[r.ip.String()]; ok {
 		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: r.ip.To4()}})
 		if err != nil {
@@ -153,12 +163,16 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 		return nil
 	}
 
-	err := m.rConn.DelRule(r.nftRule)
-	if err != nil {
+	if err := m.rConn.DelRule(r.nftRule); err != nil {
 		log.Errorf("failed to delete rule: %v", err)
 	}
-	err = m.rConn.Flush()
-	if err != nil {
+	if r.mangleRule != nil {
+		if err := m.rConn.DelRule(r.mangleRule); err != nil {
+			log.Errorf("failed to delete mangle rule: %v", err)
+		}
+	}
+
+	if err := m.rConn.Flush(); err != nil {
 		return err
 	}
 
@@ -225,8 +239,11 @@ func (m *AclManager) Flush() error {
 		return err
 	}
 
-	if err := m.refreshRuleHandles(m.chainInputRules); err != nil {
+	if err := m.refreshRuleHandles(m.chainInputRules, false); err != nil {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
+	}
+	if err := m.refreshRuleHandles(m.chainPrerouting, true); err != nil {
+		log.Errorf("failed to refresh rule handles prerouting chain: %v", err)
 	}
 
 	return nil
@@ -244,10 +261,11 @@ func (m *AclManager) addIOFiltering(
 	ruleId := generatePeerRuleId(ip, sPort, dPort, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
 		return &Rule{
-			r.nftRule,
-			r.nftSet,
-			r.ruleID,
-			ip,
+			nftRule:    r.nftRule,
+			mangleRule: r.mangleRule,
+			nftSet:     r.nftSet,
+			ruleID:     r.ruleID,
+			ip:         ip,
 		}, nil
 	}
 
@@ -308,43 +326,16 @@ func (m *AclManager) addIOFiltering(
 		}
 	}
 
-	if sPort != nil && len(sPort.Values) != 0 {
-		expressions = append(expressions,
-			&expr.Payload{
-				DestRegister: 1,
-				Base:         expr.PayloadBaseTransportHeader,
-				Offset:       0,
-				Len:          2,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     encodePort(*sPort),
-			},
-		)
-	}
+	expressions = append(expressions, applyPort(sPort, true)...)
+	expressions = append(expressions, applyPort(dPort, false)...)
 
-	if dPort != nil && len(dPort.Values) != 0 {
-		expressions = append(expressions,
-			&expr.Payload{
-				DestRegister: 1,
-				Base:         expr.PayloadBaseTransportHeader,
-				Offset:       2,
-				Len:          2,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     encodePort(*dPort),
-			},
-		)
-	}
+	mainExpressions := slices.Clone(expressions)
 
 	switch action {
 	case firewall.ActionAccept:
-		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictAccept})
+		mainExpressions = append(mainExpressions, &expr.Verdict{Kind: expr.VerdictAccept})
 	case firewall.ActionDrop:
-		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
+		mainExpressions = append(mainExpressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
 	userData := []byte(strings.Join([]string{ruleId, comment}, " "))
@@ -353,21 +344,80 @@ func (m *AclManager) addIOFiltering(
 	nftRule := m.rConn.AddRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    chain,
-		Exprs:    expressions,
+		Exprs:    mainExpressions,
 		UserData: userData,
 	})
 
+	if err := m.rConn.Flush(); err != nil {
+		return nil, fmt.Errorf(flushError, err)
+	}
+
 	rule := &Rule{
-		nftRule: nftRule,
-		nftSet:  ipset,
-		ruleID:  ruleId,
-		ip:      ip,
+		nftRule:    nftRule,
+		mangleRule: m.createPreroutingRule(expressions, userData),
+		nftSet:     ipset,
+		ruleID:     ruleId,
+		ip:         ip,
 	}
 	m.rules[ruleId] = rule
 	if ipset != nil {
 		m.ipsetStore.AddReferenceToIpset(ipset.Name)
 	}
+
 	return rule, nil
+}
+
+func (m *AclManager) createPreroutingRule(expressions []expr.Any, userData []byte) *nftables.Rule {
+	if m.chainPrerouting == nil {
+		log.Warn("prerouting chain is not created")
+		return nil
+	}
+
+	preroutingExprs := slices.Clone(expressions)
+
+	// interface
+	preroutingExprs = append([]expr.Any{
+		&expr.Meta{
+			Key:      expr.MetaKeyIIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+	}, preroutingExprs...)
+
+	// local destination and mark
+	preroutingExprs = append(preroutingExprs,
+		&expr.Fib{
+			Register:       1,
+			ResultADDRTYPE: true,
+			FlagDADDR:      true,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(unix.RTN_LOCAL),
+		},
+
+		&expr.Immediate{
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected),
+		},
+		&expr.Meta{
+			Key:            expr.MetaKeyMARK,
+			Register:       1,
+			SourceRegister: true,
+		},
+	)
+
+	return m.rConn.AddRule(&nftables.Rule{
+		Table:    m.workTable,
+		Chain:    m.chainPrerouting,
+		Exprs:    preroutingExprs,
+		UserData: userData,
+	})
 }
 
 func (m *AclManager) createDefaultChains() (err error) {
@@ -413,15 +463,13 @@ func (m *AclManager) createDefaultChains() (err error) {
 // go through the input filter as well. This will enable e.g. Docker services to keep working by accessing the
 // netbird peer IP.
 func (m *AclManager) allowRedirectedTraffic(chainFwFilter *nftables.Chain) error {
-	preroutingChain := m.rConn.AddChain(&nftables.Chain{
+	m.chainPrerouting = m.rConn.AddChain(&nftables.Chain{
 		Name:     chainNamePrerouting,
 		Table:    m.workTable,
 		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookPrerouting,
 		Priority: nftables.ChainPriorityMangle,
 	})
-
-	m.addPreroutingRule(preroutingChain)
 
 	m.addFwmarkToForward(chainFwFilter)
 
@@ -430,43 +478,6 @@ func (m *AclManager) allowRedirectedTraffic(chainFwFilter *nftables.Chain) error
 	}
 
 	return nil
-}
-
-func (m *AclManager) addPreroutingRule(preroutingChain *nftables.Chain) {
-	m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: preroutingChain,
-		Exprs: []expr.Any{
-			&expr.Meta{
-				Key:      expr.MetaKeyIIFNAME,
-				Register: 1,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     ifname(m.wgIface.Name()),
-			},
-			&expr.Fib{
-				Register:       1,
-				ResultADDRTYPE: true,
-				FlagDADDR:      true,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     binaryutil.NativeEndian.PutUint32(unix.RTN_LOCAL),
-			},
-			&expr.Immediate{
-				Register: 1,
-				Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected),
-			},
-			&expr.Meta{
-				Key:            expr.MetaKeyMARK,
-				Register:       1,
-				SourceRegister: true,
-			},
-		},
-	})
 }
 
 func (m *AclManager) addFwmarkToForward(chainFwFilter *nftables.Chain) {
@@ -484,8 +495,7 @@ func (m *AclManager) addFwmarkToForward(chainFwFilter *nftables.Chain) {
 				Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkRedirected),
 			},
 			&expr.Verdict{
-				Kind:  expr.VerdictJump,
-				Chain: m.chainInputRules.Name,
+				Kind: expr.VerdictAccept,
 			},
 		},
 	})
@@ -632,6 +642,7 @@ func (m *AclManager) flushWithBackoff() (err error) {
 	for i := 0; ; i++ {
 		err = m.rConn.Flush()
 		if err != nil {
+			log.Debugf("failed to flush nftables: %v", err)
 			if !strings.Contains(err.Error(), "busy") {
 				return
 			}
@@ -648,7 +659,7 @@ func (m *AclManager) flushWithBackoff() (err error) {
 	return
 }
 
-func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
+func (m *AclManager) refreshRuleHandles(chain *nftables.Chain, mangle bool) error {
 	if m.workTable == nil || chain == nil {
 		return nil
 	}
@@ -665,7 +676,11 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
 		split := bytes.Split(rule.UserData, []byte(" "))
 		r, ok := m.rules[string(split[0])]
 		if ok {
-			*r.nftRule = *rule
+			if mangle {
+				*r.mangleRule = *rule
+			} else {
+				*r.nftRule = *rule
+			}
 		}
 	}
 
@@ -687,12 +702,6 @@ func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, a
 		return "ip:" + ip.String() + rulesetID
 	}
 	return "set:" + ipset.Name + rulesetID
-}
-
-func encodePort(port firewall.Port) []byte {
-	bs := make([]byte, 2)
-	binary.BigEndian.PutUint16(bs, uint16(port.Values[0]))
-	return bs
 }
 
 func ifname(n string) []byte {

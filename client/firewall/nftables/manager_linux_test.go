@@ -74,7 +74,7 @@ func TestNftablesManager(t *testing.T) {
 
 	testClient := &nftables.Conn{}
 
-	rule, err := manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []int{53}}, fw.ActionDrop, "", "")
+	rule, err := manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{53}}, fw.ActionDrop, "", "")
 	require.NoError(t, err, "failed to add rule")
 
 	err = manager.Flush()
@@ -107,7 +107,7 @@ func TestNftablesManager(t *testing.T) {
 			Kind: expr.VerdictAccept,
 		},
 	}
-	require.ElementsMatch(t, rules[0].Exprs, expectedExprs1, "expected the same expressions")
+	compareExprsIgnoringCounters(t, rules[0].Exprs, expectedExprs1)
 
 	ipToAdd, _ := netip.AddrFromSlice(ip)
 	add := ipToAdd.Unmap()
@@ -200,7 +200,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			ip := net.ParseIP("10.20.0.100")
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
-				port := &fw.Port{Values: []int{1000 + i}}
+				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
 				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
 				require.NoError(t, err, "failed to add rule")
 
@@ -283,7 +283,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	})
 
 	ip := net.ParseIP("100.96.0.1")
-	_, err = manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []int{80}}, fw.ActionAccept, "", "test rule")
+	_, err = manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "", "test rule")
 	require.NoError(t, err, "failed to add peer filtering rule")
 
 	_, err = manager.AddRouteFiltering(
@@ -291,7 +291,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 		netip.MustParsePrefix("10.1.0.0/24"),
 		fw.ProtocolTCP,
 		nil,
-		&fw.Port{Values: []int{443}},
+		&fw.Port{Values: []uint16{443}},
 		fw.ActionAccept,
 	)
 	require.NoError(t, err, "failed to add route filtering rule")
@@ -306,4 +306,19 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 
 	stdout, stderr = runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
+}
+
+func compareExprsIgnoringCounters(t *testing.T, got, want []expr.Any) {
+	t.Helper()
+	require.Equal(t, len(got), len(want), "expression count mismatch")
+
+	for i := range got {
+		if _, isCounter := got[i].(*expr.Counter); isCounter {
+			_, wantIsCounter := want[i].(*expr.Counter)
+			require.True(t, wantIsCounter, "expected Counter at index %d", i)
+			continue
+		}
+
+		require.Equal(t, got[i], want[i], "expression mismatch at index %d", i)
+	}
 }

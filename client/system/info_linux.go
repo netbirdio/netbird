@@ -61,7 +61,7 @@ func GetInfo(ctx context.Context) *Info {
 		Hostname:           extractDeviceName(ctx, systemHostname),
 		GoOS:               runtime.GOOS,
 		CPUs:               runtime.NumCPU(),
-		WiretrusteeVersion: version.NetbirdVersion(),
+		NetbirdVersion:     version.NetbirdVersion(),
 		UIVersion:          extractUserAgent(ctx),
 		KernelVersion:      osInfo[1],
 		NetworkAddresses:   addrs,

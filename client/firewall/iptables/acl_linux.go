@@ -3,7 +3,7 @@ package iptables
 import (
 	"fmt"
 	"net"
-	"strconv"
+	"slices"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
@@ -86,19 +86,19 @@ func (m *aclManager) AddPeerFiltering(
 	action firewall.Action,
 	ipsetName string,
 ) ([]firewall.Rule, error) {
-	var dPortVal, sPortVal string
-	if dPort != nil && dPort.Values != nil {
-		// TODO: we support only one port per rule in current implementation of ACLs
-		dPortVal = strconv.Itoa(dPort.Values[0])
-	}
-	if sPort != nil && sPort.Values != nil {
-		sPortVal = strconv.Itoa(sPort.Values[0])
-	}
-
 	chain := chainNameInputRules
 
-	ipsetName = transformIPsetName(ipsetName, sPortVal, dPortVal)
-	specs := filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, action, ipsetName)
+	ipsetName = transformIPsetName(ipsetName, sPort, dPort)
+	specs := filterRuleSpecs(ip, string(protocol), sPort, dPort, action, ipsetName)
+
+	mangleSpecs := slices.Clone(specs)
+	mangleSpecs = append(mangleSpecs,
+		"-i", m.wgIface.Name(),
+		"-m", "addrtype", "--dst-type", "LOCAL",
+		"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+	)
+
+	specs = append(specs, "-j", actionToStr(action))
 	if ipsetName != "" {
 		if ipList, ipsetExists := m.ipsetStore.ipset(ipsetName); ipsetExists {
 			if err := ipset.Add(ipsetName, ip.String()); err != nil {
@@ -130,7 +130,7 @@ func (m *aclManager) AddPeerFiltering(
 		m.ipsetStore.addIpList(ipsetName, ipList)
 	}
 
-	ok, err := m.iptablesClient.Exists("filter", chain, specs...)
+	ok, err := m.iptablesClient.Exists(tableFilter, chain, specs...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check rule: %w", err)
 	}
@@ -138,16 +138,22 @@ func (m *aclManager) AddPeerFiltering(
 		return nil, fmt.Errorf("rule already exists")
 	}
 
-	if err := m.iptablesClient.Append("filter", chain, specs...); err != nil {
+	if err := m.iptablesClient.Append(tableFilter, chain, specs...); err != nil {
 		return nil, err
 	}
 
+	if err := m.iptablesClient.Append(tableMangle, chainRTPRE, mangleSpecs...); err != nil {
+		log.Errorf("failed to add mangle rule: %v", err)
+		mangleSpecs = nil
+	}
+
 	rule := &Rule{
-		ruleID:    uuid.New().String(),
-		specs:     specs,
-		ipsetName: ipsetName,
-		ip:        ip.String(),
-		chain:     chain,
+		ruleID:      uuid.New().String(),
+		specs:       specs,
+		mangleSpecs: mangleSpecs,
+		ipsetName:   ipsetName,
+		ip:          ip.String(),
+		chain:       chain,
 	}
 
 	m.updateState()
@@ -188,6 +194,12 @@ func (m *aclManager) DeletePeerRule(rule firewall.Rule) error {
 
 	if err := m.iptablesClient.Delete(tableName, r.chain, r.specs...); err != nil {
 		return fmt.Errorf("failed to delete rule: %s, %v: %w", r.chain, r.specs, err)
+	}
+
+	if r.mangleSpecs != nil {
+		if err := m.iptablesClient.Delete(tableMangle, chainRTPRE, r.mangleSpecs...); err != nil {
+			log.Errorf("failed to delete mangle rule: %v", err)
+		}
 	}
 
 	m.updateState()
@@ -310,15 +322,8 @@ func (m *aclManager) seedInitialEntries() {
 func (m *aclManager) seedInitialOptionalEntries() {
 	m.optionalEntries["FORWARD"] = []entry{
 		{
-			spec:     []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected), "-j", chainNameInputRules},
+			spec:     []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected), "-j", "ACCEPT"},
 			position: 2,
-		},
-	}
-
-	m.optionalEntries["PREROUTING"] = []entry{
-		{
-			spec:     []string{"-t", "mangle", "-i", m.wgIface.Name(), "-m", "addrtype", "--dst-type", "LOCAL", "-j", "MARK", "--set-mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected)},
-			position: 1,
 		},
 	}
 }
@@ -354,7 +359,7 @@ func (m *aclManager) updateState() {
 }
 
 // filterRuleSpecs returns the specs of a filtering rule
-func filterRuleSpecs(ip net.IP, protocol, sPort, dPort string, action firewall.Action, ipsetName string) (specs []string) {
+func filterRuleSpecs(ip net.IP, protocol string, sPort, dPort *firewall.Port, action firewall.Action, ipsetName string) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
 	if ip.String() == "0.0.0.0" {
@@ -371,13 +376,9 @@ func filterRuleSpecs(ip net.IP, protocol, sPort, dPort string, action firewall.A
 	if protocol != "all" {
 		specs = append(specs, "-p", protocol)
 	}
-	if sPort != "" {
-		specs = append(specs, "--sport", sPort)
-	}
-	if dPort != "" {
-		specs = append(specs, "--dport", dPort)
-	}
-	return append(specs, "-j", actionToStr(action))
+	specs = append(specs, applyPort("--sport", sPort)...)
+	specs = append(specs, applyPort("--dport", dPort)...)
+	return specs
 }
 
 func actionToStr(action firewall.Action) string {
@@ -387,15 +388,15 @@ func actionToStr(action firewall.Action) string {
 	return "DROP"
 }
 
-func transformIPsetName(ipsetName string, sPort, dPort string) string {
+func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port) string {
 	switch {
 	case ipsetName == "":
 		return ""
-	case sPort != "" && dPort != "":
+	case sPort != nil && dPort != nil:
 		return ipsetName + "-sport-dport"
-	case sPort != "":
+	case sPort != nil:
 		return ipsetName + "-sport"
-	case dPort != "":
+	case dPort != nil:
 		return ipsetName + "-dport"
 	default:
 		return ipsetName
