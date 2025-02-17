@@ -76,7 +76,7 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 		return &proto.EncryptedMessage{}, nil
 	}
 
-	return s.dispatcher.SendMessage(context.Background(), msg)
+	return s.dispatcher.SendMessage(ctx, msg)
 }
 
 // ConnectStream connects to the exchange stream
