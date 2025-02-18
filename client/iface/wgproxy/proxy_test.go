@@ -1,16 +1,9 @@
-//go:build linux && !android
-
 package wgproxy
 
 import (
 	"context"
 	"net"
 	"testing"
-
-	"github.com/netbirdio/netbird/client/iface/bind"
-	bindproxy "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
-	"github.com/netbirdio/netbird/client/iface/wgproxy/ebpf"
-	"github.com/netbirdio/netbird/client/iface/wgproxy/udp"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -19,38 +12,27 @@ func init() {
 	_ = util.InitLog("debug", "console")
 }
 
+type proxyInstance struct {
+	name         string
+	proxy        Proxy
+	wgPort       int
+	endpointAddr *net.UDPAddr
+	closeFn      func() error
+}
+
+// TestProxyRedirect todo extend the proxies with Bind proxy
 func TestProxyRedirect(t *testing.T) {
-	ebpfProxy := ebpf.NewWGEBPFProxy(51831)
-	if err := ebpfProxy.Listen(); err != nil {
-		t.Fatalf("failed to initialize ebpf proxy: %s", err)
+	tests, err := seedProxies()
+	if err != nil {
+		t.Fatalf("error: %v", err)
 	}
 
-	defer func() {
-		if err := ebpfProxy.Free(); err != nil {
-			t.Errorf("failed to free ebpf proxy: %s", err)
-		}
-	}()
-
-	tests := []struct {
-		name         string
-		proxy        Proxy
-		wgPort       int
-		endpointAddr *net.UDPAddr
-	}{
-		{
-			name:   "ebpf kernel proxy",
-			proxy:  ebpf.NewProxyWrapper(ebpfProxy),
-			wgPort: 51831,
-		},
-		{
-			name:   "udp kernel proxy",
-			proxy:  udp.NewWGUDPProxy(51832),
-			wgPort: 51832,
-		},
-	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			redirectTraffic(t, tt.proxy, tt.wgPort, tt.endpointAddr)
+			if err := tt.closeFn(); err != nil {
+				t.Errorf("error: %v", err)
+			}
 		})
 	}
 }
@@ -142,49 +124,19 @@ func redirectTraffic(t *testing.T, proxy Proxy, wgPort int, endPointAddr *net.UD
 func TestProxyCloseByRemoteConn(t *testing.T) {
 	ctx := context.Background()
 
-	ebpfProxy := ebpf.NewWGEBPFProxy(51831)
-	if err := ebpfProxy.Listen(); err != nil {
-		t.Fatalf("failed to initialize ebpf proxy: %s", err)
-	}
-
-	defer func() {
-		if err := ebpfProxy.Free(); err != nil {
-			t.Errorf("failed to free ebpf proxy: %s", err)
-		}
-	}()
-
-	iceBind := bind.NewICEBind(nil, nil)
-	endpointAddress := &net.UDPAddr{
-		IP:   net.IPv4(10, 0, 0, 1),
-		Port: 1234,
-	}
-	tests := []struct {
-		name            string
-		proxy           Proxy
-		endpointAddress *net.UDPAddr
-	}{
-		{
-			name:  "ebpf proxy",
-			proxy: ebpf.NewProxyWrapper(ebpfProxy),
-		},
-		{
-			name:  "udp proxy",
-			proxy: udp.NewWGUDPProxy(51832),
-		},
-		{
-			name:            "bind proxy",
-			proxy:           bindproxy.NewProxyBind(iceBind),
-			endpointAddress: endpointAddress,
-		},
+	tests, err := seedProxyForProxyCloseByRemoteConn()
+	if err != nil {
+		t.Fatalf("error: %v", err)
 	}
 
 	relayedConn, _ := net.Dial("udp", "127.0.0.1:1234")
 	defer func() {
 		_ = relayedConn.Close()
 	}()
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.proxy.AddTurnConn(ctx, endpointAddress, relayedConn)
+			err := tt.proxy.AddTurnConn(ctx, tt.endpointAddr, relayedConn)
 			if err != nil {
 				t.Errorf("error: %v", err)
 			}
