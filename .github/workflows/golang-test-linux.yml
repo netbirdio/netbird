@@ -197,7 +197,7 @@ jobs:
         run: |          
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
-          go test -tags=devcert -p 1 \
+          go test -tags=devcert \
             -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
             -timeout 10m $(go list ./... | grep /management)
 
@@ -381,7 +381,7 @@ jobs:
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true \
-          go test -tags=integration -p 1 \
+          go test -tags=integration \
           -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
           -timeout 10m -tags=integration $(go list -tags=integration ./... | grep /management)
 
