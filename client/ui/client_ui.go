@@ -732,7 +732,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
-					return
 				}
 			case <-s.mAutoConnect.ClickedCh:
 				if s.mAutoConnect.Checked() {
@@ -742,7 +741,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
-					return
 				}
 			case <-s.mEnableRosenpass.ClickedCh:
 				if s.mEnableRosenpass.Checked() {
@@ -752,7 +750,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
-					return
 				}
 			case <-s.mAdvancedSettings.ClickedCh:
 				s.mAdvancedSettings.Disable()
@@ -967,17 +964,20 @@ func (s *serviceClient) updateConfig() error {
 
 // restartClient restarts the client connection.
 func (s *serviceClient) restartClient(loginRequest *proto.LoginRequest) error {
+	ctx, cancel := context.WithTimeout(s.ctx, defaultFailTimeout)
+	defer cancel()
+
 	client, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
 		return err
 	}
 
-	_, err = client.Login(s.ctx, loginRequest)
+	_, err = client.Login(ctx, loginRequest)
 	if err != nil {
 		return err
 	}
 
-	_, err = client.Up(s.ctx, &proto.UpRequest{})
+	_, err = client.Up(ctx, &proto.UpRequest{})
 	if err != nil {
 		return err
 	}
