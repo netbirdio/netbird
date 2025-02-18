@@ -414,6 +414,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 				t.Errorf("new nameserver group didn't match expected ns group:\nGot %#v\nExpected:%#v\n", outNSGroup, testCase.expectedNSGroup)
 			}
 		})
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -673,6 +674,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 			}
 
 		})
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -760,6 +762,8 @@ func TestGetNameServerGroup(t *testing.T) {
 }
 
 func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
+	t.Helper()
+
 	store, err := createNSStore(t)
 	if err != nil {
 		return nil, err
@@ -773,6 +777,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 }
 
 func createNSStore(t *testing.T) (store.Store, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
