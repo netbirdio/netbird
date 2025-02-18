@@ -207,7 +207,7 @@ jobs:
 
   benchmark:
     needs: [ build-cache ]
-    if: ${{ needs.changes.outputs.management == 'true' || github.event_name != 'pull_request' }}
+    if: ${{ needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -268,7 +268,7 @@ jobs:
 
   api_benchmark:
     needs: [ build-cache ]
-    if: ${{ needs.changes.outputs.management == 'true' || github.event_name != 'pull_request' }}
+    if: ${{ needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -329,7 +329,7 @@ jobs:
 
   api_integration_test:
     needs: [ build-cache ]
-    if: ${{ needs.changes.outputs.management == 'true' || github.event_name != 'pull_request' }}
+    if: ${{ needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
