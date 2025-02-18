@@ -445,7 +445,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*Sq
 }
 
 func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), error) {
-	dbName := fmt.Sprintf("test_db_%s", strings.Replace(uuid.New().String(), "-", "_", -1))
+	dbName := fmt.Sprintf("test_db_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 
 	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
 		return "", nil, fmt.Errorf("failed to create database: %v", err)
