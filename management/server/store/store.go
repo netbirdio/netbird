@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"net/url"
@@ -16,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -445,7 +445,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*Sq
 }
 
 func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), error) {
-	dbName := fmt.Sprintf("test_db_%d", rand.Intn(1e9))
+	dbName := fmt.Sprintf("test_db_%s", uuid.New().String())
 
 	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
 		return "", nil, fmt.Errorf("failed to create database: %v", err)

@@ -376,12 +376,12 @@ func TestCreateNameServerGroup(t *testing.T) {
 		},
 	}
 	for _, testCase := range testCases {
-		am, err := createNSManager(t)
-		if err != nil {
-			t.Fatalf("failed to create account manager: %s", err)
-		}
-
 		t.Run(testCase.name, func(t *testing.T) {
+			am, err := createNSManager(t)
+			if err != nil {
+				t.Fatalf("failed to create account manager: %s", err)
+			}
+
 			account, err := initTestNSAccount(t, am)
 			if err != nil {
 				t.Fatalf("failed to init testing account: %s", err)
