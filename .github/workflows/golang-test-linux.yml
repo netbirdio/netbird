@@ -14,9 +14,18 @@ jobs:
   build-cache:
     name: "Build Cache"
     runs-on: ubuntu-22.04
+    outputs:
+      management: ${{ steps.filter.outputs.management }}
     steps:        
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+              management:
+                - 'management/**'
 
       - name: Install Go
         uses: actions/setup-go@v5
@@ -312,6 +321,7 @@ jobs:
   benchmark:
     name: "Benchmark"
     needs: [ build-cache ]
+    if: ${{ needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -378,6 +388,7 @@ jobs:
   api_benchmark:
     name: "API Benchmark"
     needs: [ build-cache ]
+    if: ${{ needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -446,6 +457,7 @@ jobs:
   api_integration_test:
     name: "Integration"
     needs: [ build-cache ]
+    if: ${{ needs.build-cache.outputs.management == 'true' || github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
