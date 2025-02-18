@@ -447,7 +447,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*Sq
 func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), error) {
 	dbName := fmt.Sprintf("test_db_%s", uuid.New().String())
 
-	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
+	if err := db.Exec(fmt.Sprintf("CREATE DATABASE '%s'", dbName)).Error; err != nil {
 		return "", nil, fmt.Errorf("failed to create database: %v", err)
 	}
 
@@ -461,10 +461,10 @@ func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), err
 	cleanup := func() {
 		switch engine {
 		case PostgresStoreEngine:
-			err = db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
+			err = db.Exec(fmt.Sprintf("DROP DATABASE '%s' WITH (FORCE)", dbName)).Error
 		case MysqlStoreEngine:
 			// err = killMySQLConnections(dsn, dbName)
-			err = db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName)).Error
+			err = db.Exec(fmt.Sprintf("DROP DATABASE '%s'", dbName)).Error
 		}
 		if err != nil {
 			log.Errorf("failed to drop database %s: %v", dbName, err)
