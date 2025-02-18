@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	// nolint:gosec
+	_ "net/http/pprof"
 	"strings"
 	"time"
 
@@ -81,6 +83,8 @@ var (
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
+
+			startPprof()
 
 			opts, certManager, err := getTLSConfigurations()
 			if err != nil {
@@ -169,6 +173,15 @@ var (
 		},
 	}
 )
+
+func startPprof() {
+	go func() {
+		log.Debugf("Starting pprof server on 127.0.0.1:6060")
+		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
+			log.Fatalf("pprof server failed: %v", err)
+		}
+	}()
+}
 
 func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, error) {
 	var (

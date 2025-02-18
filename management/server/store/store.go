@@ -64,20 +64,29 @@ type Store interface {
 	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
 	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.Settings, error)
 	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.DNSSettings, error)
+	GetAccountCreatedBy(ctx context.Context, lockStrength LockingStrength, accountID string) (string, error)
 	SaveAccount(ctx context.Context, account *types.Account) error
 	DeleteAccount(ctx context.Context, account *types.Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
 
-	GetUserByTokenID(ctx context.Context, tokenID string) (*types.User, error)
+	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
-	SaveUsers(accountID string, users map[string]*types.User) error
+	SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*types.User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
+	DeleteUser(ctx context.Context, lockStrength LockingStrength, accountID, userID string) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
+
+	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*types.PersonalAccessToken, error)
+	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*types.PersonalAccessToken, error)
+	GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.PersonalAccessToken, error)
+	MarkPATUsed(ctx context.Context, lockStrength LockingStrength, patID string) error
+	SavePAT(ctx context.Context, strength LockingStrength, pat *types.PersonalAccessToken) error
+	DeletePAT(ctx context.Context, strength LockingStrength, userID, patID string) error
 
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
