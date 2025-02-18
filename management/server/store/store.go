@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -451,13 +451,7 @@ func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), err
 		return "", nil, fmt.Errorf("failed to create database: %v", err)
 	}
 
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to parse DSN: %v", err)
-	}
-
-	u.Path = dbName
-
+	var err error
 	cleanup := func() {
 		switch engine {
 		case PostgresStoreEngine:
@@ -474,8 +468,13 @@ func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), err
 		_ = sqlDB.Close()
 	}
 
-	return u.String(), cleanup, nil
+	return replaceDBName(dsn, dbName), cleanup, nil
+}
 
+func replaceDBName(dsn, newDBName string) string {
+	// Match the database name (between "/" and "?" or end of string)
+	re := regexp.MustCompile(`/(?P<dbname>[^/?]+)`)
+	return re.ReplaceAllString(dsn, "/"+newDBName)
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {

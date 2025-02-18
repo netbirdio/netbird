@@ -607,7 +607,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			am, err := createNSManager(t)
 			if err != nil {
-				t.Error("failed to create account manager")
+				t.Fatalf("failed to create account manager: %s", err)
 			}
 
 			account, err := initTestNSAccount(t, am)
