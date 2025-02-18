@@ -101,6 +101,10 @@ type Manager interface {
 	Flush() error
 
 	SetLogLevel(log.Level)
+
+	EnableRouting() error
+
+	DisableRouting() error
 }
 
 func GenKey(format string, pair RouterPair) string {

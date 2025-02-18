@@ -462,6 +462,7 @@ func (s *DefaultServer) buildLocalHandlerUpdate(
 			if record.Class != nbdns.DefaultClass {
 				return nil, nil, fmt.Errorf("received an invalid class type: %s", record.Class)
 			}
+
 			key := buildRecordKey(record.Name, class, uint16(record.Type))
 
 			localRecords[key] = append(localRecords[key], record)

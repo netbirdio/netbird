@@ -1,4 +1,7 @@
-package rest
+//go:build integration
+// +build integration
+
+package rest_test
 
 import (
 	"context"
@@ -7,10 +10,12 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/client/rest"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 )
 
 var (
@@ -25,7 +30,7 @@ var (
 )
 
 func TestDNSNameserverGroup_List_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.NameserverGroup{testNameserverGroup})
 			_, err := w.Write(retBytes)
@@ -39,7 +44,7 @@ func TestDNSNameserverGroup_List_200(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_List_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -54,7 +59,7 @@ func TestDNSNameserverGroup_List_Err(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_Get_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(testNameserverGroup)
 			_, err := w.Write(retBytes)
@@ -67,7 +72,7 @@ func TestDNSNameserverGroup_Get_200(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_Get_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -82,7 +87,7 @@ func TestDNSNameserverGroup_Get_Err(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_Create_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -104,7 +109,7 @@ func TestDNSNameserverGroup_Create_200(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_Create_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -121,7 +126,7 @@ func TestDNSNameserverGroup_Create_Err(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_Update_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -143,7 +148,7 @@ func TestDNSNameserverGroup_Update_200(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_Update_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -160,7 +165,7 @@ func TestDNSNameserverGroup_Update_Err(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_Delete_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "DELETE", r.Method)
 			w.WriteHeader(200)
@@ -171,7 +176,7 @@ func TestDNSNameserverGroup_Delete_200(t *testing.T) {
 }
 
 func TestDNSNameserverGroup_Delete_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/nameservers/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
@@ -185,7 +190,7 @@ func TestDNSNameserverGroup_Delete_Err(t *testing.T) {
 }
 
 func TestDNSSettings_Get_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/settings", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(testSettings)
 			_, err := w.Write(retBytes)
@@ -198,7 +203,7 @@ func TestDNSSettings_Get_200(t *testing.T) {
 }
 
 func TestDNSSettings_Get_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/settings", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -213,7 +218,7 @@ func TestDNSSettings_Get_Err(t *testing.T) {
 }
 
 func TestDNSSettings_Update_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/settings", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -235,7 +240,7 @@ func TestDNSSettings_Update_200(t *testing.T) {
 }
 
 func TestDNSSettings_Update_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/dns/settings", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -255,6 +260,7 @@ func TestDNS_Integration(t *testing.T) {
 	nsGroupReq := api.NameserverGroupRequest{
 		Description: "Test",
 		Enabled:     true,
+		Domains:     []string{},
 		Groups:      []string{"cs1tnh0hhcjnqoiuebeg"},
 		Name:        "test",
 		Nameservers: []api.Nameserver{
@@ -267,7 +273,7 @@ func TestDNS_Integration(t *testing.T) {
 		Primary:              true,
 		SearchDomainsEnabled: false,
 	}
-	withBlackBoxServer(t, func(c *Client) {
+	withBlackBoxServer(t, func(c *rest.Client) {
 		// Create
 		nsGroup, err := c.DNS.CreateNameserverGroup(context.Background(), nsGroupReq)
 		require.NoError(t, err)
