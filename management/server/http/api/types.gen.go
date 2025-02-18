@@ -89,6 +89,12 @@ const (
 	IngressPortAllocationPortMappingProtocolUdp IngressPortAllocationPortMappingProtocol = "udp"
 )
 
+// Defines values for IngressPortAllocationRequestDirectPortProtocol.
+const (
+	IngressPortAllocationRequestDirectPortProtocolTcp IngressPortAllocationRequestDirectPortProtocol = "tcp"
+	IngressPortAllocationRequestDirectPortProtocolUdp IngressPortAllocationRequestDirectPortProtocol = "udp"
+)
+
 // Defines values for IngressPortAllocationRequestPortRangeProtocol.
 const (
 	IngressPortAllocationRequestPortRangeProtocolTcp IngressPortAllocationRequestPortRangeProtocol = "tcp"
@@ -530,6 +536,8 @@ type IngressPortAllocationPortMappingProtocol string
 
 // IngressPortAllocationRequest defines model for IngressPortAllocationRequest.
 type IngressPortAllocationRequest struct {
+	DirectPort *IngressPortAllocationRequestDirectPort `json:"direct_port,omitempty"`
+
 	// Enabled Indicates if an ingress port allocation is enabled
 	Enabled bool `json:"enabled"`
 
@@ -537,8 +545,20 @@ type IngressPortAllocationRequest struct {
 	Name string `json:"name"`
 
 	// PortRanges List of port ranges that are forwarded by the ingress peer
-	PortRanges []IngressPortAllocationRequestPortRange `json:"port_ranges"`
+	PortRanges *[]IngressPortAllocationRequestPortRange `json:"port_ranges,omitempty"`
 }
+
+// IngressPortAllocationRequestDirectPort defines model for IngressPortAllocationRequestDirectPort.
+type IngressPortAllocationRequestDirectPort struct {
+	// Count The number of ports to be forwarded
+	Count int `json:"count"`
+
+	// Protocol The protocol accepted by the port
+	Protocol IngressPortAllocationRequestDirectPortProtocol `json:"protocol"`
+}
+
+// IngressPortAllocationRequestDirectPortProtocol The protocol accepted by the port
+type IngressPortAllocationRequestDirectPortProtocol string
 
 // IngressPortAllocationRequestPortRange defines model for IngressPortAllocationRequestPortRange.
 type IngressPortAllocationRequestPortRange struct {

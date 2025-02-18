@@ -1677,10 +1677,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/IngressPortAllocationRequestPortRange'
+        direct_port:
+            description: Direct port allocation
+            $ref: '#/components/schemas/IngressPortAllocationRequestDirectPort'
       required:
         - name
         - enabled
-        - port_ranges
     IngressPortAllocationRequestPortRange:
       type: object
       properties:
@@ -1700,6 +1702,21 @@ components:
       required:
         - start
         - end
+        - protocol
+    IngressPortAllocationRequestDirectPort:
+      type: object
+      properties:
+        count:
+          description: The number of ports to be forwarded
+          type: integer
+          example: 5
+        protocol:
+          description: The protocol accepted by the port
+          type: string
+          enum: [ "tcp", "udp" ]
+          example: udp
+      required:
+        - count
         - protocol
     IngressPortAllocation:
       type: object
