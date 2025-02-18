@@ -1,4 +1,7 @@
-package rest
+//go:build integration
+// +build integration
+
+package rest_test
 
 import (
 	"context"
@@ -7,10 +10,12 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/client/rest"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 )
 
 var (
@@ -31,7 +36,7 @@ var (
 )
 
 func TestSetupKeys_List_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.SetupKey{testSetupKey})
 			_, err := w.Write(retBytes)
@@ -45,7 +50,7 @@ func TestSetupKeys_List_200(t *testing.T) {
 }
 
 func TestSetupKeys_List_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -60,7 +65,7 @@ func TestSetupKeys_List_Err(t *testing.T) {
 }
 
 func TestSetupKeys_Get_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(testSetupKey)
 			_, err := w.Write(retBytes)
@@ -73,7 +78,7 @@ func TestSetupKeys_Get_200(t *testing.T) {
 }
 
 func TestSetupKeys_Get_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -88,7 +93,7 @@ func TestSetupKeys_Get_Err(t *testing.T) {
 }
 
 func TestSetupKeys_Create_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -110,7 +115,7 @@ func TestSetupKeys_Create_200(t *testing.T) {
 }
 
 func TestSetupKeys_Create_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -127,7 +132,7 @@ func TestSetupKeys_Create_Err(t *testing.T) {
 }
 
 func TestSetupKeys_Update_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -149,7 +154,7 @@ func TestSetupKeys_Update_200(t *testing.T) {
 }
 
 func TestSetupKeys_Update_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -166,7 +171,7 @@ func TestSetupKeys_Update_Err(t *testing.T) {
 }
 
 func TestSetupKeys_Delete_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "DELETE", r.Method)
 			w.WriteHeader(200)
@@ -177,7 +182,7 @@ func TestSetupKeys_Delete_200(t *testing.T) {
 }
 
 func TestSetupKeys_Delete_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/setup-keys/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
@@ -191,7 +196,7 @@ func TestSetupKeys_Delete_Err(t *testing.T) {
 }
 
 func TestSetupKeys_Integration(t *testing.T) {
-	withBlackBoxServer(t, func(c *Client) {
+	withBlackBoxServer(t, func(c *rest.Client) {
 		group, err := c.Groups.Create(context.Background(), api.GroupRequest{
 			Name: "Test",
 		})

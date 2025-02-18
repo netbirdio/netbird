@@ -1,4 +1,7 @@
-package rest
+//go:build integration
+// +build integration
+
+package rest_test
 
 import (
 	"context"
@@ -7,10 +10,12 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/client/rest"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 )
 
 var (
@@ -22,7 +27,7 @@ var (
 )
 
 func TestGroups_List_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.Group{testGroup})
 			_, err := w.Write(retBytes)
@@ -36,7 +41,7 @@ func TestGroups_List_200(t *testing.T) {
 }
 
 func TestGroups_List_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -51,7 +56,7 @@ func TestGroups_List_Err(t *testing.T) {
 }
 
 func TestGroups_Get_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(testGroup)
 			_, err := w.Write(retBytes)
@@ -64,7 +69,7 @@ func TestGroups_Get_200(t *testing.T) {
 }
 
 func TestGroups_Get_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -79,7 +84,7 @@ func TestGroups_Get_Err(t *testing.T) {
 }
 
 func TestGroups_Create_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -101,7 +106,7 @@ func TestGroups_Create_200(t *testing.T) {
 }
 
 func TestGroups_Create_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -118,7 +123,7 @@ func TestGroups_Create_Err(t *testing.T) {
 }
 
 func TestGroups_Update_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -140,7 +145,7 @@ func TestGroups_Update_200(t *testing.T) {
 }
 
 func TestGroups_Update_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -157,7 +162,7 @@ func TestGroups_Update_Err(t *testing.T) {
 }
 
 func TestGroups_Delete_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "DELETE", r.Method)
 			w.WriteHeader(200)
@@ -168,7 +173,7 @@ func TestGroups_Delete_200(t *testing.T) {
 }
 
 func TestGroups_Delete_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/groups/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
@@ -182,7 +187,7 @@ func TestGroups_Delete_Err(t *testing.T) {
 }
 
 func TestGroups_Integration(t *testing.T) {
-	withBlackBoxServer(t, func(c *Client) {
+	withBlackBoxServer(t, func(c *rest.Client) {
 		groups, err := c.Groups.List(context.Background())
 		require.NoError(t, err)
 		assert.Len(t, groups, 1)
