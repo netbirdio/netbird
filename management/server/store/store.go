@@ -478,37 +478,6 @@ func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), err
 
 }
 
-func killMySQLConnections(dsn, targetDB string) error {
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return fmt.Errorf("failed to parse DSN: %v", err)
-	}
-
-	u.Path = "testing"
-
-	ctrlDB, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	if err != nil {
-		return fmt.Errorf("failed to open mysql connection: %v", err)
-	}
-
-	var procs []struct {
-		ID int
-	}
-	query := "SELECT ID FROM INFORMATION_SCHEMA.PROCESSLIST WHERE DB = ?"
-	if err := ctrlDB.Raw(query, targetDB).Scan(&procs).Error; err != nil {
-		return fmt.Errorf("failed to get processes: %v", err)
-	}
-
-	for _, p := range procs {
-		killStmt := fmt.Sprintf("KILL %d", p.ID)
-		if err := ctrlDB.Exec(killStmt).Error; err != nil {
-			return fmt.Errorf("failed to kill process %d: %v", p.ID, err)
-		}
-	}
-
-	return nil
-}
-
 func loadSQL(db *gorm.DB, filepath string) error {
 	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {
