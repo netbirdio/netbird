@@ -632,6 +632,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			require.EqualValues(t, testCase.expectedPrimaryDomainStatus, account.IsDomainPrimaryAccount, "expected account primary status should match")
 			require.EqualValues(t, testCase.expectedDomain, account.Domain, "expected account domain should match")
 		})
+		time.Sleep(1 * time.Second)
 	}
 }
 
