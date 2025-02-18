@@ -128,6 +128,8 @@ func (p *WGUDPProxy) RedirectAs(endpoint *net.UDPAddr) {
 	srcFakerConn, err := NewSrcFaker(p.localWGListenPort, endpoint)
 	if err != nil {
 		log.Errorf("failed to create src faker conn: %s", err)
+		// fallback to continue without redirecting
+		p.paused = true
 		return
 	}
 	p.srcFakerConn = srcFakerConn
