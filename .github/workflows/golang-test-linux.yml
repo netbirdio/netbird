@@ -511,7 +511,7 @@ jobs:
           -timeout 10m ./management/...
 
   test_client_on_docker:
-    name: "Client Docker (Docker) / Unit"
+    name: "Client (Docker) / Unit"
     needs: [ build-cache ]
     runs-on: ubuntu-20.04
     steps:
