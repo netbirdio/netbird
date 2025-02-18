@@ -472,9 +472,8 @@ func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), err
 }
 
 func replaceDBName(dsn, newDBName string) string {
-	// Match the database name (between "/" and "?" or end of string)
-	re := regexp.MustCompile(`/(?P<dbname>[^/?]+)`)
-	return re.ReplaceAllString(dsn, "/"+newDBName)
+	re := regexp.MustCompile(`(?P<pre>[:/@])(?P<dbname>[^/?]+)(?P<post>\?|$)`)
+	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {
