@@ -1,4 +1,4 @@
-name: Test Code Linux
+name: Linux
 
 on:
   push:
@@ -12,6 +12,7 @@ concurrency:
 
 jobs:
   build-cache:
+    name: "Build Cache"
     runs-on: ubuntu-22.04
     steps:        
       - name: Checkout code
@@ -38,7 +39,6 @@ jobs:
           key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
-            
 
       - name: Install dependencies
         if: steps.cache.outputs.cache-hit != 'true'
@@ -89,6 +89,7 @@ jobs:
         run: CGO_ENABLED=1 GOARCH=386 go build -o relay-386 .
 
   test:
+    name: "Client"
     needs: [build-cache]
     strategy:
       fail-fast: false
@@ -134,9 +135,116 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 ./client/...
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay)
+
+  test_relay:
+    name: "Relay"
+    needs: [build-cache]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ '386','amd64' ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Go environment
+        run: |
+          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
+          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV     
+
+      - name: Cache Go modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.cache }}
+            ${{ env.modcache }}
+          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-cache-
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+
+      - name: Install 32-bit libpcap
+        if: matrix.arch == '386'
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Test
+        run: |
+          CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
+          go test \
+            -exec 'sudo' \
+            -timeout 10m ./signal/...
+
+  test_signal:
+    name: "Signal"
+    needs: [build-cache]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ '386','amd64' ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Go environment
+        run: |
+          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
+          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV     
+
+      - name: Cache Go modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.cache }}
+            ${{ env.modcache }}
+          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-cache-
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+
+      - name: Install 32-bit libpcap
+        if: matrix.arch == '386'
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Test
+        run: |
+          CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
+          go test \
+            -exec 'sudo' \
+            -timeout 10m ./signal/...
 
   test_management:
+    name: "Management"
     needs: [ build-cache ]
     strategy:
       fail-fast: false
@@ -202,6 +310,7 @@ jobs:
             -timeout 10m ./management/...
 
   benchmark:
+    name: "Benchmark"
     needs: [ build-cache ]
     strategy:
       fail-fast: false
@@ -267,6 +376,7 @@ jobs:
           -timeout 20m ./...
 
   api_benchmark:
+    name: "API Benchmark"
     needs: [ build-cache ]
     strategy:
       fail-fast: false
@@ -334,6 +444,7 @@ jobs:
             -timeout 20m ./management/...
 
   api_integration_test:
+    name: "API Integration Test"
     needs: [ build-cache ]
     strategy:
       fail-fast: false
@@ -388,6 +499,7 @@ jobs:
           -timeout 10m ./management/...
 
   test_client_on_docker:
+    name: "Client on Docker"
     needs: [ build-cache ]
     runs-on: ubuntu-20.04
     steps:
