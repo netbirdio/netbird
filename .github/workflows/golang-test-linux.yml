@@ -1,4 +1,4 @@
-name: Linux
+name: Test Code Linux
 
 on:
   push:
@@ -444,7 +444,7 @@ jobs:
             -timeout 20m ./management/...
 
   api_integration_test:
-    name: "API Integration Test"
+    name: "Integration"
     needs: [ build-cache ]
     strategy:
       fail-fast: false
