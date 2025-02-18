@@ -732,6 +732,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		PATs: map[string]*types.PersonalAccessToken{
 			"tokenId": {
 				ID:          "tokenId",
+				UserID:      "someUser",
 				HashedToken: encodedHashedToken,
 			},
 		},
@@ -745,14 +746,14 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		Store: store,
 	}
 
-	account, user, pat, err := am.GetAccountFromPAT(context.Background(), token)
+	user, pat, _, _, err := am.GetPATInfo(context.Background(), token)
 	if err != nil {
 		t.Fatalf("Error when getting Account from PAT: %s", err)
 	}
 
-	assert.Equal(t, "account_id", account.Id)
+	assert.Equal(t, "account_id", user.AccountID)
 	assert.Equal(t, "someUser", user.Id)
-	assert.Equal(t, account.Users["someUser"].PATs["tokenId"], pat)
+	assert.Equal(t, account.Users["someUser"].PATs["tokenId"].ID, pat.ID)
 }
 
 func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {

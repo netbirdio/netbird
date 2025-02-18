@@ -52,7 +52,7 @@ var usersTestAccount = &types.Account{
 			Issued:        types.UserIssuedAPI,
 		},
 		nonDeletableServiceUserID: {
-			Id:            serviceUserID,
+			Id:            nonDeletableServiceUserID,
 			Role:          "admin",
 			IsServiceUser: true,
 			NonDeletable:  true,
@@ -70,10 +70,10 @@ func initUsersTestData() *handler {
 			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
 				return usersTestAccount.Users[id], nil
 			},
-			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*types.UserInfo, error) {
-				users := make([]*types.UserInfo, 0)
+			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) (map[string]*types.UserInfo, error) {
+				usersInfos := make(map[string]*types.UserInfo)
 				for _, v := range usersTestAccount.Users {
-					users = append(users, &types.UserInfo{
+					usersInfos[v.Id] = &types.UserInfo{
 						ID:            v.Id,
 						Role:          string(v.Role),
 						Name:          "",
@@ -81,9 +81,9 @@ func initUsersTestData() *handler {
 						IsServiceUser: v.IsServiceUser,
 						NonDeletable:  v.NonDeletable,
 						Issued:        v.Issued,
-					})
+					}
 				}
-				return users, nil
+				return usersInfos, nil
 			},
 			CreateUserFunc: func(_ context.Context, accountID, userID string, key *types.UserInfo) (*types.UserInfo, error) {
 				if userID != existingUserID {

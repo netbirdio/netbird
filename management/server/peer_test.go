@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -28,7 +29,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
-	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -1554,7 +1554,8 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	// Adding peer to group linked with policy should update account peers and send peer update
 	t.Run("adding peer to group linked with policy", func(t *testing.T) {
 		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
-			Enabled: true,
+			AccountID: account.Id,
+			Enabled:   true,
 			Rules: []*types.PolicyRule{
 				{
 					Enabled:       true,
