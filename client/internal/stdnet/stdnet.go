@@ -5,6 +5,8 @@ package stdnet
 
 import (
 	"fmt"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/pion/transport/v3"
@@ -22,6 +24,9 @@ type Net struct {
 	// interfaceFilter should return true if the given interfaceName is allowed
 	interfaceFilter func(interfaceName string) bool
 	lastUpdate      time.Time
+
+	// mu is shared between interfaces and lastUpdate
+	mu sync.Mutex
 }
 
 // NewNetWithDiscover creates a new StdNet instance.
@@ -47,10 +52,18 @@ func NewNet(disallowList []string) (*Net, error) {
 // The interfaces are discovered by an external iFaceDiscover function or by a default discoverer if the external one
 // wasn't specified.
 func (n *Net) UpdateInterfaces() (err error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	return n.updateInterfaces()
+}
+
+func (n *Net) updateInterfaces() (err error) {
 	allIfaces, err := n.iFaceDiscover.iFaces()
 	if err != nil {
 		return err
 	}
+
 	n.interfaces = n.filterInterfaces(allIfaces)
 
 	return nil
@@ -59,16 +72,20 @@ func (n *Net) UpdateInterfaces() (err error) {
 // Interfaces returns a slice of interfaces which are available on the
 // system
 func (n *Net) Interfaces() ([]*transport.Interface, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
 	if time.Since(n.lastUpdate) < updateInterval {
-		return n.interfaces, nil
+		return slices.Clone(n.interfaces), nil
 	}
 
-	if err := n.UpdateInterfaces(); err != nil {
+	if err := n.updateInterfaces(); err != nil {
 		return nil, fmt.Errorf("update interfaces: %w", err)
 	}
+
 	n.lastUpdate = time.Now()
 
-	return n.interfaces, nil
+	return slices.Clone(n.interfaces), nil
 }
 
 // InterfaceByIndex returns the interface specified by index.
@@ -77,6 +94,8 @@ func (n *Net) Interfaces() ([]*transport.Interface, error) {
 // sharing the logical data link; for more precision use
 // InterfaceByName.
 func (n *Net) InterfaceByIndex(index int) (*transport.Interface, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	for _, ifc := range n.interfaces {
 		if ifc.Index == index {
 			return ifc, nil
@@ -88,6 +107,8 @@ func (n *Net) InterfaceByIndex(index int) (*transport.Interface, error) {
 
 // InterfaceByName returns the interface specified by name.
 func (n *Net) InterfaceByName(name string) (*transport.Interface, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	for _, ifc := range n.interfaces {
 		if ifc.Name == name {
 			return ifc, nil
@@ -101,7 +122,7 @@ func (n *Net) filterInterfaces(interfaces []*transport.Interface) []*transport.I
 	if n.interfaceFilter == nil {
 		return interfaces
 	}
-	result := []*transport.Interface{}
+	var result []*transport.Interface
 	for _, iface := range interfaces {
 		if n.interfaceFilter(iface.Name) {
 			result = append(result, iface)
