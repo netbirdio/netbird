@@ -31,6 +31,11 @@ services:
     - traefik.enable=true
     - traefik.http.routers.netbird-dashboard.rule=Host(`$NETBIRD_DOMAIN`)
     - traefik.http.services.netbird-dashboard.loadbalancer.server.port=80
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
   # Signal
   signal:
@@ -48,6 +53,11 @@ services:
     - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange.SignalExchange/`)
     - traefik.http.services.netbird-signal.loadbalancer.server.port=80
     - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
   # Relay
   relay:
@@ -84,6 +94,7 @@ services:
     command: [
       "--port", "443",
       "--log-file", "console",
+      "--log-level", "info",
       "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS",
       "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
       "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
@@ -98,6 +109,11 @@ services:
     - traefik.http.routers.netbird-management.service=netbird-management
     - traefik.http.services.netbird-management.loadbalancer.server.port=443
     - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
       - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
@@ -114,6 +130,11 @@ services:
     network_mode: host
     command:
       - -c /etc/turnserver.conf
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
 volumes:
   $MGMT_VOLUMENAME:
