@@ -4,6 +4,8 @@ package system
 
 import (
 	"context"
+	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -17,9 +19,16 @@ var (
 )
 
 func init() {
+	if runtime.GOOS == "Darwin" && !isRoot() {
+		return
+	}
 	go func() {
 		_ = updateStaticInfo()
 	}()
+}
+
+func isRoot() bool {
+	return os.Geteuid() == 0
 }
 
 func updateStaticInfo() StaticInfo {
