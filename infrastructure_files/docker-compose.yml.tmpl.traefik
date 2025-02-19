@@ -96,7 +96,7 @@ services:
   #    # command for Let's Encrypt validation without dashboard container
   #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
     command: [
-      "--port", "443",
+      "--port", "33073",
       "--log-file", "console",
       "--log-level", "info",
       "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS",
@@ -107,11 +107,11 @@ services:
     - traefik.enable=true
     - traefik.http.routers.netbird-api.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/api`)
     - traefik.http.routers.netbird-api.service=netbird-api
-    - traefik.http.services.netbird-api.loadbalancer.server.port=443
+    - traefik.http.services.netbird-api.loadbalancer.server.port=33073
 
     - traefik.http.routers.netbird-management.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/management.ManagementService/`)
     - traefik.http.routers.netbird-management.service=netbird-management
-    - traefik.http.services.netbird-management.loadbalancer.server.port=443
+    - traefik.http.services.netbird-management.loadbalancer.server.port=33073
     - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
     logging:
       driver: "json-file"
