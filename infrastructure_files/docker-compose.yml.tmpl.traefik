@@ -44,14 +44,14 @@ services:
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
     #ports:
-    #  - 10000:80
+    #  - $NETBIRD_SIGNAL_PORT:80
   #      # port and command for Let's Encrypt validation
   #      - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
     labels:
     - traefik.enable=true
     - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange.SignalExchange/`)
-    - traefik.http.services.netbird-signal.loadbalancer.server.port=80
+    - traefik.http.services.netbird-signal.loadbalancer.server.port=10000
     - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
     logging:
       driver: "json-file"
