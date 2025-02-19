@@ -1,5 +1,5 @@
 services:
-  #UI dashboard
+  # UI dashboard
   dashboard:
     image: netbirdio/dashboard:$NETBIRD_DASHBOARD_TAG
     restart: unless-stopped
