@@ -69,8 +69,12 @@ services:
     - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_DOMAIN:$NETBIRD_RELAY_PORT
     # todo: change to a secure secret
     - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
-    ports:
-      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+    # ports:
+    #   - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.netbird-relay.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/relay`)
+    - traefik.http.services.netbird-relay.loadbalancer.server.port=33080
     logging:
       driver: "json-file"
       options:
