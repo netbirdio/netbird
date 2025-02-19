@@ -29,7 +29,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 
 	_, account, err := initTestGroupAccount(am)
 	if err != nil {
-		t.Error("failed to init testing account")
+		t.Fatalf("failed to init testing account: %s", err)
 	}
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedIntegration
@@ -59,12 +59,12 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 	am, err := createManager(t)
 	if err != nil {
-		t.Error("failed to create account manager")
+		t.Fatalf("failed to create account manager: %s", err)
 	}
 
 	_, account, err := initTestGroupAccount(am)
 	if err != nil {
-		t.Error("failed to init testing account")
+		t.Fatalf("failed to init testing account: %s", err)
 	}
 
 	testCases := []struct {
