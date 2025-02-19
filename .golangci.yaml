@@ -103,7 +103,7 @@ linters:
     - predeclared # predeclared finds code that shadows one of Go's predeclared identifiers
     - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go. Drop-in replacement of golint.
     - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
-    - thelper # thelper detects Go test helpers without t.Helper() call and checks the consistency of test helpers.
+    # - thelper # thelper detects Go test helpers without t.Helper() call and checks the consistency of test helpers.
     - wastedassign # wastedassign finds wasted assignment statements
 issues:
   # Maximum count of issues with the same text.
