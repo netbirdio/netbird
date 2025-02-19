@@ -66,6 +66,8 @@ func (n *Net) updateInterfaces() (err error) {
 
 	n.interfaces = n.filterInterfaces(allIfaces)
 
+	n.lastUpdate = time.Now()
+
 	return nil
 }
 
@@ -82,8 +84,6 @@ func (n *Net) Interfaces() ([]*transport.Interface, error) {
 	if err := n.updateInterfaces(); err != nil {
 		return nil, fmt.Errorf("update interfaces: %w", err)
 	}
-
-	n.lastUpdate = time.Now()
 
 	return slices.Clone(n.interfaces), nil
 }
