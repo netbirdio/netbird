@@ -83,7 +83,7 @@ func main() {
 	}
 
 	a := app.NewWithID("NetBird")
-	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
+	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnected))
 
 	if errorMSG != "" {
 		showErrorMSG(errorMSG)
@@ -115,95 +115,23 @@ func main() {
 	}
 }
 
-//go:embed netbird.ico
-var iconAboutICO []byte
-
-//go:embed netbird.png
-var iconAboutPNG []byte
-
-//go:embed netbird-systemtray-connected.ico
-var iconConnectedICO []byte
-
-//go:embed netbird-systemtray-connected.png
-var iconConnectedPNG []byte
-
 //go:embed netbird-systemtray-connected-macos.png
 var iconConnectedMacOS []byte
-
-//go:embed netbird-systemtray-connected-dark.ico
-var iconConnectedDarkICO []byte
-
-//go:embed netbird-systemtray-connected-dark.png
-var iconConnectedDarkPNG []byte
-
-//go:embed netbird-systemtray-disconnected.ico
-var iconDisconnectedICO []byte
-
-//go:embed netbird-systemtray-disconnected.png
-var iconDisconnectedPNG []byte
 
 //go:embed netbird-systemtray-disconnected-macos.png
 var iconDisconnectedMacOS []byte
 
-//go:embed netbird-systemtray-update-disconnected.ico
-var iconUpdateDisconnectedICO []byte
-
-//go:embed netbird-systemtray-update-disconnected.png
-var iconUpdateDisconnectedPNG []byte
-
 //go:embed netbird-systemtray-update-disconnected-macos.png
 var iconUpdateDisconnectedMacOS []byte
-
-//go:embed netbird-systemtray-update-disconnected-dark.ico
-var iconUpdateDisconnectedDarkICO []byte
-
-//go:embed netbird-systemtray-update-disconnected-dark.png
-var iconUpdateDisconnectedDarkPNG []byte
-
-//go:embed netbird-systemtray-update-connected.ico
-var iconUpdateConnectedICO []byte
-
-//go:embed netbird-systemtray-update-connected.png
-var iconUpdateConnectedPNG []byte
 
 //go:embed netbird-systemtray-update-connected-macos.png
 var iconUpdateConnectedMacOS []byte
 
-//go:embed netbird-systemtray-update-connected-dark.ico
-var iconUpdateConnectedDarkICO []byte
-
-//go:embed netbird-systemtray-update-connected-dark.png
-var iconUpdateConnectedDarkPNG []byte
-
-//go:embed netbird-systemtray-connecting.ico
-var iconConnectingICO []byte
-
-//go:embed netbird-systemtray-connecting.png
-var iconConnectingPNG []byte
-
 //go:embed netbird-systemtray-connecting-macos.png
 var iconConnectingMacOS []byte
 
-//go:embed netbird-systemtray-connecting-dark.ico
-var iconConnectingDarkICO []byte
-
-//go:embed netbird-systemtray-connecting-dark.png
-var iconConnectingDarkPNG []byte
-
-//go:embed netbird-systemtray-error.ico
-var iconErrorICO []byte
-
-//go:embed netbird-systemtray-error.png
-var iconErrorPNG []byte
-
 //go:embed netbird-systemtray-error-macos.png
 var iconErrorMacOS []byte
-
-//go:embed netbird-systemtray-error-dark.ico
-var iconErrorDarkICO []byte
-
-//go:embed netbird-systemtray-error-dark.png
-var iconErrorDarkPNG []byte
 
 type serviceClient struct {
 	ctx  context.Context
@@ -298,40 +226,21 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 }
 
 func (s *serviceClient) setNewIcons() {
-	if runtime.GOOS == "windows" {
-		s.icAbout = iconAboutICO
-		if s.app.Settings().ThemeVariant() == theme.VariantDark {
-			s.icConnected = iconConnectedDarkICO
-			s.icDisconnected = iconDisconnectedICO
-			s.icUpdateConnected = iconUpdateConnectedDarkICO
-			s.icUpdateDisconnected = iconUpdateDisconnectedDarkICO
-			s.icConnecting = iconConnectingDarkICO
-			s.icError = iconErrorDarkICO
-		} else {
-			s.icConnected = iconConnectedICO
-			s.icDisconnected = iconDisconnectedICO
-			s.icUpdateConnected = iconUpdateConnectedICO
-			s.icUpdateDisconnected = iconUpdateDisconnectedICO
-			s.icConnecting = iconConnectingICO
-			s.icError = iconErrorICO
-		}
+	s.icAbout = iconAbout
+	if s.app.Settings().ThemeVariant() == theme.VariantDark {
+		s.icConnected = iconConnectedDark
+		s.icDisconnected = iconDisconnected
+		s.icUpdateConnected = iconUpdateConnectedDark
+		s.icUpdateDisconnected = iconUpdateDisconnectedDark
+		s.icConnecting = iconConnectingDark
+		s.icError = iconErrorDark
 	} else {
-		s.icAbout = iconAboutPNG
-		if s.app.Settings().ThemeVariant() == theme.VariantDark {
-			s.icConnected = iconConnectedDarkPNG
-			s.icDisconnected = iconDisconnectedPNG
-			s.icUpdateConnected = iconUpdateConnectedDarkPNG
-			s.icUpdateDisconnected = iconUpdateDisconnectedDarkPNG
-			s.icConnecting = iconConnectingDarkPNG
-			s.icError = iconErrorDarkPNG
-		} else {
-			s.icConnected = iconConnectedPNG
-			s.icDisconnected = iconDisconnectedPNG
-			s.icUpdateConnected = iconUpdateConnectedPNG
-			s.icUpdateDisconnected = iconUpdateDisconnectedPNG
-			s.icConnecting = iconConnectingPNG
-			s.icError = iconErrorPNG
-		}
+		s.icConnected = iconConnected
+		s.icDisconnected = iconDisconnected
+		s.icUpdateConnected = iconUpdateConnected
+		s.icUpdateDisconnected = iconUpdateDisconnected
+		s.icConnecting = iconConnecting
+		s.icError = iconError
 	}
 }
 
@@ -622,7 +531,6 @@ func (s *serviceClient) updateStatus() error {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	})
-
 	if err != nil {
 		return err
 	}
