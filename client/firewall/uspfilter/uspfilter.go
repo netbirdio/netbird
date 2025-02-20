@@ -42,10 +42,7 @@ const (
 	EnvEnableNetstackLocalForwarding = "NB_ENABLE_NETSTACK_LOCAL_FORWARDING"
 )
 
-var (
-	errRouteNotSupported = errors.New("route not supported with userspace firewall")
-	errNatNotSupported   = errors.New("nat not supported with userspace firewall")
-)
+var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
