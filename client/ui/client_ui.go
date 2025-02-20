@@ -512,7 +512,6 @@ func (s *serviceClient) updateStatus() error {
 			s.mUp.Disable()
 			s.mDown.Enable()
 			s.mNetworks.Enable()
-			s.mExitNode.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
@@ -700,19 +699,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
-				}
-			case <-s.mNotifications.ClickedCh:
-				if s.mNotifications.Checked() {
-					s.mNotifications.Uncheck()
-				} else {
-					s.mNotifications.Check()
-				}
-				if s.eventManager != nil {
-					s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-					return
 				}
 			case <-s.mAdvancedSettings.ClickedCh:
 				s.mAdvancedSettings.Disable()
