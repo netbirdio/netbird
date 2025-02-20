@@ -146,9 +146,6 @@ var overview = statusOutputOverview{
 				LastWireguardHandshake: time.Date(2001, 1, 1, 1, 1, 2, 0, time.UTC),
 				TransferReceived:       200,
 				TransferSent:           100,
-				Routes: []string{
-					"10.1.0.0/24",
-				},
 				Networks: []string{
 					"10.1.0.0/24",
 				},
@@ -176,6 +173,7 @@ var overview = statusOutputOverview{
 			},
 		},
 	},
+	Events:        []systemEventOutput{},
 	CliVersion:    version.NetbirdVersion(),
 	DaemonVersion: "0.14.1",
 	ManagementState: managementStateOutput{
@@ -229,9 +227,6 @@ var overview = statusOutputOverview{
 			Enabled: false,
 			Error:   "timeout",
 		},
-	},
-	Routes: []string{
-		"10.10.0.0/24",
 	},
 	Networks: []string{
 		"10.10.0.0/24",
@@ -299,9 +294,6 @@ func TestParsingToJSON(t *testing.T) {
                 "transferSent": 100,
 				"latency": 10000000,
                 "quantumResistance": false,
-                "routes": [
-                  "10.1.0.0/24"
-                ],
                 "networks": [
                   "10.1.0.0/24"
                 ]
@@ -327,7 +319,6 @@ func TestParsingToJSON(t *testing.T) {
                 "transferSent": 1000,
 				"latency": 10000000,
                 "quantumResistance": false,
-                "routes": null,
                 "networks": null
               }
             ]
@@ -366,9 +357,6 @@ func TestParsingToJSON(t *testing.T) {
           "fqdn": "some-localhost.awesome-domain.com",
           "quantumResistance": false,
           "quantumResistancePermissive": false,
-          "routes": [
-            "10.10.0.0/24"
-          ],
           "networks": [
             "10.10.0.0/24"
           ],
@@ -393,7 +381,8 @@ func TestParsingToJSON(t *testing.T) {
               "enabled": false,
               "error": "timeout"
             }
-          ]
+          ],
+          "events": []
         }`
 	// @formatter:on
 
@@ -429,8 +418,6 @@ func TestParsingToYAML(t *testing.T) {
           transferSent: 100
           latency: 10ms
           quantumResistance: false
-          routes:
-            - 10.1.0.0/24
           networks:
             - 10.1.0.0/24
         - fqdn: peer-2.awesome-domain.com
@@ -451,7 +438,6 @@ func TestParsingToYAML(t *testing.T) {
           transferSent: 1000
           latency: 10ms
           quantumResistance: false
-          routes: []
           networks: []
 cliVersion: development
 daemonVersion: 0.14.1
@@ -479,8 +465,6 @@ usesKernelInterface: true
 fqdn: some-localhost.awesome-domain.com
 quantumResistance: false
 quantumResistancePermissive: false
-routes:
-    - 10.10.0.0/24
 networks:
     - 10.10.0.0/24
 dnsServers:
@@ -497,6 +481,7 @@ dnsServers:
         - example.net
       enabled: false
       error: timeout
+events: []
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -526,7 +511,6 @@ func TestParsingToDetail(t *testing.T) {
   Last WireGuard handshake: %s
   Transfer status (received/sent) 200 B/100 B
   Quantum resistance: false
-  Routes: 10.1.0.0/24
   Networks: 10.1.0.0/24
   Latency: 10ms
 
@@ -543,10 +527,10 @@ func TestParsingToDetail(t *testing.T) {
   Last WireGuard handshake: %s
   Transfer status (received/sent) 2.0 KiB/1000 B
   Quantum resistance: false
-  Routes: -
   Networks: -
   Latency: 10ms
 
+Events: No events recorded
 OS: %s/%s
 Daemon version: 0.14.1
 CLI version: %s
@@ -562,7 +546,6 @@ FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
-Routes: 10.10.0.0/24
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
@@ -584,7 +567,6 @@ FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
-Routes: 10.10.0.0/24
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
 `

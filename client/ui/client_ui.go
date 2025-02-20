@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
@@ -161,6 +162,7 @@ type serviceClient struct {
 	mAllowSSH         *systray.MenuItem
 	mAutoConnect      *systray.MenuItem
 	mEnableRosenpass  *systray.MenuItem
+	mNotifications    *systray.MenuItem
 	mAdvancedSettings *systray.MenuItem
 
 	// application with main windows.
@@ -196,6 +198,8 @@ type serviceClient struct {
 	isUpdateIconActive   bool
 	showRoutes           bool
 	wRoutes              fyne.Window
+
+	eventManager *event.Manager
 }
 
 // newServiceClient instance constructor
@@ -429,6 +433,7 @@ func (s *serviceClient) menuUpClick() error {
 		log.Errorf("up service: %v", err)
 		return err
 	}
+
 	return nil
 }
 
@@ -570,6 +575,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", "Allow SSH connections", false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", "Connect automatically when the service starts", false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", "Enable post-quantum security via Rosenpass", false)
+	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", "Enable notifications", true)
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
 	s.loadSettings()
 
@@ -605,6 +611,10 @@ func (s *serviceClient) onTrayReady() {
 			time.Sleep(2 * time.Second)
 		}
 	}()
+
+	s.eventManager = event.NewManager(s.app, s.addr)
+	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	go s.eventManager.Start(s.ctx)
 
 	go func() {
 		var err error
@@ -680,7 +690,20 @@ func (s *serviceClient) onTrayReady() {
 					defer s.mRoutes.Enable()
 					s.runSelfCommand("networks", "true")
 				}()
+			case <-s.mNotifications.ClickedCh:
+				if s.mNotifications.Checked() {
+					s.mNotifications.Uncheck()
+				} else {
+					s.mNotifications.Check()
+				}
+				if s.eventManager != nil {
+					s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+				}
+				if err := s.updateConfig(); err != nil {
+					log.Errorf("failed to update config: %v", err)
+				}
 			}
+
 			if err != nil {
 				log.Errorf("process connection: %v", err)
 			}
@@ -780,8 +803,20 @@ func (s *serviceClient) getSrvConfig() {
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
 		}
-
 	}
+
+	if s.mNotifications == nil {
+		return
+	}
+	if cfg.DisableNotifications {
+		s.mNotifications.Uncheck()
+	} else {
+		s.mNotifications.Check()
+	}
+	if s.eventManager != nil {
+		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	}
+
 }
 
 func (s *serviceClient) onUpdateAvailable() {
@@ -846,6 +881,15 @@ func (s *serviceClient) loadSettings() {
 	} else {
 		s.mEnableRosenpass.Uncheck()
 	}
+
+	if cfg.DisableNotifications {
+		s.mNotifications.Uncheck()
+	} else {
+		s.mNotifications.Check()
+	}
+	if s.eventManager != nil {
+		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	}
 }
 
 // updateConfig updates the configuration parameters
@@ -854,12 +898,14 @@ func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
+	notificationsDisabled := !s.mNotifications.Checked()
 
 	loginRequest := proto.LoginRequest{
 		IsLinuxDesktopClient: runtime.GOOS == "linux",
 		ServerSSHAllowed:     &sshAllowed,
 		RosenpassEnabled:     &rosenpassEnabled,
 		DisableAutoConnect:   &disableAutoStart,
+		DisableNotifications: &notificationsDisabled,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {
