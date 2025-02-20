@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	runtime "runtime"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -503,7 +504,7 @@ func handlerType(rt *route.Route, useNewDNSRoute bool) int {
 		return handlerTypeStatic
 	}
 
-	if useNewDNSRoute {
+	if useNewDNSRoute && runtime.GOOS != "ios" {
 		return handlerTypeDomain
 	}
 	return handlerTypeDynamic

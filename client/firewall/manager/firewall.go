@@ -99,6 +99,12 @@ type Manager interface {
 
 	// Flush the changes to firewall controller
 	Flush() error
+
+	SetLogLevel(log.Level)
+
+	EnableRouting() error
+
+	DisableRouting() error
 }
 
 func GenKey(format string, pair RouterPair) string {

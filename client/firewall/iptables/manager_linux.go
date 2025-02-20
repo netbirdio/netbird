@@ -213,6 +213,19 @@ func (m *Manager) AllowNetbird() error {
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
+// SetLogLevel sets the log level for the firewall manager
+func (m *Manager) SetLogLevel(log.Level) {
+	// not supported
+}
+
+func (m *Manager) EnableRouting() error {
+	return nil
+}
+
+func (m *Manager) DisableRouting() error {
+	return nil
+}
+
 func getConntrackEstablished() []string {
 	return []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
 }

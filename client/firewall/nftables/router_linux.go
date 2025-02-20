@@ -233,7 +233,13 @@ func (r *router) AddRouteFiltering(
 		UserData: []byte(ruleKey),
 	}
 
-	rule = r.conn.AddRule(rule)
+	// Insert DROP rules at the beginning, append ACCEPT rules at the end
+	if action == firewall.ActionDrop {
+		// TODO: Insert after the established rule
+		rule = r.conn.InsertRule(rule)
+	} else {
+		rule = r.conn.AddRule(rule)
+	}
 
 	log.Tracef("Adding route rule %s", spew.Sdump(rule))
 	if err := r.conn.Flush(); err != nil {
@@ -956,12 +962,12 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 			&expr.Cmp{
 				Op:       expr.CmpOpGte,
 				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(uint16(port.Values[0])),
+				Data:     binaryutil.BigEndian.PutUint16(port.Values[0]),
 			},
 			&expr.Cmp{
 				Op:       expr.CmpOpLte,
 				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(uint16(port.Values[1])),
+				Data:     binaryutil.BigEndian.PutUint16(port.Values[1]),
 			},
 		)
 	} else {
@@ -980,7 +986,7 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 			exprs = append(exprs, &expr.Cmp{
 				Op:       expr.CmpOpEq,
 				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(uint16(p)),
+				Data:     binaryutil.BigEndian.PutUint16(p),
 			})
 		}
 	}

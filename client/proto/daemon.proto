@@ -58,6 +58,8 @@ service DaemonService {
   // SetNetworkMapPersistence enables or disables network map persistence
   rpc SetNetworkMapPersistence(SetNetworkMapPersistenceRequest) returns (SetNetworkMapPersistenceResponse) {}
 
+  rpc TracePacket(TracePacketRequest) returns (TracePacketResponse) {}
+
   rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
@@ -65,7 +67,7 @@ service DaemonService {
 
 
 message LoginRequest {
-  // setupKey wiretrustee setup key.
+  // setupKey netbird setup key.
   string setupKey = 1;
 
   // This is the old PreSharedKey field which will be deprecated in favor of optionalPreSharedKey field that is defined as optional
@@ -366,6 +368,39 @@ message SetNetworkMapPersistenceRequest {
 }
 
 message SetNetworkMapPersistenceResponse {}
+
+message TCPFlags {
+  bool syn = 1;
+  bool ack = 2;
+  bool fin = 3;
+  bool rst = 4;
+  bool psh = 5;
+  bool urg = 6;
+}
+
+message TracePacketRequest {
+  string source_ip = 1;
+  string destination_ip = 2;
+  string protocol = 3;
+  uint32 source_port = 4;
+  uint32 destination_port = 5;
+  string direction = 6;
+  optional TCPFlags tcp_flags = 7;
+  optional uint32 icmp_type = 8;
+  optional uint32 icmp_code = 9;
+}
+
+message TraceStage {
+  string name = 1;
+  string message = 2;
+  bool allowed = 3;
+  optional string forwarding_details = 4;
+}
+
+message TracePacketResponse {
+  repeated TraceStage stages = 1;
+  bool final_disposition = 2;
+}
 
 message SubscribeRequest{}
 

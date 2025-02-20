@@ -10,15 +10,17 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/util"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -35,40 +37,44 @@ import (
 	nbroute "github.com/netbirdio/netbird/route"
 )
 
-func TestSqlite_NewStore(t *testing.T) {
+func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
+	t.Helper()
+	for _, engine := range supportedEngines {
+		if os.Getenv("NETBIRD_STORE_ENGINE") != "" && os.Getenv("NETBIRD_STORE_ENGINE") != string(engine) {
+			continue
+		}
+		t.Setenv("NETBIRD_STORE_ENGINE", string(engine))
+		store, cleanUp, err := NewTestStoreFromSQL(context.Background(), testDataFile, t.TempDir())
+		t.Cleanup(cleanUp)
+		assert.NoError(t, err)
+		t.Run(string(engine), func(t *testing.T) {
+			f(t, store)
+		})
+		os.Unsetenv("NETBIRD_STORE_ENGINE")
+	}
+}
+
+func Test_NewStore(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-
-	if len(store.GetAllAccounts(context.Background())) != 0 {
-		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
-	}
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		if store == nil {
+			t.Errorf("expected to create a new Store")
+		}
+		if len(store.GetAllAccounts(context.Background())) != 0 {
+			t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
+		}
+	})
 }
 
-func TestSqlite_SaveAccount_Large(t *testing.T) {
+func Test_SaveAccount_Large(t *testing.T) {
 	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
-	t.Run("SQLite", func(t *testing.T) {
-		t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-		store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-		t.Cleanup(cleanUp)
-		assert.NoError(t, err)
-		runLargeTest(t, store)
-	})
-
-	// create store outside to have a better time counter for the test
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-	t.Run("PostgreSQL", func(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
 		runLargeTest(t, store)
 	})
 }
@@ -213,77 +219,74 @@ func randomIPv4() net.IP {
 	return net.IP(b)
 }
 
-func TestSqlite_SaveAccount(t *testing.T) {
+func Test_SaveAccount(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		account := newAccountWithId(context.Background(), "account_id", "testuser", "")
+		setupKey, _ := types.GenerateDefaultSetupKey()
+		account.SetupKeys[setupKey.Key] = setupKey
+		account.Peers["testpeer"] = &nbpeer.Peer{
+			Key:    "peerkey",
+			IP:     net.IP{127, 0, 0, 1},
+			Meta:   nbpeer.PeerSystemMeta{},
+			Name:   "peer name",
+			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		}
 
-	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
-	setupKey, _ := types.GenerateDefaultSetupKey()
-	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["testpeer"] = &nbpeer.Peer{
-		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
-	}
+		err := store.SaveAccount(context.Background(), account)
+		require.NoError(t, err)
 
-	err = store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
+		account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
+		setupKey, _ = types.GenerateDefaultSetupKey()
+		account2.SetupKeys[setupKey.Key] = setupKey
+		account2.Peers["testpeer2"] = &nbpeer.Peer{
+			Key:    "peerkey2",
+			IP:     net.IP{127, 0, 0, 2},
+			Meta:   nbpeer.PeerSystemMeta{},
+			Name:   "peer name 2",
+			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		}
 
-	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
-	setupKey, _ = types.GenerateDefaultSetupKey()
-	account2.SetupKeys[setupKey.Key] = setupKey
-	account2.Peers["testpeer2"] = &nbpeer.Peer{
-		Key:    "peerkey2",
-		IP:     net.IP{127, 0, 0, 2},
-		Meta:   nbpeer.PeerSystemMeta{},
-		Name:   "peer name 2",
-		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
-	}
+		err = store.SaveAccount(context.Background(), account2)
+		require.NoError(t, err)
 
-	err = store.SaveAccount(context.Background(), account2)
-	require.NoError(t, err)
+		if len(store.GetAllAccounts(context.Background())) != 2 {
+			t.Errorf("expecting 2 Accounts to be stored after SaveAccount()")
+		}
 
-	if len(store.GetAllAccounts(context.Background())) != 2 {
-		t.Errorf("expecting 2 Accounts to be stored after SaveAccount()")
-	}
+		a, err := store.GetAccount(context.Background(), account.Id)
+		if a == nil {
+			t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
+		}
 
-	a, err := store.GetAccount(context.Background(), account.Id)
-	if a == nil {
-		t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
-	}
+		if a != nil && len(a.Policies) != 1 {
+			t.Errorf("expecting Account to have one policy stored after SaveAccount(), got %d", len(a.Policies))
+		}
 
-	if a != nil && len(a.Policies) != 1 {
-		t.Errorf("expecting Account to have one policy stored after SaveAccount(), got %d", len(a.Policies))
-	}
+		if a != nil && len(a.Policies[0].Rules) != 1 {
+			t.Errorf("expecting Account to have one policy rule stored after SaveAccount(), got %d", len(a.Policies[0].Rules))
+			return
+		}
 
-	if a != nil && len(a.Policies[0].Rules) != 1 {
-		t.Errorf("expecting Account to have one policy rule stored after SaveAccount(), got %d", len(a.Policies[0].Rules))
-		return
-	}
+		if a, err := store.GetAccountByPeerPubKey(context.Background(), "peerkey"); a == nil {
+			t.Errorf("expecting PeerKeyID2AccountID index updated after SaveAccount(): %v", err)
+		}
 
-	if a, err := store.GetAccountByPeerPubKey(context.Background(), "peerkey"); a == nil {
-		t.Errorf("expecting PeerKeyID2AccountID index updated after SaveAccount(): %v", err)
-	}
+		if a, err := store.GetAccountByUser(context.Background(), "testuser"); a == nil {
+			t.Errorf("expecting UserID2AccountID index updated after SaveAccount(): %v", err)
+		}
 
-	if a, err := store.GetAccountByUser(context.Background(), "testuser"); a == nil {
-		t.Errorf("expecting UserID2AccountID index updated after SaveAccount(): %v", err)
-	}
+		if a, err := store.GetAccountByPeerID(context.Background(), "testpeer"); a == nil {
+			t.Errorf("expecting PeerID2AccountID index updated after SaveAccount(): %v", err)
+		}
 
-	if a, err := store.GetAccountByPeerID(context.Background(), "testpeer"); a == nil {
-		t.Errorf("expecting PeerID2AccountID index updated after SaveAccount(): %v", err)
-	}
-
-	if a, err := store.GetAccountBySetupKey(context.Background(), setupKey.Key); a == nil {
-		t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount(): %v", err)
-	}
+		if a, err := store.GetAccountBySetupKey(context.Background(), setupKey.Key); a == nil {
+			t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount(): %v", err)
+		}
+	})
 }
 
 func TestSqlite_DeleteAccount(t *testing.T) {
@@ -400,27 +403,24 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	}
 }
 
-func TestSqlite_GetAccount(t *testing.T) {
+func Test_GetAccount(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		id := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	id := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		account, err := store.GetAccount(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, id, account.Id, "account id should match")
 
-	account, err := store.GetAccount(context.Background(), id)
-	require.NoError(t, err)
-	require.Equal(t, id, account.Id, "account id should match")
-
-	_, err = store.GetAccount(context.Background(), "non-existing-account")
-	assert.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+		_, err = store.GetAccount(context.Background(), "non-existing-account")
+		assert.Error(t, err)
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	})
 }
 
 func TestSqlStore_SavePeer(t *testing.T) {
@@ -578,74 +578,45 @@ func TestSqlStore_SavePeerLocation(t *testing.T) {
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
-func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
+func Test_TestGetAccountByPrivateDomain(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		existingDomain := "test.com"
 
-	existingDomain := "test.com"
+		account, err := store.GetAccountByPrivateDomain(context.Background(), existingDomain)
+		require.NoError(t, err, "should found account")
+		require.Equal(t, existingDomain, account.Domain, "domains should match")
 
-	account, err := store.GetAccountByPrivateDomain(context.Background(), existingDomain)
-	require.NoError(t, err, "should found account")
-	require.Equal(t, existingDomain, account.Domain, "domains should match")
-
-	_, err = store.GetAccountByPrivateDomain(context.Background(), "missing-domain.com")
-	require.Error(t, err, "should return error on domain lookup")
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+		_, err = store.GetAccountByPrivateDomain(context.Background(), "missing-domain.com")
+		require.Error(t, err, "should return error on domain lookup")
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	})
 }
 
-func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
+func Test_GetTokenIDByHashedToken(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		hashed := "SoMeHaShEdToKeN"
+		id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	hashed := "SoMeHaShEdToKeN"
-	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
+		token, err := store.GetTokenIDByHashedToken(context.Background(), hashed)
+		require.NoError(t, err)
+		require.Equal(t, id, token)
 
-	token, err := store.GetTokenIDByHashedToken(context.Background(), hashed)
-	require.NoError(t, err)
-	require.Equal(t, id, token)
-
-	_, err = store.GetTokenIDByHashedToken(context.Background(), "non-existing-hash")
-	require.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
-}
-
-func TestSqlite_GetUserByTokenID(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
-	}
-
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-
-	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
-
-	user, err := store.GetUserByTokenID(context.Background(), id)
-	require.NoError(t, err)
-	require.Equal(t, id, user.PATs[id].ID)
-
-	_, err = store.GetUserByTokenID(context.Background(), "non-existing-id")
-	require.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+		_, err = store.GetTokenIDByHashedToken(context.Background(), "non-existing-hash")
+		require.Error(t, err)
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+	})
 }
 
 func TestMigrate(t *testing.T) {
@@ -960,23 +931,6 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 	require.Equal(t, id, token)
 }
 
-func TestPostgresql_GetUserByTokenID(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
-		t.Skip("skip CI tests on darwin and windows")
-	}
-
-	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-
-	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
-
-	user, err := store.GetUserByTokenID(context.Background(), id)
-	require.NoError(t, err)
-	require.Equal(t, id, user.PATs[id].ID)
-}
-
 func TestSqlite_GetTakenIPs(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
@@ -1180,7 +1134,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestSqlite_GetAccoundUsers(t *testing.T) {
+func TestSqlStore_GetAccountUsers(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
@@ -1369,6 +1323,14 @@ func TestSqlStore_SaveGroups(t *testing.T) {
 	}
 	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, groups)
 	require.NoError(t, err)
+
+	groups[1].Peers = []string{}
+	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, groups)
+	require.NoError(t, err)
+
+	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groups[1].ID)
+	require.NoError(t, err)
+	require.Equal(t, groups[1], group)
 }
 
 func TestSqlStore_DeleteGroup(t *testing.T) {
@@ -2842,4 +2804,463 @@ func TestSqlStore_DeletePeer(t *testing.T) {
 	peer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
 	require.Error(t, err)
 	require.Nil(t, peer)
+}
+
+func TestSqlStore_DatabaseBlocking(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	concurrentReads := 40
+
+	testRunSuccessful := false
+	wgSuccess := sync.WaitGroup{}
+	wgSuccess.Add(concurrentReads)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	start := make(chan struct{})
+
+	for i := 0; i < concurrentReads/2; i++ {
+		go func() {
+			t.Logf("Entered routine 1-%d", i)
+
+			<-start
+			err := store.ExecuteInTransaction(context.Background(), func(tx Store) error {
+				_, err := tx.GetAccountIDByPeerID(context.Background(), LockingStrengthShare, "cfvprsrlo1hqoo49ohog")
+				return err
+			})
+			if err != nil {
+				t.Errorf("Failed, got error: %v", err)
+				return
+			}
+
+			t.Log("Got User from routine 1")
+			wgSuccess.Done()
+		}()
+	}
+
+	for i := 0; i < concurrentReads/2; i++ {
+		go func() {
+			t.Logf("Entered routine 2-%d", i)
+
+			<-start
+			_, err := store.GetAccountIDByPeerID(context.Background(), LockingStrengthShare, "cfvprsrlo1hqoo49ohog")
+			if err != nil {
+				t.Errorf("Failed, got error: %v", err)
+				return
+			}
+
+			t.Log("Got User from routine 2")
+			wgSuccess.Done()
+		}()
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	close(start)
+	t.Log("Started routines")
+
+	go func() {
+		wgSuccess.Wait()
+		testRunSuccessful = true
+	}()
+
+	<-ctx.Done()
+	if !testRunSuccessful {
+		t.Fatalf("Test failed")
+	}
+
+	t.Logf("Test completed")
+}
+
+func TestSqlStore_GetAccountCreatedBy(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		accountID   string
+		expectError bool
+		createdBy   string
+	}{
+		{
+			name:        "existing account ID",
+			accountID:   "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectError: false,
+			createdBy:   "edafee4e-63fb-11ec-90d6-0242ac120003",
+		},
+		{
+			name:        "non-existing account ID",
+			accountID:   "nonexistent",
+			expectError: true,
+		},
+		{
+			name:        "empty account ID",
+			accountID:   "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			createdBy, err := store.GetAccountCreatedBy(context.Background(), LockingStrengthShare, tt.accountID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Empty(t, createdBy)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, createdBy)
+				require.Equal(t, tt.createdBy, createdBy)
+			}
+		})
+	}
+
+}
+
+func TestSqlStore_GetUserByUserID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		userID      string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing user",
+			userID:      "edafee4e-63fb-11ec-90d6-0242ac120003",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing user",
+			userID:      "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve with empty user ID",
+			userID:      "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, tt.userID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, user)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, user)
+				require.Equal(t, tt.userID, user.Id)
+			}
+		})
+	}
+}
+
+func TestSqlStore_GetUserByPATID(t *testing.T) {
+	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	assert.NoError(t, err)
+
+	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
+
+	user, err := store.GetUserByPATID(context.Background(), LockingStrengthShare, id)
+	require.NoError(t, err)
+	require.Equal(t, "f4f6d672-63fb-11ec-90d6-0242ac120003", user.Id)
+}
+
+func TestSqlStore_SaveUser(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	user := &types.User{
+		Id:            "user-id",
+		AccountID:     accountID,
+		Role:          types.UserRoleAdmin,
+		IsServiceUser: false,
+		AutoGroups:    []string{"groupA", "groupB"},
+		Blocked:       false,
+		LastLogin:     util.ToPtr(time.Now().UTC()),
+		CreatedAt:     time.Now().UTC().Add(-time.Hour),
+		Issued:        types.UserIssuedIntegration,
+	}
+	err = store.SaveUser(context.Background(), LockingStrengthUpdate, user)
+	require.NoError(t, err)
+
+	saveUser, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, user.Id)
+	require.NoError(t, err)
+	require.Equal(t, user.Id, saveUser.Id)
+	require.Equal(t, user.AccountID, saveUser.AccountID)
+	require.Equal(t, user.Role, saveUser.Role)
+	require.Equal(t, user.AutoGroups, saveUser.AutoGroups)
+	require.WithinDurationf(t, user.GetLastLogin(), saveUser.LastLogin.UTC(), time.Millisecond, "LastLogin should be equal")
+	require.WithinDurationf(t, user.CreatedAt, saveUser.CreatedAt.UTC(), time.Millisecond, "CreatedAt should be equal")
+	require.Equal(t, user.Issued, saveUser.Issued)
+	require.Equal(t, user.Blocked, saveUser.Blocked)
+	require.Equal(t, user.IsServiceUser, saveUser.IsServiceUser)
+}
+
+func TestSqlStore_SaveUsers(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	accountUsers, err := store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Len(t, accountUsers, 2)
+
+	users := []*types.User{
+		{
+			Id:         "user-1",
+			AccountID:  accountID,
+			Issued:     "api",
+			AutoGroups: []string{"groupA", "groupB"},
+		},
+		{
+			Id:         "user-2",
+			AccountID:  accountID,
+			Issued:     "integration",
+			AutoGroups: []string{"groupA"},
+		},
+	}
+	err = store.SaveUsers(context.Background(), LockingStrengthUpdate, users)
+	require.NoError(t, err)
+
+	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Len(t, accountUsers, 4)
+
+	users[1].AutoGroups = []string{"groupA", "groupC"}
+	err = store.SaveUsers(context.Background(), LockingStrengthUpdate, users)
+	require.NoError(t, err)
+
+	user, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, users[1].Id)
+	require.NoError(t, err)
+	require.Equal(t, users[1].AutoGroups, user.AutoGroups)
+}
+
+func TestSqlStore_DeleteUser(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
+
+	err = store.DeleteUser(context.Background(), LockingStrengthUpdate, accountID, userID)
+	require.NoError(t, err)
+
+	user, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, userID)
+	require.Error(t, err)
+	require.Nil(t, user)
+
+	userPATs, err := store.GetUserPATs(context.Background(), LockingStrengthShare, userID)
+	require.NoError(t, err)
+	require.Len(t, userPATs, 0)
+}
+
+func TestSqlStore_GetPATByID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
+
+	tests := []struct {
+		name        string
+		patID       string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing PAT",
+			patID:       "9dj38s35-63fb-11ec-90d6-0242ac120003",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing PAT",
+			patID:       "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve with empty PAT ID",
+			patID:       "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pat, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, tt.patID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, pat)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, pat)
+				require.Equal(t, tt.patID, pat.ID)
+			}
+		})
+	}
+}
+
+func TestSqlStore_GetUserPATs(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	userPATs, err := store.GetUserPATs(context.Background(), LockingStrengthShare, "f4f6d672-63fb-11ec-90d6-0242ac120003")
+	require.NoError(t, err)
+	require.Len(t, userPATs, 1)
+}
+
+func TestSqlStore_GetPATByHashedToken(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	pat, err := store.GetPATByHashedToken(context.Background(), LockingStrengthShare, "SoMeHaShEdToKeN")
+	require.NoError(t, err)
+	require.Equal(t, "9dj38s35-63fb-11ec-90d6-0242ac120003", pat.ID)
+}
+
+func TestSqlStore_MarkPATUsed(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
+	patID := "9dj38s35-63fb-11ec-90d6-0242ac120003"
+
+	err = store.MarkPATUsed(context.Background(), LockingStrengthUpdate, patID)
+	require.NoError(t, err)
+
+	pat, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, patID)
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	require.WithinRange(t, pat.LastUsed.UTC(), now.Add(-15*time.Second), now, "LastUsed should be within 1 second of now")
+}
+
+func TestSqlStore_SavePAT(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	userID := "edafee4e-63fb-11ec-90d6-0242ac120003"
+
+	pat := &types.PersonalAccessToken{
+		ID:             "pat-id",
+		UserID:         userID,
+		Name:           "token",
+		HashedToken:    "SoMeHaShEdToKeN",
+		ExpirationDate: util.ToPtr(time.Now().UTC().Add(12 * time.Hour)),
+		CreatedBy:      userID,
+		CreatedAt:      time.Now().UTC().Add(time.Hour),
+		LastUsed:       util.ToPtr(time.Now().UTC().Add(-15 * time.Minute)),
+	}
+	err = store.SavePAT(context.Background(), LockingStrengthUpdate, pat)
+	require.NoError(t, err)
+
+	savePAT, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, pat.ID)
+	require.NoError(t, err)
+	require.Equal(t, pat.ID, savePAT.ID)
+	require.Equal(t, pat.UserID, savePAT.UserID)
+	require.Equal(t, pat.HashedToken, savePAT.HashedToken)
+	require.Equal(t, pat.CreatedBy, savePAT.CreatedBy)
+	require.WithinDurationf(t, pat.GetExpirationDate(), savePAT.ExpirationDate.UTC(), time.Millisecond, "ExpirationDate should be equal")
+	require.WithinDurationf(t, pat.CreatedAt, savePAT.CreatedAt.UTC(), time.Millisecond, "CreatedAt should be equal")
+	require.WithinDurationf(t, pat.GetLastUsed(), savePAT.LastUsed.UTC(), time.Millisecond, "LastUsed should be equal")
+}
+
+func TestSqlStore_DeletePAT(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
+	patID := "9dj38s35-63fb-11ec-90d6-0242ac120003"
+
+	err = store.DeletePAT(context.Background(), LockingStrengthUpdate, userID, patID)
+	require.NoError(t, err)
+
+	pat, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, patID)
+	require.Error(t, err)
+	require.Nil(t, pat)
+}
+
+func TestSqlStore_SaveUsers_LargeBatch(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	accountUsers, err := store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Len(t, accountUsers, 2)
+
+	usersToSave := make([]*types.User, 0)
+
+	for i := 1; i <= 8000; i++ {
+		usersToSave = append(usersToSave, &types.User{
+			Id:        fmt.Sprintf("user-%d", i),
+			AccountID: accountID,
+			Role:      types.UserRoleUser,
+		})
+	}
+
+	err = store.SaveUsers(context.Background(), LockingStrengthUpdate, usersToSave)
+	require.NoError(t, err)
+
+	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Equal(t, 8002, len(accountUsers))
+}
+
+func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	accountGroups, err := store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Len(t, accountGroups, 3)
+
+	groupsToSave := make([]*types.Group, 0)
+
+	for i := 1; i <= 8000; i++ {
+		groupsToSave = append(groupsToSave, &types.Group{
+			ID:        fmt.Sprintf("%d", i),
+			AccountID: accountID,
+			Name:      fmt.Sprintf("group-%d", i),
+		})
+	}
+
+	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, groupsToSave)
+	require.NoError(t, err)
+
+	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.Equal(t, 8003, len(accountGroups))
 }

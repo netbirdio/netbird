@@ -203,6 +203,11 @@ func (l *Link) setAddr(ip, netmask string) error {
 		return fmt.Errorf("set interface addr: %w", err)
 	}
 
+	cmd = exec.Command("ifconfig", l.name, "inet6", "fe80::/64")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Debugf("adding address command '%v' failed with output: %s", cmd.String(), out)
+	}
+
 	return nil
 }
 

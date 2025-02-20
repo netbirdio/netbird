@@ -737,7 +737,9 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 func (d *Status) GetDNSStates() []NSGroupState {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	return d.nsGroupStates
+
+	// shallow copy is good enough, as slices fields are currently not updated
+	return slices.Clone(d.nsGroupStates)
 }
 
 func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo {

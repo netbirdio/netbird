@@ -1,6 +1,6 @@
 <Wix
 	xmlns="http://wixtoolset.org/schemas/v4/wxs">
-	<Package Name="NetBird" Version="$(env.NETBIRD_VERSION)" Manufacturer="Wiretrustee UG (haftungsbeschreankt)" Language="1033" UpgradeCode="6456ec4e-3ad6-4b9b-a2be-98e81cb21ccf"
+	<Package Name="NetBird" Version="$(env.NETBIRD_VERSION)" Manufacturer="NetBird GmbH" Language="1033" UpgradeCode="6456ec4e-3ad6-4b9b-a2be-98e81cb21ccf"
         InstallerVersion="500" Compressed="yes"  Codepage="utf-8" >
 
 		<MediaTemplate EmbedCab="yes" />

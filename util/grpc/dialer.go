@@ -3,13 +3,15 @@ package grpc
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net"
 	"os/user"
 	"runtime"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
@@ -18,6 +20,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/netbird/util/embeddedroots"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -37,7 +40,6 @@ func WithCustomDialer() grpc.DialOption {
 			}
 		}
 
-		log.Debug("Using nbnet.NewDialer()")
 		conn, err := nbnet.NewDialer().DialContext(ctx, "tcp", addr)
 		if err != nil {
 			log.Errorf("Failed to dial: %s", err)
@@ -57,9 +59,16 @@ func Backoff(ctx context.Context) backoff.BackOff {
 
 func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
-
 	if tlsEnabled {
-		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
+		certPool, err := x509.SystemCertPool()
+		if err != nil || certPool == nil {
+			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
+			certPool = embeddedroots.Get()
+		}
+
+		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			RootCAs: certPool,
+		}))
 	}
 
 	connCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -2,7 +2,7 @@
     "Stuns": [
         {
             "Proto": "udp",
-            "URI": "stun:stun.wiretrustee.com:3468",
+            "URI": "stun:stun.netbird.io:3468",
             "Username": "",
             "Password": null
         }
@@ -11,7 +11,7 @@
         "Turns": [
             {
                 "Proto": "udp",
-                "URI": "turn:stun.wiretrustee.com:3468",
+                "URI": "turn:stun.netbird.io:3468",
                 "Username": "some_user",
                 "Password": "some_password"
             }
@@ -22,7 +22,7 @@
     },
     "Signal": {
         "Proto": "http",
-        "URI": "signal.wiretrustee.com:10000",
+        "URI": "signal.netbird.io:10000",
         "Username": "",
         "Password": null
     },

@@ -6,6 +6,7 @@ import (
 
 type ShutdownState struct {
 	Guid string
+	GPO  bool
 }
 
 func (s *ShutdownState) Name() string {
@@ -13,9 +14,9 @@ func (s *ShutdownState) Name() string {
 }
 
 func (s *ShutdownState) Cleanup() error {
-	manager, err := newHostManagerWithGuid(s.Guid)
-	if err != nil {
-		return fmt.Errorf("create host manager: %w", err)
+	manager := &registryConfigurator{
+		guid: s.Guid,
+		gpo:  s.GPO,
 	}
 
 	if err := manager.restoreUncleanShutdownDNS(); err != nil {

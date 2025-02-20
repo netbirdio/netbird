@@ -63,12 +63,7 @@ type Server struct {
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
-	mgmProbe    *internal.Probe
-	signalProbe *internal.Probe
-	relayProbe  *internal.Probe
-	wgProbe     *internal.Probe
-	lastProbe   time.Time
-
+	lastProbe         time.Time
 	persistNetworkMap bool
 }
 
@@ -86,12 +81,7 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		latestConfigInput: internal.ConfigInput{
 			ConfigPath: configPath,
 		},
-		logFile:     logFile,
-		mgmProbe:    internal.NewProbe(),
-		signalProbe: internal.NewProbe(),
-		relayProbe:  internal.NewProbe(),
-		wgProbe:     internal.NewProbe(),
-
+		logFile:           logFile,
 		persistNetworkMap: true,
 	}
 }
@@ -202,14 +192,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
 		s.connectClient.SetNetworkMapPersistence(s.persistNetworkMap)
 
-		probes := internal.ProbeHolder{
-			MgmProbe:    s.mgmProbe,
-			SignalProbe: s.signalProbe,
-			RelayProbe:  s.relayProbe,
-			WgProbe:     s.wgProbe,
-		}
-
-		err := s.connectClient.RunWithProbes(&probes, runningChan)
+		err := s.connectClient.Run(runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
@@ -681,9 +664,13 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 // Status returns the daemon status
 func (s *Server) Status(
-	_ context.Context,
+	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -713,14 +700,17 @@ func (s *Server) Status(
 }
 
 func (s *Server) runProbes() {
-	if time.Since(s.lastProbe) > probeThreshold {
-		managementHealthy := s.mgmProbe.Probe()
-		signalHealthy := s.signalProbe.Probe()
-		relayHealthy := s.relayProbe.Probe()
-		wgProbe := s.wgProbe.Probe()
+	if s.connectClient == nil {
+		return
+	}
 
-		// Update last time only if all probes were successful
-		if managementHealthy && signalHealthy && relayHealthy && wgProbe {
+	engine := s.connectClient.Engine()
+	if engine == nil {
+		return
+	}
+
+	if time.Since(s.lastProbe) > probeThreshold {
+		if engine.RunHealthProbes() {
 			s.lastProbe = time.Now()
 		}
 	}

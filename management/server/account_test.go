@@ -732,6 +732,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		PATs: map[string]*types.PersonalAccessToken{
 			"tokenId": {
 				ID:          "tokenId",
+				UserID:      "someUser",
 				HashedToken: encodedHashedToken,
 			},
 		},
@@ -745,14 +746,14 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		Store: store,
 	}
 
-	account, user, pat, err := am.GetAccountFromPAT(context.Background(), token)
+	user, pat, _, _, err := am.GetPATInfo(context.Background(), token)
 	if err != nil {
 		t.Fatalf("Error when getting Account from PAT: %s", err)
 	}
 
-	assert.Equal(t, "account_id", account.Id)
+	assert.Equal(t, "account_id", user.AccountID)
 	assert.Equal(t, "someUser", user.Id)
-	assert.Equal(t, account.Users["someUser"].PATs["tokenId"], pat)
+	assert.Equal(t, account.Users["someUser"].PATs["tokenId"].ID, pat.ID)
 }
 
 func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
@@ -3005,6 +3006,8 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) 
 }
 
 func BenchmarkSyncAndMarkPeer(b *testing.B) {
+	b.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "0")
+
 	benchCases := []struct {
 		name   string
 		peers  int
@@ -3015,11 +3018,11 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 3, 3, 19},
-		{"Medium", 500, 100, 7, 13, 10, 90},
-		{"Large", 5000, 200, 65, 80, 60, 240},
-		{"Small single", 50, 10, 1, 3, 3, 80},
-		{"Medium single", 500, 10, 7, 13, 10, 37},
+		{"Small", 50, 5, 1, 5, 3, 24},
+		{"Medium", 500, 100, 7, 22, 10, 135},
+		{"Large", 5000, 200, 65, 110, 60, 320},
+		{"Small single", 50, 10, 1, 4, 3, 80},
+		{"Medium single", 500, 10, 7, 13, 10, 43},
 		{"Large 5", 5000, 15, 65, 80, 60, 220},
 	}
 
@@ -3072,6 +3075,7 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 }
 
 func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
+	b.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "0")
 	benchCases := []struct {
 		name   string
 		peers  int
@@ -3082,12 +3086,12 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 102, 110, 3, 20},
-		{"Medium", 500, 100, 105, 140, 20, 110},
-		{"Large", 5000, 200, 160, 200, 120, 260},
-		{"Small single", 50, 10, 102, 110, 5, 40},
-		{"Medium single", 500, 10, 105, 140, 10, 60},
-		{"Large 5", 5000, 15, 160, 200, 60, 180},
+		{"Small", 50, 5, 2, 10, 3, 35},
+		{"Medium", 500, 100, 5, 40, 20, 140},
+		{"Large", 5000, 200, 60, 100, 120, 320},
+		{"Small single", 50, 10, 2, 10, 5, 40},
+		{"Medium single", 500, 10, 5, 40, 10, 60},
+		{"Large 5", 5000, 15, 60, 100, 60, 180},
 	}
 
 	log.SetOutput(io.Discard)
@@ -3146,6 +3150,7 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 }
 
 func BenchmarkLoginPeer_NewPeer(b *testing.B) {
+	b.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "0")
 	benchCases := []struct {
 		name   string
 		peers  int
@@ -3156,12 +3161,12 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 107, 120, 10, 80},
-		{"Medium", 500, 100, 105, 140, 30, 140},
-		{"Large", 5000, 200, 180, 220, 140, 300},
-		{"Small single", 50, 10, 107, 120, 10, 80},
-		{"Medium single", 500, 10, 105, 140, 20, 60},
-		{"Large 5", 5000, 15, 180, 220, 80, 200},
+		{"Small", 50, 5, 7, 20, 10, 80},
+		{"Medium", 500, 100, 5, 40, 30, 140},
+		{"Large", 5000, 200, 80, 120, 140, 390},
+		{"Small single", 50, 10, 7, 20, 10, 80},
+		{"Medium single", 500, 10, 5, 40, 20, 85},
+		{"Large 5", 5000, 15, 80, 120, 80, 200},
 	}
 
 	log.SetOutput(io.Discard)

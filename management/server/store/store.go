@@ -9,11 +9,16 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -59,20 +64,29 @@ type Store interface {
 	GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error)
 	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.Settings, error)
 	GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.DNSSettings, error)
+	GetAccountCreatedBy(ctx context.Context, lockStrength LockingStrength, accountID string) (string, error)
 	SaveAccount(ctx context.Context, account *types.Account) error
 	DeleteAccount(ctx context.Context, account *types.Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
 
-	GetUserByTokenID(ctx context.Context, tokenID string) (*types.User, error)
+	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
-	SaveUsers(accountID string, users map[string]*types.User) error
+	SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*types.User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
+	DeleteUser(ctx context.Context, lockStrength LockingStrength, accountID, userID string) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
+
+	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*types.PersonalAccessToken, error)
+	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*types.PersonalAccessToken, error)
+	GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.PersonalAccessToken, error)
+	MarkPATUsed(ctx context.Context, lockStrength LockingStrength, patID string) error
+	SavePAT(ctx context.Context, strength LockingStrength, pat *types.PersonalAccessToken) error
+	DeletePAT(ctx context.Context, strength LockingStrength, userID, patID string) error
 
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
@@ -184,6 +198,8 @@ const (
 	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
 
+var supportedEngines = []Engine{SqliteStoreEngine, PostgresStoreEngine, MysqlStoreEngine}
+
 func getStoreEngineFromEnv() Engine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
@@ -192,7 +208,7 @@ func getStoreEngineFromEnv() Engine {
 	}
 
 	value := Engine(strings.ToLower(kind))
-	if value == SqliteStoreEngine || value == PostgresStoreEngine || value == MysqlStoreEngine {
+	if slices.Contains(supportedEngines, value) {
 		return value
 	}
 
@@ -340,49 +356,124 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 }
 
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
-	if kind == PostgresStoreEngine {
-		cleanUp, err := testutil.CreatePostgresTestContainer()
-		if err != nil {
-			return nil, nil, err
+	var cleanup func()
+	var err error
+	switch kind {
+	case PostgresStoreEngine:
+		store, cleanup, err = newReusedPostgresStore(ctx, store, kind)
+	case MysqlStoreEngine:
+		store, cleanup, err = newReusedMysqlStore(ctx, store, kind)
+	default:
+		cleanup = func() {
+			// sqlite doesn't need to be cleaned up
 		}
-
-		dsn, ok := os.LookupEnv(postgresDsnEnv)
-		if !ok {
-			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
-		}
-
-		store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		return store, cleanUp, nil
 	}
-
-	if kind == MysqlStoreEngine {
-		cleanUp, err := testutil.CreateMysqlTestContainer()
-		if err != nil {
-			return nil, nil, err
-		}
-
-		dsn, ok := os.LookupEnv(mysqlDsnEnv)
-		if !ok {
-			return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
-		}
-
-		store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		return store, cleanUp, nil
+	if err != nil {
+		return nil, cleanup, fmt.Errorf("failed to create test store: %v", err)
 	}
 
 	closeConnection := func() {
+		cleanup()
 		store.Close(ctx)
 	}
 
 	return store, closeConnection, nil
+}
+
+func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind Engine) (*SqlStore, func(), error) {
+	if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
+		var err error
+		_, err = testutil.CreatePostgresTestContainer()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok {
+		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
+	}
+
+	dsn, cleanup, err := createRandomDB(dsn, db, kind)
+	if err != nil {
+		return nil, cleanup, err
+	}
+
+	store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
+	if err != nil {
+		return nil, cleanup, err
+	}
+
+	return store, cleanup, nil
+}
+
+func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*SqlStore, func(), error) {
+	if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
+		var err error
+		_, err = testutil.CreateMysqlTestContainer()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	if !ok {
+		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
+	}
+
+	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open mysql connection: %v", err)
+	}
+
+	dsn, cleanup, err := createRandomDB(dsn, db, kind)
+	if err != nil {
+		return nil, cleanup, err
+	}
+
+	store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return store, cleanup, nil
+}
+
+func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), error) {
+	dbName := fmt.Sprintf("test_db_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
+
+	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
+		return "", nil, fmt.Errorf("failed to create database: %v", err)
+	}
+
+	var err error
+	cleanup := func() {
+		switch engine {
+		case PostgresStoreEngine:
+			err = db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
+		case MysqlStoreEngine:
+			// err = killMySQLConnections(dsn, dbName)
+			err = db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName)).Error
+		}
+		if err != nil {
+			log.Errorf("failed to drop database %s: %v", dbName, err)
+			panic(err)
+		}
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	}
+
+	return replaceDBName(dsn, dbName), cleanup, nil
+}
+
+func replaceDBName(dsn, newDBName string) string {
+	re := regexp.MustCompile(`(?P<pre>[:/@])(?P<dbname>[^/?]+)(?P<post>\?|$)`)
+	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
 func loadSQL(db *gorm.DB, filepath string) error {

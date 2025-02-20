@@ -23,42 +23,68 @@ type UpdateChannelMetrics struct {
 
 // NewUpdateChannelMetrics creates an instance of UpdateChannel
 func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateChannelMetrics, error) {
-	createChannelDurationMicro, err := meter.Int64Histogram("management.updatechannel.create.duration.micro")
+	createChannelDurationMicro, err := meter.Int64Histogram("management.updatechannel.create.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to create a new peer update channel"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	closeChannelDurationMicro, err := meter.Int64Histogram("management.updatechannel.close.one.duration.micro")
+	closeChannelDurationMicro, err := meter.Int64Histogram("management.updatechannel.close.one.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to close a peer update channel"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	closeChannelsDurationMicro, err := meter.Int64Histogram("management.updatechannel.close.multiple.duration.micro")
+	closeChannelsDurationMicro, err := meter.Int64Histogram("management.updatechannel.close.multiple.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to close a set of peer update channels"),
+	)
+
 	if err != nil {
 		return nil, err
 	}
 
-	closeChannels, err := meter.Int64Histogram("management.updatechannel.close.multiple.channels")
+	closeChannels, err := meter.Int64Histogram("management.updatechannel.close.multiple.channels",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of peer update channels that have been closed"),
+	)
+
 	if err != nil {
 		return nil, err
 	}
 
-	sendUpdateDurationMicro, err := meter.Int64Histogram("management.updatechannel.send.duration.micro")
+	sendUpdateDurationMicro, err := meter.Int64Histogram("management.updatechannel.send.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to send an network map update to a peer"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	getAllConnectedPeersDurationMicro, err := meter.Int64Histogram("management.updatechannel.get.all.duration.micro")
+	getAllConnectedPeersDurationMicro, err := meter.Int64Histogram("management.updatechannel.get.all.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to get all connected peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	getAllConnectedPeers, err := meter.Int64Histogram("management.updatechannel.get.all.peers")
+	getAllConnectedPeers, err := meter.Int64Histogram("management.updatechannel.get.all.peers",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of connected peers"),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	hasChannelDurationMicro, err := meter.Int64Histogram("management.updatechannel.haschannel.duration.micro")
+	hasChannelDurationMicro, err := meter.Int64Histogram("management.updatechannel.haschannel.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+	)
 	if err != nil {
 		return nil, err
 	}
