@@ -67,6 +67,10 @@ services:
       options:
         max-size: "500m"
         max-file: "2"
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.netbird-relay.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/relay`)
+    - traefik.http.services.netbird-relay.loadbalancer.server.port=$NETBIRD_RELAY_PORT
 
   # Management
   management:

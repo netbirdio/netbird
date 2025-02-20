@@ -123,7 +123,6 @@ func importCsvToSqlite(dataDir string, csvFile string, geonamesdbFile string) er
 	db, err := gorm.Open(sqlite.Open(path.Join(dataDir, geonamesdbFile)), &gorm.Config{
 		Logger:          logger.Default.LogMode(logger.Silent),
 		CreateBatchSize: 1000,
-		PrepareStmt:     true,
 	})
 	if err != nil {
 		return err

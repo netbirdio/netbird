@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/gopacket/layers"
+
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 const (
@@ -33,6 +35,7 @@ type ICMPConnTrack struct {
 
 // ICMPTracker manages ICMP connection states
 type ICMPTracker struct {
+	logger        *nblog.Logger
 	connections   map[ICMPConnKey]*ICMPConnTrack
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
@@ -42,12 +45,13 @@ type ICMPTracker struct {
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
-func NewICMPTracker(timeout time.Duration) *ICMPTracker {
+func NewICMPTracker(timeout time.Duration, logger *nblog.Logger) *ICMPTracker {
 	if timeout == 0 {
 		timeout = DefaultICMPTimeout
 	}
 
 	tracker := &ICMPTracker{
+		logger:        logger,
 		connections:   make(map[ICMPConnKey]*ICMPConnTrack),
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(ICMPCleanupInterval),
@@ -62,7 +66,6 @@ func NewICMPTracker(timeout time.Duration) *ICMPTracker {
 // TrackOutbound records an outbound ICMP Echo Request
 func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) {
 	key := makeICMPKey(srcIP, dstIP, id, seq)
-	now := time.Now().UnixNano()
 
 	t.mutex.Lock()
 	conn, exists := t.connections[key]
@@ -80,24 +83,19 @@ func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq u
 			ID:       id,
 			Sequence: seq,
 		}
-		conn.lastSeen.Store(now)
-		conn.established.Store(true)
+		conn.UpdateLastSeen()
 		t.connections[key] = conn
+
+		t.logger.Trace("New ICMP connection %v", key)
 	}
 	t.mutex.Unlock()
 
-	conn.lastSeen.Store(now)
+	conn.UpdateLastSeen()
 }
 
 // IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request
 func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, icmpType uint8) bool {
-	switch icmpType {
-	case uint8(layers.ICMPv4TypeDestinationUnreachable),
-		uint8(layers.ICMPv4TypeTimeExceeded):
-		return true
-	case uint8(layers.ICMPv4TypeEchoReply):
-		// continue processing
-	default:
+	if icmpType != uint8(layers.ICMPv4TypeEchoReply) {
 		return false
 	}
 
@@ -115,8 +113,7 @@ func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq 
 		return false
 	}
 
-	return conn.IsEstablished() &&
-		ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
+	return ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
 		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
 		conn.ID == id &&
 		conn.Sequence == seq
@@ -141,6 +138,8 @@ func (t *ICMPTracker) cleanup() {
 			t.ipPool.Put(conn.SourceIP)
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
+
+			t.logger.Debug("Removed ICMP connection %v (timeout)", key)
 		}
 	}
 }

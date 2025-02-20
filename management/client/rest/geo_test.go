@@ -1,4 +1,7 @@
-package rest
+//go:build integration
+// +build integration
+
+package rest_test
 
 import (
 	"context"
@@ -6,10 +9,12 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/client/rest"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 )
 
 var (
@@ -25,7 +30,7 @@ var (
 )
 
 func TestGeo_ListCountries_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/locations/countries", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.Country{testCountry})
 			_, err := w.Write(retBytes)
@@ -39,7 +44,7 @@ func TestGeo_ListCountries_200(t *testing.T) {
 }
 
 func TestGeo_ListCountries_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/locations/countries", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -54,7 +59,7 @@ func TestGeo_ListCountries_Err(t *testing.T) {
 }
 
 func TestGeo_ListCountryCities_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/locations/countries/Test/cities", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.City{testCity})
 			_, err := w.Write(retBytes)
@@ -68,7 +73,7 @@ func TestGeo_ListCountryCities_200(t *testing.T) {
 }
 
 func TestGeo_ListCountryCities_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/locations/countries/Test/cities", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -84,7 +89,7 @@ func TestGeo_ListCountryCities_Err(t *testing.T) {
 
 func TestGeo_Integration(t *testing.T) {
 	// Blackbox is initialized with empty GeoLocations
-	withBlackBoxServer(t, func(c *Client) {
+	withBlackBoxServer(t, func(c *rest.Client) {
 		countries, err := c.GeoLocation.ListCountries(context.Background())
 		require.NoError(t, err)
 		assert.Empty(t, countries)

@@ -1,6 +1,8 @@
 package firewall
 
 import (
+	wgdevice "golang.zx2c4.com/wireguard/device"
+
 	"github.com/netbirdio/netbird/client/iface/device"
 )
 
@@ -10,4 +12,6 @@ type IFaceMapper interface {
 	Address() device.WGAddress
 	IsUserspaceBind() bool
 	SetFilter(device.PacketFilter) error
+	GetDevice() *device.FilteredDevice
+	GetWGDevice() *wgdevice.Device
 }

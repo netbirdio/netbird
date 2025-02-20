@@ -117,3 +117,8 @@ func (t *TunNetstackDevice) DeviceName() string {
 func (t *TunNetstackDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
+
+// Device returns the wireguard device
+func (t *TunNetstackDevice) Device() *device.Device {
+	return t.device
+}

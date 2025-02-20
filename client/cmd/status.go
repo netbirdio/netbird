@@ -39,7 +39,6 @@ type peerStateDetailOutput struct {
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
 	Latency                time.Duration    `json:"latency" yaml:"latency"`
 	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
-	Routes                 []string         `json:"routes" yaml:"routes"`
 	Networks               []string         `json:"networks" yaml:"networks"`
 }
 
@@ -86,22 +85,23 @@ type nsServerGroupStateOutput struct {
 }
 
 type statusOutputOverview struct {
-	Peers                   peersStateOutput           `json:"peers" yaml:"peers"`
-	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
-	DaemonVersion           string                     `json:"daemonVersion" yaml:"daemonVersion"`
-	ManagementState         managementStateOutput      `json:"management" yaml:"management"`
-	SignalState             signalStateOutput          `json:"signal" yaml:"signal"`
-	Relays                  relayStateOutput           `json:"relays" yaml:"relays"`
-	IP                      string                     `json:"netbirdIp" yaml:"netbirdIp"`
-	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
-	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
-	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
-	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
-	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
-	Routes                  []string                   `json:"routes" yaml:"routes"`
+	Peers               peersStateOutput      `json:"peers" yaml:"peers"`
+	CliVersion          string                `json:"cliVersion" yaml:"cliVersion"`
+	DaemonVersion       string                `json:"daemonVersion" yaml:"daemonVersion"`
+	ManagementState     managementStateOutput `json:"management" yaml:"management"`
+	SignalState         signalStateOutput     `json:"signal" yaml:"signal"`
+	Relays              relayStateOutput      `json:"relays" yaml:"relays"`
+	IP                  string                `json:"netbirdIp" yaml:"netbirdIp"`
+	PubKey              string                `json:"publicKey" yaml:"publicKey"`
+	KernelInterface     bool                  `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	FQDN                string                `json:"fqdn" yaml:"fqdn"`
+	RosenpassEnabled    bool                  `json:"quantumResistance" yaml:"quantumResistance"`
+	RosenpassPermissive bool                  `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
+
 	Networks                []string                   `json:"networks" yaml:"networks"`
 	NumberOfForwardingRules int                        `json:"forwardingRules" yaml:"forwardingRules"`
 	NSServerGroups          []nsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
+	Events                  []systemEventOutput        `json:"events" yaml:"events"`
 }
 
 var (
@@ -273,22 +273,23 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 	peersOverview := mapPeers(resp.GetFullStatus().GetPeers())
 
 	overview := statusOutputOverview{
-		Peers:                   peersOverview,
-		CliVersion:              version.NetbirdVersion(),
-		DaemonVersion:           resp.GetDaemonVersion(),
-		ManagementState:         managementOverview,
-		SignalState:             signalOverview,
-		Relays:                  relayOverview,
-		IP:                      pbFullStatus.GetLocalPeerState().GetIP(),
-		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
-		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
-		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
-		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
-		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
-		Routes:                  pbFullStatus.GetLocalPeerState().GetNetworks(),
+		Peers:               peersOverview,
+		CliVersion:          version.NetbirdVersion(),
+		DaemonVersion:       resp.GetDaemonVersion(),
+		ManagementState:     managementOverview,
+		SignalState:         signalOverview,
+		Relays:              relayOverview,
+		IP:                  pbFullStatus.GetLocalPeerState().GetIP(),
+		PubKey:              pbFullStatus.GetLocalPeerState().GetPubKey(),
+		KernelInterface:     pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		FQDN:                pbFullStatus.GetLocalPeerState().GetFqdn(),
+		RosenpassEnabled:    pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
+		RosenpassPermissive: pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
+
 		Networks:                pbFullStatus.GetLocalPeerState().GetNetworks(),
 		NumberOfForwardingRules: int(pbFullStatus.GetNumberOfForwardingRules()),
 		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
+		Events:                  mapEvents(pbFullStatus.GetEvents()),
 	}
 
 	if anonymizeFlag {
@@ -395,7 +396,6 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			TransferSent:           transferSent,
 			Latency:                pbPeerState.GetLatency().AsDuration(),
 			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
-			Routes:                 pbPeerState.GetNetworks(),
 			Networks:               pbPeerState.GetNetworks(),
 		}
 
@@ -561,7 +561,6 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
-			"Routes: %s\n"+
 			"Networks: %s\n"+
 			"Forwarding rules: %d\n"+
 			"Peers count: %s\n",
@@ -577,7 +576,6 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 		interfaceTypeString,
 		rosenpassEnabledStatus,
 		networks,
-		networks,
 		overview.NumberOfForwardingRules,
 		peersCountString,
 	)
@@ -586,13 +584,17 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 
 func parseToFullDetailSummary(overview statusOutputOverview) string {
 	parsedPeersString := parsePeers(overview.Peers, overview.RosenpassEnabled, overview.RosenpassPermissive)
+	parsedEventsString := parseEvents(overview.Events)
 	summary := parseGeneralSummary(overview, true, true, true)
 
 	return fmt.Sprintf(
 		"Peers detail:"+
 			"%s\n"+
+			"Events:"+
+			"%s\n"+
 			"%s",
 		parsedPeersString,
+		parsedEventsString,
 		summary,
 	)
 }
@@ -661,7 +663,6 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Last WireGuard handshake: %s\n"+
 				"  Transfer status (received/sent) %s/%s\n"+
 				"  Quantum resistance: %s\n"+
-				"  Routes: %s\n"+
 				"  Networks: %s\n"+
 				"  Latency: %s\n",
 			peerState.FQDN,
@@ -679,7 +680,6 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
 			rosenpassEnabledStatus,
-			networks,
 			networks,
 			peerState.Latency.String(),
 		)
@@ -829,14 +829,6 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
 	for i, route := range peer.Networks {
 		peer.Networks[i] = a.AnonymizeRoute(route)
 	}
-
-	for i, route := range peer.Routes {
-		peer.Routes[i] = a.AnonymizeIPString(route)
-	}
-
-	for i, route := range peer.Routes {
-		peer.Routes[i] = a.AnonymizeRoute(route)
-	}
 }
 
 func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) {
@@ -874,9 +866,14 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) 
 		overview.Networks[i] = a.AnonymizeRoute(route)
 	}
 
-	for i, route := range overview.Routes {
-		overview.Routes[i] = a.AnonymizeRoute(route)
-	}
-
 	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
+
+	for i, event := range overview.Events {
+		overview.Events[i].Message = a.AnonymizeString(event.Message)
+		overview.Events[i].UserMessage = a.AnonymizeString(event.UserMessage)
+
+		for k, v := range event.Metadata {
+			event.Metadata[k] = a.AnonymizeString(v)
+		}
+	}
 }

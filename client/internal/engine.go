@@ -43,13 +43,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	mgm "github.com/netbirdio/netbird/management/client"
-	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/relay/client"
@@ -193,6 +193,10 @@ type Engine struct {
 type Peer struct {
 	WgPubKey     string
 	WgAllowedIps string
+}
+
+type localIpUpdater interface {
+	UpdateLocalIPs() error
 }
 
 // NewEngine creates a new Connection Engine with probes attached
@@ -442,7 +446,7 @@ func (e *Engine) createFirewall() error {
 	}
 
 	var err error
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager)
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.config.DisableServerRoutes)
 	if err != nil || e.firewall == nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 		return nil
@@ -890,6 +894,14 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	// Apply ACLs in the beginning to avoid security leaks
 	if e.acl != nil {
 		e.acl.ApplyFiltering(networkMap)
+	}
+
+	if e.firewall != nil {
+		if localipfw, ok := e.firewall.(localIpUpdater); ok {
+			if err := localipfw.UpdateLocalIPs(); err != nil {
+				log.Errorf("failed to update local IPs: %v", err)
+			}
+		}
 	}
 
 	// DNS forwarder
@@ -1460,6 +1472,11 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 	return e.routeManager
 }
 
+// GetFirewallManager returns the firewall manager
+func (e *Engine) GetFirewallManager() firewallManager.Manager {
+	return e.firewall
+}
+
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
@@ -1669,6 +1686,14 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 	}
 
 	return nm, nil
+}
+
+// GetWgAddr returns the wireguard address
+func (e *Engine) GetWgAddr() net.IP {
+	if e.wgInterface == nil {
+		return nil
+	}
+	return e.wgInterface.Address().IP
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag

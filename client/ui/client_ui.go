@@ -21,6 +21,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"fyne.io/systray"
 	"github.com/cenkalti/backoff/v4"
@@ -33,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
@@ -82,7 +84,7 @@ func main() {
 	}
 
 	a := app.NewWithID("NetBird")
-	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
+	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnected))
 
 	if errorMSG != "" {
 		showErrorMSG(errorMSG)
@@ -90,6 +92,14 @@ func main() {
 	}
 
 	client := newServiceClient(daemonAddr, a, showSettings, showRoutes)
+	settingsChangeChan := make(chan fyne.Settings)
+	a.Settings().AddChangeListener(settingsChangeChan)
+	go func() {
+		for range settingsChangeChan {
+			client.updateIcon()
+		}
+	}()
+
 	if showSettings || showRoutes {
 		a.Run()
 	} else {
@@ -106,46 +116,36 @@ func main() {
 	}
 }
 
-//go:embed netbird-systemtray-connected.ico
-var iconConnectedICO []byte
+//go:embed netbird-systemtray-connected-macos.png
+var iconConnectedMacOS []byte
 
-//go:embed netbird-systemtray-connected.png
-var iconConnectedPNG []byte
+//go:embed netbird-systemtray-disconnected-macos.png
+var iconDisconnectedMacOS []byte
 
-//go:embed netbird-systemtray-disconnected.ico
-var iconDisconnectedICO []byte
+//go:embed netbird-systemtray-update-disconnected-macos.png
+var iconUpdateDisconnectedMacOS []byte
 
-//go:embed netbird-systemtray-disconnected.png
-var iconDisconnectedPNG []byte
+//go:embed netbird-systemtray-update-connected-macos.png
+var iconUpdateConnectedMacOS []byte
 
-//go:embed netbird-systemtray-update-disconnected.ico
-var iconUpdateDisconnectedICO []byte
+//go:embed netbird-systemtray-connecting-macos.png
+var iconConnectingMacOS []byte
 
-//go:embed netbird-systemtray-update-disconnected.png
-var iconUpdateDisconnectedPNG []byte
-
-//go:embed netbird-systemtray-update-connected.ico
-var iconUpdateConnectedICO []byte
-
-//go:embed netbird-systemtray-update-connected.png
-var iconUpdateConnectedPNG []byte
-
-//go:embed netbird-systemtray-update-cloud.ico
-var iconUpdateCloudICO []byte
-
-//go:embed netbird-systemtray-update-cloud.png
-var iconUpdateCloudPNG []byte
+//go:embed netbird-systemtray-error-macos.png
+var iconErrorMacOS []byte
 
 type serviceClient struct {
 	ctx  context.Context
 	addr string
 	conn proto.DaemonServiceClient
 
+	icAbout              []byte
 	icConnected          []byte
 	icDisconnected       []byte
 	icUpdateConnected    []byte
 	icUpdateDisconnected []byte
-	icUpdateCloud        []byte
+	icConnecting         []byte
+	icError              []byte
 
 	// systray menu items
 	mStatus           *systray.MenuItem
@@ -162,6 +162,7 @@ type serviceClient struct {
 	mAllowSSH         *systray.MenuItem
 	mAutoConnect      *systray.MenuItem
 	mEnableRosenpass  *systray.MenuItem
+	mNotifications    *systray.MenuItem
 	mAdvancedSettings *systray.MenuItem
 
 	// application with main windows.
@@ -197,6 +198,8 @@ type serviceClient struct {
 	isUpdateIconActive   bool
 	showRoutes           bool
 	wRoutes              fyne.Window
+
+	eventManager *event.Manager
 }
 
 // newServiceClient instance constructor
@@ -214,20 +217,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 		update:               version.NewUpdate(),
 	}
 
-	if runtime.GOOS == "windows" {
-		s.icConnected = iconConnectedICO
-		s.icDisconnected = iconDisconnectedICO
-		s.icUpdateConnected = iconUpdateConnectedICO
-		s.icUpdateDisconnected = iconUpdateDisconnectedICO
-		s.icUpdateCloud = iconUpdateCloudICO
-
-	} else {
-		s.icConnected = iconConnectedPNG
-		s.icDisconnected = iconDisconnectedPNG
-		s.icUpdateConnected = iconUpdateConnectedPNG
-		s.icUpdateDisconnected = iconUpdateDisconnectedPNG
-		s.icUpdateCloud = iconUpdateCloudPNG
-	}
+	s.setNewIcons()
 
 	if showSettings {
 		s.showSettingsUI()
@@ -237,6 +227,44 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 	}
 
 	return s
+}
+
+func (s *serviceClient) setNewIcons() {
+	s.icAbout = iconAbout
+	if s.app.Settings().ThemeVariant() == theme.VariantDark {
+		s.icConnected = iconConnectedDark
+		s.icDisconnected = iconDisconnected
+		s.icUpdateConnected = iconUpdateConnectedDark
+		s.icUpdateDisconnected = iconUpdateDisconnectedDark
+		s.icConnecting = iconConnectingDark
+		s.icError = iconErrorDark
+	} else {
+		s.icConnected = iconConnected
+		s.icDisconnected = iconDisconnected
+		s.icUpdateConnected = iconUpdateConnected
+		s.icUpdateDisconnected = iconUpdateDisconnected
+		s.icConnecting = iconConnecting
+		s.icError = iconError
+	}
+}
+
+func (s *serviceClient) updateIcon() {
+	s.setNewIcons()
+	s.updateIndicationLock.Lock()
+	if s.connected {
+		if s.isUpdateIconActive {
+			systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
+		} else {
+			systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
+		}
+	} else {
+		if s.isUpdateIconActive {
+			systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
+		} else {
+			systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
+		}
+	}
+	s.updateIndicationLock.Unlock()
 }
 
 func (s *serviceClient) showSettingsUI() {
@@ -376,8 +404,10 @@ func (s *serviceClient) login() error {
 }
 
 func (s *serviceClient) menuUpClick() error {
+	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
+		systray.SetTemplateIcon(iconErrorMacOS, s.icError)
 		log.Errorf("get client: %v", err)
 		return err
 	}
@@ -403,10 +433,12 @@ func (s *serviceClient) menuUpClick() error {
 		log.Errorf("up service: %v", err)
 		return err
 	}
+
 	return nil
 }
 
 func (s *serviceClient) menuDownClick() error {
+	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
@@ -458,9 +490,9 @@ func (s *serviceClient) updateStatus() error {
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
-				systray.SetIcon(s.icUpdateConnected)
+				systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
 			} else {
-				systray.SetIcon(s.icConnected)
+				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
 			}
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
@@ -482,11 +514,9 @@ func (s *serviceClient) updateStatus() error {
 			s.isUpdateIconActive = s.update.SetDaemonVersion(status.DaemonVersion)
 			if !s.isUpdateIconActive {
 				if systrayIconState {
-					systray.SetIcon(s.icConnected)
-					s.mAbout.SetIcon(s.icConnected)
+					systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
 				} else {
-					systray.SetIcon(s.icDisconnected)
-					s.mAbout.SetIcon(s.icDisconnected)
+					systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 				}
 			}
 
@@ -506,7 +536,6 @@ func (s *serviceClient) updateStatus() error {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	})
-
 	if err != nil {
 		return err
 	}
@@ -517,9 +546,9 @@ func (s *serviceClient) updateStatus() error {
 func (s *serviceClient) setDisconnectedStatus() {
 	s.connected = false
 	if s.isUpdateIconActive {
-		systray.SetIcon(s.icUpdateDisconnected)
+		systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
 	} else {
-		systray.SetIcon(s.icDisconnected)
+		systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 	}
 	systray.SetTooltip("NetBird (Disconnected)")
 	s.mStatus.SetTitle("Disconnected")
@@ -529,7 +558,7 @@ func (s *serviceClient) setDisconnectedStatus() {
 }
 
 func (s *serviceClient) onTrayReady() {
-	systray.SetIcon(s.icDisconnected)
+	systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 	systray.SetTooltip("NetBird")
 
 	// setup systray menu items
@@ -546,6 +575,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", "Allow SSH connections", false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", "Connect automatically when the service starts", false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", "Enable post-quantum security via Rosenpass", false)
+	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", "Enable notifications", true)
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
 	s.loadSettings()
 
@@ -554,7 +584,7 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 
 	s.mAbout = systray.AddMenuItem("About", "About")
-	s.mAbout.SetIcon(s.icDisconnected)
+	s.mAbout.SetIcon(s.icAbout)
 	versionString := normalizedVersion(version.NetbirdVersion())
 	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
 	s.mVersionUI.Disable()
@@ -581,6 +611,10 @@ func (s *serviceClient) onTrayReady() {
 			time.Sleep(2 * time.Second)
 		}
 	}()
+
+	s.eventManager = event.NewManager(s.app, s.addr)
+	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	go s.eventManager.Start(s.ctx)
 
 	go func() {
 		var err error
@@ -616,7 +650,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
-					return
 				}
 			case <-s.mAutoConnect.ClickedCh:
 				if s.mAutoConnect.Checked() {
@@ -626,7 +659,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
-					return
 				}
 			case <-s.mEnableRosenpass.ClickedCh:
 				if s.mEnableRosenpass.Checked() {
@@ -636,7 +668,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
-					return
 				}
 			case <-s.mAdvancedSettings.ClickedCh:
 				s.mAdvancedSettings.Disable()
@@ -659,7 +690,20 @@ func (s *serviceClient) onTrayReady() {
 					defer s.mRoutes.Enable()
 					s.runSelfCommand("networks", "true")
 				}()
+			case <-s.mNotifications.ClickedCh:
+				if s.mNotifications.Checked() {
+					s.mNotifications.Uncheck()
+				} else {
+					s.mNotifications.Check()
+				}
+				if s.eventManager != nil {
+					s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+				}
+				if err := s.updateConfig(); err != nil {
+					log.Errorf("failed to update config: %v", err)
+				}
 			}
+
 			if err != nil {
 				log.Errorf("process connection: %v", err)
 			}
@@ -759,8 +803,20 @@ func (s *serviceClient) getSrvConfig() {
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
 		}
-
 	}
+
+	if s.mNotifications == nil {
+		return
+	}
+	if cfg.DisableNotifications {
+		s.mNotifications.Uncheck()
+	} else {
+		s.mNotifications.Check()
+	}
+	if s.eventManager != nil {
+		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	}
+
 }
 
 func (s *serviceClient) onUpdateAvailable() {
@@ -771,9 +827,9 @@ func (s *serviceClient) onUpdateAvailable() {
 	s.isUpdateIconActive = true
 
 	if s.connected {
-		systray.SetIcon(s.icUpdateConnected)
+		systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
 	} else {
-		systray.SetIcon(s.icUpdateDisconnected)
+		systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
 	}
 }
 
@@ -825,6 +881,15 @@ func (s *serviceClient) loadSettings() {
 	} else {
 		s.mEnableRosenpass.Uncheck()
 	}
+
+	if cfg.DisableNotifications {
+		s.mNotifications.Uncheck()
+	} else {
+		s.mNotifications.Check()
+	}
+	if s.eventManager != nil {
+		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	}
 }
 
 // updateConfig updates the configuration parameters
@@ -833,12 +898,14 @@ func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
+	notificationsDisabled := !s.mNotifications.Checked()
 
 	loginRequest := proto.LoginRequest{
 		IsLinuxDesktopClient: runtime.GOOS == "linux",
 		ServerSSHAllowed:     &sshAllowed,
 		RosenpassEnabled:     &rosenpassEnabled,
 		DisableAutoConnect:   &disableAutoStart,
+		DisableNotifications: &notificationsDisabled,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {
@@ -851,17 +918,20 @@ func (s *serviceClient) updateConfig() error {
 
 // restartClient restarts the client connection.
 func (s *serviceClient) restartClient(loginRequest *proto.LoginRequest) error {
+	ctx, cancel := context.WithTimeout(s.ctx, defaultFailTimeout)
+	defer cancel()
+
 	client, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
 		return err
 	}
 
-	_, err = client.Login(s.ctx, loginRequest)
+	_, err = client.Login(ctx, loginRequest)
 	if err != nil {
 		return err
 	}
 
-	_, err = client.Up(s.ctx, &proto.UpRequest{})
+	_, err = client.Up(ctx, &proto.UpRequest{})
 	if err != nil {
 		return err
 	}

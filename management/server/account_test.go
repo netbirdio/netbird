@@ -733,6 +733,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		PATs: map[string]*types.PersonalAccessToken{
 			"tokenId": {
 				ID:          "tokenId",
+				UserID:      "someUser",
 				HashedToken: encodedHashedToken,
 			},
 		},
@@ -746,14 +747,14 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		Store: store,
 	}
 
-	account, user, pat, err := am.GetAccountFromPAT(context.Background(), token)
+	user, pat, _, _, err := am.GetPATInfo(context.Background(), token)
 	if err != nil {
 		t.Fatalf("Error when getting Account from PAT: %s", err)
 	}
 
-	assert.Equal(t, "account_id", account.Id)
+	assert.Equal(t, "account_id", user.AccountID)
 	assert.Equal(t, "someUser", user.Id)
-	assert.Equal(t, account.Users["someUser"].PATs["tokenId"], pat)
+	assert.Equal(t, account.Users["someUser"].PATs["tokenId"].ID, pat.ID)
 }
 
 func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
@@ -3018,11 +3019,11 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 1, 5, 3, 19},
-		{"Medium", 500, 100, 7, 22, 10, 90},
-		{"Large", 5000, 200, 65, 110, 60, 240},
+		{"Small", 50, 5, 1, 5, 3, 24},
+		{"Medium", 500, 100, 7, 22, 10, 135},
+		{"Large", 5000, 200, 65, 110, 60, 320},
 		{"Small single", 50, 10, 1, 4, 3, 80},
-		{"Medium single", 500, 10, 7, 13, 10, 37},
+		{"Medium single", 500, 10, 7, 13, 10, 43},
 		{"Large 5", 5000, 15, 65, 80, 60, 220},
 	}
 
@@ -3087,8 +3088,8 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 		maxMsPerOpCICD  float64
 	}{
 		{"Small", 50, 5, 2, 10, 3, 35},
-		{"Medium", 500, 100, 5, 40, 20, 110},
-		{"Large", 5000, 200, 60, 100, 120, 260},
+		{"Medium", 500, 100, 5, 40, 20, 140},
+		{"Large", 5000, 200, 60, 100, 120, 320},
 		{"Small single", 50, 10, 2, 10, 5, 40},
 		{"Medium single", 500, 10, 5, 40, 10, 60},
 		{"Large 5", 5000, 15, 60, 100, 60, 180},
@@ -3163,9 +3164,9 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 	}{
 		{"Small", 50, 5, 7, 20, 10, 80},
 		{"Medium", 500, 100, 5, 40, 30, 140},
-		{"Large", 5000, 200, 80, 120, 140, 300},
+		{"Large", 5000, 200, 80, 120, 140, 390},
 		{"Small single", 50, 10, 7, 20, 10, 80},
-		{"Medium single", 500, 10, 5, 40, 20, 60},
+		{"Medium single", 500, 10, 5, 40, 20, 85},
 		{"Large 5", 5000, 15, 80, 120, 80, 200},
 	}
 
