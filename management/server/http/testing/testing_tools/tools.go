@@ -117,9 +117,9 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	// @note this is required so that PAT's validate from store, but JTW's are mocked
+	// @note this is required so that PAT's validate from store, but JWT's are mocked
 	authManager := auth.NewManager(store, "", "", "", "", []string{}, false)
-	mockedManager := &auth.MockManager{
+	authManagerMock := &auth.MockManager{
 		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
 		EnsureUserAccessByJWTGroupsFunc: authManager.EnsureUserAccessByJWTGroups,
 		MarkPATUsedFunc:                 authManager.MarkPATUsed,
@@ -130,7 +130,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	resourcesManagerMock := resources.NewManagerMock()
 	routersManagerMock := routers.NewManagerMock()
 	groupsManagerMock := groups.NewManagerMock()
-	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, mockedManager, metrics, &server.Config{}, validatorMock)
+	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, &server.Config{}, validatorMock)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
