@@ -58,7 +58,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 
 			switch msg.Type {
 			// handle route changes
-			case unix.RTM_ADD, syscall.RTM_DELETE:
+			case syscall.RTM_ADD, syscall.RTM_DELETE, syscall.RTM_CHANGE:
 				route, err := parseRouteMessage(buf[:n])
 				if err != nil {
 					log.Debugf("Network monitor: error parsing routing message: %v", err)
