@@ -48,12 +48,12 @@ func BenchmarkUpdatePeer(b *testing.B) {
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
 
-	recorder := httptest.NewRecorder()
-
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
+
+			recorder := httptest.NewRecorder()
 
 			b.ResetTimer()
 			start := time.Now()
