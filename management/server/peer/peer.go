@@ -49,6 +49,11 @@ type Peer struct {
 	Ephemeral bool `gorm:"index"`
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
+
+	// ExtraDNSLabels is a list of additional DNS labels that can be used to resolve the peer
+	ExtraDNSLabels []string `gorm:"serializer:json"`
+	// AllowExtraDNSLabels indicates whether the peer allows extra DNS labels to be used for resolving the peer
+	AllowExtraDNSLabels bool
 }
 
 type PeerStatus struct { //nolint:revive
@@ -202,6 +207,8 @@ func (p *Peer) Copy() *Peer {
 		Ephemeral:                   p.Ephemeral,
 		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
+		ExtraDNSLabels:              slices.Clone(p.ExtraDNSLabels),
+		AllowExtraDNSLabels:         p.AllowExtraDNSLabels,
 	}
 }
 

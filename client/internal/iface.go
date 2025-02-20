@@ -8,6 +8,7 @@ import (
 	"time"
 
 	wgdevice "golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -36,4 +37,5 @@ type WGIface interface {
 	GetDevice() *device.FilteredDevice
 	GetWGDevice() *wgdevice.Device
 	GetStats(peerKey string) (configurer.WGStats, error)
+	GetNet() *netstack.Net
 }

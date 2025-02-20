@@ -173,8 +173,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		stateful:            !disableConntrack,
 		logger:              nblog.NewFromLogrus(log.StandardLogger()),
 		netstack:            netstack.IsEnabled(),
-		// default true for non-netstack, for netstack only if explicitly enabled
-		localForwarding: !netstack.IsEnabled() || enableLocalForwarding,
+		localForwarding:     enableLocalForwarding,
 	}
 
 	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
@@ -647,11 +646,6 @@ func (m *Manager) dropFilter(packetData []byte) bool {
 // handleLocalTraffic handles local traffic.
 // If it returns true, the packet should be dropped.
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
-	if !m.localForwarding {
-		m.logger.Trace("Dropping local packet (local forwarding disabled): src=%s dst=%s", srcIP, dstIP)
-		return true
-	}
-
 	if m.peerACLsBlock(srcIP, packetData, m.incomingRules, d) {
 		m.logger.Trace("Dropping local packet (ACL denied): src=%s dst=%s",
 			srcIP, dstIP)
@@ -660,22 +654,29 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP net.IP, packetData
 
 	// if running in netstack mode we need to pass this to the forwarder
 	if m.netstack {
-		m.handleNetstackLocalTraffic(packetData)
-
-		// don't process this packet further
-		return true
+		return m.handleNetstackLocalTraffic(packetData)
 	}
 
 	return false
 }
-func (m *Manager) handleNetstackLocalTraffic(packetData []byte) {
+
+func (m *Manager) handleNetstackLocalTraffic(packetData []byte) bool {
+	if !m.localForwarding {
+		// pass to virtual tcp/ip stack to be picked up by listeners
+		return false
+	}
+
 	if m.forwarder == nil {
-		return
+		m.logger.Trace("Dropping local packet (forwarder not initialized)")
+		return true
 	}
 
 	if err := m.forwarder.InjectIncomingPacket(packetData); err != nil {
 		m.logger.Error("Failed to inject local packet: %v", err)
 	}
+
+	// don't process this packet further
+	return true
 }
 
 // handleRoutedTraffic handles routed traffic.

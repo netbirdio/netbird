@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"net"
 	"net/netip"
 	"os"
@@ -87,6 +88,7 @@ type MockWGIface struct {
 	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
+	GetNetFunc                 func() *netstack.Net
 }
 
 func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
@@ -167,6 +169,10 @@ func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 	return m.GetProxyFunc()
+}
+
+func (m *MockWGIface) GetNet() *netstack.Net {
+	return m.GetNetFunc()
 }
 
 func TestMain(m *testing.M) {
@@ -1331,7 +1337,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 
 	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

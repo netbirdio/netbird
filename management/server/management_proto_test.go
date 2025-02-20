@@ -440,7 +440,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, ephemeralMgr)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
@@ -714,7 +714,7 @@ func Test_LoginPerformance(t *testing.T) {
 						return
 					}
 
-					setupKey, err := am.CreateSetupKey(context.Background(), account.Id, fmt.Sprintf("key-%d", j), types.SetupKeyReusable, time.Hour, nil, 0, fmt.Sprintf("user-%d", j), false)
+					setupKey, err := am.CreateSetupKey(context.Background(), account.Id, fmt.Sprintf("key-%d", j), types.SetupKeyReusable, time.Hour, nil, 0, fmt.Sprintf("user-%d", j), false, false)
 					if err != nil {
 						t.Logf("error creating setup key: %v", err)
 						return
