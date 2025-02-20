@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"net"
 	"net/netip"
 	"os"
@@ -51,6 +50,7 @@ import (
 	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
 	wgdevice "golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 var (
