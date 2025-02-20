@@ -512,6 +512,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mUp.Disable()
 			s.mDown.Enable()
 			s.mNetworks.Enable()
+			s.mExitNode.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
@@ -569,6 +570,7 @@ func (s *serviceClient) setDisconnectedStatus() {
 	s.mDown.Disable()
 	s.mUp.Enable()
 	s.mNetworks.Disable()
+	s.mExitNode.Disable()
 	go s.updateExitNodes()
 }
 
