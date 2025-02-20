@@ -440,7 +440,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, ephemeralMgr)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
