@@ -338,6 +338,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		UserId:                      peer.UserID,
 		UiVersion:                   peer.Meta.UIVersion,
 		DnsLabel:                    fqdn(peer, dnsDomain),
+		ExtraDnsLabels:              fqdnList(peer.ExtraDNSLabels, dnsDomain),
 		LoginExpirationEnabled:      peer.LoginExpirationEnabled,
 		LastLogin:                   peer.GetLastLogin(),
 		LoginExpired:                peer.Status.LoginExpired,
@@ -372,6 +373,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		UserId:                 peer.UserID,
 		UiVersion:              peer.Meta.UIVersion,
 		DnsLabel:               fqdn(peer, dnsDomain),
+		ExtraDnsLabels:         fqdnList(peer.ExtraDNSLabels, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.GetLastLogin(),
 		LoginExpired:           peer.Status.LoginExpired,
@@ -391,4 +393,12 @@ func fqdn(peer *nbpeer.Peer, dnsDomain string) string {
 	} else {
 		return fqdn
 	}
+}
+func fqdnList(extraLabels []string, dnsDomain string) []string {
+	fqdnList := make([]string, 0, len(extraLabels))
+	for _, label := range extraLabels {
+		fqdn := fmt.Sprintf("%s.%s", label, dnsDomain)
+		fqdnList = append(fqdnList, fqdn)
+	}
+	return fqdnList
 }
