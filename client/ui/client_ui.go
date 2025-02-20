@@ -507,7 +507,6 @@ func (s *serviceClient) updateStatus() error {
 			} else {
 				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
 			}
-			s.mAbout.SetIcon(s.icConnected)
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
@@ -565,7 +564,6 @@ func (s *serviceClient) setDisconnectedStatus() {
 	} else {
 		systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 	}
-	s.mAbout.SetIcon(s.icDisconnected)
 	systray.SetTooltip("NetBird (Disconnected)")
 	s.mStatus.SetTitle("Disconnected")
 	s.mDown.Disable()
