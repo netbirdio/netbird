@@ -793,7 +793,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
-					return
 				}
 			}
 
