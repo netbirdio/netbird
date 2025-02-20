@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/ssh"
 	mgm "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -70,6 +72,8 @@ type ConfigInput struct {
 	BlockLANAccess *bool
 
 	DisableNotifications *bool
+
+	DNSLabels domain.List
 }
 
 // Config Configuration type
@@ -96,6 +100,8 @@ type Config struct {
 	BlockLANAccess bool
 
 	DisableNotifications bool
+
+	DNSLabels domain.List
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
@@ -501,6 +507,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			config.ClientCertKeyPair = &cert
 			log.Info("Loaded client mTLS cert/key pair")
 		}
+	}
+
+	if input.DNSLabels != nil && !slices.Equal(config.DNSLabels, input.DNSLabels) {
+		log.Infof("updating DNS labels [ %s ] (old value: [ %s ])",
+			input.DNSLabels.SafeString(),
+			config.DNSLabels.SafeString())
+		config.DNSLabels = input.DNSLabels
+		updated = true
 	}
 
 	return updated, nil
