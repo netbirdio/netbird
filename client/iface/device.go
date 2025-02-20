@@ -3,6 +3,8 @@
 package iface
 
 import (
+	"golang.zx2c4.com/wireguard/tun/netstack"
+
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -18,4 +20,5 @@ type WGTunDevice interface {
 	Close() error
 	FilteredDevice() *device.FilteredDevice
 	Device() *wgdevice.Device
+	GetNet() *netstack.Net
 }
