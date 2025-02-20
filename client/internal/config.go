@@ -71,6 +71,8 @@ type ConfigInput struct {
 
 	BlockLANAccess *bool
 
+	DisableNotifications *bool
+
 	DNSLabels domain.List
 }
 
@@ -96,6 +98,8 @@ type Config struct {
 	DisableFirewall     bool
 
 	BlockLANAccess bool
+
+	DisableNotifications bool
 
 	DNSLabels domain.List
 
@@ -472,6 +476,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("allowing LAN access")
 		}
 		config.BlockLANAccess = *input.BlockLANAccess
+		updated = true
+	}
+
+	if input.DisableNotifications != nil && *input.DisableNotifications != config.DisableNotifications {
+		if *input.DisableNotifications {
+			log.Infof("disabling notifications")
+		} else {
+			log.Infof("enabling notifications")
+		}
+		config.DisableNotifications = *input.DisableNotifications
 		updated = true
 	}
 
