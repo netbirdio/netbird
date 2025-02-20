@@ -284,7 +284,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		for _, rule := range firewallRules {
 			contains := false
 			for _, expectedRule := range epectedFirewallRules {
-				if rule.IsEqual(expectedRule) {
+				if rule.Equal(expectedRule) {
 					contains = true
 					break
 				}

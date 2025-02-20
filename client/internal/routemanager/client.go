@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	runtime "runtime"
+	"runtime"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -302,7 +302,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem(rsn reason) error
 
 	// If the chosen route is the same as the current route, do nothing
 	if c.currentChosen != nil && c.currentChosen.ID == newChosenID &&
-		c.currentChosen.IsEqual(c.routes[newChosenID]) {
+		c.currentChosen.Equal(c.routes[newChosenID]) {
 		return nil
 	}
 

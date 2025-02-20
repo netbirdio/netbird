@@ -261,6 +261,7 @@ func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule 
 			Action:    getProtoAction(rule.Action),
 			Protocol:  getProtoProtocol(rule.Protocol),
 			Port:      rule.Port,
+			PortInfo:  rule.PortRange.ToProto(),
 		}
 	}
 	return result

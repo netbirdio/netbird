@@ -360,6 +360,7 @@ func TestParsingToJSON(t *testing.T) {
           "networks": [
             "10.10.0.0/24"
           ],
+          "forwardingRules": 0,
           "dnsServers": [
             {
               "servers": [
@@ -467,6 +468,7 @@ quantumResistance: false
 quantumResistancePermissive: false
 networks:
     - 10.10.0.0/24
+forwardingRules: 0
 dnsServers:
     - servers:
         - 8.8.8.8:53
@@ -547,6 +549,7 @@ NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
 Networks: 10.10.0.0/24
+Forwarding rules: 0
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
@@ -568,6 +571,7 @@ NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
 Networks: 10.10.0.0/24
+Forwarding rules: 0
 Peers count: 2/2 Connected
 `
 

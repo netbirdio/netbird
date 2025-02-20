@@ -22,6 +22,7 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -189,6 +190,7 @@ func startServer(
 		false,
 		server.MocIntegratedValidator{},
 		metrics,
+		port_forwarding.NewControllerMock(),
 	)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
