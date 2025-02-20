@@ -216,6 +216,10 @@ func (w *WGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 	return w.configurer.GetStats(peerKey)
 }
 
+func (w *WGIface) Transfers() (map[wgtypes.Key]configurer.WGStats, error) {
+	return w.configurer.Transfers()
+}
+
 func (w *WGIface) waitUntilRemoved() error {
 	maxWaitTime := 5 * time.Second
 	timeout := time.NewTimer(maxWaitTime)

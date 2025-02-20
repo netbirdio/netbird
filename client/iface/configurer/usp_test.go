@@ -34,6 +34,17 @@ errno=0
 
 `
 
+func Test_Transfer(t *testing.T) {
+	stats, err := parseTransfers(ipcFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(stats) != 3 {
+		t.Fatalf("expected 2 stats, got %d", len(stats))
+	}
+}
+
 func Test_findPeerInfo(t *testing.T) {
 	tests := []struct {
 		name       string

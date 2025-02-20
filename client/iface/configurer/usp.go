@@ -1,6 +1,7 @@
 package configurer
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -15,6 +16,13 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbnet "github.com/netbirdio/netbird/util/net"
+)
+
+const (
+	ipcKeyLastHandshakeTimeSec  = "last_handshake_time_sec"
+	ipcKeyLastHandshakeTimeNsec = "last_handshake_time_nsec"
+	ipcKeyTxBytes               = "tx_bytes"
+	ipcKeyRxBytes               = "rx_bytes"
 )
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
@@ -230,37 +238,113 @@ func (t *WGUSPConfigurer) GetStats(peerKey string) (WGStats, error) {
 	}
 
 	stats, err := findPeerInfo(ipc, peerKey, []string{
-		"last_handshake_time_sec",
-		"last_handshake_time_nsec",
-		"tx_bytes",
-		"rx_bytes",
+		ipcKeyLastHandshakeTimeSec,
+		ipcKeyLastHandshakeTimeNsec,
+		ipcKeyTxBytes,
+		ipcKeyRxBytes,
 	})
 	if err != nil {
 		return WGStats{}, fmt.Errorf("find peer info: %w", err)
 	}
 
-	sec, err := strconv.ParseInt(stats["last_handshake_time_sec"], 10, 64)
+	lastHandshake, err := toLastHandshake(stats[ipcKeyLastHandshakeTimeSec])
 	if err != nil {
-		return WGStats{}, fmt.Errorf("parse handshake sec: %w", err)
+		return WGStats{}, err
 	}
-	nsec, err := strconv.ParseInt(stats["last_handshake_time_nsec"], 10, 64)
+
+	txBytes, err := toTxBytes(stats[ipcKeyTxBytes])
 	if err != nil {
-		return WGStats{}, fmt.Errorf("parse handshake nsec: %w", err)
+		return WGStats{}, err
 	}
-	txBytes, err := strconv.ParseInt(stats["tx_bytes"], 10, 64)
+
+	rxBytes, err := toRxBytes(stats[ipcKeyRxBytes])
 	if err != nil {
-		return WGStats{}, fmt.Errorf("parse tx_bytes: %w", err)
-	}
-	rxBytes, err := strconv.ParseInt(stats["rx_bytes"], 10, 64)
-	if err != nil {
-		return WGStats{}, fmt.Errorf("parse rx_bytes: %w", err)
+		return WGStats{}, err
 	}
 
 	return WGStats{
-		LastHandshake: time.Unix(sec, nsec),
+		LastHandshake: lastHandshake,
 		TxBytes:       txBytes,
 		RxBytes:       rxBytes,
 	}, nil
+}
+
+func (t *WGUSPConfigurer) Transfers() (map[wgtypes.Key]WGStats, error) {
+	ipc, err := t.device.IpcGet()
+	if err != nil {
+		return nil, fmt.Errorf("ipc get: %w", err)
+	}
+
+	return parseTransfers(ipc)
+}
+
+func parseTransfers(ipc string) (map[wgtypes.Key]WGStats, error) {
+	stats := make(map[wgtypes.Key]WGStats)
+	var (
+		currentKey   wgtypes.Key
+		currentStats WGStats
+		hasPeer      bool
+	)
+	lines := strings.Split(ipc, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// If we're within the details of the found peer and encounter another public key,
+		// this means we're starting another peer's details. So, stop.
+		if strings.HasPrefix(line, "public_key=") {
+			peerID := strings.TrimPrefix(line, "public_key=")
+			h, err := hex.DecodeString(peerID)
+			if err != nil {
+				return nil, fmt.Errorf("decode peerID: %w", err)
+			}
+			b64 := base64.StdEncoding.EncodeToString(h)
+
+			peerKeyParsed, err := wgtypes.ParseKey(b64)
+			if err != nil {
+				return nil, fmt.Errorf("parse key: %w", err)
+			}
+
+			currentKey = peerKeyParsed
+			currentStats = WGStats{} // Reset stats for the new peer
+			hasPeer = true
+			stats[currentKey] = currentStats
+			continue
+		}
+
+		if !hasPeer {
+			continue
+		}
+
+		key := strings.SplitN(line, "=", 2)
+		if len(key) != 2 {
+			continue
+		}
+		switch key[0] {
+		case ipcKeyLastHandshakeTimeSec:
+			hs, err := toLastHandshake(key[1])
+			if err != nil {
+				return nil, err
+			}
+			currentStats.LastHandshake = hs
+			stats[currentKey] = currentStats
+		case ipcKeyRxBytes:
+			rxBytes, err := strconv.ParseInt(key[1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("parse rx_bytes: %w", err)
+			}
+			currentStats.RxBytes = rxBytes
+			stats[currentKey] = currentStats
+		case ipcKeyTxBytes:
+			txBytes, err := strconv.ParseInt(key[1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("parse tx_bytes: %w", err)
+			}
+			currentStats.TxBytes = txBytes
+			stats[currentKey] = currentStats
+		}
+	}
+
+	return stats, nil
 }
 
 func findPeerInfo(ipcInput string, peerKey string, searchConfigKeys []string) (map[string]string, error) {
@@ -359,6 +443,38 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 		}
 	}
 	return sb.String()
+}
+
+func toLastHandshake(stringVar string) (time.Time, error) {
+	sec, err := strconv.ParseInt(stringVar, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse handshake sec: %w", err)
+	}
+	nsec, err := strconv.ParseInt(stringVar, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse handshake nsec: %w", err)
+	}
+	return time.Unix(sec, nsec), nil
+}
+
+func toRxBytes(s string) (int64, error) {
+	b, err := toBytes(s)
+	if err != nil {
+		return 0, fmt.Errorf("parse rx_bytes: %w", err)
+	}
+	return b, nil
+}
+
+func toTxBytes(s string) (int64, error) {
+	b, err := toBytes(s)
+	if err != nil {
+		return 0, fmt.Errorf("parse tx_bytes: %w", err)
+	}
+	return b, nil
+}
+
+func toBytes(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
 }
 
 func getFwmark() int {
