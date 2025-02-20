@@ -1,7 +1,5 @@
 package server_test
 
-// @todo investigate failures
-
 import (
 	"context"
 	"math/rand"

@@ -52,5 +52,9 @@ func GetUserAuthFromContext(ctx context.Context) (UserAuth, error) {
 }
 
 func SetUserAuthInContext(ctx context.Context, userAuth UserAuth) context.Context {
+	//nolint
+	ctx = context.WithValue(ctx, UserIDKey, userAuth.UserId)
+	//nolint
+	ctx = context.WithValue(ctx, AccountIDKey, userAuth.AccountId)
 	return context.WithValue(ctx, UserAuthContextKey, userAuth)
 }
