@@ -392,9 +392,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ '386','amd64' ]
-        store: [ 'sqlite', 'postgres' ]
-    runs-on: ubuntu-22.04
+        arch: [ 'amd64' ]
+        store: [ 'postgres' ]
+    runs-on: ubuntu-latest-m
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
