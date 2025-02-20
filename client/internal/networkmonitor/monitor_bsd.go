@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"syscall"
 	"unsafe"
 
@@ -50,7 +51,6 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 				continue
 			}
 			if n < unix.SizeofRtMsghdr {
-				log.Debugf("Network monitor: read from routing socket returned less than expected: %d bytes", n)
 				continue
 			}
 
@@ -65,23 +65,25 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 					continue
 				}
 
+				// Gateway route was modified
 				if route.Dst.Bits() != 0 {
 					continue
 				}
 
-				intf := "<nil>"
-				if route.Interface != nil {
-					intf = route.Interface.Name
-				}
-				switch msg.Type {
-				case unix.RTM_ADD:
-					log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
+				// Compare current with saved netxhop
+				actualNextHopV4, errv4 := systemops.GetNextHop(netip.IPv4Unspecified())
+				actualNextHopV6, errv6 := systemops.GetNextHop(netip.IPv6Unspecified())
+				if errv4 != nil || errv6 != nil {
+					err := errors.Join(errv4, errv6)
+					log.Infof("Network monitor: failed to check next hop, assuming no network connection available: %s", err)
 					go callback()
-				case unix.RTM_DELETE:
-					if nexthopv4.Intf != nil && route.Gw.Compare(nexthopv4.IP) == 0 || nexthopv6.Intf != nil && route.Gw.Compare(nexthopv6.IP) == 0 {
-						log.Infof("Network monitor: default route removed: via %s, interface %s", route.Gw, intf)
-						go callback()
-					}
+				}
+				hasV4HopChanged := nexthopv4.Intf != nil && actualNextHopV4.Intf != nil && (nexthopv4.IP.Compare(actualNextHopV4.IP) != 0 || nexthopv4.Intf.Name != actualNextHopV4.Intf.Name)
+				hasV6HopChanged := nexthopv6.Intf != nil && actualNextHopV6.Intf != nil && (nexthopv6.IP.Compare(actualNextHopV6.IP) != 0 || nexthopv6.Intf.Name != actualNextHopV6.Intf.Name)
+
+				if hasV4HopChanged || hasV6HopChanged {
+					log.Infof("Network monitor: default route changed, IPv4: %t, IPv6: %t", hasV4HopChanged, hasV6HopChanged)
+					go callback()
 				}
 			}
 		}
