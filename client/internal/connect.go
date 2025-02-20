@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -104,6 +105,16 @@ func (c *ConnectClient) RunOniOS(
 func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan error) error {
 	defer func() {
 		if r := recover(); r != nil {
+			rec := c.statusRecorder
+			if rec != nil {
+				rec.PublishEvent(
+					cProto.SystemEvent_CRITICAL, cProto.SystemEvent_SYSTEM,
+					"panic occurred",
+					"The Netbird service panicked. Please restart the service and submit a bug report with the client logs.",
+					nil,
+				)
+			}
+
 			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
 		}
 	}()

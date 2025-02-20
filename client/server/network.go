@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"slices"
 	"sort"
+	"strings"
 
 	"golang.org/x/exp/maps"
 
@@ -134,6 +135,18 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 	}
 	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
+	s.statusRecorder.PublishEvent(
+		proto.SystemEvent_INFO,
+		proto.SystemEvent_SYSTEM,
+		"Network selection changed",
+		"",
+		map[string]string{
+			"networks": strings.Join(req.GetNetworkIDs(), ", "),
+			"append":   fmt.Sprint(req.GetAppend()),
+			"all":      fmt.Sprint(req.GetAll()),
+		},
+	)
+
 	return &proto.SelectNetworksResponse{}, nil
 }
 
@@ -163,6 +176,18 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		}
 	}
 	routeManager.TriggerSelection(routeManager.GetClientRoutes())
+
+	s.statusRecorder.PublishEvent(
+		proto.SystemEvent_INFO,
+		proto.SystemEvent_SYSTEM,
+		"Network deselection changed",
+		"",
+		map[string]string{
+			"networks": strings.Join(req.GetNetworkIDs(), ", "),
+			"all":      fmt.Sprint(req.GetAll()),
+			"append":   fmt.Sprint(req.GetAppend()),
+		},
+	)
 
 	return &proto.SelectNetworksResponse{}, nil
 }

@@ -42,6 +42,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
@@ -671,6 +672,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	if err := e.updateNetworkMap(nm); err != nil {
 		return err
 	}
+
+	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil
 }

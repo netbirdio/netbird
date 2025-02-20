@@ -3,7 +3,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -237,14 +240,14 @@ func (s *serviceClient) selectNetwork(id string, checked bool) {
 			s.showError(fmt.Errorf("failed to select network: %v", err))
 			return
 		}
-		log.Infof("Route %s selected", id)
+		log.Infof("Network '%s' selected", id)
 	} else {
 		if _, err := conn.DeselectNetworks(s.ctx, req); err != nil {
 			log.Errorf("failed to deselect network: %v", err)
 			s.showError(fmt.Errorf("failed to deselect network: %v", err))
 			return
 		}
-		log.Infof("Network %s deselected", id)
+		log.Infof("Network '%s' deselected", id)
 	}
 }
 
@@ -322,6 +325,183 @@ func (s *serviceClient) updateNetworksBasedOnDisplayTab(tabs *container.AppTabs,
 	grid, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
 	s.wRoutes.Content().Refresh()
 	s.updateNetworks(grid, f)
+}
+
+func (s *serviceClient) updateExitNodes() {
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		log.Errorf("get client: %v", err)
+		return
+	}
+
+	exitNodes, err := s.getExitNodes(conn)
+	if err != nil {
+		log.Errorf("get exit nodes: %v", err)
+		return
+	}
+
+	s.exitNodeMu.Lock()
+	defer s.exitNodeMu.Unlock()
+
+	s.recreateExitNodeMenu(exitNodes)
+
+	if len(s.mExitNodeItems) > 0 {
+		s.mExitNode.Enable()
+	} else {
+		s.mExitNode.Disable()
+	}
+
+	log.Debugf("Exit nodes updated: %d", len(s.mExitNodeItems))
+}
+
+func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
+	for _, node := range s.mExitNodeItems {
+		node.cancel()
+		node.Remove()
+	}
+	s.mExitNodeItems = nil
+
+	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
+		s.mExitNode.Remove()
+		s.mExitNode = systray.AddMenuItem("Exit Node", "Select exit node for routing traffic")
+	}
+
+	for _, node := range exitNodes {
+		menuItem := s.mExitNode.AddSubMenuItemCheckbox(
+			node.ID,
+			fmt.Sprintf("Use exit node %s", node.ID),
+			node.Selected,
+		)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		s.mExitNodeItems = append(s.mExitNodeItems, menuHandler{
+			MenuItem: menuItem,
+			cancel:   cancel,
+		})
+		go s.handleChecked(ctx, node.ID, menuItem)
+	}
+
+}
+
+func (s *serviceClient) getExitNodes(conn proto.DaemonServiceClient) ([]*proto.Network, error) {
+	resp, err := conn.ListNetworks(s.ctx, &proto.ListNetworksRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("list networks: %v", err)
+	}
+
+	var exitNodes []*proto.Network
+	for _, network := range resp.Routes {
+		if network.Range == "0.0.0.0/0" {
+			exitNodes = append(exitNodes, network)
+		}
+	}
+	return exitNodes, nil
+}
+
+func (s *serviceClient) handleChecked(ctx context.Context, id string, item *systray.MenuItem) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-item.ClickedCh:
+			if !ok {
+				return
+			}
+			if err := s.toggleExitNode(id, item); err != nil {
+				log.Errorf("failed to toggle exit node: %v", err)
+				continue
+			}
+		}
+	}
+}
+
+// Add function to toggle exit node selection
+func (s *serviceClient) toggleExitNode(nodeID string, item *systray.MenuItem) error {
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		return fmt.Errorf("get client: %v", err)
+	}
+
+	log.Infof("Toggling exit node '%s'", nodeID)
+
+	s.exitNodeMu.Lock()
+	defer s.exitNodeMu.Unlock()
+
+	exitNodes, err := s.getExitNodes(conn)
+	if err != nil {
+		return fmt.Errorf("get exit nodes: %v", err)
+	}
+
+	var exitNode *proto.Network
+	// find other selected nodes and ours
+	ids := make([]string, 0, len(exitNodes))
+	for _, node := range exitNodes {
+		if node.ID == nodeID {
+			// preserve original state
+			// nolint:copylocks
+			cp := *node
+			exitNode = &cp
+
+			// set desired state for recreation
+			node.Selected = true
+			continue
+		}
+		if node.Selected {
+			ids = append(ids, node.ID)
+
+			// set desired state for recreation
+			node.Selected = false
+		}
+	}
+
+	if item.Checked() && len(ids) == 0 {
+		// exit node is the only selected node, deselect it
+		ids = append(ids, nodeID)
+		exitNode = nil
+	}
+
+	// deselect all other selected exit nodes
+	if len(ids) > 0 {
+		deselectReq := &proto.SelectNetworksRequest{
+			NetworkIDs: ids,
+		}
+		if _, err := conn.DeselectNetworks(s.ctx, deselectReq); err != nil {
+			return fmt.Errorf("deselect networks: %v", err)
+		}
+
+		log.Infof("Deselected exit nodes: %v", ids)
+	}
+
+	// uncheck all other exit node menu items
+	for _, i := range s.mExitNodeItems {
+		if i.MenuItem == item {
+			continue
+		}
+		i.Uncheck()
+		log.Infof("Unchecked exit node %v", i)
+	}
+
+	// select clicked exit node if not selected
+	if exitNode != nil && !exitNode.Selected {
+		selectReq := &proto.SelectNetworksRequest{
+			NetworkIDs: []string{exitNode.ID},
+			Append:     true,
+		}
+		if _, err := conn.SelectNetworks(s.ctx, selectReq); err != nil {
+			return fmt.Errorf("select network: %v", err)
+		}
+
+		log.Infof("Selected exit node '%s'", nodeID)
+	}
+
+	item.Check()
+
+	// linux/bsd doesn't handle Check/Uncheck well, so we recreate the menu
+	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
+		s.recreateExitNodeMenu(exitNodes)
+	}
+
+	return nil
 }
 
 func getGridAndFilterFromTab(tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) (*fyne.Container, filter) {

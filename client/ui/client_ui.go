@@ -158,12 +158,13 @@ type serviceClient struct {
 	mVersionDaemon    *systray.MenuItem
 	mUpdate           *systray.MenuItem
 	mQuit             *systray.MenuItem
-	mRoutes           *systray.MenuItem
+	mNetworks         *systray.MenuItem
 	mAllowSSH         *systray.MenuItem
 	mAutoConnect      *systray.MenuItem
 	mEnableRosenpass  *systray.MenuItem
 	mNotifications    *systray.MenuItem
 	mAdvancedSettings *systray.MenuItem
+	mExitNode         *systray.MenuItem
 
 	// application with main windows.
 	app                  fyne.App
@@ -200,6 +201,14 @@ type serviceClient struct {
 	wRoutes              fyne.Window
 
 	eventManager *event.Manager
+
+	exitNodeMu     sync.Mutex
+	mExitNodeItems []menuHandler
+}
+
+type menuHandler struct {
+	*systray.MenuItem
+	cancel context.CancelFunc
 }
 
 // newServiceClient instance constructor
@@ -473,6 +482,9 @@ func (s *serviceClient) updateStatus() error {
 		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get service status: %v", err)
+			if s.connected {
+				s.app.SendNotification(fyne.NewNotification("Error", "Connection to service lost"))
+			}
 			s.setDisconnectedStatus()
 			return err
 		}
@@ -494,11 +506,13 @@ func (s *serviceClient) updateStatus() error {
 			} else {
 				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
 			}
+			s.mAbout.SetIcon(s.icConnected)
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
-			s.mRoutes.Enable()
+			s.mNetworks.Enable()
+			go s.updateExitNodes()
 			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
 			s.setDisconnectedStatus()
@@ -550,11 +564,13 @@ func (s *serviceClient) setDisconnectedStatus() {
 	} else {
 		systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 	}
+	s.mAbout.SetIcon(s.icDisconnected)
 	systray.SetTooltip("NetBird (Disconnected)")
 	s.mStatus.SetTitle("Disconnected")
 	s.mDown.Disable()
 	s.mUp.Enable()
-	s.mRoutes.Disable()
+	s.mNetworks.Disable()
+	go s.updateExitNodes()
 }
 
 func (s *serviceClient) onTrayReady() {
@@ -579,8 +595,13 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
 	s.loadSettings()
 
-	s.mRoutes = systray.AddMenuItem("Networks", "Open the networks management window")
-	s.mRoutes.Disable()
+	s.exitNodeMu.Lock()
+	s.mExitNode = systray.AddMenuItem("Exit Node", "Select exit node for routing traffic")
+	s.mExitNode.Disable()
+	s.exitNodeMu.Unlock()
+
+	s.mNetworks = systray.AddMenuItem("Networks", "Open the networks management window")
+	s.mNetworks.Disable()
 	systray.AddSeparator()
 
 	s.mAbout = systray.AddMenuItem("About", "About")
@@ -599,6 +620,9 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
 
+	// update exit node menu in case service is already connected
+	go s.updateExitNodes()
+
 	s.update.SetOnUpdateListener(s.onUpdateAvailable)
 	go func() {
 		s.getSrvConfig()
@@ -614,6 +638,12 @@ func (s *serviceClient) onTrayReady() {
 
 	s.eventManager = event.NewManager(s.app, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		if event.Category == proto.SystemEvent_SYSTEM {
+			s.updateExitNodes()
+		}
+	})
+
 	go s.eventManager.Start(s.ctx)
 
 	go func() {
@@ -628,7 +658,7 @@ func (s *serviceClient) onTrayReady() {
 					defer s.mUp.Enable()
 					err := s.menuUpClick()
 					if err != nil {
-						s.runSelfCommand("error-msg", err.Error())
+						s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
 						return
 					}
 				}()
@@ -638,7 +668,7 @@ func (s *serviceClient) onTrayReady() {
 					defer s.mDown.Enable()
 					err := s.menuDownClick()
 					if err != nil {
-						s.runSelfCommand("error-msg", err.Error())
+						s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
 						return
 					}
 				}()
@@ -684,10 +714,10 @@ func (s *serviceClient) onTrayReady() {
 				if err != nil {
 					log.Errorf("%s", err)
 				}
-			case <-s.mRoutes.ClickedCh:
-				s.mRoutes.Disable()
+			case <-s.mNetworks.ClickedCh:
+				s.mNetworks.Disable()
 				go func() {
-					defer s.mRoutes.Enable()
+					defer s.mNetworks.Enable()
 					s.runSelfCommand("networks", "true")
 				}()
 			case <-s.mNotifications.ClickedCh:
@@ -737,7 +767,11 @@ func normalizedVersion(version string) string {
 	return versionString
 }
 
-func (s *serviceClient) onTrayExit() {}
+func (s *serviceClient) onTrayExit() {
+	for _, item := range s.mExitNodeItems {
+		item.cancel()
+	}
+}
 
 // getSrvClient connection to the service.
 func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {

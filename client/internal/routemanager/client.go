@@ -306,11 +306,13 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem(rsn reason) error
 		return nil
 	}
 
+	var isNew bool
 	if c.currentChosen == nil {
 		// If they were not previously assigned to another peer, add routes to the system first
 		if err := c.handler.AddRoute(c.ctx); err != nil {
 			return fmt.Errorf("add route: %w", err)
 		}
+		isNew = true
 	} else {
 		// Otherwise, remove the allowed IPs from the previous peer first
 		if err := c.removeRouteFromWireGuardPeer(); err != nil {
@@ -324,11 +326,44 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem(rsn reason) error
 		return fmt.Errorf("add allowed IPs for peer %s: %w", c.currentChosen.Peer, err)
 	}
 
+	if isNew {
+		c.connectEvent()
+	}
+
 	err := c.statusRecorder.AddPeerStateRoute(c.currentChosen.Peer, c.handler.String())
 	if err != nil {
 		return fmt.Errorf("add peer state route: %w", err)
 	}
 	return nil
+}
+
+func (c *clientNetwork) connectEvent() {
+	var defaultRoute bool
+	for _, r := range c.routes {
+		if r.Network.Bits() == 0 {
+			defaultRoute = true
+			break
+		}
+	}
+
+	if !defaultRoute {
+		return
+	}
+
+	meta := map[string]string{
+		"network": c.handler.String(),
+	}
+	if c.currentChosen != nil {
+		meta["id"] = string(c.currentChosen.NetID)
+		meta["peer"] = c.currentChosen.Peer
+	}
+	c.statusRecorder.PublishEvent(
+		proto.SystemEvent_INFO,
+		proto.SystemEvent_NETWORK,
+		"Default route added",
+		"Exit node connected.",
+		meta,
+	)
 }
 
 func (c *clientNetwork) disconnectEvent(rsn reason) {
@@ -349,29 +384,27 @@ func (c *clientNetwork) disconnectEvent(rsn reason) {
 	var userMessage string
 	meta := make(map[string]string)
 
+	if c.currentChosen != nil {
+		meta["id"] = string(c.currentChosen.NetID)
+		meta["peer"] = c.currentChosen.Peer
+	}
+	meta["network"] = c.handler.String()
 	switch rsn {
 	case reasonShutdown:
 		severity = proto.SystemEvent_INFO
 		message = "Default route removed"
 		userMessage = "Exit node disconnected."
-		meta["network"] = c.handler.String()
 	case reasonRouteUpdate:
 		severity = proto.SystemEvent_INFO
 		message = "Default route updated due to configuration change"
-		meta["network"] = c.handler.String()
 	case reasonPeerUpdate:
 		severity = proto.SystemEvent_WARNING
 		message = "Default route disconnected due to peer unreachability"
 		userMessage = "Exit node connection lost. Your internet access might be affected."
-		if c.currentChosen != nil {
-			meta["peer"] = c.currentChosen.Peer
-			meta["network"] = c.handler.String()
-		}
 	default:
 		severity = proto.SystemEvent_ERROR
-		message = "Default route disconnected for unknown reason"
+		message = "Default route disconnected for unknown reasons"
 		userMessage = "Exit node disconnected for unknown reasons."
-		meta["network"] = c.handler.String()
 	}
 
 	c.statusRecorder.PublishEvent(
