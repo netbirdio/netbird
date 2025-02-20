@@ -103,9 +103,14 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, auth []string) (*h
 	}
 
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
-	_, _, err = m.ensureAccount(ctx, userAuth)
+	accountId, _, err := m.ensureAccount(ctx, userAuth)
 	if err != nil {
 		return r, err
+	}
+
+	if userAuth.AccountId != accountId {
+		log.WithContext(ctx).Debugf("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
+		userAuth.AccountId = accountId
 	}
 
 	userAuth, err = m.authManager.EnsureUserAccessByJWTGroups(ctx, userAuth, validatedToken)
