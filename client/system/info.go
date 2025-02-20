@@ -119,11 +119,6 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 	return v
 }
 
-// GetDesktopUIUserAgent returns the Desktop ui user agent
-func GetDesktopUIUserAgent() string {
-	return "netbird-desktop-ui/" + version.NetbirdVersion()
-}
-
 func networkAddresses() ([]NetworkAddress, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
