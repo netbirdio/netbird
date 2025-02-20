@@ -78,11 +78,16 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 					log.Infof("Network monitor: failed to check next hop, assuming no network connection available: %s", err)
 					go callback()
 				}
-				hasV4HopChanged := nexthopv4.Intf != nil && actualNextHopV4.Intf != nil && (nexthopv4.IP.Compare(actualNextHopV4.IP) != 0 || nexthopv4.Intf.Name != actualNextHopV4.Intf.Name)
-				hasV6HopChanged := nexthopv6.Intf != nil && actualNextHopV6.Intf != nil && (nexthopv6.IP.Compare(actualNextHopV6.IP) != 0 || nexthopv6.Intf.Name != actualNextHopV6.Intf.Name)
 
-				if hasV4HopChanged || hasV6HopChanged {
-					log.Infof("Network monitor: default route changed, IPv4: %t, IPv6: %t", hasV4HopChanged, hasV6HopChanged)
+				hasValidV4Ifaces := nexthopv4.Intf != nil && actualNextHopV4.Intf != nil
+				hasValidV6Ifaces := nexthopv6.Intf != nil && actualNextHopV6.Intf != nil
+				hasV4GatewayChanged := nexthopv4.IP.Compare(actualNextHopV4.IP) != 0
+				hasV6GatewayChanged := nexthopv6.IP.Compare(actualNextHopV6.IP) != 0
+				hasV4IntfChanged := (nexthopv4.Intf != nil && actualNextHopV4.Intf == nil) || (nexthopv4.Intf == nil && actualNextHopV4.Intf != nil) || (hasValidV4Ifaces && nexthopv4.Intf.Name != actualNextHopV4.Intf.Name)
+				hasV6IntfChanged := (nexthopv6.Intf != nil && actualNextHopV6.Intf == nil) || (nexthopv6.Intf == nil && actualNextHopV6.Intf != nil) || (hasValidV6Ifaces && nexthopv6.Intf.Name != actualNextHopV6.Intf.Name)
+
+				if hasV4GatewayChanged || hasV6GatewayChanged || hasV4IntfChanged || hasV6IntfChanged {
+					log.Infof("Network monitor: default route changed, v4GatewayChanged: %t v4Gateway: %#v, v6GatewayChanged: %t, v6Gateway: %#v, IntfV4Changed: %t, v4Intf: %#v,  v6IntfChanged: %t, v6Intf: %#v", hasV4GatewayChanged, actualNextHopV4.IP.String(), hasV6GatewayChanged, actualNextHopV6.IP.String(), hasV4IntfChanged, actualNextHopV4.Intf, hasV6IntfChanged, actualNextHopV6.Intf)
 					go callback()
 				}
 			}
