@@ -459,8 +459,23 @@ func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdn
 			TTL:   defaultTTL,
 			RData: peer.IP.String(),
 		})
-
 		sb.Reset()
+
+		for _, extraLabel := range peer.ExtraDNSLabels {
+			sb.Grow(len(extraLabel) + len(domainSuffix))
+			sb.WriteString(extraLabel)
+			sb.WriteString(domainSuffix)
+
+			customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
+				Name:  sb.String(),
+				Type:  int(dns.TypeA),
+				Class: nbdns.DefaultClass,
+				TTL:   defaultTTL,
+				RData: peer.IP.String(),
+			})
+			sb.Reset()
+		}
+
 	}
 
 	go func() {
