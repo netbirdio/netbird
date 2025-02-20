@@ -190,6 +190,7 @@ func startServer(
 		false,
 		server.MocIntegratedValidator{},
 		metrics,
+		port_forwarding.NewControllerMock(),
 	)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
@@ -668,11 +669,6 @@ func TestConcurrentPeersNoDuplicateIPs(t *testing.T) {
 			if err != nil {
 				t.Errorf("failed to call Sync: %v", err)
 				return
-			}
-
-			accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, server.MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
-			if err != nil {
-				log.Fatalf("failed creating a manager: %v", err)
 			}
 
 			encResp := &mgmtProto.EncryptedMessage{}
