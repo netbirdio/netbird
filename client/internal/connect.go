@@ -31,6 +31,7 @@ import (
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	signal "github.com/netbirdio/netbird/signal/client"
 	"github.com/netbirdio/netbird/util"
+	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -108,6 +109,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	}()
 
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
+
+	nbnet.Init()
 
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
@@ -475,7 +478,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.DisableDNS,
 		config.DisableFirewall,
 	)
-	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey)
+	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {
 		return nil, err
 	}

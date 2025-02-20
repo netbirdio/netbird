@@ -11,8 +11,8 @@ import (
 	"net/url"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/coder/websocket"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	"github.com/netbirdio/netbird/util/embeddedroots"

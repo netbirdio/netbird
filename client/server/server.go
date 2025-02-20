@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -404,6 +405,20 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
 	}
 
+	if msg.CleanDNSLabels {
+		inputConfig.DNSLabels = domain.List{}
+		s.latestConfigInput.DNSLabels = nil
+	} else if msg.DnsLabels != nil {
+		dnsLabels := domain.FromPunycodeList(msg.DnsLabels)
+		inputConfig.DNSLabels = dnsLabels
+		s.latestConfigInput.DNSLabels = dnsLabels
+	}
+
+	if msg.DisableNotifications != nil {
+		inputConfig.DisableNotifications = msg.DisableNotifications
+		s.latestConfigInput.DisableNotifications = msg.DisableNotifications
+	}
+
 	s.mutex.Unlock()
 
 	if msg.OptionalPreSharedKey != nil {
@@ -687,6 +702,7 @@ func (s *Server) Status(
 
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
+		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
 		statusResponse.FullStatus = pbFullStatus
 	}
 
@@ -736,17 +752,18 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	}
 
 	return &proto.GetConfigResponse{
-		ManagementUrl:       managementURL,
-		ConfigFile:          s.latestConfigInput.ConfigPath,
-		LogFile:             s.logFile,
-		PreSharedKey:        preSharedKey,
-		AdminURL:            adminURL,
-		InterfaceName:       s.config.WgIface,
-		WireguardPort:       int64(s.config.WgPort),
-		DisableAutoConnect:  s.config.DisableAutoConnect,
-		ServerSSHAllowed:    *s.config.ServerSSHAllowed,
-		RosenpassEnabled:    s.config.RosenpassEnabled,
-		RosenpassPermissive: s.config.RosenpassPermissive,
+		ManagementUrl:        managementURL,
+		ConfigFile:           s.latestConfigInput.ConfigPath,
+		LogFile:              s.logFile,
+		PreSharedKey:         preSharedKey,
+		AdminURL:             adminURL,
+		InterfaceName:        s.config.WgIface,
+		WireguardPort:        int64(s.config.WgPort),
+		DisableAutoConnect:   s.config.DisableAutoConnect,
+		ServerSSHAllowed:     *s.config.ServerSSHAllowed,
+		RosenpassEnabled:     s.config.RosenpassEnabled,
+		RosenpassPermissive:  s.config.RosenpassPermissive,
+		DisableNotifications: s.config.DisableNotifications,
 	}, nil
 }
 func (s *Server) onSessionExpire() {

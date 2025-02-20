@@ -1,4 +1,7 @@
-package rest
+//go:build integration
+// +build integration
+
+package rest_test
 
 import (
 	"context"
@@ -8,10 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/client/rest"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 )
 
 var (
@@ -34,7 +39,7 @@ var (
 )
 
 func TestUsers_List_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal([]api.User{testUser})
 			_, err := w.Write(retBytes)
@@ -48,7 +53,7 @@ func TestUsers_List_200(t *testing.T) {
 }
 
 func TestUsers_List_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -63,7 +68,7 @@ func TestUsers_List_Err(t *testing.T) {
 }
 
 func TestUsers_Create_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -85,7 +90,7 @@ func TestUsers_Create_200(t *testing.T) {
 }
 
 func TestUsers_Create_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -102,7 +107,7 @@ func TestUsers_Create_Err(t *testing.T) {
 }
 
 func TestUsers_Update_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "PUT", r.Method)
 			reqBytes, err := io.ReadAll(r.Body)
@@ -125,7 +130,7 @@ func TestUsers_Update_200(t *testing.T) {
 }
 
 func TestUsers_Update_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
 			w.WriteHeader(400)
@@ -142,7 +147,7 @@ func TestUsers_Update_Err(t *testing.T) {
 }
 
 func TestUsers_Delete_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users/Test", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "DELETE", r.Method)
 			w.WriteHeader(200)
@@ -153,7 +158,7 @@ func TestUsers_Delete_200(t *testing.T) {
 }
 
 func TestUsers_Delete_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users/Test", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
@@ -167,7 +172,7 @@ func TestUsers_Delete_Err(t *testing.T) {
 }
 
 func TestUsers_ResendInvitation_200(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users/Test/invite", func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "POST", r.Method)
 			w.WriteHeader(200)
@@ -178,7 +183,7 @@ func TestUsers_ResendInvitation_200(t *testing.T) {
 }
 
 func TestUsers_ResendInvitation_Err(t *testing.T) {
-	withMockClient(func(c *Client, mux *http.ServeMux) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/users/Test/invite", func(w http.ResponseWriter, r *http.Request) {
 			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
 			w.WriteHeader(404)
@@ -192,7 +197,7 @@ func TestUsers_ResendInvitation_Err(t *testing.T) {
 }
 
 func TestUsers_Integration(t *testing.T) {
-	withBlackBoxServer(t, func(c *Client) {
+	withBlackBoxServer(t, func(c *rest.Client) {
 		user, err := c.Users.Create(context.Background(), api.UserCreateRequest{
 			AutoGroups:    []string{},
 			Email:         ptr("test@example.com"),
