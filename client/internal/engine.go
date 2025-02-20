@@ -153,7 +153,7 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	wgInterface iface.IWGIface
+	wgInterface WGIface
 
 	udpMux *bind.UniversalUDPMuxDefault
 

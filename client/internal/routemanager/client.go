@@ -4,19 +4,19 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	runtime "runtime"
+	"runtime"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/iface"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
+	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
 	"github.com/netbirdio/netbird/route"
@@ -52,7 +52,7 @@ type clientNetwork struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	statusRecorder      *peer.Status
-	wgInterface         iface.IWGIface
+	wgInterface         iface.WGIface
 	routes              map[route.ID]*route.Route
 	routeUpdate         chan routesUpdate
 	peerStateUpdate     chan struct{}
@@ -65,7 +65,7 @@ type clientNetwork struct {
 func newClientNetworkWatcher(
 	ctx context.Context,
 	dnsRouteInterval time.Duration,
-	wgInterface iface.IWGIface,
+	wgInterface iface.WGIface,
 	statusRecorder *peer.Status,
 	rt *route.Route,
 	routeRefCounter *refcounter.RouteRefCounter,
@@ -404,7 +404,7 @@ func handlerFromRoute(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	dnsRouterInteval time.Duration,
 	statusRecorder *peer.Status,
-	wgInterface iface.IWGIface,
+	wgInterface iface.WGIface,
 	dnsServer nbdns.Server,
 	peerStore *peerstore.Store,
 	useNewDNSRoute bool,

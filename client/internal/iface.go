@@ -1,6 +1,7 @@
 //go:build !windows
+// +build !windows
 
-package iface
+package internal
 
 import (
 	"net"
@@ -15,7 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
-type IWGIface interface {
+type WGIface interface {
 	Create() error
 	CreateOnAndroid(routeRange []string, ip string, domains []string) error
 	IsUserspaceBind() bool
