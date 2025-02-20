@@ -448,7 +448,7 @@ jobs:
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true \
-          go test -tags=benchmark \
+          go test -p 1 -tags=benchmark \
             -run=^$ \
             -bench=. \
             -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
