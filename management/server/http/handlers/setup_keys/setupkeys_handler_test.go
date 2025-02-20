@@ -37,11 +37,12 @@ func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKe
 				return claims.AccountId, claims.UserId, nil
 			},
 			CreateSetupKeyFunc: func(_ context.Context, _ string, keyName string, typ types.SetupKeyType, _ time.Duration, _ []string,
-				_ int, _ string, ephemeral bool,
+				_ int, _ string, ephemeral bool, allowExtraDNSLabels bool,
 			) (*types.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
 					nk := newKey.Copy()
 					nk.Ephemeral = ephemeral
+					nk.AllowExtraDNSLabels = allowExtraDNSLabels
 					return nk, nil
 				}
 				return nil, fmt.Errorf("failed creating setup key")
@@ -94,7 +95,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 	adminUser := types.NewAdminUser("test_user")
 
 	newSetupKey, plainKey := types.GenerateSetupKey(newSetupKeyName, types.SetupKeyReusable, 0, []string{"group-1"},
-		types.SetupKeyUnlimitedUsage, true)
+		types.SetupKeyUnlimitedUsage, true, false)
 	newSetupKey.Key = plainKey
 	updatedDefaultSetupKey := defaultSetupKey.Copy()
 	updatedDefaultSetupKey.AutoGroups = []string{"group-1"}

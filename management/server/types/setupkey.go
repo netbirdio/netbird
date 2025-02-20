@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
 	"github.com/netbirdio/netbird/management/server/util"
 )
 
@@ -54,6 +55,8 @@ type SetupKey struct {
 	UsageLimit int
 	// Ephemeral indicate if the peers will be ephemeral or not
 	Ephemeral bool
+	// AllowExtraDNSLabels indicates if the key allows extra DNS labels
+	AllowExtraDNSLabels bool
 }
 
 // Copy copies SetupKey to a new object
@@ -64,21 +67,22 @@ func (key *SetupKey) Copy() *SetupKey {
 		key.UpdatedAt = key.CreatedAt
 	}
 	return &SetupKey{
-		Id:         key.Id,
-		AccountID:  key.AccountID,
-		Key:        key.Key,
-		KeySecret:  key.KeySecret,
-		Name:       key.Name,
-		Type:       key.Type,
-		CreatedAt:  key.CreatedAt,
-		ExpiresAt:  key.ExpiresAt,
-		UpdatedAt:  key.UpdatedAt,
-		Revoked:    key.Revoked,
-		UsedTimes:  key.UsedTimes,
-		LastUsed:   key.LastUsed,
-		AutoGroups: autoGroups,
-		UsageLimit: key.UsageLimit,
-		Ephemeral:  key.Ephemeral,
+		Id:                  key.Id,
+		AccountID:           key.AccountID,
+		Key:                 key.Key,
+		KeySecret:           key.KeySecret,
+		Name:                key.Name,
+		Type:                key.Type,
+		CreatedAt:           key.CreatedAt,
+		ExpiresAt:           key.ExpiresAt,
+		UpdatedAt:           key.UpdatedAt,
+		Revoked:             key.Revoked,
+		UsedTimes:           key.UsedTimes,
+		LastUsed:            key.LastUsed,
+		AutoGroups:          autoGroups,
+		UsageLimit:          key.UsageLimit,
+		Ephemeral:           key.Ephemeral,
+		AllowExtraDNSLabels: key.AllowExtraDNSLabels,
 	}
 }
 
@@ -150,7 +154,7 @@ func (key *SetupKey) IsOverUsed() bool {
 
 // GenerateSetupKey generates a new setup key
 func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string,
-	usageLimit int, ephemeral bool) (*SetupKey, string) {
+	usageLimit int, ephemeral bool, allowExtraDNSLabels bool) (*SetupKey, string) {
 	key := strings.ToUpper(uuid.New().String())
 	limit := usageLimit
 	if t == SetupKeyOneOff {
@@ -166,26 +170,27 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
 
 	return &SetupKey{
-		Id:         strconv.Itoa(int(Hash(key))),
-		Key:        encodedHashedKey,
-		KeySecret:  HiddenKey(key, 4),
-		Name:       name,
-		Type:       t,
-		CreatedAt:  time.Now().UTC(),
-		ExpiresAt:  expiresAt,
-		UpdatedAt:  time.Now().UTC(),
-		Revoked:    false,
-		UsedTimes:  0,
-		AutoGroups: autoGroups,
-		UsageLimit: limit,
-		Ephemeral:  ephemeral,
+		Id:                  strconv.Itoa(int(Hash(key))),
+		Key:                 encodedHashedKey,
+		KeySecret:           HiddenKey(key, 4),
+		Name:                name,
+		Type:                t,
+		CreatedAt:           time.Now().UTC(),
+		ExpiresAt:           expiresAt,
+		UpdatedAt:           time.Now().UTC(),
+		Revoked:             false,
+		UsedTimes:           0,
+		AutoGroups:          autoGroups,
+		UsageLimit:          limit,
+		Ephemeral:           ephemeral,
+		AllowExtraDNSLabels: allowExtraDNSLabels,
 	}, key
 }
 
 // GenerateDefaultSetupKey generates a default reusable setup key with an unlimited usage and 30 days expiration
 func GenerateDefaultSetupKey() (*SetupKey, string) {
 	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{},
-		SetupKeyUnlimitedUsage, false)
+		SetupKeyUnlimitedUsage, false, false)
 }
 
 func Hash(s string) uint32 {

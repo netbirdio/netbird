@@ -3,6 +3,7 @@ package setup_keys
 import (
 	"context"
 	"encoding/json"
+
 	"net/http"
 	"time"
 
@@ -86,8 +87,13 @@ func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 		ephemeral = *req.Ephemeral
 	}
 
+	var allowExtraDNSLabels bool
+	if req.AllowExtraDnsLabels != nil {
+		allowExtraDNSLabels = *req.AllowExtraDnsLabels
+	}
+
 	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), accountID, req.Name, types.SetupKeyType(req.Type), expiresIn,
-		req.AutoGroups, req.UsageLimit, userID, ephemeral)
+		req.AutoGroups, req.UsageLimit, userID, ephemeral, allowExtraDNSLabels)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -237,19 +243,20 @@ func ToResponseBody(key *types.SetupKey) *api.SetupKey {
 	}
 
 	return &api.SetupKey{
-		Id:         key.Id,
-		Key:        key.KeySecret,
-		Name:       key.Name,
-		Expires:    key.GetExpiresAt(),
-		Type:       string(key.Type),
-		Valid:      key.IsValid(),
-		Revoked:    key.Revoked,
-		UsedTimes:  key.UsedTimes,
-		LastUsed:   key.GetLastUsed(),
-		State:      state,
-		AutoGroups: key.AutoGroups,
-		UpdatedAt:  key.UpdatedAt,
-		UsageLimit: key.UsageLimit,
-		Ephemeral:  key.Ephemeral,
+		Id:                  key.Id,
+		Key:                 key.KeySecret,
+		Name:                key.Name,
+		Expires:             key.GetExpiresAt(),
+		Type:                string(key.Type),
+		Valid:               key.IsValid(),
+		Revoked:             key.Revoked,
+		UsedTimes:           key.UsedTimes,
+		LastUsed:            key.GetLastUsed(),
+		State:               state,
+		AutoGroups:          key.AutoGroups,
+		UpdatedAt:           key.UpdatedAt,
+		UsageLimit:          key.UsageLimit,
+		Ephemeral:           key.Ephemeral,
+		AllowExtraDnsLabels: key.AllowExtraDNSLabels,
 	}
 }
