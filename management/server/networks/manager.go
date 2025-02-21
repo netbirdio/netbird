@@ -6,13 +6,13 @@ import (
 
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/management-integrations/core"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
@@ -25,6 +25,7 @@ type Manager interface {
 }
 
 type managerImpl struct {
+	core.BaseManager
 	store              store.Store
 	accountManager     account.AccountManager
 	permissionsManager permissions.Manager
@@ -37,33 +38,28 @@ type mockManager struct {
 
 func NewManager(store store.Store, permissionsManager permissions.Manager, resourceManager resources.Manager, routersManager routers.Manager, accountManager account.AccountManager) Manager {
 	return &managerImpl{
-		store:              store,
-		permissionsManager: permissionsManager,
-		resourcesManager:   resourceManager,
-		routersManager:     routersManager,
-		accountManager:     accountManager,
+		BaseManager: core.NewBaseManager(core.Networks),
+		store:       store,
+		// permissionsManager: permissionsManager,
+		resourcesManager: resourceManager,
+		routersManager:   routersManager,
+		accountManager:   accountManager,
 	}
 }
 
 func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID string) ([]*types.Network, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
+	err := m.ValidatePermissions(ctx, core.Read)
 	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
+		return nil, err
 	}
 
 	return m.store.GetAccountNetworks(ctx, store.LockingStrengthShare, accountID)
 }
 
 func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, network.AccountID, userID, permissions.Networks, permissions.Write)
+	err := m.ValidatePermissions(ctx, core.Write)
 	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
+		return nil, err
 	}
 
 	network.ID = xid.New().String()
@@ -82,24 +78,18 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 }
 
 func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Read)
+	err := m.ValidatePermissions(ctx, core.Read)
 	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
+		return nil, err
 	}
 
 	return m.store.GetNetworkByID(ctx, store.LockingStrengthShare, accountID, networkID)
 }
 
 func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, network.AccountID, userID, permissions.Networks, permissions.Write)
+	err := m.ValidatePermissions(ctx, core.Write)
 	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
+		return nil, err
 	}
 
 	unlock := m.store.AcquireWriteLockByUID(ctx, network.AccountID)
@@ -116,12 +106,9 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 }
 
 func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Networks, permissions.Write)
+	err := m.ValidatePermissions(ctx, core.Write)
 	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
+		return err
 	}
 
 	network, err := m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, accountID, networkID)

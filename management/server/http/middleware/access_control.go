@@ -34,7 +34,6 @@ var tokenPathRegexp = regexp.MustCompile(`^.*/api/users/.*/tokens.*$`)
 // Handler method of the middleware which forbids all modify requests for non admin users
 func (a *AccessControl) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		if bypass.ShouldBypass(r.URL.Path, h, w, r) {
 			return
 		}
@@ -60,18 +59,16 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 		if !user.HasAdminPower() {
 			switch r.Method {
 			case http.MethodDelete, http.MethodPost, http.MethodPatch, http.MethodPut:
-
-				if tokenPathRegexp.MatchString(r.URL.Path) {
-					log.WithContext(r.Context()).Debugf("valid Path")
-					h.ServeHTTP(w, r)
+				if !tokenPathRegexp.MatchString(r.URL.Path) {
+					util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "only users with admin power can perform this operation"), w)
 					return
 				}
 
-				util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "only users with admin power can perform this operation"), w)
-				return
+				log.WithContext(r.Context()).Debugf("valid Path")
 			}
 		}
 
+		// @todo get account settings and set it and user to context
 		h.ServeHTTP(w, r)
 	})
 }

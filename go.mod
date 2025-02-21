@@ -60,7 +60,8 @@ require (
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20250226165736-0ac3dc443266
+	github.com/netbirdio/management-integrations/core v0.0.0-00010101000000-000000000000
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20250220173202-e599d83524fc
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20241010133937-e0df50df217d
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
@@ -254,3 +255,5 @@ replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-2023080111
 replace github.com/pion/ice/v3 => github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e
 
 replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944
+
+replace github.com/netbirdio/management-integrations/core => ../../management-integrations/core

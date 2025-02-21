@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -25,6 +26,7 @@ func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
+
 	am := mock_server.MockAccountManager{}
 	permissionsManager := permissions.NewManagerMock()
 	groupsManager := groups.NewManagerMock()
@@ -32,6 +34,7 @@ func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
+	ctx = nbcontext.SetUserAuthInContext(ctx, nbcontext.UserAuth{AccountId: accountID, UserId: userID})
 	networks, err := manager.GetAllNetworks(ctx, accountID, userID)
 	require.NoError(t, err)
 	require.Len(t, networks, 1)
