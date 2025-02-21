@@ -228,17 +228,9 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 			return
 		}
 
-		for {
-			p.pausedCond.L.Lock()
-			if p.paused {
-				p.pausedCond.Wait()
-				if !p.paused {
-					break
-				}
-				p.pausedCond.L.Unlock()
-				continue
-			}
-			break
+		p.pausedCond.L.Lock()
+		for p.paused {
+			p.pausedCond.Wait()
 		}
 		_, err = p.sendPkg(buf[:n])
 		p.pausedCond.L.Unlock()
