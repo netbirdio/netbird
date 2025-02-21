@@ -1593,6 +1593,7 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 	if err != nil {
 		return mapError(ctx, err)
 	}
+
 	return nil
 }
 
