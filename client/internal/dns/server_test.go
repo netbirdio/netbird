@@ -413,7 +413,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet(nil)
+	newNet, err := stdnet.NewNet([]string{"utun2301"})
 	if err != nil {
 		t.Errorf("create stdnet: %v", err)
 		return
@@ -887,7 +887,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet(nil)
+	newNet, err := stdnet.NewNet([]string{"utun2301"})
 	if err != nil {
 		t.Fatalf("create stdnet: %v", err)
 		return nil, err
