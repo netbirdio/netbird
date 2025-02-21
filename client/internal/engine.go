@@ -19,6 +19,7 @@ import (
 	"github.com/pion/ice/v3"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/proto"
 
@@ -28,7 +29,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
-	"github.com/netbirdio/netbird/client/iface/netstack"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
@@ -154,7 +155,7 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	wgInterface iface.IWGIface
+	wgInterface WGIface
 
 	udpMux *bind.UniversalUDPMuxDefault
 
@@ -727,7 +728,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			// start SSH server if it wasn't running
 			if isNil(e.sshServer) {
 				listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
-				if netstack.IsEnabled() {
+				if nbnetstack.IsEnabled() {
 					listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
 				}
 				// nil sshServer means it has not yet been started
@@ -955,7 +956,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
 
-	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig)); err != nil {
+	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
@@ -1024,7 +1025,7 @@ func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) []string {
 	return dnsRoutes
 }
 
-func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
+func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network *net.IPNet) nbdns.Config {
 	dnsUpdate := nbdns.Config{
 		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
 		CustomZones:      make([]nbdns.CustomZone, 0),
@@ -1064,6 +1065,11 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 		}
 		dnsUpdate.NameServerGroups = append(dnsUpdate.NameServerGroups, dnsNSGroup)
 	}
+
+	if len(dnsUpdate.CustomZones) > 0 {
+		addReverseZone(&dnsUpdate, network)
+	}
+
 	return dnsUpdate
 }
 
@@ -1370,7 +1376,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 		return nil, nil, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
-	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
+	dnsCfg := toDNSConfig(netMap.GetDNSConfig(), e.wgInterface.Address().Network)
 	return routes, &dnsCfg, nil
 }
 
@@ -1717,6 +1723,37 @@ func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
 		}
 		e.dnsForwardMgr = nil
 	}
+}
+
+func (e *Engine) GetNet() (*netstack.Net, error) {
+	e.syncMsgMux.Lock()
+	intf := e.wgInterface
+	e.syncMsgMux.Unlock()
+	if intf == nil {
+		return nil, errors.New("wireguard interface not initialized")
+	}
+
+	nsnet := intf.GetNet()
+	if nsnet == nil {
+		return nil, errors.New("failed to get netstack")
+	}
+	return nsnet, nil
+}
+
+func (e *Engine) Address() (netip.Addr, error) {
+	e.syncMsgMux.Lock()
+	intf := e.wgInterface
+	e.syncMsgMux.Unlock()
+	if intf == nil {
+		return netip.Addr{}, errors.New("wireguard interface not initialized")
+	}
+
+	addr := e.wgInterface.Address()
+	ip, ok := netip.AddrFromSlice(addr.IP)
+	if !ok {
+		return netip.Addr{}, errors.New("failed to convert address to netip.Addr")
+	}
+	return ip.Unmap(), nil
 }
 
 // isChecksEqual checks if two slices of checks are equal.

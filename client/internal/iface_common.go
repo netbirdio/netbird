@@ -1,12 +1,11 @@
-//go:build !windows
-
-package iface
+package internal
 
 import (
 	"net"
 	"time"
 
 	wgdevice "golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -15,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
-type IWGIface interface {
+type wgIfaceBase interface {
 	Create() error
 	CreateOnAndroid(routeRange []string, ip string, domains []string) error
 	IsUserspaceBind() bool
@@ -35,4 +34,5 @@ type IWGIface interface {
 	GetDevice() *device.FilteredDevice
 	GetWGDevice() *wgdevice.Device
 	GetStats(peerKey string) (configurer.WGStats, error)
+	GetNet() *netstack.Net
 }

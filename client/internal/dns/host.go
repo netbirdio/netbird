@@ -11,6 +11,11 @@ import (
 
 var ErrRouteAllWithoutNameserverGroup = fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
 
+const (
+	ipv4ReverseZone = ".in-addr.arpa"
+	ipv6ReverseZone = ".ip6.arpa"
+)
+
 type hostManager interface {
 	applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error
 	restoreHostDNS() error
@@ -105,9 +110,10 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 	}
 
 	for _, customZone := range dnsConfig.CustomZones {
+		matchOnly := strings.HasSuffix(customZone.Domain, ipv4ReverseZone) || strings.HasSuffix(customZone.Domain, ipv6ReverseZone)
 		config.Domains = append(config.Domains, DomainConfig{
 			Domain:    strings.TrimSuffix(customZone.Domain, "."),
-			MatchOnly: false,
+			MatchOnly: matchOnly,
 		})
 	}
 

@@ -10,11 +10,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	s "github.com/netbirdio/netbird/management/server"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
@@ -31,16 +30,14 @@ type handler struct {
 	routerManager   routers.Manager
 	accountManager  s.AccountManager
 
-	groupsManager    groups.Manager
-	extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
-	claimsExtractor  *jwtclaims.ClaimsExtractor
+	groupsManager groups.Manager
 }
 
-func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager s.AccountManager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg, router *mux.Router) {
-	addRouterEndpoints(routerManager, extractFromToken, authCfg, router)
-	addResourceEndpoints(resourceManager, groupsManager, extractFromToken, authCfg, router)
+func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager s.AccountManager, router *mux.Router) {
+	addRouterEndpoints(routerManager, router)
+	addResourceEndpoints(resourceManager, groupsManager, router)
 
-	networksHandler := newHandler(networksManager, resourceManager, routerManager, groupsManager, accountManager, extractFromToken, authCfg)
+	networksHandler := newHandler(networksManager, resourceManager, routerManager, groupsManager, accountManager)
 	router.HandleFunc("/networks", networksHandler.getAllNetworks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks", networksHandler.createNetwork).Methods("POST", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}", networksHandler.getNetwork).Methods("GET", "OPTIONS")
@@ -48,28 +45,24 @@ func AddEndpoints(networksManager networks.Manager, resourceManager resources.Ma
 	router.HandleFunc("/networks/{networkId}", networksHandler.deleteNetwork).Methods("DELETE", "OPTIONS")
 }
 
-func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager s.AccountManager, extractFromToken func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error), authCfg configs.AuthCfg) *handler {
+func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager s.AccountManager) *handler {
 	return &handler{
-		networksManager:  networksManager,
-		resourceManager:  resourceManager,
-		routerManager:    routerManager,
-		groupsManager:    groupsManager,
-		accountManager:   accountManager,
-		extractFromToken: extractFromToken,
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithAudience(authCfg.Audience),
-			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
-		),
+		networksManager: networksManager,
+		resourceManager: resourceManager,
+		routerManager:   routerManager,
+		groupsManager:   groupsManager,
+		accountManager:  accountManager,
 	}
 }
 
 func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.extractFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	networks, err := h.networksManager.GetAllNetworks(r.Context(), accountID, userID)
 	if err != nil {
@@ -105,12 +98,12 @@ func (h *handler) getAllNetworks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) createNetwork(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.extractFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	var req api.NetworkRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
@@ -141,12 +134,12 @@ func (h *handler) createNetwork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) getNetwork(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.extractFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	vars := mux.Vars(r)
 	networkID := vars["networkId"]
@@ -179,13 +172,13 @@ func (h *handler) getNetwork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) updateNetwork(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.extractFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	networkID := vars["networkId"]
 	if len(networkID) == 0 {
@@ -229,13 +222,13 @@ func (h *handler) updateNetwork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) deleteNetwork(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.extractFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	networkID := vars["networkId"]
 	if len(networkID) == 0 {
