@@ -91,7 +91,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *stateman
 		if err != nil {
 			log.Errorf("restore host dns: %s", err)
 		}
-		return fmt.Errorf("unable to configure DNS for this peer using resolvconf manager without a nameserver group with all domains configured")
+		return ErrRouteAllWithoutNameserverGroup
 	}
 
 	searchDomainList := searchDomains(config)
@@ -137,6 +137,10 @@ func (r *resolvconf) restoreHostDNS() error {
 	}
 
 	return nil
+}
+
+func (r *resolvconf) string() string {
+	return fmt.Sprintf("resolvconf (%s)", r.implType)
 }
 
 func (r *resolvconf) applyConfig(content bytes.Buffer) error {

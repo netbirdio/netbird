@@ -356,7 +356,7 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{}, nil, false)
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", peer.NewRecorder("mgm"), nil, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -465,7 +465,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{}, nil, false)
+	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", peer.NewRecorder("mgm"), nil, false)
 	if err != nil {
 		t.Errorf("create DNS server: %v", err)
 		return
@@ -566,7 +566,7 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer, err := NewDefaultServer(context.Background(), &mocWGIface{}, testCase.addrPort, &peer.Status{}, nil, false)
+			dnsServer, err := NewDefaultServer(context.Background(), &mocWGIface{}, testCase.addrPort, peer.NewRecorder("mgm"), nil, false)
 			if err != nil {
 				t.Fatalf("%v", err)
 			}
@@ -639,7 +639,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 				{false, "domain2", false},
 			},
 		},
-		statusRecorder: &peer.Status{},
+		statusRecorder: peer.NewRecorder("mgm"),
 	}
 
 	var domainsUpdate string
@@ -700,7 +700,7 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 
 	var dnsList []string
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, dnsList, dnsConfig, nil, &peer.Status{}, false)
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, dnsList, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -724,7 +724,7 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 	}
 	defer wgIFace.Close()
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, &peer.Status{}, false)
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -816,7 +816,7 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	}
 	defer wgIFace.Close()
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, &peer.Status{}, false)
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
