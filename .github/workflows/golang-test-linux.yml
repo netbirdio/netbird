@@ -381,7 +381,7 @@ jobs:
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true \
-          go test -tags devcert -run=^$ -bench=. \
+          go test -tags=internal_benchmark -run=^$ -bench=. \
           -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
           -timeout 20m ./...
 
@@ -394,6 +394,7 @@ jobs:
       matrix:
         arch: [ 'amd64' ]
         store: [ 'postgres' ]
+        run: [ '1', '2', '3', '4', '5']
     runs-on: ubuntu-latest-m
     steps:
       - name: Install Go
@@ -448,7 +449,7 @@ jobs:
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true \
-          go test -p 1 -tags=benchmark \
+          go test -p 1 -tags=api_benchmark \
             -run=^$ \
             -bench=. \
             -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \

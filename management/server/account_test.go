@@ -1,3 +1,6 @@
+//go:build internal_benchmark
+// +build internal_benchmark
+
 package server
 
 import (
