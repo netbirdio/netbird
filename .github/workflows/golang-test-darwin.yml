@@ -1,4 +1,4 @@
-name: Test Code Darwin
+name: "Darwin"
 
 on:
   push:
@@ -12,9 +12,7 @@ concurrency:
 
 jobs:
   test:
-    strategy:
-      matrix:
-        store: ['sqlite']
+    name: "Client / Unit"
     runs-on: macos-latest
     steps:
       - name: Install Go
