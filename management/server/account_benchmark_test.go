@@ -3,6 +3,21 @@
 
 package server
 
+import (
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
+)
+
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	claims := jwtclaims.AuthorizationClaims{
 		Domain:         "example.com",
