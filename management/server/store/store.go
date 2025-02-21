@@ -48,6 +48,7 @@ const (
 )
 
 type Store interface {
+	GetAccountsCounter(ctx context.Context) (int64, error)
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
