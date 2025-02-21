@@ -353,6 +353,26 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
+	allAccounts := store.GetAllAccounts(ctx)
+	for _, account := range allAccounts {
+		shouldSave := false
+
+		_, err = account.GetGroupAll()
+		if err != nil {
+			if err := account.AddAllGroup(); err != nil {
+				return nil, nil, err
+			}
+			shouldSave = true
+		}
+
+		if shouldSave {
+			err = store.SaveAccount(ctx, account)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
 	return getSqlStoreEngine(ctx, store, kind)
 }
 
