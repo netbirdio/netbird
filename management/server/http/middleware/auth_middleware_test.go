@@ -9,10 +9,14 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/auth"
+	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -58,17 +62,23 @@ func mockGetAccountInfoFromPAT(_ context.Context, token string) (user *types.Use
 	return nil, nil, "", "", fmt.Errorf("PAT invalid")
 }
 
-func mockValidateAndParseToken(_ context.Context, token string) (*jwt.Token, error) {
+func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {
 	if token == JWT {
-		return &jwt.Token{
-			Claims: jwt.MapClaims{
-				userIDClaim:                          userID,
-				audience + jwtclaims.AccountIDSuffix: accountID,
+		return nbcontext.UserAuth{
+				UserId:         userID,
+				AccountId:      accountID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
 			},
-			Valid: true,
-		}, nil
+			&jwt.Token{
+				Claims: jwt.MapClaims{
+					userIDClaim:                      userID,
+					audience + nbjwt.AccountIDSuffix: accountID,
+				},
+				Valid: true,
+			}, nil
 	}
-	return nil, fmt.Errorf("JWT invalid")
+	return nbcontext.UserAuth{}, nil, fmt.Errorf("JWT invalid")
 }
 
 func mockMarkPATUsed(_ context.Context, token string) error {
@@ -78,16 +88,20 @@ func mockMarkPATUsed(_ context.Context, token string) error {
 	return fmt.Errorf("Should never get reached")
 }
 
-func mockCheckUserAccessByJWTGroups(_ context.Context, claims jwtclaims.AuthorizationClaims) error {
-	if testAccount.Id != claims.AccountId {
-		return fmt.Errorf("account with id %s does not exist", claims.AccountId)
+func mockEnsureUserAccessByJWTGroups(_ context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error) {
+	if userAuth.IsChild || userAuth.IsPAT {
+		return userAuth, nil
 	}
 
-	if _, ok := testAccount.Users[claims.UserId]; !ok {
-		return fmt.Errorf("user with id %s does not exist", claims.UserId)
+	if testAccount.Id != userAuth.AccountId {
+		return userAuth, fmt.Errorf("account with id %s does not exist", userAuth.AccountId)
 	}
 
-	return nil
+	if _, ok := testAccount.Users[userAuth.UserId]; !ok {
+		return userAuth, fmt.Errorf("user with id %s does not exist", userAuth.UserId)
+	}
+
+	return userAuth, nil
 }
 
 func TestAuthMiddleware_Handler(t *testing.T) {
@@ -158,22 +172,24 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 	}
 
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// do nothing
+
 	})
 
-	claimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(audience),
-		jwtclaims.WithUserIDClaim(userIDClaim),
-	)
+	mockAuth := &auth.MockManager{
+		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
+		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
+		MarkPATUsedFunc:                 mockMarkPATUsed,
+		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
+	}
 
 	authMiddleware := NewAuthMiddleware(
-		mockGetAccountInfoFromPAT,
-		mockValidateAndParseToken,
-		mockMarkPATUsed,
-		mockCheckUserAccessByJWTGroups,
-		claimsExtractor,
-		audience,
-		userIDClaim,
+		mockAuth,
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			return userAuth.AccountId, userAuth.UserId, nil
+		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			return nil
+		},
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -195,8 +211,114 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 
 			result := rec.Result()
 			defer result.Body.Close()
+
 			if result.StatusCode != tc.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tc.expectedStatusCode, result.StatusCode)
+			}
+		})
+	}
+}
+
+func TestAuthMiddleware_Handler_Child(t *testing.T) {
+	tt := []struct {
+		name             string
+		path             string
+		authHeader       string
+		expectedUserAuth *nbcontext.UserAuth // nil expects 401 response status
+	}{
+		{
+			name:       "Valid PAT Token",
+			path:       "/test",
+			authHeader: "Token " + PAT,
+			expectedUserAuth: &nbcontext.UserAuth{
+				AccountId:      accountID,
+				UserId:         userID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
+				IsPAT:          true,
+			},
+		},
+		{
+			name:       "Valid PAT Token ignores child",
+			path:       "/test?account=xyz",
+			authHeader: "Token " + PAT,
+			expectedUserAuth: &nbcontext.UserAuth{
+				AccountId:      accountID,
+				UserId:         userID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
+				IsPAT:          true,
+			},
+		},
+		{
+			name:       "Valid JWT Token",
+			path:       "/test",
+			authHeader: "Bearer " + JWT,
+			expectedUserAuth: &nbcontext.UserAuth{
+				AccountId:      accountID,
+				UserId:         userID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
+			},
+		},
+
+		{
+			name:       "Valid JWT Token with child",
+			path:       "/test?account=xyz",
+			authHeader: "Bearer " + JWT,
+			expectedUserAuth: &nbcontext.UserAuth{
+				AccountId:      "xyz",
+				UserId:         userID,
+				Domain:         testAccount.Domain,
+				DomainCategory: testAccount.DomainCategory,
+				IsChild:        true,
+			},
+		},
+	}
+
+	mockAuth := &auth.MockManager{
+		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
+		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
+		MarkPATUsedFunc:                 mockMarkPATUsed,
+		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
+	}
+
+	authMiddleware := NewAuthMiddleware(
+		mockAuth,
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			return userAuth.AccountId, userAuth.UserId, nil
+		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			return nil
+		},
+	)
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				userAuth, err := nbcontext.GetUserAuthFromRequest(r)
+				if tc.expectedUserAuth != nil {
+					assert.NoError(t, err)
+					assert.Equal(t, *tc.expectedUserAuth, userAuth)
+				} else {
+					assert.Error(t, err)
+					assert.Empty(t, userAuth)
+				}
+			}))
+
+			req := httptest.NewRequest("GET", "http://testing"+tc.path, nil)
+			req.Header.Set("Authorization", tc.authHeader)
+			rec := httptest.NewRecorder()
+
+			handlerToTest.ServeHTTP(rec, req)
+
+			result := rec.Result()
+			defer result.Body.Close()
+
+			if tc.expectedUserAuth != nil {
+				assert.Equal(t, 200, result.StatusCode)
+			} else {
+				assert.Equal(t, 401, result.StatusCode)
 			}
 		})
 	}

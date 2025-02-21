@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
@@ -19,7 +19,7 @@ type ExclusionCounter = refcounter.Counter[netip.Prefix, struct{}, Nexthop]
 
 type SysOps struct {
 	refCounter  *ExclusionCounter
-	wgInterface iface.IWGIface
+	wgInterface iface.WGIface
 	// prefixes is tracking all the current added prefixes im memory
 	// (this is used in iOS as all route updates require a full table update)
 	//nolint
@@ -30,7 +30,7 @@ type SysOps struct {
 	notifier *notifier.Notifier
 }
 
-func NewSysOps(wgInterface iface.IWGIface, notifier *notifier.Notifier) *SysOps {
+func NewSysOps(wgInterface iface.WGIface, notifier *notifier.Notifier) *SysOps {
 	return &SysOps{
 		wgInterface: wgInterface,
 		notifier:    notifier,
