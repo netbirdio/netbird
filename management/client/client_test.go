@@ -178,7 +178,7 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 		t.Fatal(err)
 	}
 	sysInfo := system.GetInfo(context.TODO())
-	_, err = client.Login(*key, sysInfo, nil)
+	_, err = client.Login(*key, sysInfo, nil, nil)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}
@@ -259,8 +259,11 @@ func TestClient_Sync(t *testing.T) {
 
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	go func() {
-		err = client.Sync(context.Background(), info, func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(ctx, info, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})

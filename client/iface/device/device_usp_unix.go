@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -124,9 +125,18 @@ func (t *USPDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
+// Device returns the wireguard device
+func (t *USPDevice) Device() *device.Device {
+	return t.device
+}
+
 // assignAddr Adds IP address to the tunnel interface
 func (t *USPDevice) assignAddr() error {
 	link := newWGLink(t.name)
 
 	return link.assignAddr(t.address)
+}
+
+func (t *USPDevice) GetNet() *netstack.Net {
+	return nil
 }

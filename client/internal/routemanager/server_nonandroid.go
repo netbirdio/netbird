@@ -69,6 +69,16 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 		m.routes[id] = newRoute
 	}
 
+	if len(m.routes) > 0 {
+		if err := m.firewall.EnableRouting(); err != nil {
+			return fmt.Errorf("enable routing: %w", err)
+		}
+	} else {
+		if err := m.firewall.DisableRouting(); err != nil {
+			return fmt.Errorf("disable routing: %w", err)
+		}
+	}
+
 	return nil
 }
 

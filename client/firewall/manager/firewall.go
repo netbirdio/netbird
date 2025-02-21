@@ -100,6 +100,12 @@ type Manager interface {
 	// Flush the changes to firewall controller
 	Flush() error
 
+	SetLogLevel(log.Level)
+
+	EnableRouting() error
+
+	DisableRouting() error
+
 	// AddDNATRule adds a DNAT rule
 	AddDNATRule(ForwardRule) (Rule, error)
 

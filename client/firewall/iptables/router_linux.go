@@ -152,7 +152,16 @@ func (r *router) AddRouteFiltering(
 	}
 
 	rule := genRouteFilteringRuleSpec(params)
-	if err := r.iptablesClient.Append(tableFilter, chainRTFWDIN, rule...); err != nil {
+	// Insert DROP rules at the beginning, append ACCEPT rules at the end
+	var err error
+	if action == firewall.ActionDrop {
+		// after the established rule
+		err = r.iptablesClient.Insert(tableFilter, chainRTFWDIN, 2, rule...)
+	} else {
+		err = r.iptablesClient.Append(tableFilter, chainRTFWDIN, rule...)
+	}
+
+	if err != nil {
 		return nil, fmt.Errorf("add route rule: %v", err)
 	}
 

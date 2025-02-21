@@ -20,6 +20,8 @@ type AppMetrics struct {
 	MessagesForwarded      metric.Int64Counter
 	MessageForwardFailures metric.Int64Counter
 	MessageForwardLatency  metric.Float64Histogram
+
+	MessageSize metric.Int64Histogram
 }
 
 func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
@@ -97,6 +99,16 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 		return nil, err
 	}
 
+	messageSize, err := meter.Int64Histogram(
+		"message.size.bytes",
+		metric.WithUnit("bytes"),
+		metric.WithExplicitBucketBoundaries(getMessageSizeBucketBoundaries()...),
+		metric.WithDescription("Records the size of each message sent"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppMetrics{
 		Meter: meter,
 
@@ -112,7 +124,24 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 		MessagesForwarded:      messagesForwarded,
 		MessageForwardFailures: messageForwardFailures,
 		MessageForwardLatency:  messageForwardLatency,
+
+		MessageSize: messageSize,
 	}, nil
+}
+
+func getMessageSizeBucketBoundaries() []float64 {
+	return []float64{
+		100,
+		250,
+		500,
+		1000,
+		5000,
+		10000,
+		50000,
+		100000,
+		500000,
+		1000000,
+	}
 }
 
 func getStandardBucketBoundaries() []float64 {

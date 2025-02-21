@@ -64,11 +64,11 @@ type AccountManager interface {
 	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*types.Account, error)
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration,
-		autoGroups []string, usageLimit int, userID string, ephemeral bool) (*types.SetupKey, error)
+		autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
 	SaveSetupKey(ctx context.Context, accountID string, key *types.SetupKey, userID string) (*types.SetupKey, error)
 	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *types.UserInfo) (*types.UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
-	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
+	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error)
@@ -80,7 +80,7 @@ type AccountManager interface {
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
 	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
-	GetAccountFromPAT(ctx context.Context, pat string) (*types.Account, *types.User, *types.PersonalAccessToken, error)
+	GetPATInfo(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, string, string, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	MarkPATUsed(ctx context.Context, tokenID string) error
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
@@ -97,7 +97,7 @@ type AccountManager interface {
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error)
-	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*types.UserInfo, error)
+	GetUsersFromAccount(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
@@ -150,6 +150,7 @@ type AccountManager interface {
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	UpdateAccountPeers(ctx context.Context, accountID string)
+	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 }
 
 type DefaultAccountManager struct {
@@ -622,6 +623,12 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	if user.Role != types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
+
+	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
+	}
+
 	for _, otherUser := range account.Users {
 		if otherUser.IsServiceUser {
 			continue
@@ -631,13 +638,23 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 			continue
 		}
 
-		deleteUserErr := am.deleteRegularUser(ctx, account, userID, otherUser.Id)
+		userInfo, ok := userInfosMap[otherUser.Id]
+		if !ok {
+			return status.Errorf(status.NotFound, "user info not found for user %s", otherUser.Id)
+		}
+
+		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, userInfo)
 		if deleteUserErr != nil {
 			return deleteUserErr
 		}
 	}
 
-	err = am.deleteRegularUser(ctx, account, userID, userID)
+	userInfo, ok := userInfosMap[userID]
+	if !ok {
+		return status.Errorf(status.NotFound, "user info not found for user %s", userID)
+	}
+
+	_, err = am.deleteRegularUser(ctx, accountID, userID, userInfo)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
 		return err
@@ -694,20 +711,8 @@ func isNil(i idp.Manager) bool {
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
-		accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
-		cachedAccount := &types.Account{
-			Id:    accountID,
-			Users: make(map[string]*types.User),
-		}
-		for _, user := range accountUsers {
-			cachedAccount.Users[user.Id] = user
-		}
-
 		// user can be nil if it wasn't found (e.g., just created)
-		user, err := am.lookupUserInCache(ctx, userID, cachedAccount)
+		user, err := am.lookupUserInCache(ctx, userID, accountID)
 		if err != nil {
 			return err
 		}
@@ -783,10 +788,15 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(ctx context.Context, e
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
-func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID string, account *types.Account) (*idp.UserData, error) {
-	users := make(map[string]userLoggedInOnce, len(account.Users))
+func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID string, accountID string) (*idp.UserData, error) {
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make(map[string]userLoggedInOnce, len(accountUsers))
 	// ignore service users and users provisioned by integrations than are never logged in
-	for _, user := range account.Users {
+	for _, user := range accountUsers {
 		if user.IsServiceUser {
 			continue
 		}
@@ -795,8 +805,8 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 		}
 		users[user.Id] = userLoggedInOnce(!user.GetLastLogin().IsZero())
 	}
-	log.WithContext(ctx).Debugf("looking up user %s of account %s in cache", userID, account.Id)
-	userData, err := am.lookupCache(ctx, users, account.Id)
+	log.WithContext(ctx).Debugf("looking up user %s of account %s in cache", userID, accountID)
+	userData, err := am.lookupCache(ctx, users, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -809,13 +819,13 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 
 	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
 	// or it didn't have its metadata updated with am.addAccountIDToIDPAppMeta
-	user, err := account.FindUser(userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, account.Id)
+		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, accountID)
 		return nil, err
 	}
 
-	key := user.IntegrationReference.CacheKey(account.Id, userID)
+	key := user.IntegrationReference.CacheKey(accountID, userID)
 	ud, err := am.externalCacheManager.Get(am.ctx, key)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get externalCache for key: %s, error: %s", key, err)
@@ -1055,9 +1065,9 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
 	defer unlockAccount()
 
-	usersMap := make(map[string]*types.User)
-	usersMap[claims.UserId] = types.NewRegularUser(claims.UserId)
-	err := am.Store.SaveUsers(domainAccountID, usersMap)
+	newUser := types.NewRegularUser(claims.UserId)
+	newUser.AccountID = domainAccountID
+	err := am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser)
 	if err != nil {
 		return "", err
 	}
@@ -1080,12 +1090,7 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 		return nil
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
-	user, err := am.lookupUserInCache(ctx, userID, account)
+	user, err := am.lookupUserInCache(ctx, userID, accountID)
 	if err != nil {
 		return err
 	}
@@ -1095,17 +1100,17 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 	}
 
 	if user.AppMetadata.WTPendingInvite != nil && *user.AppMetadata.WTPendingInvite {
-		log.WithContext(ctx).Infof("redeeming invite for user %s account %s", userID, account.Id)
+		log.WithContext(ctx).Infof("redeeming invite for user %s account %s", userID, accountID)
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
 		go func() {
-			_, err = am.refreshCache(ctx, account.Id)
+			_, err = am.refreshCache(ctx, accountID)
 			if err != nil {
-				log.WithContext(ctx).Warnf("failed reloading cache when redeeming user %s under account %s", userID, account.Id)
+				log.WithContext(ctx).Warnf("failed reloading cache when redeeming user %s under account %s", userID, accountID)
 				return
 			}
-			log.WithContext(ctx).Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
-			am.StoreEvent(ctx, userID, userID, account.Id, activity.UserJoined, nil)
+			log.WithContext(ctx).Debugf("user %s of account %s redeemed invite", user.ID, accountID)
+			am.StoreEvent(ctx, userID, userID, accountID, activity.UserJoined, nil)
 		}()
 	}
 
@@ -1114,33 +1119,7 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 
 // MarkPATUsed marks a personal access token as used
 func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string) error {
-
-	user, err := am.Store.GetUserByTokenID(ctx, tokenID)
-	if err != nil {
-		return err
-	}
-
-	account, err := am.Store.GetAccountByUser(ctx, user.Id)
-	if err != nil {
-		return err
-	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
-	defer unlock()
-
-	account, err = am.Store.GetAccountByUser(ctx, user.Id)
-	if err != nil {
-		return err
-	}
-
-	pat, ok := account.Users[user.Id].PATs[tokenID]
-	if !ok {
-		return fmt.Errorf("token not found")
-	}
-
-	pat.LastUsed = util.ToPtr(time.Now().UTC())
-
-	return am.Store.SaveAccount(ctx, account)
+	return am.Store.MarkPATUsed(ctx, store.LockingStrengthUpdate, tokenID)
 }
 
 // GetAccount returns an account associated with this account ID.
@@ -1148,52 +1127,64 @@ func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID strin
 	return am.Store.GetAccount(ctx, accountID)
 }
 
-// GetAccountFromPAT returns Account and User associated with a personal access token
-func (am *DefaultAccountManager) GetAccountFromPAT(ctx context.Context, token string) (*types.Account, *types.User, *types.PersonalAccessToken, error) {
+// GetPATInfo retrieves user, personal access token, domain, and category details from a personal access token.
+func (am *DefaultAccountManager) GetPATInfo(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error) {
+	user, pat, err = am.extractPATFromToken(ctx, token)
+	if err != nil {
+		return nil, nil, "", "", err
+	}
+
+	domain, category, err = am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, user.AccountID)
+	if err != nil {
+		return nil, nil, "", "", err
+	}
+
+	return user, pat, domain, category, nil
+}
+
+// extractPATFromToken validates the token structure and retrieves associated User and PAT.
+func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, error) {
 	if len(token) != types.PATLength {
-		return nil, nil, nil, fmt.Errorf("token has wrong length")
+		return nil, nil, fmt.Errorf("token has incorrect length")
 	}
 
 	prefix := token[:len(types.PATPrefix)]
 	if prefix != types.PATPrefix {
-		return nil, nil, nil, fmt.Errorf("token has wrong prefix")
+		return nil, nil, fmt.Errorf("token has wrong prefix")
 	}
 	secret := token[len(types.PATPrefix) : len(types.PATPrefix)+types.PATSecretLength]
 	encodedChecksum := token[len(types.PATPrefix)+types.PATSecretLength : len(types.PATPrefix)+types.PATSecretLength+types.PATChecksumLength]
 
 	verificationChecksum, err := base62.Decode(encodedChecksum)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
+		return nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
 	}
 
 	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
 	if secretChecksum != verificationChecksum {
-		return nil, nil, nil, fmt.Errorf("token checksum does not match")
+		return nil, nil, fmt.Errorf("token checksum does not match")
 	}
 
 	hashedToken := sha256.Sum256([]byte(token))
 	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
-	tokenID, err := am.Store.GetTokenIDByHashedToken(ctx, encodedHashedToken)
+
+	var user *types.User
+	var pat *types.PersonalAccessToken
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthShare, encodedHashedToken)
+		if err != nil {
+			return err
+		}
+
+		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthShare, pat.ID)
+		return err
+	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	user, err := am.Store.GetUserByTokenID(ctx, tokenID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	account, err := am.Store.GetAccountByUser(ctx, user.Id)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	pat := user.PATs[tokenID]
-	if pat == nil {
-		return nil, nil, nil, fmt.Errorf("personal access token not found")
-	}
-
-	return account, user, pat, nil
+	return user, pat, nil
 }
 
 // GetAccountByID returns an account associated with this account ID.
@@ -1339,7 +1330,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error getting user peers: %w", err)
 			}
 
-			updatedGroups, err := am.updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
+			updatedGroups, err := updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
 			if err != nil {
 				return fmt.Errorf("error modifying user peers in groups: %w", err)
 			}

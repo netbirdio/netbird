@@ -296,7 +296,13 @@ func (r *router) AddRouteFiltering(
 		UserData: []byte(ruleKey),
 	}
 
-	rule = r.conn.AddRule(rule)
+	// Insert DROP rules at the beginning, append ACCEPT rules at the end
+	if action == firewall.ActionDrop {
+		// TODO: Insert after the established rule
+		rule = r.conn.InsertRule(rule)
+	} else {
+		rule = r.conn.AddRule(rule)
+	}
 
 	log.Tracef("Adding route rule %s", spew.Sdump(rule))
 	if err := r.conn.Flush(); err != nil {

@@ -85,11 +85,17 @@ var loginCmd = &cobra.Command{
 
 		client := proto.NewDaemonServiceClient(conn)
 
+		var dnsLabelsReq []string
+		if dnsLabelsValidated != nil {
+			dnsLabelsReq = dnsLabelsValidated.ToSafeStringList()
+		}
+
 		loginRequest := proto.LoginRequest{
 			SetupKey:             providedSetupKey,
 			ManagementUrl:        managementURL,
 			IsLinuxDesktopClient: isLinuxRunningDesktop(),
 			Hostname:             hostName,
+			DnsLabels:            dnsLabelsReq,
 		}
 
 		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
