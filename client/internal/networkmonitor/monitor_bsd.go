@@ -37,41 +37,46 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 		}
 	}()
 
+	readRouteSocket := func() {
+		buf := make([]byte, 2048)
+		n, err := unix.Read(fd, buf)
+		if err != nil {
+			if !errors.Is(err, unix.EBADF) && !errors.Is(err, unix.EINVAL) {
+				log.Warnf("Network monitor: failed to read from routing socket: %v", err)
+			}
+			return
+		}
+		isRouteMessage := n >= unix.SizeofRtMsghdr
+		if isRouteMessage {
+			return
+		}
+
+		msg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
+
+		switch msg.Type {
+		// handle route changes
+		case syscall.RTM_ADD, syscall.RTM_DELETE, syscall.RTM_CHANGE:
+			route, err := parseRouteMessage(buf[:n])
+			if err != nil {
+				log.Debugf("Network monitor: error parsing routing message: %v", err)
+				return
+			}
+			isDefaultRoute := route.Dst.Bits() == 0
+			if !isDefaultRoute {
+				return
+			}
+			if hasDefaultRouteChanged(nexthopv4, nexthopv6) {
+				go callback()
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ErrStopped
 		default:
-			buf := make([]byte, 2048)
-			n, err := unix.Read(fd, buf)
-			if err != nil {
-				if !errors.Is(err, unix.EBADF) && !errors.Is(err, unix.EINVAL) {
-					log.Warnf("Network monitor: failed to read from routing socket: %v", err)
-				}
-				continue
-			}
-			if n < unix.SizeofRtMsghdr {
-				continue
-			}
-
-			msg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
-
-			switch msg.Type {
-			// handle route changes
-			case syscall.RTM_ADD, syscall.RTM_DELETE, syscall.RTM_CHANGE:
-				route, err := parseRouteMessage(buf[:n])
-				if err != nil {
-					log.Debugf("Network monitor: error parsing routing message: %v", err)
-					continue
-				}
-				isDefaultRoute := route.Dst.Bits() == 0
-				if !isDefaultRoute {
-					continue
-				}
-				if hasDefaultRouteChanged(nexthopv4, nexthopv6) {
-					go callback()
-				}
-			}
+			readRouteSocket()
 		}
 	}
 }
