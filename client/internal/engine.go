@@ -1834,27 +1834,26 @@ func compareNetIPLists(list1 []netip.Prefix, list2 []string) bool {
 		return false
 	}
 
-	// Convert list2 strings to netip.Prefix for consistent comparison
-	list2Prefixes := make([]netip.Prefix, len(list2))
-	for i, s := range list2 {
-		prefix, err := netip.ParsePrefix(s)
-		if err != nil {
-			return false // Invalid IP prefix format in list2
-		}
-		list2Prefixes[i] = prefix
+	freq := make(map[string]int, len(list1))
+	for _, p := range list1 {
+		freq[p.String()]++
 	}
 
-	// Sort both slices
-	sort.Slice(list1, func(i, j int) bool {
-		return list1[i].String() < list1[j].String()
-	})
-	sort.Slice(list2Prefixes, func(i, j int) bool {
-		return list2Prefixes[i].String() < list2Prefixes[j].String()
-	})
+	for _, s := range list2 {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return false // invalid prefix in list2.
+		}
+		key := p.String()
+		if freq[key] == 0 {
+			return false
+		}
+		freq[key]--
+	}
 
-	// Compare sorted slices
-	for i := range list1 {
-		if list1[i] != list2Prefixes[i] {
+	// all counts should be zero if lists are equal.
+	for _, count := range freq {
+		if count != 0 {
 			return false
 		}
 	}
