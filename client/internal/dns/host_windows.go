@@ -131,11 +131,30 @@ func (r *registryConfigurator) addDNSSetupForAll(ip string) error {
 func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) error {
 	// if the gpo key is present, we need to put our DNS settings there, otherwise our config might be ignored
 	// see https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpnrpt/8cc31cb9-20cb-4140-9e85-3e08703b4745
-	policyPath := dnsPolicyConfigMatchPath
 	if r.gpo {
-		policyPath = gpoDnsPolicyConfigMatchPath
+		if err := r.configureDNSPolicy(gpoDnsPolicyConfigMatchPath, domains, ip); err != nil {
+			return fmt.Errorf("configure GPO DNS policy: %w", err)
+		}
+
+		if err := r.configureDNSPolicy(dnsPolicyConfigMatchPath, domains, ip); err != nil {
+			return fmt.Errorf("configure local DNS policy: %w", err)
+		}
+
+		if err := refreshGroupPolicy(); err != nil {
+			log.Warnf("failed to refresh group policy: %v", err)
+		}
+	} else {
+		if err := r.configureDNSPolicy(dnsPolicyConfigMatchPath, domains, ip); err != nil {
+			return fmt.Errorf("configure local DNS policy: %w", err)
+		}
 	}
 
+	log.Infof("added %d match domains. Domain list: %s", len(domains), domains)
+	return nil
+}
+
+// configureDNSPolicy handles the actual configuration of a DNS policy at the specified path
+func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip string) error {
 	if err := removeRegistryKeyFromDNSPolicyConfig(policyPath); err != nil {
 		return fmt.Errorf("remove existing dns policy: %w", err)
 	}
@@ -162,13 +181,6 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) er
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigConfigOptionsKey, err)
 	}
 
-	if r.gpo {
-		if err := refreshGroupPolicy(); err != nil {
-			log.Warnf("failed to refresh group policy: %v", err)
-		}
-	}
-
-	log.Infof("added %d match domains. Domain list: %s", len(domains), domains)
 	return nil
 }
 

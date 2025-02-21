@@ -2,36 +2,30 @@ package routes
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/netip"
-	"regexp"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
 
-const maxDomains = 32
 const failedToConvertRoute = "failed to convert route to response: %v"
 
 // handler is the routes handler of the account
 type handler struct {
-	accountManager  server.AccountManager
-	claimsExtractor *jwtclaims.ClaimsExtractor
+	accountManager server.AccountManager
 }
 
-func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg, router *mux.Router) {
-	routesHandler := newHandler(accountManager, authCfg)
+func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+	routesHandler := newHandler(accountManager)
 	router.HandleFunc("/routes", routesHandler.getAllRoutes).Methods("GET", "OPTIONS")
 	router.HandleFunc("/routes", routesHandler.createRoute).Methods("POST", "OPTIONS")
 	router.HandleFunc("/routes/{routeId}", routesHandler.updateRoute).Methods("PUT", "OPTIONS")
@@ -40,24 +34,21 @@ func AddEndpoints(accountManager server.AccountManager, authCfg configs.AuthCfg,
 }
 
 // newHandler returns a new instance of routes handler
-func newHandler(accountManager server.AccountManager, authCfg configs.AuthCfg) *handler {
+func newHandler(accountManager server.AccountManager) *handler {
 	return &handler{
 		accountManager: accountManager,
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithAudience(authCfg.Audience),
-			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
-		),
 	}
 }
 
 // getAllRoutes returns the list of routes for the account
 func (h *handler) getAllRoutes(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	routes, err := h.accountManager.ListRoutes(r.Context(), accountID, userID)
 	if err != nil {
@@ -79,12 +70,13 @@ func (h *handler) getAllRoutes(w http.ResponseWriter, r *http.Request) {
 
 // createRoute handles route creation request
 func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	var req api.PostApiRoutesJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
@@ -102,7 +94,7 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 	var networkType route.NetworkType
 	var newPrefix netip.Prefix
 	if req.Domains != nil {
-		d, err := validateDomains(*req.Domains)
+		d, err := domain.ValidateDomains(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
@@ -176,13 +168,13 @@ func (h *handler) validateRoute(req api.PostApiRoutesJSONRequestBody) error {
 
 // updateRoute handles update to a route identified by a given ID
 func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	routeID := vars["routeId"]
 	if len(routeID) == 0 {
@@ -225,7 +217,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Domains != nil {
-		d, err := validateDomains(*req.Domains)
+		d, err := domain.ValidateDomains(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
@@ -269,13 +261,13 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 
 // deleteRoute handles route deletion request
 func (h *handler) deleteRoute(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 	routeID := mux.Vars(r)["routeId"]
 	if len(routeID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid route ID"), w)
@@ -293,12 +285,13 @@ func (h *handler) deleteRoute(w http.ResponseWriter, r *http.Request) {
 
 // getRoute handles a route Get request identified by ID
 func (h *handler) getRoute(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	accountID, userID, err := h.accountManager.GetAccountIDFromToken(r.Context(), claims)
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	routeID := mux.Vars(r)["routeId"]
 	if len(routeID) == 0 {
@@ -349,35 +342,4 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 		route.AccessControlGroups = &serverRoute.AccessControlGroups
 	}
 	return route, nil
-}
-
-// validateDomains checks if each domain in the list is valid and returns a punycode-encoded DomainList.
-func validateDomains(domains []string) (domain.List, error) {
-	if len(domains) == 0 {
-		return nil, fmt.Errorf("domains list is empty")
-	}
-	if len(domains) > maxDomains {
-		return nil, fmt.Errorf("domains list exceeds maximum allowed domains: %d", maxDomains)
-	}
-
-	domainRegex := regexp.MustCompile(`^(?:\*\.)?(?:(?:xn--)?[a-zA-Z0-9_](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?\.)*(?:xn--)?[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?$`)
-
-	var domainList domain.List
-
-	for _, d := range domains {
-		d := strings.ToLower(d)
-
-		// handles length and idna conversion
-		punycode, err := domain.FromString(d)
-		if err != nil {
-			return domainList, fmt.Errorf("failed to convert domain to punycode: %s: %v", d, err)
-		}
-
-		if !domainRegex.MatchString(string(punycode)) {
-			return domainList, fmt.Errorf("invalid domain format: %s", d)
-		}
-
-		domainList = append(domainList, punycode)
-	}
-	return domainList, nil
 }

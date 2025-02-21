@@ -52,17 +52,10 @@ const (
 	connPriorityICEP2P  ConnPriority = 3
 )
 
-type WgInterface interface {
-	UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
-	RemovePeer(publicKey string) error
-	GetProxy() wgproxy.Proxy
-	GetStats(peerKey string) (configurer.WGStats, error)
-}
-
 type WgConfig struct {
 	WgListenPort int
 	RemoteKey    string
-	WgInterface  WgInterface
+	WgInterface  WGIface
 	AllowedIps   string
 	PreSharedKey *wgtypes.Key
 }

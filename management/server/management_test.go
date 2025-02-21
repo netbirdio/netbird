@@ -6,13 +6,13 @@ import (
 	"net"
 	"os"
 	"runtime"
-	sync2 "sync"
+	"sync"
+	"testing"
 	"time"
 
 	pb "github.com/golang/protobuf/proto" //nolint
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -30,424 +30,77 @@ import (
 
 const (
 	ValidSetupKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
-	AccountKey    = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 )
 
-var _ = Describe("Management service", func() {
-	var (
-		addr         string
-		s            *grpc.Server
-		dataDir      string
-		client       mgmtProto.ManagementServiceClient
-		serverPubKey wgtypes.Key
-		conn         *grpc.ClientConn
-	)
-
-	BeforeEach(func() {
-		level, _ := log.ParseLevel("Debug")
-		log.SetLevel(level)
-		var err error
-		dataDir, err = os.MkdirTemp("", "netbird_mgmt_test_tmp_*")
-		Expect(err).NotTo(HaveOccurred())
-
-		var listener net.Listener
-
-		config := &server.Config{}
-		_, err = util.ReadJson("testdata/management.json", config)
-		Expect(err).NotTo(HaveOccurred())
-		config.Datadir = dataDir
-
-		s, listener = startServer(config, dataDir, "testdata/store.sql")
-		addr = listener.Addr().String()
-		client, conn = createRawClient(addr)
-
-		// s public key
-		resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
-		Expect(err).NotTo(HaveOccurred())
-		serverPubKey, err = wgtypes.ParseKey(resp.Key)
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	AfterEach(func() {
-		s.Stop()
-		err := conn.Close()
-		Expect(err).NotTo(HaveOccurred())
-		os.RemoveAll(dataDir)
-	})
-
-	Context("when calling IsHealthy endpoint", func() {
-		Specify("a non-error result is returned", func() {
-			healthy, err := client.IsHealthy(context.TODO(), &mgmtProto.Empty{})
-
-			Expect(err).NotTo(HaveOccurred())
-			Expect(healthy).ToNot(BeNil())
-		})
-	})
-
-	Context("when calling Sync endpoint", func() {
-		Context("when there is a new peer registered", func() {
-			Specify("a proper configuration is returned", func() {
-				key, _ := wgtypes.GenerateKey()
-				loginPeerWithValidSetupKey(serverPubKey, key, client)
-
-				syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
-				encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, syncReq)
-				Expect(err).NotTo(HaveOccurred())
-
-				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
-					WgPubKey: key.PublicKey().String(),
-					Body:     encryptedBytes,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				encryptedResponse := &mgmtProto.EncryptedMessage{}
-				err = sync.RecvMsg(encryptedResponse)
-				Expect(err).NotTo(HaveOccurred())
-
-				resp := &mgmtProto.SyncResponse{}
-				err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
-				Expect(err).NotTo(HaveOccurred())
-
-				expectedSignalConfig := &mgmtProto.HostConfig{
-					Uri:      "signal.netbird.io:10000",
-					Protocol: mgmtProto.HostConfig_HTTP,
-				}
-				expectedStunsConfig := &mgmtProto.HostConfig{
-					Uri:      "stun:stun.netbird.io:3468",
-					Protocol: mgmtProto.HostConfig_UDP,
-				}
-				expectedTRUNHost := &mgmtProto.HostConfig{
-					Uri:      "turn:stun.netbird.io:3468",
-					Protocol: mgmtProto.HostConfig_UDP,
-				}
-
-				Expect(resp.NetbirdConfig.Signal).To(BeEquivalentTo(expectedSignalConfig))
-				Expect(resp.NetbirdConfig.Stuns).To(ConsistOf(expectedStunsConfig))
-				// TURN validation is special because credentials are dynamically generated
-				Expect(resp.NetbirdConfig.Turns).To(HaveLen(1))
-				actualTURN := resp.NetbirdConfig.Turns[0]
-				Expect(len(actualTURN.User) > 0).To(BeTrue())
-				Expect(actualTURN.HostConfig).To(BeEquivalentTo(expectedTRUNHost))
-				Expect(len(resp.NetworkMap.OfflinePeers) == 0).To(BeTrue())
-			})
-		})
-
-		Context("when there are 3 peers registered under one account", func() {
-			Specify("a list containing other 2 peers is returned", func() {
-				key, _ := wgtypes.GenerateKey()
-				key1, _ := wgtypes.GenerateKey()
-				key2, _ := wgtypes.GenerateKey()
-				loginPeerWithValidSetupKey(serverPubKey, key, client)
-				loginPeerWithValidSetupKey(serverPubKey, key1, client)
-				loginPeerWithValidSetupKey(serverPubKey, key2, client)
-
-				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
-				Expect(err).NotTo(HaveOccurred())
-				encryptedBytes, err := encryption.Encrypt(messageBytes, serverPubKey, key)
-				Expect(err).NotTo(HaveOccurred())
-
-				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
-					WgPubKey: key.PublicKey().String(),
-					Body:     encryptedBytes,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				encryptedResponse := &mgmtProto.EncryptedMessage{}
-				err = sync.RecvMsg(encryptedResponse)
-				Expect(err).NotTo(HaveOccurred())
-				decryptedBytes, err := encryption.Decrypt(encryptedResponse.Body, serverPubKey, key)
-				Expect(err).NotTo(HaveOccurred())
-
-				resp := &mgmtProto.SyncResponse{}
-				err = pb.Unmarshal(decryptedBytes, resp)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(resp.GetRemotePeers()).To(HaveLen(2))
-				peers := []string{resp.GetRemotePeers()[0].WgPubKey, resp.GetRemotePeers()[1].WgPubKey}
-				Expect(peers).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
-			})
-		})
-
-		Context("when there is a new peer registered", func() {
-			Specify("an update is returned", func() {
-				// register only a single peer
-				key, _ := wgtypes.GenerateKey()
-				loginPeerWithValidSetupKey(serverPubKey, key, client)
-
-				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
-				Expect(err).NotTo(HaveOccurred())
-				encryptedBytes, err := encryption.Encrypt(messageBytes, serverPubKey, key)
-				Expect(err).NotTo(HaveOccurred())
-
-				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
-					WgPubKey: key.PublicKey().String(),
-					Body:     encryptedBytes,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				// after the initial sync call we have 0 peer updates
-				encryptedResponse := &mgmtProto.EncryptedMessage{}
-				err = sync.RecvMsg(encryptedResponse)
-				Expect(err).NotTo(HaveOccurred())
-				decryptedBytes, err := encryption.Decrypt(encryptedResponse.Body, serverPubKey, key)
-				Expect(err).NotTo(HaveOccurred())
-				resp := &mgmtProto.SyncResponse{}
-				err = pb.Unmarshal(decryptedBytes, resp)
-				Expect(resp.GetRemotePeers()).To(HaveLen(0))
-
-				wg := sync2.WaitGroup{}
-				wg.Add(1)
-
-				// continue listening on updates for a peer
-				go func() {
-					err = sync.RecvMsg(encryptedResponse)
-
-					decryptedBytes, err = encryption.Decrypt(encryptedResponse.Body, serverPubKey, key)
-					Expect(err).NotTo(HaveOccurred())
-					resp = &mgmtProto.SyncResponse{}
-					err = pb.Unmarshal(decryptedBytes, resp)
-					wg.Done()
-				}()
-
-				// register a new peer
-				key1, _ := wgtypes.GenerateKey()
-				loginPeerWithValidSetupKey(serverPubKey, key1, client)
-
-				wg.Wait()
-
-				Expect(err).NotTo(HaveOccurred())
-				Expect(resp.GetRemotePeers()).To(HaveLen(1))
-				Expect(resp.GetRemotePeers()[0].WgPubKey).To(BeEquivalentTo(key1.PublicKey().String()))
-			})
-		})
-	})
-
-	Context("when calling GetServerKey endpoint", func() {
-		Specify("a public Wireguard key of the service is returned", func() {
-			resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
-
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp).ToNot(BeNil())
-			Expect(resp.Key).ToNot(BeNil())
-			Expect(resp.ExpiresAt).ToNot(BeNil())
-
-			// check if the key is a valid Wireguard key
-			key, err := wgtypes.ParseKey(resp.Key)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(key).ToNot(BeNil())
-		})
-	})
-
-	Context("when calling Login endpoint", func() {
-		Context("with an invalid setup key", func() {
-			Specify("an error is returned", func() {
-				key, _ := wgtypes.GenerateKey()
-				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key",
-					Meta: &mgmtProto.PeerSystemMeta{}})
-				Expect(err).NotTo(HaveOccurred())
-
-				resp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
-					WgPubKey: key.PublicKey().String(),
-					Body:     message,
-				})
-
-				Expect(err).To(HaveOccurred())
-				Expect(resp).To(BeNil())
-			})
-		})
-
-		Context("with a valid setup key", func() {
-			It("a non error result is returned", func() {
-				key, _ := wgtypes.GenerateKey()
-				resp := loginPeerWithValidSetupKey(serverPubKey, key, client)
-
-				Expect(resp).ToNot(BeNil())
-			})
-		})
-
-		Context("with a registered peer", func() {
-			It("a non error result is returned", func() {
-				key, _ := wgtypes.GenerateKey()
-				regResp := loginPeerWithValidSetupKey(serverPubKey, key, client)
-				Expect(regResp).NotTo(BeNil())
-
-				// just login without registration
-				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{Meta: &mgmtProto.PeerSystemMeta{}})
-				Expect(err).NotTo(HaveOccurred())
-				loginResp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
-					WgPubKey: key.PublicKey().String(),
-					Body:     message,
-				})
-
-				Expect(err).NotTo(HaveOccurred())
-
-				decryptedResp := &mgmtProto.LoginResponse{}
-				err = encryption.DecryptMessage(serverPubKey, key, loginResp.Body, decryptedResp)
-				Expect(err).NotTo(HaveOccurred())
-
-				expectedSignalConfig := &mgmtProto.HostConfig{
-					Uri:      "signal.netbird.io:10000",
-					Protocol: mgmtProto.HostConfig_HTTP,
-				}
-				expectedStunsConfig := &mgmtProto.HostConfig{
-					Uri:      "stun:stun.netbird.io:3468",
-					Protocol: mgmtProto.HostConfig_UDP,
-				}
-				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
-					HostConfig: &mgmtProto.HostConfig{
-						Uri:      "turn:stun.netbird.io:3468",
-						Protocol: mgmtProto.HostConfig_UDP,
-					},
-					User:     "some_user",
-					Password: "some_password",
-				}
-
-				Expect(decryptedResp.GetNetbirdConfig().Signal).To(BeEquivalentTo(expectedSignalConfig))
-				Expect(decryptedResp.GetNetbirdConfig().Stuns).To(ConsistOf(expectedStunsConfig))
-				Expect(decryptedResp.GetNetbirdConfig().Turns).To(ConsistOf(expectedTurnsConfig))
-			})
-		})
-	})
-
-	Context("when there are 10 peers registered under one account", func() {
-		Context("when there are 10 more peers registered under the same account", func() {
-			Specify("all of the 10 peers will get updates of 10 newly registered peers", func() {
-				initialPeers := 10
-				additionalPeers := 10
-
-				var peers []wgtypes.Key
-				for i := 0; i < initialPeers; i++ {
-					key, _ := wgtypes.GenerateKey()
-					loginPeerWithValidSetupKey(serverPubKey, key, client)
-					peers = append(peers, key)
-				}
-
-				wg := sync2.WaitGroup{}
-				wg.Add(initialPeers + initialPeers*additionalPeers)
-
-				var clients []mgmtProto.ManagementService_SyncClient
-				for _, peer := range peers {
-					messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
-					Expect(err).NotTo(HaveOccurred())
-					encryptedBytes, err := encryption.Encrypt(messageBytes, serverPubKey, peer)
-					Expect(err).NotTo(HaveOccurred())
-
-					// open stream
-					sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
-						WgPubKey: peer.PublicKey().String(),
-						Body:     encryptedBytes,
-					})
-					Expect(err).NotTo(HaveOccurred())
-					clients = append(clients, sync)
-
-					// receive stream
-					peer := peer
-					go func() {
-						for {
-							encryptedResponse := &mgmtProto.EncryptedMessage{}
-							err = sync.RecvMsg(encryptedResponse)
-							if err != nil {
-								break
-							}
-							decryptedBytes, err := encryption.Decrypt(encryptedResponse.Body, serverPubKey, peer)
-							Expect(err).NotTo(HaveOccurred())
-
-							resp := &mgmtProto.SyncResponse{}
-							err = pb.Unmarshal(decryptedBytes, resp)
-							Expect(err).NotTo(HaveOccurred())
-							if len(resp.GetRemotePeers()) > 0 {
-								// only consider peer updates
-								wg.Done()
-							}
-						}
-					}()
-				}
-
-				time.Sleep(1 * time.Second)
-				for i := 0; i < additionalPeers; i++ {
-					key, _ := wgtypes.GenerateKey()
-					loginPeerWithValidSetupKey(serverPubKey, key, client)
-					r := rand.New(rand.NewSource(time.Now().UnixNano()))
-					n := r.Intn(200)
-					time.Sleep(time.Duration(n) * time.Millisecond)
-				}
-
-				wg.Wait()
-
-				for _, syncClient := range clients {
-					err := syncClient.CloseSend()
-					Expect(err).NotTo(HaveOccurred())
-				}
-			})
-		})
-	})
-
-	Context("when there are peers registered under one account concurrently", func() {
-		Specify("then there are no duplicate IPs", func() {
-			initialPeers := 30
-
-			ipChannel := make(chan string, 20)
-			for i := 0; i < initialPeers; i++ {
-				go func() {
-					defer GinkgoRecover()
-					key, _ := wgtypes.GenerateKey()
-					loginPeerWithValidSetupKey(serverPubKey, key, client)
-					syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
-					encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, syncReq)
-					Expect(err).NotTo(HaveOccurred())
-
-					// open stream
-					sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
-						WgPubKey: key.PublicKey().String(),
-						Body:     encryptedBytes,
-					})
-					Expect(err).NotTo(HaveOccurred())
-					encryptedResponse := &mgmtProto.EncryptedMessage{}
-					err = sync.RecvMsg(encryptedResponse)
-					Expect(err).NotTo(HaveOccurred())
-
-					resp := &mgmtProto.SyncResponse{}
-					err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
-					Expect(err).NotTo(HaveOccurred())
-
-					ipChannel <- resp.GetPeerConfig().Address
-				}()
-			}
-
-			ips := make(map[string]struct{})
-			for ip := range ipChannel {
-				if _, ok := ips[ip]; ok {
-					Fail("found duplicate IP: " + ip)
-				}
-				ips[ip] = struct{}{}
-				if len(ips) == initialPeers {
-					break
-				}
-			}
-			close(ipChannel)
-		})
-	})
-
-	Context("after login two peers", func() {
-		Specify("then they receive the same network", func() {
-			key, _ := wgtypes.GenerateKey()
-			firstLogin := loginPeerWithValidSetupKey(serverPubKey, key, client)
-			key, _ = wgtypes.GenerateKey()
-			secondLogin := loginPeerWithValidSetupKey(serverPubKey, key, client)
-
-			_, firstLoginNetwork, err := net.ParseCIDR(firstLogin.GetPeerConfig().GetAddress())
-			Expect(err).NotTo(HaveOccurred())
-			_, secondLoginNetwork, err := net.ParseCIDR(secondLogin.GetPeerConfig().GetAddress())
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(secondLoginNetwork.String()).To(BeEquivalentTo(firstLoginNetwork.String()))
-		})
-	})
-})
-
-func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
-	defer GinkgoRecover()
-
+type testSuite struct {
+	t            *testing.T
+	addr         string
+	grpcServer   *grpc.Server
+	dataDir      string
+	client       mgmtProto.ManagementServiceClient
+	serverPubKey wgtypes.Key
+	conn         *grpc.ClientConn
+}
+
+func setupTest(t *testing.T) *testSuite {
+	t.Helper()
+	level, _ := log.ParseLevel("Debug")
+	log.SetLevel(level)
+
+	ts := &testSuite{t: t}
+
+	var err error
+	ts.dataDir, err = os.MkdirTemp("", "netbird_mgmt_test_tmp_*")
+	if err != nil {
+		t.Fatalf("failed to create temp directory: %v", err)
+	}
+
+	config := &server.Config{}
+	_, err = util.ReadJson("testdata/management.json", config)
+	if err != nil {
+		t.Fatalf("failed to read management.json: %v", err)
+	}
+	config.Datadir = ts.dataDir
+
+	var listener net.Listener
+	ts.grpcServer, listener = startServer(t, config, ts.dataDir, "testdata/store.sql")
+	ts.addr = listener.Addr().String()
+
+	ts.client, ts.conn = createRawClient(t, ts.addr)
+
+	resp, err := ts.client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
+	if err != nil {
+		t.Fatalf("failed to get server key: %v", err)
+	}
+
+	serverKey, err := wgtypes.ParseKey(resp.Key)
+	if err != nil {
+		t.Fatalf("failed to parse server key: %v", err)
+	}
+	ts.serverPubKey = serverKey
+
+	return ts
+}
+
+func tearDownTest(t *testing.T, ts *testSuite) {
+	t.Helper()
+	ts.grpcServer.Stop()
+	if err := ts.conn.Close(); err != nil {
+		t.Fatalf("failed to close client connection: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := os.RemoveAll(ts.dataDir); err != nil {
+		t.Fatalf("failed to remove data directory %s: %v", ts.dataDir, err)
+	}
+}
+
+func loginPeerWithValidSetupKey(
+	t *testing.T,
+	serverPubKey wgtypes.Key,
+	key wgtypes.Key,
+	client mgmtProto.ManagementServiceClient,
+) *mgmtProto.LoginResponse {
+	t.Helper()
 	meta := &mgmtProto.PeerSystemMeta{
 		Hostname:       key.PublicKey().String(),
 		GoOS:           runtime.GOOS,
@@ -457,23 +110,30 @@ func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, clien
 		Kernel:         "kernel",
 		NetbirdVersion: "",
 	}
-	message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: ValidSetupKey, Meta: meta})
-	Expect(err).NotTo(HaveOccurred())
+	msgToEncrypt := &mgmtProto.LoginRequest{SetupKey: ValidSetupKey, Meta: meta}
+	message, err := encryption.EncryptMessage(serverPubKey, key, msgToEncrypt)
+	if err != nil {
+		t.Fatalf("failed to encrypt login request: %v", err)
+	}
 
 	resp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
 		WgPubKey: key.PublicKey().String(),
 		Body:     message,
 	})
-
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		t.Fatalf("login request failed: %v", err)
+	}
 
 	loginResp := &mgmtProto.LoginResponse{}
 	err = encryption.DecryptMessage(serverPubKey, key, resp.Body, loginResp)
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		t.Fatalf("failed to decrypt login response: %v", err)
+	}
 	return loginResp
 }
 
-func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn) {
+func createRawClient(t *testing.T, addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -484,17 +144,27 @@ func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.Clie
 			Time:    10 * time.Second,
 			Timeout: 2 * time.Second,
 		}))
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		t.Fatalf("failed to dial gRPC server: %v", err)
+	}
 
 	return mgmtProto.NewManagementServiceClient(conn), conn
 }
 
-func startServer(config *server.Config, dataDir string, testFile string) (*grpc.Server, net.Listener) {
+func startServer(
+	t *testing.T,
+	config *server.Config,
+	dataDir string,
+	testFile string,
+) (*grpc.Server, net.Listener) {
+	t.Helper()
 	lis, err := net.Listen("tcp", ":0")
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		t.Fatalf("failed to listen on a random port: %v", err)
+	}
 	s := grpc.NewServer()
 
-	store, _, err := store.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
+	str, _, err := store.NewTestStoreFromSQL(context.Background(), testFile, dataDir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
@@ -504,23 +174,530 @@ func startServer(config *server.Config, dataDir string, testFile string) (*grpc.
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	if err != nil {
-		log.Fatalf("failed creating metrics: %v", err)
+		t.Fatalf("failed creating metrics: %v", err)
 	}
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, server.MocIntegratedValidator{}, metrics)
+	accountManager, err := server.BuildManager(
+		context.Background(),
+		str,
+		peersUpdateManager,
+		nil,
+		"",
+		"netbird.selfhosted",
+		eventStore,
+		nil,
+		false,
+		server.MocIntegratedValidator{},
+		metrics,
+	)
 	if err != nil {
-		log.Fatalf("failed creating a manager: %v", err)
+		t.Fatalf("failed creating an account manager: %v", err)
 	}
 
 	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil)
-	Expect(err).NotTo(HaveOccurred())
+	mgmtServer, err := server.NewServer(
+		context.Background(),
+		config,
+		accountManager,
+		settings.NewManager(str),
+		peersUpdateManager,
+		secretsManager,
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("failed creating management server: %v", err)
+	}
+
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
+
 	go func() {
 		if err := s.Serve(lis); err != nil {
-			Expect(err).NotTo(HaveOccurred())
+			t.Errorf("failed to serve gRPC: %v", err)
+			return
 		}
 	}()
 
 	return s, lis
+}
+
+func TestIsHealthy(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	healthy, err := ts.client.IsHealthy(context.TODO(), &mgmtProto.Empty{})
+	if err != nil {
+		t.Fatalf("IsHealthy call returned an error: %v", err)
+	}
+	if healthy == nil {
+		t.Fatal("IsHealthy returned a nil response")
+	}
+}
+
+func TestSyncNewPeerConfiguration(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	peerKey, _ := wgtypes.GenerateKey()
+	loginPeerWithValidSetupKey(t, ts.serverPubKey, peerKey, ts.client)
+
+	syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+	encryptedBytes, err := encryption.EncryptMessage(ts.serverPubKey, peerKey, syncReq)
+	if err != nil {
+		t.Fatalf("failed to encrypt sync request: %v", err)
+	}
+
+	syncStream, err := ts.client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+		WgPubKey: peerKey.PublicKey().String(),
+		Body:     encryptedBytes,
+	})
+	if err != nil {
+		t.Fatalf("failed to call Sync: %v", err)
+	}
+
+	encryptedResponse := &mgmtProto.EncryptedMessage{}
+	err = syncStream.RecvMsg(encryptedResponse)
+	if err != nil {
+		t.Fatalf("failed to receive sync response message: %v", err)
+	}
+
+	resp := &mgmtProto.SyncResponse{}
+	err = encryption.DecryptMessage(ts.serverPubKey, peerKey, encryptedResponse.Body, resp)
+	if err != nil {
+		t.Fatalf("failed to decrypt sync response: %v", err)
+	}
+
+	expectedSignalConfig := &mgmtProto.HostConfig{
+		Uri:      "signal.netbird.io:10000",
+		Protocol: mgmtProto.HostConfig_HTTP,
+	}
+	expectedStunsConfig := &mgmtProto.HostConfig{
+		Uri:      "stun:stun.netbird.io:3468",
+		Protocol: mgmtProto.HostConfig_UDP,
+	}
+	expectedTRUNHost := &mgmtProto.HostConfig{
+		Uri:      "turn:stun.netbird.io:3468",
+		Protocol: mgmtProto.HostConfig_UDP,
+	}
+
+	assert.NotNil(t, resp.NetbirdConfig)
+	assert.Equal(t, resp.NetbirdConfig.Signal, expectedSignalConfig)
+	assert.Contains(t, resp.NetbirdConfig.Stuns, expectedStunsConfig)
+	assert.Equal(t, len(resp.NetbirdConfig.Turns), 1)
+	actualTURN := resp.NetbirdConfig.Turns[0]
+	assert.Greater(t, len(actualTURN.User), 0)
+	assert.Equal(t, actualTURN.HostConfig, expectedTRUNHost)
+	assert.Equal(t, len(resp.NetworkMap.OfflinePeers), 0)
+}
+
+func TestSyncThreePeers(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	peerKey, _ := wgtypes.GenerateKey()
+	peerKey1, _ := wgtypes.GenerateKey()
+	peerKey2, _ := wgtypes.GenerateKey()
+
+	loginPeerWithValidSetupKey(t, ts.serverPubKey, peerKey, ts.client)
+	loginPeerWithValidSetupKey(t, ts.serverPubKey, peerKey1, ts.client)
+	loginPeerWithValidSetupKey(t, ts.serverPubKey, peerKey2, ts.client)
+
+	syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+	syncBytes, err := pb.Marshal(syncReq)
+	if err != nil {
+		t.Fatalf("failed to marshal sync request: %v", err)
+	}
+	encryptedBytes, err := encryption.Encrypt(syncBytes, ts.serverPubKey, peerKey)
+	if err != nil {
+		t.Fatalf("failed to encrypt sync request: %v", err)
+	}
+
+	syncStream, err := ts.client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+		WgPubKey: peerKey.PublicKey().String(),
+		Body:     encryptedBytes,
+	})
+	if err != nil {
+		t.Fatalf("failed to call Sync: %v", err)
+	}
+
+	encryptedResponse := &mgmtProto.EncryptedMessage{}
+	err = syncStream.RecvMsg(encryptedResponse)
+	if err != nil {
+		t.Fatalf("failed to receive sync response: %v", err)
+	}
+
+	decryptedBytes, err := encryption.Decrypt(encryptedResponse.Body, ts.serverPubKey, peerKey)
+	if err != nil {
+		t.Fatalf("failed to decrypt sync response: %v", err)
+	}
+
+	resp := &mgmtProto.SyncResponse{}
+	err = pb.Unmarshal(decryptedBytes, resp)
+	if err != nil {
+		t.Fatalf("failed to unmarshal sync response: %v", err)
+	}
+
+	if len(resp.GetRemotePeers()) != 2 {
+		t.Fatalf("expected 2 remote peers, got %d", len(resp.GetRemotePeers()))
+	}
+
+	var found1, found2 bool
+	for _, rp := range resp.GetRemotePeers() {
+		if rp.WgPubKey == peerKey1.PublicKey().String() {
+			found1 = true
+		} else if rp.WgPubKey == peerKey2.PublicKey().String() {
+			found2 = true
+		}
+	}
+	if !found1 || !found2 {
+		t.Fatalf("did not find the expected peer keys %s, %s among %v",
+			peerKey1.PublicKey().String(),
+			peerKey2.PublicKey().String(),
+			resp.GetRemotePeers())
+	}
+}
+
+func TestSyncNewPeerUpdate(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	peerKey, _ := wgtypes.GenerateKey()
+	loginPeerWithValidSetupKey(t, ts.serverPubKey, peerKey, ts.client)
+
+	syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+	syncBytes, err := pb.Marshal(syncReq)
+	if err != nil {
+		t.Fatalf("failed to marshal sync request: %v", err)
+	}
+
+	encryptedBytes, err := encryption.Encrypt(syncBytes, ts.serverPubKey, peerKey)
+	if err != nil {
+		t.Fatalf("failed to encrypt sync request: %v", err)
+	}
+
+	syncStream, err := ts.client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+		WgPubKey: peerKey.PublicKey().String(),
+		Body:     encryptedBytes,
+	})
+	if err != nil {
+		t.Fatalf("failed to call Sync: %v", err)
+	}
+
+	encryptedResponse := &mgmtProto.EncryptedMessage{}
+	err = syncStream.RecvMsg(encryptedResponse)
+	if err != nil {
+		t.Fatalf("failed to receive first sync response: %v", err)
+	}
+
+	decryptedBytes, err := encryption.Decrypt(encryptedResponse.Body, ts.serverPubKey, peerKey)
+	if err != nil {
+		t.Fatalf("failed to decrypt first sync response: %v", err)
+	}
+
+	resp := &mgmtProto.SyncResponse{}
+	if err := pb.Unmarshal(decryptedBytes, resp); err != nil {
+		t.Fatalf("failed to unmarshal first sync response: %v", err)
+	}
+
+	if len(resp.GetRemotePeers()) != 0 {
+		t.Fatalf("expected 0 remote peers at first sync, got %d", len(resp.GetRemotePeers()))
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		encryptedResponse := &mgmtProto.EncryptedMessage{}
+		err = syncStream.RecvMsg(encryptedResponse)
+		if err != nil {
+			t.Errorf("failed to receive second sync response: %v", err)
+			return
+		}
+
+		decryptedBytes, err := encryption.Decrypt(encryptedResponse.Body, ts.serverPubKey, peerKey)
+		if err != nil {
+			t.Errorf("failed to decrypt second sync response: %v", err)
+			return
+		}
+		err = pb.Unmarshal(decryptedBytes, resp)
+		if err != nil {
+			t.Errorf("failed to unmarshal second sync response: %v", err)
+			return
+		}
+	}()
+
+	newPeerKey, _ := wgtypes.GenerateKey()
+	loginPeerWithValidSetupKey(t, ts.serverPubKey, newPeerKey, ts.client)
+
+	wg.Wait()
+
+	if len(resp.GetRemotePeers()) != 1 {
+		t.Fatalf("expected exactly 1 remote peer update, got %d", len(resp.GetRemotePeers()))
+	}
+	if resp.GetRemotePeers()[0].WgPubKey != newPeerKey.PublicKey().String() {
+		t.Fatalf("expected new peer key %s, got %s",
+			newPeerKey.PublicKey().String(),
+			resp.GetRemotePeers()[0].WgPubKey)
+	}
+}
+
+func TestGetServerKey(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	resp, err := ts.client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
+	if err != nil {
+		t.Fatalf("GetServerKey returned error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("GetServerKey returned nil response")
+	}
+	if resp.Key == "" {
+		t.Fatal("GetServerKey returned empty key")
+	}
+	if resp.ExpiresAt.AsTime().IsZero() {
+		t.Fatal("GetServerKey returned 0 for ExpiresAt")
+	}
+
+	_, err = wgtypes.ParseKey(resp.Key)
+	if err != nil {
+		t.Fatalf("GetServerKey returned an invalid WG key: %v", err)
+	}
+}
+
+func TestLoginInvalidSetupKey(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	peerKey, _ := wgtypes.GenerateKey()
+	request := &mgmtProto.LoginRequest{
+		SetupKey: "invalid setup key",
+		Meta:     &mgmtProto.PeerSystemMeta{},
+	}
+	encryptedMsg, err := encryption.EncryptMessage(ts.serverPubKey, peerKey, request)
+	if err != nil {
+		t.Fatalf("failed to encrypt login request: %v", err)
+	}
+
+	resp, err := ts.client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
+		WgPubKey: peerKey.PublicKey().String(),
+		Body:     encryptedMsg,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid setup key but got nil")
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response for invalid setup key but got: %+v", resp)
+	}
+}
+
+func TestLoginValidSetupKey(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	peerKey, _ := wgtypes.GenerateKey()
+	resp := loginPeerWithValidSetupKey(t, ts.serverPubKey, peerKey, ts.client)
+	if resp == nil {
+		t.Fatal("loginPeerWithValidSetupKey returned nil, expected a valid response")
+	}
+}
+
+func TestLoginRegisteredPeer(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	peerKey, _ := wgtypes.GenerateKey()
+	regResp := loginPeerWithValidSetupKey(t, ts.serverPubKey, peerKey, ts.client)
+	if regResp == nil {
+		t.Fatal("registration with valid setup key failed")
+	}
+
+	loginReq := &mgmtProto.LoginRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+	encryptedLogin, err := encryption.EncryptMessage(ts.serverPubKey, peerKey, loginReq)
+	if err != nil {
+		t.Fatalf("failed to encrypt login request: %v", err)
+	}
+	loginRespEnc, err := ts.client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
+		WgPubKey: peerKey.PublicKey().String(),
+		Body:     encryptedLogin,
+	})
+	if err != nil {
+		t.Fatalf("login call returned an error: %v", err)
+	}
+
+	loginResp := &mgmtProto.LoginResponse{}
+	err = encryption.DecryptMessage(ts.serverPubKey, peerKey, loginRespEnc.Body, loginResp)
+	if err != nil {
+		t.Fatalf("failed to decrypt login response: %v", err)
+	}
+
+	expectedSignalConfig := &mgmtProto.HostConfig{
+		Uri:      "signal.netbird.io:10000",
+		Protocol: mgmtProto.HostConfig_HTTP,
+	}
+	expectedStunsConfig := &mgmtProto.HostConfig{
+		Uri:      "stun:stun.netbird.io:3468",
+		Protocol: mgmtProto.HostConfig_UDP,
+	}
+	expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
+		HostConfig: &mgmtProto.HostConfig{
+			Uri:      "turn:stun.netbird.io:3468",
+			Protocol: mgmtProto.HostConfig_UDP,
+		},
+		User:     "some_user",
+		Password: "some_password",
+	}
+
+	assert.NotNil(t, loginResp.GetNetbirdConfig())
+	assert.Equal(t, loginResp.GetNetbirdConfig().Signal, expectedSignalConfig)
+	assert.Contains(t, loginResp.GetNetbirdConfig().Stuns, expectedStunsConfig)
+	assert.Contains(t, loginResp.GetNetbirdConfig().Turns, expectedTurnsConfig)
+}
+
+func TestSync10PeersGetUpdates(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	initialPeers := 10
+	additionalPeers := 10
+
+	var peers []wgtypes.Key
+	for i := 0; i < initialPeers; i++ {
+		key, _ := wgtypes.GenerateKey()
+		loginPeerWithValidSetupKey(t, ts.serverPubKey, key, ts.client)
+		peers = append(peers, key)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(initialPeers + initialPeers*additionalPeers)
+
+	var syncClients []mgmtProto.ManagementService_SyncClient
+	for _, pk := range peers {
+		syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+		msgBytes, err := pb.Marshal(syncReq)
+		if err != nil {
+			t.Fatalf("failed to marshal SyncRequest: %v", err)
+		}
+		encBytes, err := encryption.Encrypt(msgBytes, ts.serverPubKey, pk)
+		if err != nil {
+			t.Fatalf("failed to encrypt SyncRequest: %v", err)
+		}
+
+		s, err := ts.client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+			WgPubKey: pk.PublicKey().String(),
+			Body:     encBytes,
+		})
+		if err != nil {
+			t.Fatalf("failed to call Sync for peer: %v", err)
+		}
+		syncClients = append(syncClients, s)
+
+		go func(pk wgtypes.Key, syncStream mgmtProto.ManagementService_SyncClient) {
+			for {
+				encMsg := &mgmtProto.EncryptedMessage{}
+				err := syncStream.RecvMsg(encMsg)
+				if err != nil {
+					return
+				}
+				decryptedBytes, decErr := encryption.Decrypt(encMsg.Body, ts.serverPubKey, pk)
+				if decErr != nil {
+					t.Errorf("failed to decrypt SyncResponse for peer %s: %v", pk.PublicKey().String(), decErr)
+					return
+				}
+				resp := &mgmtProto.SyncResponse{}
+				umErr := pb.Unmarshal(decryptedBytes, resp)
+				if umErr != nil {
+					t.Errorf("failed to unmarshal SyncResponse for peer %s: %v", pk.PublicKey().String(), umErr)
+					return
+				}
+				// We only count if there's a new peer update
+				if len(resp.GetRemotePeers()) > 0 {
+					wg.Done()
+				}
+			}
+		}(pk, s)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	for i := 0; i < additionalPeers; i++ {
+		key, _ := wgtypes.GenerateKey()
+		loginPeerWithValidSetupKey(t, ts.serverPubKey, key, ts.client)
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		n := r.Intn(200)
+		time.Sleep(time.Duration(n) * time.Millisecond)
+	}
+
+	wg.Wait()
+
+	for _, sc := range syncClients {
+		err := sc.CloseSend()
+		if err != nil {
+			t.Fatalf("failed to close sync client: %v", err)
+		}
+	}
+}
+
+func TestConcurrentPeersNoDuplicateIPs(t *testing.T) {
+	ts := setupTest(t)
+	defer tearDownTest(t, ts)
+
+	initialPeers := 30
+	ipChan := make(chan string, initialPeers)
+
+	var wg sync.WaitGroup
+	wg.Add(initialPeers)
+
+	for i := 0; i < initialPeers; i++ {
+		go func() {
+			defer wg.Done()
+			key, _ := wgtypes.GenerateKey()
+			loginPeerWithValidSetupKey(t, ts.serverPubKey, key, ts.client)
+
+			syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+			encryptedBytes, err := encryption.EncryptMessage(ts.serverPubKey, key, syncReq)
+			if err != nil {
+				t.Errorf("failed to encrypt sync request: %v", err)
+				return
+			}
+
+			s, err := ts.client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+				WgPubKey: key.PublicKey().String(),
+				Body:     encryptedBytes,
+			})
+			if err != nil {
+				t.Errorf("failed to call Sync: %v", err)
+				return
+			}
+
+			encResp := &mgmtProto.EncryptedMessage{}
+			if err = s.RecvMsg(encResp); err != nil {
+				t.Errorf("failed to receive sync response: %v", err)
+				return
+			}
+
+			resp := &mgmtProto.SyncResponse{}
+			if err = encryption.DecryptMessage(ts.serverPubKey, key, encResp.Body, resp); err != nil {
+				t.Errorf("failed to decrypt sync response: %v", err)
+				return
+			}
+			ipChan <- resp.GetPeerConfig().Address
+		}()
+	}
+
+	wg.Wait()
+	close(ipChan)
+
+	ipMap := make(map[string]bool)
+	for ip := range ipChan {
+		if ipMap[ip] {
+			t.Fatalf("found duplicate IP: %s", ip)
+		}
+		ipMap[ip] = true
+	}
+
+	// Ensure we collected all peers
+	if len(ipMap) != initialPeers {
+		t.Fatalf("expected %d unique IPs, got %d", initialPeers, len(ipMap))
+	}
 }

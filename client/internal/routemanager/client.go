@@ -4,21 +4,22 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	runtime "runtime"
+	"runtime"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/iface"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
+	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
+	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -26,6 +27,15 @@ const (
 	handlerTypeDynamic = iota
 	handlerTypeDomain
 	handlerTypeStatic
+)
+
+type reason int
+
+const (
+	reasonUnknown reason = iota
+	reasonRouteUpdate
+	reasonPeerUpdate
+	reasonShutdown
 )
 
 type routerPeerStatus struct {
@@ -52,7 +62,7 @@ type clientNetwork struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	statusRecorder      *peer.Status
-	wgInterface         iface.IWGIface
+	wgInterface         iface.WGIface
 	routes              map[route.ID]*route.Route
 	routeUpdate         chan routesUpdate
 	peerStateUpdate     chan struct{}
@@ -65,7 +75,7 @@ type clientNetwork struct {
 func newClientNetworkWatcher(
 	ctx context.Context,
 	dnsRouteInterval time.Duration,
-	wgInterface iface.IWGIface,
+	wgInterface iface.WGIface,
 	statusRecorder *peer.Status,
 	rt *route.Route,
 	routeRefCounter *refcounter.RouteRefCounter,
@@ -255,7 +265,7 @@ func (c *clientNetwork) removeRouteFromWireGuardPeer() error {
 	return nil
 }
 
-func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
+func (c *clientNetwork) removeRouteFromPeerAndSystem(rsn reason) error {
 	if c.currentChosen == nil {
 		return nil
 	}
@@ -269,17 +279,19 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 		merr = multierror.Append(merr, fmt.Errorf("remove route: %w", err))
 	}
 
+	c.disconnectEvent(rsn)
+
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
+func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem(rsn reason) error {
 	routerPeerStatuses := c.getRouterPeerStatuses()
 
 	newChosenID := c.getBestRouteFromStatuses(routerPeerStatuses)
 
 	// If no route is chosen, remove the route from the peer and system
 	if newChosenID == "" {
-		if err := c.removeRouteFromPeerAndSystem(); err != nil {
+		if err := c.removeRouteFromPeerAndSystem(rsn); err != nil {
 			return fmt.Errorf("remove route for peer %s: %w", c.currentChosen.Peer, err)
 		}
 
@@ -317,6 +329,58 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		return fmt.Errorf("add peer state route: %w", err)
 	}
 	return nil
+}
+
+func (c *clientNetwork) disconnectEvent(rsn reason) {
+	var defaultRoute bool
+	for _, r := range c.routes {
+		if r.Network.Bits() == 0 {
+			defaultRoute = true
+			break
+		}
+	}
+
+	if !defaultRoute {
+		return
+	}
+
+	var severity proto.SystemEvent_Severity
+	var message string
+	var userMessage string
+	meta := make(map[string]string)
+
+	switch rsn {
+	case reasonShutdown:
+		severity = proto.SystemEvent_INFO
+		message = "Default route removed"
+		userMessage = "Exit node disconnected."
+		meta["network"] = c.handler.String()
+	case reasonRouteUpdate:
+		severity = proto.SystemEvent_INFO
+		message = "Default route updated due to configuration change"
+		meta["network"] = c.handler.String()
+	case reasonPeerUpdate:
+		severity = proto.SystemEvent_WARNING
+		message = "Default route disconnected due to peer unreachability"
+		userMessage = "Exit node connection lost. Your internet access might be affected."
+		if c.currentChosen != nil {
+			meta["peer"] = c.currentChosen.Peer
+			meta["network"] = c.handler.String()
+		}
+	default:
+		severity = proto.SystemEvent_ERROR
+		message = "Default route disconnected for unknown reason"
+		userMessage = "Exit node disconnected for unknown reasons."
+		meta["network"] = c.handler.String()
+	}
+
+	c.statusRecorder.PublishEvent(
+		severity,
+		proto.SystemEvent_NETWORK,
+		message,
+		userMessage,
+		meta,
+	)
 }
 
 func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {
@@ -361,12 +425,12 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 		select {
 		case <-c.ctx.Done():
 			log.Debugf("Stopping watcher for network [%v]", c.handler)
-			if err := c.removeRouteFromPeerAndSystem(); err != nil {
+			if err := c.removeRouteFromPeerAndSystem(reasonShutdown); err != nil {
 				log.Errorf("Failed to remove routes for [%v]: %v", c.handler, err)
 			}
 			return
 		case <-c.peerStateUpdate:
-			err := c.recalculateRouteAndUpdatePeerAndSystem()
+			err := c.recalculateRouteAndUpdatePeerAndSystem(reasonPeerUpdate)
 			if err != nil {
 				log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
 			}
@@ -385,7 +449,7 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 
 			if isTrueRouteUpdate {
 				log.Debug("Client network update contains different routes, recalculating routes")
-				err := c.recalculateRouteAndUpdatePeerAndSystem()
+				err := c.recalculateRouteAndUpdatePeerAndSystem(reasonRouteUpdate)
 				if err != nil {
 					log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
 				}
@@ -404,7 +468,7 @@ func handlerFromRoute(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	dnsRouterInteval time.Duration,
 	statusRecorder *peer.Status,
-	wgInterface iface.IWGIface,
+	wgInterface iface.WGIface,
 	dnsServer nbdns.Server,
 	peerStore *peerstore.Store,
 	useNewDNSRoute bool,

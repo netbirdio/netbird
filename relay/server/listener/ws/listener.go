@@ -8,8 +8,8 @@ import (
 	"net"
 	"net/http"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/coder/websocket"
+	log "github.com/sirupsen/logrus"
 )
 
 // URLPath is the path for the websocket connection.

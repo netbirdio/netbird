@@ -14,8 +14,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -28,20 +28,16 @@ const (
 	notFoundSetupKeyID  = "notFoundSetupKeyID"
 )
 
-func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKey, updatedSetupKey *types.SetupKey,
-	user *types.User,
-) *handler {
+func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKey, updatedSetupKey *types.SetupKey) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return claims.AccountId, claims.UserId, nil
-			},
 			CreateSetupKeyFunc: func(_ context.Context, _ string, keyName string, typ types.SetupKeyType, _ time.Duration, _ []string,
-				_ int, _ string, ephemeral bool,
+				_ int, _ string, ephemeral bool, allowExtraDNSLabels bool,
 			) (*types.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
 					nk := newKey.Copy()
 					nk.Ephemeral = ephemeral
+					nk.AllowExtraDNSLabels = allowExtraDNSLabels
 					return nk, nil
 				}
 				return nil, fmt.Errorf("failed creating setup key")
@@ -75,15 +71,6 @@ func initSetupKeysTestMetaData(defaultKey *types.SetupKey, newKey *types.SetupKe
 				return status.Errorf(status.NotFound, "key %s not found", keyID)
 			},
 		},
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				return jwtclaims.AuthorizationClaims{
-					UserId:    user.Id,
-					Domain:    "hotmail.com",
-					AccountId: "testAccountId",
-				}
-			}),
-		),
 	}
 }
 
@@ -94,7 +81,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 	adminUser := types.NewAdminUser("test_user")
 
 	newSetupKey, plainKey := types.GenerateSetupKey(newSetupKeyName, types.SetupKeyReusable, 0, []string{"group-1"},
-		types.SetupKeyUnlimitedUsage, true)
+		types.SetupKeyUnlimitedUsage, true, false)
 	newSetupKey.Key = plainKey
 	updatedDefaultSetupKey := defaultSetupKey.Copy()
 	updatedDefaultSetupKey.AutoGroups = []string{"group-1"}
@@ -170,12 +157,17 @@ func TestSetupKeysHandlers(t *testing.T) {
 		},
 	}
 
-	handler := initSetupKeysTestMetaData(defaultSetupKey, newSetupKey, updatedDefaultSetupKey, adminUser)
+	handler := initSetupKeysTestMetaData(defaultSetupKey, newSetupKey, updatedDefaultSetupKey)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    adminUser.Id,
+				Domain:    "hotmail.com",
+				AccountId: "testAccountId",
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/setup-keys", handler.getAllSetupKeys).Methods("GET", "OPTIONS")

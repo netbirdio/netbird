@@ -117,7 +117,7 @@ func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte
 		config.DisableDNS,
 		config.DisableFirewall,
 	)
-	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey)
+	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey, config.DNSLabels)
 	return serverKey, err
 }
 
