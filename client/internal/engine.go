@@ -526,15 +526,18 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
 		peerPubKey := p.GetWgPubKey()
-		if allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey); ok {
-			if allowedIPs != strings.Join(p.AllowedIps, ",") {
-				modified = append(modified, p)
-				continue
-			}
-			err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn())
-			if err != nil {
-				log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
-			}
+		allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey)
+		if !ok {
+			continue
+		}
+		if !compareNetIPLists(allowedIPs, p.GetAllowedIps()) {
+			modified = append(modified, p)
+			continue
+		}
+
+		err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn())
+		if err != nil {
+			log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
 		}
 	}
 
@@ -1100,34 +1103,45 @@ func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 // addNewPeer add peer if connection doesn't exist
 func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	peerKey := peerConfig.GetWgPubKey()
-	peerIPs := peerConfig.GetAllowedIps()
-	if _, ok := e.peerStore.PeerConn(peerKey); !ok {
-		conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
-		if err != nil {
-			return fmt.Errorf("create peer connection: %w", err)
-		}
-
-		if ok := e.peerStore.AddPeerConn(peerKey, conn); !ok {
-			conn.Close()
-			return fmt.Errorf("peer already exists: %s", peerKey)
-		}
-
-		if e.beforePeerHook != nil && e.afterPeerHook != nil {
-			conn.AddBeforeAddPeerHook(e.beforePeerHook)
-			conn.AddAfterRemovePeerHook(e.afterPeerHook)
-		}
-
-		err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
-		if err != nil {
-			log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
-		}
-
-		conn.Open()
+	peerIPs := make([]netip.Prefix, 0, len(peerConfig.GetAllowedIps()))
+	if _, ok := e.peerStore.PeerConn(peerKey); ok {
+		return nil
 	}
+
+	for _, ipString := range peerConfig.GetAllowedIps() {
+		allowedNetIP, err := netip.ParsePrefix(ipString)
+		if err != nil {
+			log.Errorf("failed to parse allowedIPS: %v", err)
+			return err
+		}
+		peerIPs = append(peerIPs, allowedNetIP)
+	}
+
+	conn, err := e.createPeerConn(peerKey, peerIPs)
+	if err != nil {
+		return fmt.Errorf("create peer connection: %w", err)
+	}
+
+	if ok := e.peerStore.AddPeerConn(peerKey, conn); !ok {
+		conn.Close()
+		return fmt.Errorf("peer already exists: %s", peerKey)
+	}
+
+	if e.beforePeerHook != nil && e.afterPeerHook != nil {
+		conn.AddBeforeAddPeerHook(e.beforePeerHook)
+		conn.AddAfterRemovePeerHook(e.afterPeerHook)
+	}
+
+	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
+	if err != nil {
+		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
+	}
+
+	conn.Open()
 	return nil
 }
 
-func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
+func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix) (*peer.Conn, error) {
 	log.Debugf("creating peer connection %s", pubKey)
 
 	wgConfig := peer.WgConfig{
@@ -1811,4 +1825,38 @@ func getInterfacePrefixes() ([]netip.Prefix, error) {
 	}
 
 	return prefixes, nberrors.FormatErrorOrNil(merr)
+}
+
+// compareNetIPLists compares a list of netip.Prefix with a list of strings.
+// return true if both lists are equal, false otherwise.
+func compareNetIPLists(list1 []netip.Prefix, list2 []string) bool {
+	if len(list1) != len(list2) {
+		return false
+	}
+
+	// Convert list2 strings to netip.Prefix for consistent comparison
+	list2Prefixes := make([]netip.Prefix, len(list2))
+	for i, s := range list2 {
+		prefix, err := netip.ParsePrefix(s)
+		if err != nil {
+			return false // Invalid IP prefix format in list2
+		}
+		list2Prefixes[i] = prefix
+	}
+
+	// Sort both slices
+	sort.Slice(list1, func(i, j int) bool {
+		return list1[i].String() < list1[j].String()
+	})
+	sort.Slice(list2Prefixes, func(i, j int) bool {
+		return list2Prefixes[i].String() < list2Prefixes[j].String()
+	})
+
+	// Compare sorted slices
+	for i := range list1 {
+		if list1[i] != list2Prefixes[i] {
+			return false
+		}
+	}
+	return true
 }
