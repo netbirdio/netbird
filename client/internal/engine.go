@@ -953,7 +953,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
 
-	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig)); err != nil {
+	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
@@ -1022,7 +1022,7 @@ func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) []string {
 	return dnsRoutes
 }
 
-func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
+func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network *net.IPNet) nbdns.Config {
 	dnsUpdate := nbdns.Config{
 		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
 		CustomZones:      make([]nbdns.CustomZone, 0),
@@ -1062,6 +1062,11 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 		}
 		dnsUpdate.NameServerGroups = append(dnsUpdate.NameServerGroups, dnsNSGroup)
 	}
+
+	if len(dnsUpdate.CustomZones) > 0 {
+		addReverseZone(&dnsUpdate, network)
+	}
+
 	return dnsUpdate
 }
 
@@ -1368,7 +1373,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 		return nil, nil, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
-	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
+	dnsCfg := toDNSConfig(netMap.GetDNSConfig(), e.wgInterface.Address().Network)
 	return routes, &dnsCfg, nil
 }
 

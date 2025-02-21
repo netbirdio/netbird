@@ -361,6 +361,15 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},
+		AddressFunc: func() iface.WGAddress {
+			return iface.WGAddress{
+				IP: net.ParseIP("10.20.0.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("10.20.0.0"),
+					Mask: net.IPv4Mask(255, 255, 255, 0),
+				},
+			}
+		},
 	}
 	engine.wgInterface = wgIface
 	engine.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
@@ -803,6 +812,9 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 								},
 							},
 						},
+						{
+							Domain: "0.66.100.in-addr.arpa.",
+						},
 					},
 					NameServerGroups: []*mgmtProto.NameServerGroup{
 						{
@@ -831,6 +843,9 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 							RData: "100.64.0.1",
 						},
 					},
+				},
+				{
+					Domain: "0.66.100.in-addr.arpa.",
 				},
 			},
 			expectedNSGroupsLen: 1,
