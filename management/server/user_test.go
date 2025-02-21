@@ -10,6 +10,8 @@ import (
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
+
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/util"
 	"golang.org/x/exp/maps"
 
@@ -25,7 +27,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 const (
@@ -925,11 +926,12 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	claims := jwtclaims.AuthorizationClaims{
-		UserId: mockUserID,
+	claims := nbcontext.UserAuth{
+		UserId:    mockUserID,
+		AccountId: mockAccountID,
 	}
 
-	user, err := am.GetUser(context.Background(), claims)
+	user, err := am.GetUserFromUserAuth(context.Background(), claims)
 	if err != nil {
 		t.Fatalf("Error when checking user role: %s", err)
 	}

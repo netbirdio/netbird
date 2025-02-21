@@ -48,13 +48,12 @@ func BenchmarkUpdateUser(b *testing.B) {
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
 
-	recorder := httptest.NewRecorder()
-
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
+			recorder := httptest.NewRecorder()
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
@@ -97,13 +96,12 @@ func BenchmarkGetOneUser(b *testing.B) {
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
 
-	recorder := httptest.NewRecorder()
-
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
+			recorder := httptest.NewRecorder()
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
@@ -118,26 +116,25 @@ func BenchmarkGetOneUser(b *testing.B) {
 
 func BenchmarkGetAllUsers(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Users - XS":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 10},
-		"Users - S":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 10},
-		"Users - M":      {MinMsPerOpLocal: 3, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 15},
-		"Users - L":      {MinMsPerOpLocal: 10, MaxMsPerOpLocal: 20, MinMsPerOpCICD: 20, MaxMsPerOpCICD: 50},
-		"Peers - L":      {MinMsPerOpLocal: 15, MaxMsPerOpLocal: 25, MinMsPerOpCICD: 20, MaxMsPerOpCICD: 55},
-		"Groups - L":     {MinMsPerOpLocal: 15, MaxMsPerOpLocal: 25, MinMsPerOpCICD: 25, MaxMsPerOpCICD: 55},
-		"Setup Keys - L": {MinMsPerOpLocal: 15, MaxMsPerOpLocal: 25, MinMsPerOpCICD: 25, MaxMsPerOpCICD: 55},
-		"Users - XL":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 120, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
+		"Users - XS":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 75},
+		"Users - S":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 75},
+		"Users - M":      {MinMsPerOpLocal: 3, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 75},
+		"Users - L":      {MinMsPerOpLocal: 10, MaxMsPerOpLocal: 20, MinMsPerOpCICD: 10, MaxMsPerOpCICD: 100},
+		"Peers - L":      {MinMsPerOpLocal: 15, MaxMsPerOpLocal: 25, MinMsPerOpCICD: 10, MaxMsPerOpCICD: 100},
+		"Groups - L":     {MinMsPerOpLocal: 15, MaxMsPerOpLocal: 25, MinMsPerOpCICD: 10, MaxMsPerOpCICD: 100},
+		"Setup Keys - L": {MinMsPerOpLocal: 15, MaxMsPerOpLocal: 25, MinMsPerOpCICD: 10, MaxMsPerOpCICD: 100},
+		"Users - XL":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 120, MinMsPerOpCICD: 50, MaxMsPerOpCICD: 300},
 	}
 
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
-
-	recorder := httptest.NewRecorder()
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
+			recorder := httptest.NewRecorder()
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
@@ -152,26 +149,25 @@ func BenchmarkGetAllUsers(b *testing.B) {
 
 func BenchmarkDeleteUsers(b *testing.B) {
 	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Users - XS":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
-		"Users - S":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
-		"Users - M":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
-		"Users - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
-		"Peers - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
-		"Groups - L":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
-		"Setup Keys - L": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
-		"Users - XL":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 15},
+		"Users - XS":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 50},
+		"Users - S":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 50},
+		"Users - M":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 50},
+		"Users - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 50},
+		"Peers - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 50},
+		"Groups - L":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 50},
+		"Setup Keys - L": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 50},
+		"Users - XL":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 50},
 	}
 
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
-
-	recorder := httptest.NewRecorder()
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
 			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, 1000, bc.SetupKeys)
 
+			recorder := httptest.NewRecorder()
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {

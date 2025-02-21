@@ -15,13 +15,13 @@ import (
 	"golang.org/x/exp/maps"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
@@ -52,7 +52,7 @@ type ManagerConfig struct {
 	Context             context.Context
 	PublicKey           string
 	DNSRouteInterval    time.Duration
-	WGInterface         iface.IWGIface
+	WGInterface         iface.WGIface
 	StatusRecorder      *peer.Status
 	RelayManager        *relayClient.Manager
 	InitialRoutes       []*route.Route
@@ -74,7 +74,7 @@ type DefaultManager struct {
 	sysOps               *systemops.SysOps
 	statusRecorder       *peer.Status
 	relayMgr             *relayClient.Manager
-	wgInterface          iface.IWGIface
+	wgInterface          iface.WGIface
 	pubKey               string
 	notifier             *notifier.Notifier
 	routeRefCounter      *refcounter.RouteRefCounter
