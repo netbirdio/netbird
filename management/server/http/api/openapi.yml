@@ -1697,7 +1697,7 @@ components:
         protocol:
           description: The protocol accepted by the port range
           type: string
-          enum: [ "tcp", "udp" ]
+          enum: [ "tcp", "udp", "tcp/udp" ]
           example: tcp
       required:
         - start
@@ -1713,7 +1713,7 @@ components:
         protocol:
           description: The protocol accepted by the port
           type: string
-          enum: [ "tcp", "udp" ]
+          enum: [ "tcp", "udp", "tcp/udp" ]
           example: udp
       required:
         - count
@@ -1780,7 +1780,7 @@ components:
         protocol:
           description: Protocol accepted by the ports
           type: string
-          enum: [ "tcp", "udp" ]
+          enum: [ "tcp", "udp", "tcp/udp" ]
           example: tcp
       required:
         - translated_start

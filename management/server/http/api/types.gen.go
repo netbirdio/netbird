@@ -85,20 +85,23 @@ const (
 
 // Defines values for IngressPortAllocationPortMappingProtocol.
 const (
-	IngressPortAllocationPortMappingProtocolTcp IngressPortAllocationPortMappingProtocol = "tcp"
-	IngressPortAllocationPortMappingProtocolUdp IngressPortAllocationPortMappingProtocol = "udp"
+	IngressPortAllocationPortMappingProtocolTcp    IngressPortAllocationPortMappingProtocol = "tcp"
+	IngressPortAllocationPortMappingProtocolTcpudp IngressPortAllocationPortMappingProtocol = "tcp/udp"
+	IngressPortAllocationPortMappingProtocolUdp    IngressPortAllocationPortMappingProtocol = "udp"
 )
 
 // Defines values for IngressPortAllocationRequestDirectPortProtocol.
 const (
-	IngressPortAllocationRequestDirectPortProtocolTcp IngressPortAllocationRequestDirectPortProtocol = "tcp"
-	IngressPortAllocationRequestDirectPortProtocolUdp IngressPortAllocationRequestDirectPortProtocol = "udp"
+	IngressPortAllocationRequestDirectPortProtocolTcp    IngressPortAllocationRequestDirectPortProtocol = "tcp"
+	IngressPortAllocationRequestDirectPortProtocolTcpudp IngressPortAllocationRequestDirectPortProtocol = "tcp/udp"
+	IngressPortAllocationRequestDirectPortProtocolUdp    IngressPortAllocationRequestDirectPortProtocol = "udp"
 )
 
 // Defines values for IngressPortAllocationRequestPortRangeProtocol.
 const (
-	IngressPortAllocationRequestPortRangeProtocolTcp IngressPortAllocationRequestPortRangeProtocol = "tcp"
-	IngressPortAllocationRequestPortRangeProtocolUdp IngressPortAllocationRequestPortRangeProtocol = "udp"
+	IngressPortAllocationRequestPortRangeProtocolTcp    IngressPortAllocationRequestPortRangeProtocol = "tcp"
+	IngressPortAllocationRequestPortRangeProtocolTcpudp IngressPortAllocationRequestPortRangeProtocol = "tcp/udp"
+	IngressPortAllocationRequestPortRangeProtocolUdp    IngressPortAllocationRequestPortRangeProtocol = "udp"
 )
 
 // Defines values for NameserverNsType.
