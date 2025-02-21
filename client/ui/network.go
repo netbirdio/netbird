@@ -384,7 +384,10 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 }
 
 func (s *serviceClient) getExitNodes(conn proto.DaemonServiceClient) ([]*proto.Network, error) {
-	resp, err := conn.ListNetworks(s.ctx, &proto.ListNetworksRequest{})
+	ctx, cancel := context.WithTimeout(s.ctx, defaultFailTimeout)
+	defer cancel()
+
+	resp, err := conn.ListNetworks(ctx, &proto.ListNetworksRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("list networks: %v", err)
 	}
