@@ -22,9 +22,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -1233,6 +1234,91 @@ func Test_CheckFilesEqual(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := isChecksEqual(testCase.inputChecks1, testCase.inputChecks2)
 			assert.Equal(t, testCase.expectedBool, result, "result should match expected bool")
+		})
+	}
+}
+
+func TestCompareNetIPLists(t *testing.T) {
+	tests := []struct {
+		name     string
+		list1    []netip.Prefix
+		list2    []string
+		expected bool
+	}{
+		{
+			name:     "both empty",
+			list1:    []netip.Prefix{},
+			list2:    []string{},
+			expected: true,
+		},
+		{
+			name:     "single match ipv4",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.0.0/24")},
+			list2:    []string{"192.168.0.0/24"},
+			expected: true,
+		},
+		{
+			name:     "multiple match ipv4, different order",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24"), netip.MustParsePrefix("10.0.0.0/8")},
+			list2:    []string{"10.0.0.0/8", "192.168.1.0/24"},
+			expected: true,
+		},
+		{
+			name:     "ipv4 mismatch due to extra element in list2",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+			list2:    []string{"192.168.1.0/24", "10.0.0.0/8"},
+			expected: false,
+		},
+		{
+			name:     "ipv4 mismatch due to duplicate count",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24"), netip.MustParsePrefix("192.168.1.0/24")},
+			list2:    []string{"192.168.1.0/24"},
+			expected: false,
+		},
+		{
+			name:     "invalid prefix in list2",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+			list2:    []string{"invalid-prefix"},
+			expected: false,
+		},
+		{
+			name:     "ipv4 mismatch because different prefixes",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+			list2:    []string{"10.0.0.0/8"},
+			expected: false,
+		},
+		{
+			name:     "single match ipv6",
+			list1:    []netip.Prefix{netip.MustParsePrefix("2001:db8::/32")},
+			list2:    []string{"2001:db8::/32"},
+			expected: true,
+		},
+		{
+			name:     "multiple match ipv6, different order",
+			list1:    []netip.Prefix{netip.MustParsePrefix("2001:db8::/32"), netip.MustParsePrefix("fe80::/10")},
+			list2:    []string{"fe80::/10", "2001:db8::/32"},
+			expected: true,
+		},
+		{
+			name:     "mixed ipv4 and ipv6 match",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24"), netip.MustParsePrefix("2001:db8::/32")},
+			list2:    []string{"2001:db8::/32", "192.168.1.0/24"},
+			expected: true,
+		},
+		{
+			name:     "ipv6 mismatch with invalid prefix",
+			list1:    []netip.Prefix{netip.MustParsePrefix("2001:db8::/32")},
+			list2:    []string{"invalid-ipv6"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := compareNetIPLists(tt.list1, tt.list2)
+			if result != tt.expected {
+				t.Errorf("compareNetIPLists(%v, %v) = %v; want %v", tt.list1, tt.list2, result, tt.expected)
+			}
 		})
 	}
 }
