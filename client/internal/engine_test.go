@@ -23,6 +23,9 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	wgdevice "golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
+
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -49,8 +52,6 @@ import (
 	"github.com/netbirdio/netbird/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 var (
@@ -76,7 +77,7 @@ type MockWGIface struct {
 	ToInterfaceFunc            func() *net.Interface
 	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddrFunc             func(newAddr string) error
-	UpdatePeerFunc             func(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
 	AddAllowedIPFunc           func(peerKey string, allowedIP string) error
 	RemoveAllowedIPFunc        func(peerKey string, allowedIP string) error
@@ -127,7 +128,7 @@ func (m *MockWGIface) UpdateAddr(newAddr string) error {
 	return m.UpdateAddrFunc(newAddr)
 }
 
-func (m *MockWGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (m *MockWGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	return m.UpdatePeerFunc(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
@@ -533,7 +534,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 					t.Errorf("expecting Engine.peerConns to contain peer %s", p)
 				}
 				expectedAllowedIPs := strings.Join(p.AllowedIps, ",")
-				if conn.WgConfig().AllowedIps != expectedAllowedIPs {
+				if !compareNetIPLists(conn.WgConfig().AllowedIps, p.AllowedIps) {
 					t.Errorf("expecting peer %s to have AllowedIPs= %s, got %s", p.GetWgPubKey(),
 						expectedAllowedIPs, conn.WgConfig().AllowedIps)
 				}
