@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,14 +18,17 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 )
 
+type Handler func(*proto.SystemEvent)
+
 type Manager struct {
 	app  fyne.App
 	addr string
 
-	mu      sync.Mutex
-	ctx     context.Context
-	cancel  context.CancelFunc
-	enabled bool
+	mu       sync.Mutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	enabled  bool
+	handlers []Handler
 }
 
 func NewManager(app fyne.App, addr string) *Manager {
@@ -100,20 +104,41 @@ func (e *Manager) SetNotificationsEnabled(enabled bool) {
 func (e *Manager) handleEvent(event *proto.SystemEvent) {
 	e.mu.Lock()
 	enabled := e.enabled
+	handlers := slices.Clone(e.handlers)
 	e.mu.Unlock()
 
-	if !enabled {
+	// critical events are always shown
+	if !enabled && event.Severity != proto.SystemEvent_CRITICAL {
 		return
 	}
 
-	title := e.getEventTitle(event)
-	e.app.SendNotification(fyne.NewNotification(title, event.UserMessage))
+	if event.UserMessage != "" {
+		title := e.getEventTitle(event)
+		body := event.UserMessage
+		id := event.Metadata["id"]
+		if id != "" {
+			body += fmt.Sprintf(" ID: %s", id)
+		}
+		e.app.SendNotification(fyne.NewNotification(title, body))
+	}
+
+	for _, handler := range handlers {
+		go handler(event)
+	}
+}
+
+func (e *Manager) AddHandler(handler Handler) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.handlers = append(e.handlers, handler)
 }
 
 func (e *Manager) getEventTitle(event *proto.SystemEvent) string {
 	var prefix string
 	switch event.Severity {
-	case proto.SystemEvent_ERROR, proto.SystemEvent_CRITICAL:
+	case proto.SystemEvent_CRITICAL:
+		prefix = "Critical"
+	case proto.SystemEvent_ERROR:
 		prefix = "Error"
 	case proto.SystemEvent_WARNING:
 		prefix = "Warning"
