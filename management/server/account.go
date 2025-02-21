@@ -1749,6 +1749,7 @@ func addAllGroup(account *types.Account) error {
 
 		account.Policies = []*types.Policy{defaultPolicy}
 	}
+
 	return nil
 }
 
