@@ -6,26 +6,30 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"os"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/stretchr/testify/assert"
+
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 )
 
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
-	claims := jwtclaims.AuthorizationClaims{
+	claims := nbcontext.UserAuth{
 		Domain:         "example.com",
 		UserId:         "pvt-domain-user",
 		DomainCategory: types.PrivateCategory,
 	}
 
-	publicClaims := jwtclaims.AuthorizationClaims{
+	publicClaims := nbcontext.UserAuth{
 		Domain:         "test.com",
 		UserId:         "public-domain-user",
 		DomainCategory: types.PublicCategory,
