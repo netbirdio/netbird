@@ -737,7 +737,10 @@ func normalizedVersion(version string) string {
 	return versionString
 }
 
-func (s *serviceClient) onTrayExit() {}
+// onTrayExit is called when the tray icon is closed.
+func (s *serviceClient) onTrayExit() {
+	// no actions are needed in this version
+}
 
 // getSrvClient connection to the service.
 func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
