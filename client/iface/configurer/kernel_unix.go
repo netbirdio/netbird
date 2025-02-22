@@ -43,13 +43,7 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 	return nil
 }
 
-func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
-	// parse allowed ips
-	_, ipNet, err := net.ParseCIDR(allowedIps)
-	if err != nil {
-		return err
-	}
-
+func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -58,7 +52,7 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps string, keepAli
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
 		// don't replace allowed ips, wg will handle duplicated peer IP
-		AllowedIPs:                  []net.IPNet{*ipNet},
+		AllowedIPs:                  allowedIps,
 		PersistentKeepaliveInterval: &keepAlive,
 		Endpoint:                    endpoint,
 		PresharedKey:                preSharedKey,

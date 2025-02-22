@@ -126,7 +126,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	return cfg, nil
 }
 
-func (m *Manager) OnDisconnected(peerKey string, wgIP string) {
+func (m *Manager) OnDisconnected(peerKey string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
