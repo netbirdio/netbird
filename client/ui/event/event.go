@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/client/ui/desktop"
 )
 
 type Handler func(*proto.SystemEvent)
@@ -167,7 +167,7 @@ func getClient(addr string) (proto.DaemonServiceClient, error) {
 	conn, err := grpc.NewClient(
 		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUserAgent(system.GetDesktopUIUserAgent()),
+		grpc.WithUserAgent(desktop.GetUIUserAgent()),
 	)
 	if err != nil {
 		return nil, err
