@@ -154,6 +154,7 @@ type serviceClient struct {
 	mAdminPanel        *systray.MenuItem
 	mSettings          *systray.MenuItem
 	mAbout             *systray.MenuItem
+	mGitHub			   *systray.MenuItem
 	mVersionUI         *systray.MenuItem
 	mVersionDaemon     *systray.MenuItem
 	mUpdate            *systray.MenuItem
@@ -607,6 +608,9 @@ func (s *serviceClient) onTrayReady() {
 
 	s.mAbout = systray.AddMenuItem("About", "About")
 	s.mAbout.SetIcon(s.icAbout)
+	
+	s.mGitHub = s.mAbout.AddSubMenuItem(fmt.Sprintf("GitHub"), fmt.Sprintf("GitHub"))
+
 	versionString := normalizedVersion(version.NetbirdVersion())
 	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
 	s.mVersionUI.Disable()
@@ -717,6 +721,11 @@ func (s *serviceClient) onTrayReady() {
 			case <-s.mQuit.ClickedCh:
 				systray.Quit()
 				return
+			case <-s.mGitHub.ClickedCh:
+				err := openURL("https://github.com/netbirdio/netbird")
+				if err != nil {
+					log.Errorf("%s", err)
+				}
 			case <-s.mUpdate.ClickedCh:
 				err := openURL(version.DownloadUrl())
 				if err != nil {
