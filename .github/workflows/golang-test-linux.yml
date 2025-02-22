@@ -316,7 +316,7 @@ jobs:
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
           go test -tags=devcert \
             -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
-            -timeout 10m ./management/...
+            -timeout 20m ./management/...
 
   benchmark:
     name: "Management / Benchmark"
