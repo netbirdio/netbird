@@ -1,6 +1,5 @@
-version: "3"
 services:
-  #UI dashboard
+  # UI dashboard
   dashboard:
     image: netbirdio/dashboard:$NETBIRD_DASHBOARD_TAG
     restart: unless-stopped
@@ -33,6 +32,7 @@ services:
       options:
         max-size: "500m"
         max-file: "2"
+
   # Signal
   signal:
     image: netbirdio/signal:$NETBIRD_SIGNAL_TAG
@@ -49,6 +49,7 @@ services:
       options:
         max-size: "500m"
         max-file: "2"
+
   # Relay
   relay:
     image: netbirdio/relay:$NETBIRD_RELAY_TAG
@@ -115,6 +116,7 @@ services:
       options:
         max-size: "500m"
         max-file: "2"
+
 volumes:
   $MGMT_VOLUMENAME:
   $SIGNAL_VOLUMENAME:
