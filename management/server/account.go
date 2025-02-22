@@ -1528,6 +1528,7 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 	if err != nil {
 		return mapError(ctx, err)
 	}
+
 	return nil
 }
 
@@ -1656,6 +1657,7 @@ func addAllGroup(account *types.Account) error {
 
 		account.Policies = []*types.Policy{defaultPolicy}
 	}
+
 	return nil
 }
 
