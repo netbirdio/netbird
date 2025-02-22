@@ -13,7 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 )
 
 const (
@@ -23,7 +23,7 @@ const (
 )
 
 // Setup configures sysctl settings for RP filtering and source validation.
-func Setup(wgIface iface.IWGIface) (map[string]int, error) {
+func Setup(wgIface iface.WGIface) (map[string]int, error) {
 	keys := map[string]int{}
 	var result *multierror.Error
 

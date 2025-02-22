@@ -16,12 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/domain"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
@@ -58,32 +56,6 @@ var baseExistingRoute = &route.Route{
 	Masquerade:  false,
 	Enabled:     true,
 	Groups:      []string{existingGroupID},
-}
-
-var testingAccount = &types.Account{
-	Id:     testAccountID,
-	Domain: "hotmail.com",
-	Peers: map[string]*nbpeer.Peer{
-		existingPeerID: {
-			Key: existingPeerKey,
-			IP:  netip.MustParseAddr(existingPeerIP1).AsSlice(),
-			ID:  existingPeerID,
-			Meta: nbpeer.PeerSystemMeta{
-				GoOS: "linux",
-			},
-		},
-		nonLinuxExistingPeerID: {
-			Key: nonLinuxExistingPeerID,
-			IP:  netip.MustParseAddr(existingPeerIP2).AsSlice(),
-			ID:  nonLinuxExistingPeerID,
-			Meta: nbpeer.PeerSystemMeta{
-				GoOS: "darwin",
-			},
-		},
-	},
-	Users: map[string]*types.User{
-		"test_user": types.NewAdminUser("test_user"),
-	},
 }
 
 func initRoutesTestData() *handler {
@@ -150,20 +122,7 @@ func initRoutesTestData() *handler {
 				}
 				return nil
 			},
-			GetAccountIDFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (string, string, error) {
-				// return testingAccount, testingAccount.Users["test_user"], nil
-				return testingAccount.Id, testingAccount.Users["test_user"].Id, nil
-			},
 		},
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
-					Domain:    "hotmail.com",
-					AccountId: testAccountID,
-				}
-			}),
-		),
 	}
 }
 
@@ -526,6 +485,11 @@ func TestRoutesHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: testAccountID,
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/routes/{routeId}", p.getRoute).Methods("GET")

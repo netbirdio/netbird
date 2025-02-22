@@ -15,7 +15,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -56,7 +55,7 @@ const (
 type WgConfig struct {
 	WgListenPort int
 	RemoteKey    string
-	WgInterface  iface.IWGIface
+	WgInterface  WGIface
 	AllowedIps   string
 	PreSharedKey *wgtypes.Key
 }

@@ -1,4 +1,4 @@
-package cmd
+package status
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-type systemEventOutput struct {
+type SystemEventOutput struct {
 	ID          string            `json:"id" yaml:"id"`
 	Severity    string            `json:"severity" yaml:"severity"`
 	Category    string            `json:"category" yaml:"category"`
@@ -19,10 +19,10 @@ type systemEventOutput struct {
 	Metadata    map[string]string `json:"metadata" yaml:"metadata"`
 }
 
-func mapEvents(protoEvents []*proto.SystemEvent) []systemEventOutput {
-	events := make([]systemEventOutput, len(protoEvents))
+func mapEvents(protoEvents []*proto.SystemEvent) []SystemEventOutput {
+	events := make([]SystemEventOutput, len(protoEvents))
 	for i, event := range protoEvents {
-		events[i] = systemEventOutput{
+		events[i] = SystemEventOutput{
 			ID:          event.GetId(),
 			Severity:    event.GetSeverity().String(),
 			Category:    event.GetCategory().String(),
@@ -35,7 +35,7 @@ func mapEvents(protoEvents []*proto.SystemEvent) []systemEventOutput {
 	return events
 }
 
-func parseEvents(events []systemEventOutput) string {
+func parseEvents(events []SystemEventOutput) string {
 	if len(events) == 0 {
 		return " No events recorded"
 	}
