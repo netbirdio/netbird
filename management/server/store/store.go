@@ -353,14 +353,23 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
+	err = addAllGroupToAccount(ctx, store)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
+	}
+
+	return getSqlStoreEngine(ctx, store, kind)
+}
+
+func addAllGroupToAccount(ctx context.Context, store Store) error {
 	allAccounts := store.GetAllAccounts(ctx)
 	for _, account := range allAccounts {
 		shouldSave := false
 
-		_, err = account.GetGroupAll()
+		_, err := account.GetGroupAll()
 		if err != nil {
 			if err := account.AddAllGroup(); err != nil {
-				return nil, nil, err
+				return err
 			}
 			shouldSave = true
 		}
@@ -368,12 +377,11 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		if shouldSave {
 			err = store.SaveAccount(ctx, account)
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
 		}
 	}
-
-	return getSqlStoreEngine(ctx, store, kind)
+	return nil
 }
 
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
