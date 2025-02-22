@@ -33,7 +33,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
@@ -779,6 +779,7 @@ func normalizedVersion(version string) string {
 	return versionString
 }
 
+// onTrayExit is called when the tray icon is closed.
 func (s *serviceClient) onTrayExit() {
 	for _, item := range s.mExitNodeItems {
 		item.cancel()
@@ -799,7 +800,7 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
-		grpc.WithUserAgent(system.GetDesktopUIUserAgent()),
+		grpc.WithUserAgent(desktop.GetUIUserAgent()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial service: %w", err)
