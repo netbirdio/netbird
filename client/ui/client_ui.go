@@ -591,7 +591,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", "Allow SSH connections", false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", "Connect automatically when the service starts", false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", "Enable post-quantum security via Rosenpass", false)
-	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", "Enable notifications", true)
+	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", "Enable notifications", false)
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", "Create and open debug information bundle")
 	s.loadSettings()
