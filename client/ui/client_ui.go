@@ -154,7 +154,7 @@ type serviceClient struct {
 	mAdminPanel        *systray.MenuItem
 	mSettings          *systray.MenuItem
 	mAbout             *systray.MenuItem
-	mGitHub			   *systray.MenuItem
+	mGitHub            *systray.MenuItem
 	mVersionUI         *systray.MenuItem
 	mVersionDaemon     *systray.MenuItem
 	mUpdate            *systray.MenuItem
@@ -609,7 +609,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAbout = systray.AddMenuItem("About", "About")
 	s.mAbout.SetIcon(s.icAbout)
 	
-	s.mGitHub = s.mAbout.AddSubMenuItem(fmt.Sprintf("GitHub"), fmt.Sprintf("GitHub"))
+	s.mGitHub = s.mAbout.AddSubMenuItem(fmt.Sprint("GitHub"), fmt.Sprint("GitHub"))
 
 	versionString := normalizedVersion(version.NetbirdVersion())
 	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
