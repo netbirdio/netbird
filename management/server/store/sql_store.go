@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/util"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -23,6 +22,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+
+	"github.com/netbirdio/netbird/management/server/util"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -84,7 +85,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 		conns = 1
 	}
 
-	sql.SetMaxOpenConns(conns)
+	sql.SetMaxOpenConns(100)
 
 	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
