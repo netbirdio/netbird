@@ -353,12 +353,23 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
-	err = addAllGroupToAccount(ctx, store)
+  	err = addAllGroupToAccount(ctx, store)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
-	return getSqlStoreEngine(ctx, store, kind)
+  
+	maxRetries := 2
+	for i := 0; i < maxRetries; i++ {
+		sqlStore, cleanUp, err := getSqlStoreEngine(ctx, store, kind)
+		if err == nil {
+			return sqlStore, cleanUp, nil
+		}
+		if i < maxRetries-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
 }
 
 func addAllGroupToAccount(ctx context.Context, store Store) error {
