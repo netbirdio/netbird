@@ -48,6 +48,7 @@ const (
 )
 
 type Store interface {
+	GetAccountsCounter(ctx context.Context) (int64, error)
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
@@ -352,7 +353,35 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
+	err = addAllGroupToAccount(ctx, store)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
+	}
+
 	return getSqlStoreEngine(ctx, store, kind)
+}
+
+func addAllGroupToAccount(ctx context.Context, store Store) error {
+	allAccounts := store.GetAllAccounts(ctx)
+	for _, account := range allAccounts {
+		shouldSave := false
+
+		_, err := account.GetGroupAll()
+		if err != nil {
+			if err := account.AddAllGroup(); err != nil {
+				return err
+			}
+			shouldSave = true
+		}
+
+		if shouldSave {
+			err = store.SaveAccount(ctx, account)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
