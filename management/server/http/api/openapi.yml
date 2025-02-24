@@ -1680,11 +1680,11 @@ components:
         type: object
         properties:
             tcp:
-                description: Number of available ports left for TCP
+                description: Number of available TCP  ports left on the ingress peer
                 type: integer
                 example: 45765
             udp:
-                description: Number of available ports left for UDP
+                description: Number of available UDP ports left on the ingress peer
                 type: integer
                 example: 50000
         required:

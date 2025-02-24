@@ -276,10 +276,10 @@ type AccountSettings struct {
 
 // AvailablePorts defines model for AvailablePorts.
 type AvailablePorts struct {
-	// Tcp Number of available ports left for TCP
+	// Tcp Number of available TCP  ports left on the ingress peer
 	Tcp int `json:"tcp"`
 
-	// Udp Number of available ports left for UDP
+	// Udp Number of available UDP ports left on the ingress peer
 	Udp int `json:"udp"`
 }
 
