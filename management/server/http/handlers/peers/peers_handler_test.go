@@ -146,9 +146,6 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 			GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
 				return account, nil
 			},
-			GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
-				return account, nil
-			},
 			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
 				return account, nil
 			},
