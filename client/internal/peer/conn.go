@@ -166,6 +166,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 // Open opens connection to the remote peer
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
+// todo: prevent double open
 func (conn *Conn) Open() {
 	conn.semaphore.Add(conn.ctx)
 	conn.log.Debugf("open connection to peer")
