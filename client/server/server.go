@@ -751,6 +751,11 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 
 	}
 
+	disableNotifications := true
+	if s.config.DisableNotifications != nil {
+		disableNotifications = *s.config.DisableNotifications
+	}
+
 	return &proto.GetConfigResponse{
 		ManagementUrl:        managementURL,
 		ConfigFile:           s.latestConfigInput.ConfigPath,
@@ -763,14 +768,14 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		ServerSSHAllowed:     *s.config.ServerSSHAllowed,
 		RosenpassEnabled:     s.config.RosenpassEnabled,
 		RosenpassPermissive:  s.config.RosenpassPermissive,
-		DisableNotifications: s.config.DisableNotifications,
+		DisableNotifications: disableNotifications,
 	}, nil
 }
 
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
 		isUIActive := internal.CheckUIApp()
-		if !isUIActive && !s.config.DisableNotifications {
+		if !isUIActive && s.config.DisableNotifications != nil && !*s.config.DisableNotifications {
 			if err := sendTerminalNotification(); err != nil {
 				log.Errorf("send session expire terminal notification: %v", err)
 			}

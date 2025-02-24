@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/version"
 )
 
 // DeviceNameCtxKey context key for device name
@@ -117,11 +116,6 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 		return defaultName
 	}
 	return v
-}
-
-// GetDesktopUIUserAgent returns the Desktop ui user agent
-func GetDesktopUIUserAgent() string {
-	return "netbird-desktop-ui/" + version.NetbirdVersion()
 }
 
 func networkAddresses() ([]NetworkAddress, error) {

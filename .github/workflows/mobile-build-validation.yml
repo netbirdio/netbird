@@ -1,4 +1,4 @@
-name: Mobile build validation
+name: Mobile
 
 on:
   push:
@@ -12,6 +12,7 @@ concurrency:
 
 jobs:
   android_build:
+    name: "Android / Build"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -47,6 +48,7 @@ jobs:
           CGO_ENABLED: 0
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/23.1.7779620
   ios_build:
+    name: "iOS / Build"
     runs-on: macos-latest
     steps:
       - name: Checkout repository
