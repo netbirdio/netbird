@@ -99,7 +99,7 @@ type Config struct {
 
 	BlockLANAccess bool
 
-	DisableNotifications bool
+	DisableNotifications *bool
 
 	DNSLabels domain.List
 
@@ -479,13 +479,20 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.DisableNotifications != nil && *input.DisableNotifications != config.DisableNotifications {
+	if input.DisableNotifications != nil && input.DisableNotifications != config.DisableNotifications {
 		if *input.DisableNotifications {
 			log.Infof("disabling notifications")
 		} else {
 			log.Infof("enabling notifications")
 		}
-		config.DisableNotifications = *input.DisableNotifications
+		config.DisableNotifications = input.DisableNotifications
+		updated = true
+	}
+
+	if config.DisableNotifications == nil {
+		disabled := true
+		config.DisableNotifications = &disabled
+		log.Infof("setting notifications to disabled by default")
 		updated = true
 	}
 
