@@ -770,11 +770,6 @@ func isController(config ConnConfig) bool {
 	return config.LocalKey > config.Key
 }
 
-// isWireGuardInitiator returns true if the local peer is the initiator of the WireGuard connection
-func isWireGuardInitiator(config ConnConfig) bool {
-	return isController(config)
-}
-
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
 	return remoteRosenpassPubKey != nil
 }
