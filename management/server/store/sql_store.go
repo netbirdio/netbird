@@ -86,6 +86,8 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 	}
 
 	sql.SetMaxOpenConns(100)
+	sql.SetMaxIdleConns(20)
+	sql.SetConnMaxIdleTime(5 * time.Minute)
 
 	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
