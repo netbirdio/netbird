@@ -2,11 +2,8 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	b64 "encoding/base64"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -24,14 +21,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
-	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -63,11 +59,11 @@ type AccountManager interface {
 	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*types.Account, error)
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration,
-		autoGroups []string, usageLimit int, userID string, ephemeral bool) (*types.SetupKey, error)
+		autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
 	SaveSetupKey(ctx context.Context, accountID string, key *types.SetupKey, userID string) (*types.SetupKey, error)
 	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *types.UserInfo) (*types.UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
-	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
+	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error)
@@ -77,13 +73,10 @@ type AccountManager interface {
 	GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error)
 	AccountExists(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
-	GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error)
-	CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
-	GetAccountInfoFromPAT(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, string, string, error)
+	GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
-	MarkPATUsed(ctx context.Context, tokenID string) error
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
-	GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error)
+	GetUserFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
@@ -96,7 +89,7 @@ type AccountManager interface {
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error)
-	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*types.UserInfo, error)
+	GetUsersFromAccount(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
@@ -149,6 +142,8 @@ type AccountManager interface {
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	UpdateAccountPeers(ctx context.Context, accountID string)
+	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
+	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
 }
 
 type DefaultAccountManager struct {
@@ -251,6 +246,11 @@ func BuildManager(
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
 ) (*DefaultAccountManager, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("took %v to instantiate account manager", time.Since(start))
+	}()
+
 	am := &DefaultAccountManager{
 		Store:                    store,
 		geo:                      geo,
@@ -268,39 +268,21 @@ func BuildManager(
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 	}
-	allAccounts := store.GetAllAccounts(ctx)
+	accountsCounter, err := store.GetAccountsCounter(ctx)
+	if err != nil {
+		log.WithContext(ctx).Error(err)
+	}
+
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
-	am.singleAccountMode = singleAccountModeDomain != "" && len(allAccounts) <= 1
+	am.singleAccountMode = singleAccountModeDomain != "" && accountsCounter <= 1
 	if am.singleAccountMode {
 		if !isDomainValid(singleAccountModeDomain) {
 			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for a single account mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
 		}
 		am.singleAccountModeDomain = singleAccountModeDomain
-		log.WithContext(ctx).Infof("single account mode enabled, accounts number %d", len(allAccounts))
+		log.WithContext(ctx).Infof("single account mode enabled, accounts number %d", accountsCounter)
 	} else {
-		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", len(allAccounts))
-	}
-
-	// if account doesn't have a default group
-	// we create 'all' group and add all peers into it
-	// also we create default rule with source as destination
-	for _, account := range allAccounts {
-		shouldSave := false
-
-		_, err := account.GetGroupAll()
-		if err != nil {
-			if err := addAllGroup(account); err != nil {
-				return nil, err
-			}
-			shouldSave = true
-		}
-
-		if shouldSave {
-			err = store.SaveAccount(ctx, account)
-			if err != nil {
-				return nil, err
-			}
-		}
+		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
 	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
@@ -617,6 +599,12 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	if user.Role != types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
+
+	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
+	}
+
 	for _, otherUser := range account.Users {
 		if otherUser.IsServiceUser {
 			continue
@@ -626,13 +614,23 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 			continue
 		}
 
-		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, otherUser.Id)
+		userInfo, ok := userInfosMap[otherUser.Id]
+		if !ok {
+			return status.Errorf(status.NotFound, "user info not found for user %s", otherUser.Id)
+		}
+
+		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, userInfo)
 		if deleteUserErr != nil {
 			return deleteUserErr
 		}
 	}
 
-	_, err = am.deleteRegularUser(ctx, accountID, userID, userID)
+	userInfo, ok := userInfosMap[userID]
+	if !ok {
+		return status.Errorf(status.NotFound, "user info not found for user %s", userID)
+	}
+
+	_, err = am.deleteRegularUser(ctx, accountID, userID, userInfo)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
 		return err
@@ -690,7 +688,7 @@ func isNil(i idp.Manager) bool {
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
 		// user can be nil if it wasn't found (e.g., just created)
-		user, err := am.lookupUserInCache(ctx, am.Store, userID, accountID)
+		user, err := am.lookupUserInCache(ctx, userID, accountID)
 		if err != nil {
 			return err
 		}
@@ -766,8 +764,8 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(ctx context.Context, e
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
-func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, transaction store.Store, userID string, accountID string) (*idp.UserData, error) {
-	accountUsers, err := transaction.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
+func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID string, accountID string) (*idp.UserData, error) {
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -797,7 +795,7 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, transact
 
 	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
 	// or it didn't have its metadata updated with am.addAccountIDToIDPAppMeta
-	user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, accountID)
 		return nil, err
@@ -937,11 +935,11 @@ func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accoun
 }
 
 // updateAccountDomainAttributesIfNotUpToDate updates the account domain attributes if they are not up to date and then, saves the account changes
-func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx context.Context, accountID string, claims jwtclaims.AuthorizationClaims,
+func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx context.Context, accountID string, userAuth nbcontext.UserAuth,
 	primaryDomain bool,
 ) error {
-	if claims.Domain == "" {
-		log.WithContext(ctx).Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
+	if userAuth.Domain == "" {
+		log.WithContext(ctx).Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", userAuth)
 		return nil
 	}
 
@@ -954,11 +952,11 @@ func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx 
 		return err
 	}
 
-	if domainIsUpToDate(accountDomain, domainCategory, claims) {
+	if domainIsUpToDate(accountDomain, domainCategory, userAuth) {
 		return nil
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, claims.UserId)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting user: %v", err)
 		return err
@@ -967,13 +965,13 @@ func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx 
 	newDomain := accountDomain
 	newCategoty := domainCategory
 
-	lowerDomain := strings.ToLower(claims.Domain)
+	lowerDomain := strings.ToLower(userAuth.Domain)
 	if accountDomain != lowerDomain && user.HasAdminPower() {
 		newDomain = lowerDomain
 	}
 
 	if accountDomain == lowerDomain {
-		newCategoty = claims.DomainCategory
+		newCategoty = userAuth.DomainCategory
 	}
 
 	return am.Store.UpdateAccountDomainAttributes(ctx, accountID, newDomain, newCategoty, primaryDomain)
@@ -989,16 +987,16 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 	ctx context.Context,
 	userAccountID string,
 	domainAccountID string,
-	claims jwtclaims.AuthorizationClaims,
+	userAuth nbcontext.UserAuth,
 ) error {
 	primaryDomain := domainAccountID == "" || userAccountID == domainAccountID
-	err := am.updateAccountDomainAttributesIfNotUpToDate(ctx, userAccountID, claims, primaryDomain)
+	err := am.updateAccountDomainAttributesIfNotUpToDate(ctx, userAccountID, userAuth, primaryDomain)
 	if err != nil {
 		return err
 	}
 
 	// we should register the account ID to this user's metadata in our IDP manager
-	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, userAccountID)
+	err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, userAccountID)
 	if err != nil {
 		return err
 	}
@@ -1008,20 +1006,20 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 
 // addNewPrivateAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
 // otherwise it will create a new account and make it primary account for the domain.
-func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domainAccountID string, claims jwtclaims.AuthorizationClaims) (string, error) {
-	if claims.UserId == "" {
+func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
+	if userAuth.UserId == "" {
 		return "", fmt.Errorf("user ID is empty")
 	}
 
-	lowerDomain := strings.ToLower(claims.Domain)
+	lowerDomain := strings.ToLower(userAuth.Domain)
 
-	newAccount, err := am.newAccount(ctx, claims.UserId, lowerDomain)
+	newAccount, err := am.newAccount(ctx, userAuth.UserId, lowerDomain)
 	if err != nil {
 		return "", err
 	}
 
 	newAccount.Domain = lowerDomain
-	newAccount.DomainCategory = claims.DomainCategory
+	newAccount.DomainCategory = userAuth.DomainCategory
 	newAccount.IsDomainPrimaryAccount = true
 
 	err = am.Store.SaveAccount(ctx, newAccount)
@@ -1029,33 +1027,33 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 		return "", err
 	}
 
-	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, newAccount.Id)
+	err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, newAccount.Id)
 	if err != nil {
 		return "", err
 	}
 
-	am.StoreEvent(ctx, claims.UserId, claims.UserId, newAccount.Id, activity.UserJoined, nil)
+	am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, newAccount.Id, activity.UserJoined, nil)
 
 	return newAccount.Id, nil
 }
 
-func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, claims jwtclaims.AuthorizationClaims) (string, error) {
+func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
 	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
 	defer unlockAccount()
 
-	newUser := types.NewRegularUser(claims.UserId)
+	newUser := types.NewRegularUser(userAuth.UserId)
 	newUser.AccountID = domainAccountID
 	err := am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser)
 	if err != nil {
 		return "", err
 	}
 
-	err = am.addAccountIDToIDPAppMeta(ctx, claims.UserId, domainAccountID)
+	err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, domainAccountID)
 	if err != nil {
 		return "", err
 	}
 
-	am.StoreEvent(ctx, claims.UserId, claims.UserId, domainAccountID, activity.UserJoined, nil)
+	am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
 
 	return domainAccountID, nil
 }
@@ -1068,7 +1066,7 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 		return nil
 	}
 
-	user, err := am.lookupUserInCache(ctx, am.Store, userID, accountID)
+	user, err := am.lookupUserInCache(ctx, userID, accountID)
 	if err != nil {
 		return err
 	}
@@ -1095,74 +1093,9 @@ func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID str
 	return nil
 }
 
-// MarkPATUsed marks a personal access token as used
-func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string) error {
-	return am.Store.MarkPATUsed(ctx, store.LockingStrengthUpdate, tokenID)
-}
-
 // GetAccount returns an account associated with this account ID.
 func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
 	return am.Store.GetAccount(ctx, accountID)
-}
-
-// GetAccountInfoFromPAT retrieves user, personal access token, domain, and category details from a personal access token.
-func (am *DefaultAccountManager) GetAccountInfoFromPAT(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error) {
-	user, pat, err = am.extractPATFromToken(ctx, token)
-	if err != nil {
-		return nil, nil, "", "", err
-	}
-
-	domain, category, err = am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, user.AccountID)
-	if err != nil {
-		return nil, nil, "", "", err
-	}
-
-	return user, pat, domain, category, nil
-}
-
-// extractPATFromToken validates the token structure and retrieves associated User and PAT.
-func (am *DefaultAccountManager) extractPATFromToken(ctx context.Context, token string) (*types.User, *types.PersonalAccessToken, error) {
-	if len(token) != types.PATLength {
-		return nil, nil, fmt.Errorf("token has incorrect length")
-	}
-
-	prefix := token[:len(types.PATPrefix)]
-	if prefix != types.PATPrefix {
-		return nil, nil, fmt.Errorf("token has wrong prefix")
-	}
-	secret := token[len(types.PATPrefix) : len(types.PATPrefix)+types.PATSecretLength]
-	encodedChecksum := token[len(types.PATPrefix)+types.PATSecretLength : len(types.PATPrefix)+types.PATSecretLength+types.PATChecksumLength]
-
-	verificationChecksum, err := base62.Decode(encodedChecksum)
-	if err != nil {
-		return nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
-	}
-
-	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
-	if secretChecksum != verificationChecksum {
-		return nil, nil, fmt.Errorf("token checksum does not match")
-	}
-
-	hashedToken := sha256.Sum256([]byte(token))
-	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
-
-	var user *types.User
-	var pat *types.PersonalAccessToken
-
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthShare, encodedHashedToken)
-		if err != nil {
-			return err
-		}
-
-		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthShare, pat.ID)
-		return err
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return user, pat, nil
 }
 
 // GetAccountByID returns an account associated with this account ID.
@@ -1179,43 +1112,42 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 	return am.Store.GetAccount(ctx, accountID)
 }
 
-// GetAccountIDFromToken returns an account ID associated with this token.
-func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-	if claims.UserId == "" {
+func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+	if userAuth.UserId == "" {
 		return "", "", errors.New(emptyUserID)
 	}
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
 		// We override incoming domain claims to group users under a single account.
-		claims.Domain = am.singleAccountModeDomain
-		claims.DomainCategory = types.PrivateCategory
+		userAuth.Domain = am.singleAccountModeDomain
+		userAuth.DomainCategory = types.PrivateCategory
 		log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	}
 
-	accountID, err := am.getAccountIDWithAuthorizationClaims(ctx, claims)
+	accountID, err := am.getAccountIDWithAuthorizationClaims(ctx, userAuth)
 	if err != nil {
 		return "", "", err
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, claims.UserId)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
 	if err != nil {
 		// this is not really possible because we got an account by user ID
-		return "", "", status.Errorf(status.NotFound, "user %s not found", claims.UserId)
+		return "", "", status.Errorf(status.NotFound, "user %s not found", userAuth.UserId)
+	}
+
+	if userAuth.IsChild {
+		return accountID, user.Id, nil
 	}
 
 	if user.AccountID != accountID {
-		return "", "", status.Errorf(status.PermissionDenied, "user %s is not part of the account %s", claims.UserId, accountID)
+		return "", "", status.Errorf(status.PermissionDenied, "user %s is not part of the account %s", userAuth.UserId, accountID)
 	}
 
-	if !user.IsServiceUser && claims.Invited {
+	if !user.IsServiceUser && userAuth.Invited {
 		err = am.redeemInvite(ctx, accountID, user.Id)
 		if err != nil {
 			return "", "", err
 		}
-	}
-
-	if err = am.syncJWTGroups(ctx, accountID, claims); err != nil {
-		return "", "", err
 	}
 
 	return accountID, user.Id, nil
@@ -1223,14 +1155,13 @@ func (am *DefaultAccountManager) GetAccountIDFromToken(ctx context.Context, clai
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
 // and propagates changes to peers if group propagation is enabled.
-func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID string, claims jwtclaims.AuthorizationClaims) error {
-	if claim, exists := claims.Raw[jwtclaims.IsToken]; exists {
-		if isToken, ok := claim.(bool); ok && isToken {
-			return nil
-		}
+// requires userAuth to have been ValidateAndParseToken and EnsureUserAccessByJWTGroups by the AuthManager
+func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error {
+	if userAuth.IsChild || userAuth.IsPAT {
+		return nil
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, userAuth.AccountId)
 	if err != nil {
 		return err
 	}
@@ -1244,9 +1175,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 		return nil
 	}
 
-	jwtGroupsNames := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
-
-	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, userAuth.AccountId)
 	defer func() {
 		if unlockAccount != nil {
 			unlockAccount()
@@ -1258,17 +1187,17 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	var hasChanges bool
 	var user *types.User
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		user, err = transaction.GetUserByUserID(ctx, store.LockingStrengthShare, claims.UserId)
+		user, err = transaction.GetUserByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
 		if err != nil {
 			return fmt.Errorf("error getting user: %w", err)
 		}
 
-		groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+		groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, userAuth.AccountId)
 		if err != nil {
 			return fmt.Errorf("error getting account groups: %w", err)
 		}
 
-		changed, updatedAutoGroups, newGroupsToCreate, err := am.getJWTGroupsChanges(user, groups, jwtGroupsNames)
+		changed, updatedAutoGroups, newGroupsToCreate, err := am.getJWTGroupsChanges(user, groups, userAuth.Groups)
 		if err != nil {
 			return fmt.Errorf("error getting JWT groups changes: %w", err)
 		}
@@ -1293,7 +1222,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+			groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, userAuth.AccountId)
 			if err != nil {
 				return fmt.Errorf("error getting account groups: %w", err)
 			}
@@ -1303,7 +1232,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				groupsMap[group.ID] = group
 			}
 
-			peers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, accountID, claims.UserId)
+			peers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, userAuth.AccountId, userAuth.UserId)
 			if err != nil {
 				return fmt.Errorf("error getting user peers: %w", err)
 			}
@@ -1317,7 +1246,7 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 				return fmt.Errorf("error saving groups: %w", err)
 			}
 
-			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, userAuth.AccountId); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
@@ -1335,45 +1264,45 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 	}
 
 	for _, g := range addNewGroups {
-		group, err := am.Store.GetGroupByID(ctx, store.LockingStrengthShare, accountID, g)
+		group, err := am.Store.GetGroupByID(ctx, store.LockingStrengthShare, userAuth.AccountId, g)
 		if err != nil {
-			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
+			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, userAuth.AccountId)
 		} else {
 			meta := map[string]any{
 				"group": group.Name, "group_id": group.ID,
 				"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
 			}
-			am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupAddedToUser, meta)
+			am.StoreEvent(ctx, user.Id, user.Id, userAuth.AccountId, activity.GroupAddedToUser, meta)
 		}
 	}
 
 	for _, g := range removeOldGroups {
-		group, err := am.Store.GetGroupByID(ctx, store.LockingStrengthShare, accountID, g)
+		group, err := am.Store.GetGroupByID(ctx, store.LockingStrengthShare, userAuth.AccountId, g)
 		if err != nil {
-			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, accountID)
+			log.WithContext(ctx).Debugf("group %s not found while saving user activity event of account %s", g, userAuth.AccountId)
 		} else {
 			meta := map[string]any{
 				"group": group.Name, "group_id": group.ID,
 				"is_service_user": user.IsServiceUser, "user_name": user.ServiceUserName,
 			}
-			am.StoreEvent(ctx, user.Id, user.Id, accountID, activity.GroupRemovedFromUser, meta)
+			am.StoreEvent(ctx, user.Id, user.Id, userAuth.AccountId, activity.GroupRemovedFromUser, meta)
 		}
 	}
 
 	if settings.GroupsPropagationEnabled {
-		removedGroupAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, accountID, removeOldGroups)
+		removedGroupAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, userAuth.AccountId, removeOldGroups)
 		if err != nil {
 			return err
 		}
 
-		newGroupsAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, accountID, addNewGroups)
+		newGroupsAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, userAuth.AccountId, addNewGroups)
 		if err != nil {
 			return err
 		}
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
-			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-			am.UpdateAccountPeers(ctx, accountID)
+			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
+			am.UpdateAccountPeers(ctx, userAuth.AccountId)
 		}
 	}
 
@@ -1398,24 +1327,34 @@ func (am *DefaultAccountManager) syncJWTGroups(ctx context.Context, accountID st
 // Existing user + Existing account + Existing Indexed Domain -> Nothing changes
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
-func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {
+//
+// UserAuth IsChild -> checks that account exists
+func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context.Context, userAuth nbcontext.UserAuth) (string, error) {
 	log.WithContext(ctx).Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
-		claims.UserId, claims.AccountId, claims.Domain, claims.DomainCategory)
+		userAuth.UserId, userAuth.AccountId, userAuth.Domain, userAuth.DomainCategory)
 
-	if claims.UserId == "" {
+	if userAuth.UserId == "" {
 		return "", errors.New(emptyUserID)
 	}
 
-	if claims.DomainCategory != types.PrivateCategory || !isDomainValid(claims.Domain) {
-		return am.GetAccountIDByUserID(ctx, claims.UserId, claims.Domain)
+	if userAuth.IsChild {
+		exists, err := am.Store.AccountExists(ctx, store.LockingStrengthShare, userAuth.AccountId)
+		if err != nil || !exists {
+			return "", err
+		}
+		return userAuth.AccountId, nil
 	}
 
-	if claims.AccountId != "" {
-		return am.handlePrivateAccountWithIDFromClaim(ctx, claims)
+	if userAuth.DomainCategory != types.PrivateCategory || !isDomainValid(userAuth.Domain) {
+		return am.GetAccountIDByUserID(ctx, userAuth.UserId, userAuth.Domain)
+	}
+
+	if userAuth.AccountId != "" {
+		return am.handlePrivateAccountWithIDFromClaim(ctx, userAuth)
 	}
 
 	// We checked if the domain has a primary account already
-	domainAccountID, cancel, err := am.getPrivateDomainWithGlobalLock(ctx, claims.Domain)
+	domainAccountID, cancel, err := am.getPrivateDomainWithGlobalLock(ctx, userAuth.Domain)
 	if cancel != nil {
 		defer cancel()
 	}
@@ -1423,14 +1362,14 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		return "", err
 	}
 
-	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, claims.UserId)
+	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
 	if handleNotFound(err) != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
 		return "", err
 	}
 
 	if userAccountID != "" {
-		if err = am.handleExistingUserAccount(ctx, userAccountID, domainAccountID, claims); err != nil {
+		if err = am.handleExistingUserAccount(ctx, userAccountID, domainAccountID, userAuth); err != nil {
 			return "", err
 		}
 
@@ -1438,10 +1377,10 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	}
 
 	if domainAccountID != "" {
-		return am.addNewUserToDomainAccount(ctx, domainAccountID, claims)
+		return am.addNewUserToDomainAccount(ctx, domainAccountID, userAuth)
 	}
 
-	return am.addNewPrivateAccount(ctx, domainAccountID, claims)
+	return am.addNewPrivateAccount(ctx, domainAccountID, userAuth)
 }
 func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Context, domain string) (string, context.CancelFunc, error) {
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, domain)
@@ -1469,40 +1408,40 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 	return domainAccountID, cancel, nil
 }
 
-func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, claims jwtclaims.AuthorizationClaims) (string, error) {
-	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, claims.UserId)
+func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, userAuth nbcontext.UserAuth) (string, error) {
+	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
 		return "", err
 	}
 
-	if userAccountID != claims.AccountId {
-		return "", fmt.Errorf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
+	if userAccountID != userAuth.AccountId {
+		return "", fmt.Errorf("user %s is not part of the account id %s", userAuth.UserId, userAuth.AccountId)
 	}
 
-	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, claims.AccountId)
+	accountDomain, domainCategory, err := am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, userAuth.AccountId)
 	if handleNotFound(err) != nil {
 		log.WithContext(ctx).Errorf("error getting account domain and category: %v", err)
 		return "", err
 	}
 
-	if domainIsUpToDate(accountDomain, domainCategory, claims) {
-		return claims.AccountId, nil
+	if domainIsUpToDate(accountDomain, domainCategory, userAuth) {
+		return userAuth.AccountId, nil
 	}
 
 	// We checked if the domain has a primary account already
-	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, claims.Domain)
+	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, userAuth.Domain)
 	if handleNotFound(err) != nil {
 		log.WithContext(ctx).Errorf(errorGettingDomainAccIDFmt, err)
 		return "", err
 	}
 
-	err = am.handleExistingUserAccount(ctx, claims.AccountId, domainAccountID, claims)
+	err = am.handleExistingUserAccount(ctx, userAuth.AccountId, domainAccountID, userAuth)
 	if err != nil {
 		return "", err
 	}
 
-	return claims.AccountId, nil
+	return userAuth.AccountId, nil
 }
 
 func handleNotFound(err error) error {
@@ -1517,11 +1456,16 @@ func handleNotFound(err error) error {
 	return nil
 }
 
-func domainIsUpToDate(domain string, domainCategory string, claims jwtclaims.AuthorizationClaims) bool {
-	return domainCategory == types.PrivateCategory || claims.DomainCategory != types.PrivateCategory || domain != claims.Domain
+func domainIsUpToDate(domain string, domainCategory string, userAuth nbcontext.UserAuth) bool {
+	return domainCategory == types.PrivateCategory || userAuth.DomainCategory != types.PrivateCategory || domain != userAuth.Domain
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("SyncAndMarkPeer: took %v", time.Since(start))
+	}()
+
 	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer accountUnlock()
 	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
@@ -1595,34 +1539,6 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 	return am.dnsDomain
 }
 
-// CheckUserAccessByJWTGroups checks if the user has access, particularly in cases where the admin enabled JWT
-// group propagation and set the list of groups with access permissions.
-func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(ctx context.Context, claims jwtclaims.AuthorizationClaims) error {
-	accountID, _, err := am.GetAccountIDFromToken(ctx, claims)
-	if err != nil {
-		return err
-	}
-
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return err
-	}
-
-	// Ensures JWT group synchronization to the management is enabled before,
-	// filtering access based on the allowed groups.
-	if settings != nil && settings.JWTGroupsEnabled {
-		if allowedGroups := settings.JWTAllowGroups; len(allowedGroups) > 0 {
-			userJWTGroups := extractJWTGroups(ctx, settings.JWTGroupsClaimName, claims)
-
-			if !userHasAllowedGroup(allowedGroups, userJWTGroups) {
-				return fmt.Errorf("user does not belong to any of the allowed JWT groups")
-			}
-		}
-	}
-
-	return nil
-}
-
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
 	am.UpdateAccountPeers(ctx, accountID)
@@ -1690,46 +1606,6 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 	return am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 }
 
-// addAllGroup to account object if it doesn't exist
-func addAllGroup(account *types.Account) error {
-	if len(account.Groups) == 0 {
-		allGroup := &types.Group{
-			ID:     xid.New().String(),
-			Name:   "All",
-			Issued: types.GroupIssuedAPI,
-		}
-		for _, peer := range account.Peers {
-			allGroup.Peers = append(allGroup.Peers, peer.ID)
-		}
-		account.Groups = map[string]*types.Group{allGroup.ID: allGroup}
-
-		id := xid.New().String()
-
-		defaultPolicy := &types.Policy{
-			ID:          id,
-			Name:        types.DefaultRuleName,
-			Description: types.DefaultRuleDescription,
-			Enabled:     true,
-			Rules: []*types.PolicyRule{
-				{
-					ID:            id,
-					Name:          types.DefaultRuleName,
-					Description:   types.DefaultRuleDescription,
-					Enabled:       true,
-					Sources:       []string{allGroup.ID},
-					Destinations:  []string{allGroup.ID},
-					Bidirectional: true,
-					Protocol:      types.PolicyRuleProtocolALL,
-					Action:        types.PolicyTrafficActionAccept,
-				},
-			},
-		}
-
-		account.Policies = []*types.Policy{defaultPolicy}
-	}
-	return nil
-}
-
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
 func newAccountWithId(ctx context.Context, accountID, userID, domain string) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
@@ -1774,43 +1650,10 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 		},
 	}
 
-	if err := addAllGroup(acc); err != nil {
+	if err := acc.AddAllGroup(); err != nil {
 		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
-}
-
-// extractJWTGroups extracts the group names from a JWT token's claims.
-func extractJWTGroups(ctx context.Context, claimName string, claims jwtclaims.AuthorizationClaims) []string {
-	userJWTGroups := make([]string, 0)
-
-	if claim, ok := claims.Raw[claimName]; ok {
-		if claimGroups, ok := claim.([]interface{}); ok {
-			for _, g := range claimGroups {
-				if group, ok := g.(string); ok {
-					userJWTGroups = append(userJWTGroups, group)
-				} else {
-					log.WithContext(ctx).Debugf("JWT claim %q contains a non-string group (type: %T): %v", claimName, g, g)
-				}
-			}
-		}
-	} else {
-		log.WithContext(ctx).Debugf("JWT claim %q is not a string array", claimName)
-	}
-
-	return userJWTGroups
-}
-
-// userHasAllowedGroup checks if a user belongs to any of the allowed groups.
-func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
-	for _, userGroup := range userGroups {
-		for _, allowedGroup := range allowedGroups {
-			if userGroup == allowedGroup {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // separateGroups separates user's auto groups into non-JWT and JWT groups.

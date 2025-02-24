@@ -22,11 +22,15 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/netbirdio/management-integrations/integrations"
+	wgdevice "golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -64,6 +68,114 @@ var (
 	}
 )
 
+type MockWGIface struct {
+	CreateFunc                 func() error
+	CreateOnAndroidFunc        func(routeRange []string, ip string, domains []string) error
+	IsUserspaceBindFunc        func() bool
+	NameFunc                   func() string
+	AddressFunc                func() device.WGAddress
+	ToInterfaceFunc            func() *net.Interface
+	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
+	UpdateAddrFunc             func(newAddr string) error
+	UpdatePeerFunc             func(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	RemovePeerFunc             func(peerKey string) error
+	AddAllowedIPFunc           func(peerKey string, allowedIP string) error
+	RemoveAllowedIPFunc        func(peerKey string, allowedIP string) error
+	CloseFunc                  func() error
+	SetFilterFunc              func(filter device.PacketFilter) error
+	GetFilterFunc              func() device.PacketFilter
+	GetDeviceFunc              func() *device.FilteredDevice
+	GetWGDeviceFunc            func() *wgdevice.Device
+	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
+	GetInterfaceGUIDStringFunc func() (string, error)
+	GetProxyFunc               func() wgproxy.Proxy
+	GetNetFunc                 func() *netstack.Net
+}
+
+func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
+	return m.GetInterfaceGUIDStringFunc()
+}
+
+func (m *MockWGIface) Create() error {
+	return m.CreateFunc()
+}
+
+func (m *MockWGIface) CreateOnAndroid(routeRange []string, ip string, domains []string) error {
+	return m.CreateOnAndroidFunc(routeRange, ip, domains)
+}
+
+func (m *MockWGIface) IsUserspaceBind() bool {
+	return m.IsUserspaceBindFunc()
+}
+
+func (m *MockWGIface) Name() string {
+	return m.NameFunc()
+}
+
+func (m *MockWGIface) Address() device.WGAddress {
+	return m.AddressFunc()
+}
+
+func (m *MockWGIface) ToInterface() *net.Interface {
+	return m.ToInterfaceFunc()
+}
+
+func (m *MockWGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
+	return m.UpFunc()
+}
+
+func (m *MockWGIface) UpdateAddr(newAddr string) error {
+	return m.UpdateAddrFunc(newAddr)
+}
+
+func (m *MockWGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+	return m.UpdatePeerFunc(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+}
+
+func (m *MockWGIface) RemovePeer(peerKey string) error {
+	return m.RemovePeerFunc(peerKey)
+}
+
+func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP string) error {
+	return m.AddAllowedIPFunc(peerKey, allowedIP)
+}
+
+func (m *MockWGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
+	return m.RemoveAllowedIPFunc(peerKey, allowedIP)
+}
+
+func (m *MockWGIface) Close() error {
+	return m.CloseFunc()
+}
+
+func (m *MockWGIface) SetFilter(filter device.PacketFilter) error {
+	return m.SetFilterFunc(filter)
+}
+
+func (m *MockWGIface) GetFilter() device.PacketFilter {
+	return m.GetFilterFunc()
+}
+
+func (m *MockWGIface) GetDevice() *device.FilteredDevice {
+	return m.GetDeviceFunc()
+}
+
+func (m *MockWGIface) GetWGDevice() *wgdevice.Device {
+	return m.GetWGDeviceFunc()
+}
+
+func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
+	return m.GetStatsFunc(peerKey)
+}
+
+func (m *MockWGIface) GetProxy() wgproxy.Proxy {
+	return m.GetProxyFunc()
+}
+
+func (m *MockWGIface) GetNet() *netstack.Net {
+	return m.GetNetFunc()
+}
+
 func TestMain(m *testing.M) {
 	_ = util.InitLog("debug", "console")
 	code := m.Run()
@@ -71,8 +183,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestEngine_SSH(t *testing.T) {
-	// todo resolve test execution on freebsd
-	if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
+	if runtime.GOOS == "windows" {
 		t.Skip("skipping TestEngine_SSH")
 	}
 
@@ -246,10 +357,19 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		peer.NewRecorder("https://mgm"),
 		nil)
 
-	wgIface := &iface.MockWGIface{
+	wgIface := &MockWGIface{
 		NameFunc: func() string { return "utun102" },
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
+		},
+		AddressFunc: func() iface.WGAddress {
+			return iface.WGAddress{
+				IP: net.ParseIP("10.20.0.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("10.20.0.0"),
+					Mask: net.IPv4Mask(255, 255, 255, 0),
+				},
+			}
 		},
 	}
 	engine.wgInterface = wgIface
@@ -693,6 +813,9 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 								},
 							},
 						},
+						{
+							Domain: "0.66.100.in-addr.arpa.",
+						},
 					},
 					NameServerGroups: []*mgmtProto.NameServerGroup{
 						{
@@ -721,6 +844,9 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 							RData: "100.64.0.1",
 						},
 					},
+				},
+				{
+					Domain: "0.66.100.in-addr.arpa.",
 				},
 			},
 			expectedNSGroupsLen: 1,
@@ -1131,7 +1257,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	info := system.GetInfo(ctx)
-	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil)
+	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1227,7 +1353,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 
 	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/util"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -34,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -420,7 +420,7 @@ func (s *SqlStore) SaveUsers(ctx context.Context, lockStrength LockingStrength, 
 		return nil
 	}
 
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&users)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}, clause.OnConflict{UpdateAll: true}).Create(&users)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save users to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save users to store")
@@ -444,7 +444,7 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 		return nil
 	}
 
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(&groups)
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}, clause.OnConflict{UpdateAll: true}).Create(&groups)
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "failed to save groups to store: %v", result.Error)
 	}
@@ -613,6 +613,16 @@ func (s *SqlStore) GetResourceGroups(ctx context.Context, lockStrength LockingSt
 	}
 
 	return groups, nil
+}
+
+func (s *SqlStore) GetAccountsCounter(ctx context.Context) (int64, error) {
+	var count int64
+	result := s.db.Model(&types.Account{}).Count(&count)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to get all accounts counter: %w", result.Error)
+	}
+
+	return count, nil
 }
 
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
@@ -1001,7 +1011,6 @@ func getGormConfig() *gorm.Config {
 	return &gorm.Config{
 		Logger:          logger.Default.LogMode(logger.Silent),
 		CreateBatchSize: 400,
-		PrepareStmt:     true,
 	}
 }
 
@@ -1036,6 +1045,13 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 	}
 
 	for _, account := range fileStore.GetAllAccounts(ctx) {
+		_, err = account.GetGroupAll()
+		if err != nil {
+			if err := account.AddAllGroup(); err != nil {
+				return nil, err
+			}
+		}
+
 		err := store.SaveAccount(ctx, account)
 		if err != nil {
 			return nil, err

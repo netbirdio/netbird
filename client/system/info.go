@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/version"
 )
 
 // DeviceNameCtxKey context key for device name
@@ -50,7 +49,7 @@ type Info struct {
 	OSVersion          string
 	Hostname           string
 	CPUs               int
-	WiretrusteeVersion string
+	NetbirdVersion     string
 	UIVersion          string
 	KernelVersion      string
 	NetworkAddresses   []NetworkAddress
@@ -59,6 +58,31 @@ type Info struct {
 	SystemManufacturer string
 	Environment        Environment
 	Files              []File // for posture checks
+
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
+	ServerSSHAllowed    bool
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
+}
+
+func (i *Info) SetFlags(
+	rosenpassEnabled, rosenpassPermissive bool,
+	serverSSHAllowed *bool,
+	disableClientRoutes, disableServerRoutes,
+	disableDNS, disableFirewall bool,
+) {
+	i.RosenpassEnabled = rosenpassEnabled
+	i.RosenpassPermissive = rosenpassPermissive
+	if serverSSHAllowed != nil {
+		i.ServerSSHAllowed = *serverSSHAllowed
+	}
+	i.DisableClientRoutes = disableClientRoutes
+	i.DisableServerRoutes = disableServerRoutes
+	i.DisableDNS = disableDNS
+	i.DisableFirewall = disableFirewall
 }
 
 // StaticInfo is an object that contains machine information that does not change
@@ -92,11 +116,6 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 		return defaultName
 	}
 	return v
-}
-
-// GetDesktopUIUserAgent returns the Desktop ui user agent
-func GetDesktopUIUserAgent() string {
-	return "netbird-desktop-ui/" + version.NetbirdVersion()
 }
 
 func networkAddresses() ([]NetworkAddress, error) {

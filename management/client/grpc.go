@@ -19,6 +19,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
 	nbgrpc "github.com/netbirdio/netbird/util/grpc"
 )
@@ -364,21 +365,21 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 // Register registers peer on Management Server. It actually calls a Login endpoint with a provided setup key
 // Takes care of encrypting and decrypting messages.
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
-func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte) (*proto.LoginResponse, error) {
+func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys})
+	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
 
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
-func (c *GrpcClient) Login(serverKey wgtypes.Key, sysInfo *system.Info, pubSSHKey []byte) (*proto.LoginResponse, error) {
+func (c *GrpcClient) Login(serverKey wgtypes.Key, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys})
+	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
@@ -521,24 +522,34 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 	}
 
 	return &proto.PeerSystemMeta{
-		Hostname:           info.Hostname,
-		GoOS:               info.GoOS,
-		OS:                 info.OS,
-		Core:               info.OSVersion,
-		OSVersion:          info.OSVersion,
-		Platform:           info.Platform,
-		Kernel:             info.Kernel,
-		WiretrusteeVersion: info.WiretrusteeVersion,
-		UiVersion:          info.UIVersion,
-		KernelVersion:      info.KernelVersion,
-		NetworkAddresses:   addresses,
-		SysSerialNumber:    info.SystemSerialNumber,
-		SysManufacturer:    info.SystemManufacturer,
-		SysProductName:     info.SystemProductName,
+		Hostname:         info.Hostname,
+		GoOS:             info.GoOS,
+		OS:               info.OS,
+		Core:             info.OSVersion,
+		OSVersion:        info.OSVersion,
+		Platform:         info.Platform,
+		Kernel:           info.Kernel,
+		NetbirdVersion:   info.NetbirdVersion,
+		UiVersion:        info.UIVersion,
+		KernelVersion:    info.KernelVersion,
+		NetworkAddresses: addresses,
+		SysSerialNumber:  info.SystemSerialNumber,
+		SysManufacturer:  info.SystemManufacturer,
+		SysProductName:   info.SystemProductName,
 		Environment: &proto.Environment{
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
 		Files: files,
+
+		Flags: &proto.Flags{
+			RosenpassEnabled:    info.RosenpassEnabled,
+			RosenpassPermissive: info.RosenpassPermissive,
+			ServerSSHAllowed:    info.ServerSSHAllowed,
+			DisableClientRoutes: info.DisableClientRoutes,
+			DisableServerRoutes: info.DisableServerRoutes,
+			DisableDNS:          info.DisableDNS,
+			DisableFirewall:     info.DisableFirewall,
+		},
 	}
 }

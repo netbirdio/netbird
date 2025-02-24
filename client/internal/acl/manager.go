@@ -151,7 +151,7 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 			d.rollBack(newRulePairs)
 			break
 		}
-		if len(rules) > 0 {
+		if len(rulePair) > 0 {
 			d.peerRulesPairs[pairID] = rulePair
 			newRulePairs[pairID] = rulePair
 		}
@@ -268,13 +268,16 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	}
 
 	var port *firewall.Port
-	if r.Port != "" {
+	if !portInfoEmpty(r.PortInfo) {
+		port = convertPortInfo(r.PortInfo)
+	} else if r.Port != "" {
+		// old version of management, single port
 		value, err := strconv.Atoi(r.Port)
 		if err != nil {
-			return "", nil, fmt.Errorf("invalid port, skipping firewall rule")
+			return "", nil, fmt.Errorf("invalid port: %w", err)
 		}
 		port = &firewall.Port{
-			Values: []int{value},
+			Values: []uint16{uint16(value)},
 		}
 	}
 
@@ -288,6 +291,8 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	case mgmProto.RuleDirection_IN:
 		rules, err = d.addInRules(ip, protocol, port, action, ipsetName, "")
 	case mgmProto.RuleDirection_OUT:
+		// TODO: Remove this soon. Outbound rules are obsolete.
+		// We only maintain this for return traffic (inbound dir) which is now handled by the stateful firewall already
 		rules, err = d.addOutRules(ip, protocol, port, action, ipsetName, "")
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
@@ -300,6 +305,22 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	return ruleID, rules, nil
 }
 
+func portInfoEmpty(portInfo *mgmProto.PortInfo) bool {
+	if portInfo == nil {
+		return true
+	}
+
+	switch portInfo.GetPortSelection().(type) {
+	case *mgmProto.PortInfo_Port:
+		return portInfo.GetPort() == 0
+	case *mgmProto.PortInfo_Range_:
+		r := portInfo.GetRange()
+		return r == nil || r.Start == 0 || r.End == 0
+	default:
+		return true
+	}
+}
+
 func (d *DefaultManager) addInRules(
 	ip net.IP,
 	protocol firewall.Protocol,
@@ -308,25 +329,12 @@ func (d *DefaultManager) addInRules(
 	ipsetName string,
 	comment string,
 ) ([]firewall.Rule, error) {
-	var rules []firewall.Rule
-	rule, err := d.firewall.AddPeerFiltering(
-		ip, protocol, nil, port, firewall.RuleDirectionIN, action, ipsetName, comment)
+	rule, err := d.firewall.AddPeerFiltering(ip, protocol, nil, port, action, ipsetName, comment)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
-	}
-	rules = append(rules, rule...)
-
-	if shouldSkipInvertedRule(protocol, port) {
-		return rules, nil
+		return nil, fmt.Errorf("add firewall rule: %w", err)
 	}
 
-	rule, err = d.firewall.AddPeerFiltering(
-		ip, protocol, port, nil, firewall.RuleDirectionOUT, action, ipsetName, comment)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
-	}
-
-	return append(rules, rule...), nil
+	return rule, nil
 }
 
 func (d *DefaultManager) addOutRules(
@@ -337,25 +345,16 @@ func (d *DefaultManager) addOutRules(
 	ipsetName string,
 	comment string,
 ) ([]firewall.Rule, error) {
-	var rules []firewall.Rule
-	rule, err := d.firewall.AddPeerFiltering(
-		ip, protocol, nil, port, firewall.RuleDirectionOUT, action, ipsetName, comment)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
-	}
-	rules = append(rules, rule...)
-
 	if shouldSkipInvertedRule(protocol, port) {
-		return rules, nil
+		return nil, nil
 	}
 
-	rule, err = d.firewall.AddPeerFiltering(
-		ip, protocol, port, nil, firewall.RuleDirectionIN, action, ipsetName, comment)
+	rule, err := d.firewall.AddPeerFiltering(ip, protocol, port, nil, action, ipsetName, comment)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
+		return nil, fmt.Errorf("add firewall rule: %w", err)
 	}
 
-	return append(rules, rule...), nil
+	return rule, nil
 }
 
 // getPeerRuleID() returns unique ID for the rule based on its parameters.
@@ -508,7 +507,7 @@ func (d *DefaultManager) squashAcceptRules(
 
 // getRuleGroupingSelector takes all rule properties except IP address to build selector
 func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) string {
-	return fmt.Sprintf("%v:%v:%v:%s", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port)
+	return fmt.Sprintf("%v:%v:%v:%s:%v", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port, rule.PortInfo)
 }
 
 func (d *DefaultManager) rollBack(newRulePairs map[id.RuleID][]firewall.Rule) {
@@ -559,14 +558,14 @@ func convertPortInfo(portInfo *mgmProto.PortInfo) *firewall.Port {
 
 	if portInfo.GetPort() != 0 {
 		return &firewall.Port{
-			Values: []int{int(portInfo.GetPort())},
+			Values: []uint16{uint16(int(portInfo.GetPort()))},
 		}
 	}
 
 	if portInfo.GetRange() != nil {
 		return &firewall.Port{
 			IsRange: true,
-			Values:  []int{int(portInfo.GetRange().Start), int(portInfo.GetRange().End)},
+			Values:  []uint16{uint16(portInfo.GetRange().Start), uint16(portInfo.GetRange().End)},
 		}
 	}
 

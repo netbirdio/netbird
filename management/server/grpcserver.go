@@ -15,12 +15,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -38,11 +39,10 @@ type GRPCServer struct {
 	peersUpdateManager *PeersUpdateManager
 	config             *Config
 	secretsManager     SecretsManager
-	jwtValidator       jwtclaims.JWTValidator
-	jwtClaimsExtractor *jwtclaims.ClaimsExtractor
 	appMetrics         telemetry.AppMetrics
 	ephemeralManager   *EphemeralManager
 	peerLocks          sync.Map
+	authManager        auth.Manager
 }
 
 // NewServer creates a new Management server
@@ -55,27 +55,11 @@ func NewServer(
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
 	ephemeralManager *EphemeralManager,
+	authManager auth.Manager,
 ) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
-	}
-
-	var jwtValidator jwtclaims.JWTValidator
-
-	if config.HttpConfig != nil && config.HttpConfig.AuthIssuer != "" && config.HttpConfig.AuthAudience != "" && validateURL(config.HttpConfig.AuthKeysLocation) {
-		jwtValidator, err = jwtclaims.NewJWTValidator(
-			ctx,
-			config.HttpConfig.AuthIssuer,
-			config.GetAuthAudiences(),
-			config.HttpConfig.AuthKeysLocation,
-			config.HttpConfig.IdpSignKeyRefreshEnabled,
-		)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
-		}
-	} else {
-		log.WithContext(ctx).Debug("unable to use http config to create new jwt middleware")
 	}
 
 	if appMetrics != nil {
@@ -88,16 +72,6 @@ func NewServer(
 		}
 	}
 
-	var audience, userIDClaim string
-	if config.HttpConfig != nil {
-		audience = config.HttpConfig.AuthAudience
-		userIDClaim = config.HttpConfig.AuthUserIDClaim
-	}
-	jwtClaimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(audience),
-		jwtclaims.WithUserIDClaim(userIDClaim),
-	)
-
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -106,14 +80,25 @@ func NewServer(
 		settingsManager:    settingsManager,
 		config:             config,
 		secretsManager:     secretsManager,
-		jwtValidator:       jwtValidator,
-		jwtClaimsExtractor: jwtClaimsExtractor,
+		authManager:        authManager,
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
 	}, nil
 }
 
 func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
+	ip := ""
+	p, ok := peer.FromContext(ctx)
+	if ok {
+		ip = p.Addr.String()
+	}
+
+	log.WithContext(ctx).Tracef("GetServerKey request from %s", ip)
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetServerKey from %s took %v", ip, time.Since(start))
+	}()
+
 	// todo introduce something more meaningful with the key expiration/rotation
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountGetKeyRequest()
@@ -208,6 +193,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	unlock()
 	unlock = nil
 
+	log.WithContext(ctx).Debugf("Sync: took %v", time.Since(reqStart))
+
 	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }
 
@@ -279,26 +266,37 @@ func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, p
 }
 
 func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string, error) {
-	if s.jwtValidator == nil {
-		return "", status.Error(codes.Internal, "no jwt validator set")
+	if s.authManager == nil {
+		return "", status.Errorf(codes.Internal, "missing auth manager")
 	}
 
-	token, err := s.jwtValidator.ValidateAndParse(ctx, jwtToken)
+	userAuth, token, err := s.authManager.ValidateAndParseToken(ctx, jwtToken)
 	if err != nil {
 		return "", status.Errorf(codes.InvalidArgument, "invalid jwt token, err: %v", err)
 	}
-	claims := s.jwtClaimsExtractor.FromToken(token)
+
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
-	_, _, err = s.accountManager.GetAccountIDFromToken(ctx, claims)
+	accountId, _, err := s.accountManager.GetAccountIDFromUserAuth(ctx, userAuth)
 	if err != nil {
 		return "", status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
 	}
 
-	if err := s.accountManager.CheckUserAccessByJWTGroups(ctx, claims); err != nil {
+	if userAuth.AccountId != accountId {
+		log.WithContext(ctx).Debugf("gRPC server sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
+		userAuth.AccountId = accountId
+	}
+
+	userAuth, err = s.authManager.EnsureUserAccessByJWTGroups(ctx, userAuth, token)
+	if err != nil {
 		return "", status.Error(codes.PermissionDenied, err.Error())
 	}
 
-	return claims.UserId, nil
+	err = s.accountManager.SyncUserJWTGroups(ctx, userAuth)
+	if err != nil {
+		log.WithContext(ctx).Errorf("gRPC server failed to sync user JWT groups: %s", err)
+	}
+
+	return userAuth.UserId, nil
 }
 
 func (s *GRPCServer) acquirePeerLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
@@ -379,7 +377,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		Platform:           meta.GetPlatform(),
 		OS:                 meta.GetOS(),
 		OSVersion:          osVersion,
-		WtVersion:          meta.GetWiretrusteeVersion(),
+		WtVersion:          meta.GetNetbirdVersion(),
 		UIVersion:          meta.GetUiVersion(),
 		KernelVersion:      meta.GetKernelVersion(),
 		NetworkAddresses:   networkAddresses,
@@ -466,6 +464,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
 		ConnectionIP:    realIP,
+		ExtraDNSLabels:  loginReq.GetDnsLabels(),
 	})
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
@@ -487,9 +486,9 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil, relayToken),
-		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
-		Checks:            toProtocolChecks(ctx, postureChecks),
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken),
+		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
+		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -545,7 +544,7 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toWiretrusteeConfig(config *Config, turnCredentials *Token, relayToken *Token) *proto.WiretrusteeConfig {
+func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -593,7 +592,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *Token, relayToken *Tok
 		}
 	}
 
-	return &proto.WiretrusteeConfig{
+	return &proto.NetbirdConfig{
 		Stuns: stuns,
 		Turns: turns,
 		Signal: &proto.HostConfig{
@@ -617,8 +616,8 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dns
 
 func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnbled bool) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(config, turnCredentials, relayCredentials),
-		PeerConfig:        toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
+		NetbirdConfig: toNetbirdConfig(config, turnCredentials, relayCredentials),
+		PeerConfig:    toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
@@ -715,6 +714,12 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
 func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow request for pubKey: %s", req.WgPubKey)
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow for pubKey: %s took %v", req.WgPubKey, time.Since(start))
+	}()
+
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetDeviceAuthorizationFlow request.", req.WgPubKey)
@@ -767,6 +772,12 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 // This is used for initiating an Oauth 2 pkce authorization grant flow
 // which will be used by our clients to Login
 func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow request for pubKey: %s", req.WgPubKey)
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow for pubKey %s took %v", req.WgPubKey, time.Since(start))
+	}()
+
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetPKCEAuthorizationFlow request.", req.WgPubKey)

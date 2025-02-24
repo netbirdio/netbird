@@ -17,7 +17,8 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
@@ -52,19 +53,7 @@ func initDNSSettingsTestData() *dnsSettingsHandler {
 				}
 				return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 			},
-			GetAccountIDFromTokenFunc: func(ctx context.Context, _ jwtclaims.AuthorizationClaims) (string, string, error) {
-				return testingDNSSettingsAccount.Id, testingDNSSettingsAccount.Users[testDNSSettingsUserID].Id, nil
-			},
 		},
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
-					Domain:    "hotmail.com",
-					AccountId: testDNSSettingsAccountID,
-				}
-			}),
-		),
 	}
 }
 
@@ -118,6 +107,11 @@ func TestDNSSettingsHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    testingDNSSettingsAccount.Users[testDNSSettingsUserID].Id,
+				AccountId: testingDNSSettingsAccount.Id,
+				Domain:    testingDNSSettingsAccount.Domain,
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/dns/settings", p.getDNSSettings).Methods("GET")

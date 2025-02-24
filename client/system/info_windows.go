@@ -64,7 +64,7 @@ func GetInfo(ctx context.Context) *Info {
 
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
-	gio.WiretrusteeVersion = version.NetbirdVersion()
+	gio.NetbirdVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
@@ -105,7 +105,7 @@ func getOSNameAndVersion() (string, string) {
 
 	split := strings.Split(dst[0].Caption, " ")
 
-	if len(split) < 3 {
+	if len(split) <= 3 {
 		return "Windows", getBuildVersion()
 	}
 

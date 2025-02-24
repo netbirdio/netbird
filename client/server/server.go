@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -63,12 +64,7 @@ type Server struct {
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
-	mgmProbe    *internal.Probe
-	signalProbe *internal.Probe
-	relayProbe  *internal.Probe
-	wgProbe     *internal.Probe
-	lastProbe   time.Time
-
+	lastProbe         time.Time
 	persistNetworkMap bool
 }
 
@@ -86,12 +82,7 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		latestConfigInput: internal.ConfigInput{
 			ConfigPath: configPath,
 		},
-		logFile:     logFile,
-		mgmProbe:    internal.NewProbe(),
-		signalProbe: internal.NewProbe(),
-		relayProbe:  internal.NewProbe(),
-		wgProbe:     internal.NewProbe(),
-
+		logFile:           logFile,
 		persistNetworkMap: true,
 	}
 }
@@ -202,14 +193,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
 		s.connectClient.SetNetworkMapPersistence(s.persistNetworkMap)
 
-		probes := internal.ProbeHolder{
-			MgmProbe:    s.mgmProbe,
-			SignalProbe: s.signalProbe,
-			RelayProbe:  s.relayProbe,
-			WgProbe:     s.wgProbe,
-		}
-
-		err := s.connectClient.RunWithProbes(&probes, runningChan)
+		err := s.connectClient.Run(runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
@@ -414,6 +398,25 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	if msg.DisableFirewall != nil {
 		inputConfig.DisableFirewall = msg.DisableFirewall
 		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
+	}
+
+	if msg.BlockLanAccess != nil {
+		inputConfig.BlockLANAccess = msg.BlockLanAccess
+		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
+	}
+
+	if msg.CleanDNSLabels {
+		inputConfig.DNSLabels = domain.List{}
+		s.latestConfigInput.DNSLabels = nil
+	} else if msg.DnsLabels != nil {
+		dnsLabels := domain.FromPunycodeList(msg.DnsLabels)
+		inputConfig.DNSLabels = dnsLabels
+		s.latestConfigInput.DNSLabels = dnsLabels
+	}
+
+	if msg.DisableNotifications != nil {
+		inputConfig.DisableNotifications = msg.DisableNotifications
+		s.latestConfigInput.DisableNotifications = msg.DisableNotifications
 	}
 
 	s.mutex.Unlock()
@@ -671,9 +674,13 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 // Status returns the daemon status
 func (s *Server) Status(
-	_ context.Context,
+	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -695,6 +702,7 @@ func (s *Server) Status(
 
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
+		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
 		statusResponse.FullStatus = pbFullStatus
 	}
 
@@ -702,14 +710,17 @@ func (s *Server) Status(
 }
 
 func (s *Server) runProbes() {
-	if time.Since(s.lastProbe) > probeThreshold {
-		managementHealthy := s.mgmProbe.Probe()
-		signalHealthy := s.signalProbe.Probe()
-		relayHealthy := s.relayProbe.Probe()
-		wgProbe := s.wgProbe.Probe()
+	if s.connectClient == nil {
+		return
+	}
 
-		// Update last time only if all probes were successful
-		if managementHealthy && signalHealthy && relayHealthy && wgProbe {
+	engine := s.connectClient.Engine()
+	if engine == nil {
+		return
+	}
+
+	if time.Since(s.lastProbe) > probeThreshold {
+		if engine.RunHealthProbes() {
 			s.lastProbe = time.Now()
 		}
 	}
@@ -740,24 +751,31 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 
 	}
 
+	disableNotifications := true
+	if s.config.DisableNotifications != nil {
+		disableNotifications = *s.config.DisableNotifications
+	}
+
 	return &proto.GetConfigResponse{
-		ManagementUrl:       managementURL,
-		ConfigFile:          s.latestConfigInput.ConfigPath,
-		LogFile:             s.logFile,
-		PreSharedKey:        preSharedKey,
-		AdminURL:            adminURL,
-		InterfaceName:       s.config.WgIface,
-		WireguardPort:       int64(s.config.WgPort),
-		DisableAutoConnect:  s.config.DisableAutoConnect,
-		ServerSSHAllowed:    *s.config.ServerSSHAllowed,
-		RosenpassEnabled:    s.config.RosenpassEnabled,
-		RosenpassPermissive: s.config.RosenpassPermissive,
+		ManagementUrl:        managementURL,
+		ConfigFile:           s.latestConfigInput.ConfigPath,
+		LogFile:              s.logFile,
+		PreSharedKey:         preSharedKey,
+		AdminURL:             adminURL,
+		InterfaceName:        s.config.WgIface,
+		WireguardPort:        int64(s.config.WgPort),
+		DisableAutoConnect:   s.config.DisableAutoConnect,
+		ServerSSHAllowed:     *s.config.ServerSSHAllowed,
+		RosenpassEnabled:     s.config.RosenpassEnabled,
+		RosenpassPermissive:  s.config.RosenpassPermissive,
+		DisableNotifications: disableNotifications,
 	}, nil
 }
+
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
 		isUIActive := internal.CheckUIApp()
-		if !isUIActive {
+		if !isUIActive && s.config.DisableNotifications != nil && !*s.config.DisableNotifications {
 			if err := sendTerminalNotification(); err != nil {
 				log.Errorf("send session expire terminal notification: %v", err)
 			}

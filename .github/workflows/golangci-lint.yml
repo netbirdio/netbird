@@ -1,4 +1,4 @@
-name: golangci-lint
+name: Lint
 on: [pull_request]
 
 permissions:
@@ -27,7 +27,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
-    name: lint
+        include:
+          - os: macos-latest
+            display_name: Darwin
+          - os: windows-latest
+            display_name: Windows
+          - os: ubuntu-latest
+            display_name: Linux
+    name: ${{ matrix.display_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:

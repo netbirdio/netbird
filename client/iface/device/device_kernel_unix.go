@@ -9,6 +9,8 @@ import (
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -33,8 +35,6 @@ type TunKernelDevice struct {
 }
 
 func NewKernelDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) *TunKernelDevice {
-	checkUser()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TunKernelDevice{
 		ctx:          ctx,
@@ -153,6 +153,11 @@ func (t *TunKernelDevice) DeviceName() string {
 	return t.name
 }
 
+// Device returns the wireguard device, not applicable for kernel devices
+func (t *TunKernelDevice) Device() *device.Device {
+	return nil
+}
+
 func (t *TunKernelDevice) FilteredDevice() *FilteredDevice {
 	return nil
 }
@@ -160,4 +165,8 @@ func (t *TunKernelDevice) FilteredDevice() *FilteredDevice {
 // assignAddr Adds IP address to the tunnel interface
 func (t *TunKernelDevice) assignAddr() error {
 	return t.link.assignAddr(t.address)
+}
+
+func (t *TunKernelDevice) GetNet() *netstack.Net {
+	return nil
 }

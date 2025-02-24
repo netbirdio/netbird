@@ -81,14 +81,14 @@ func (m *Manager) Stop(ctx context.Context) error {
 func (h *Manager) allowDNSFirewall() error {
 	dport := &firewall.Port{
 		IsRange: false,
-		Values:  []int{ListenPort},
+		Values:  []uint16{ListenPort},
 	}
 
 	if h.firewall == nil {
 		return nil
 	}
 
-	dnsRules, err := h.firewall.AddPeerFiltering(net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.RuleDirectionIN, firewall.ActionAccept, "", "")
+	dnsRules, err := h.firewall.AddPeerFiltering(net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "", "")
 	if err != nil {
 		log.Errorf("failed to add allow DNS router rules, err: %v", err)
 		return err

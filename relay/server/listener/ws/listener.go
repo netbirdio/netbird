@@ -8,8 +8,8 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
-	"nhooyr.io/websocket"
 )
 
 // URLPath is the path for the websocket connection.
@@ -87,6 +87,8 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	log.Infof("WS client connected from: %s", rAddr)
 
 	conn := NewConn(wsConn, lAddr, rAddr)
 	l.acceptFn(conn)

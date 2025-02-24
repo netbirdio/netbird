@@ -29,8 +29,8 @@ type Guard struct {
 	isConnectedOnAllWay     isConnectedFunc
 	timeout                 time.Duration
 	srWatcher               *SRWatcher
-	relayedConnDisconnected chan bool
-	iCEConnDisconnected     chan bool
+	relayedConnDisconnected chan struct{}
+	iCEConnDisconnected     chan struct{}
 }
 
 func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
@@ -41,8 +41,8 @@ func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, 
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
-		relayedConnDisconnected: make(chan bool, 1),
-		iCEConnDisconnected:     make(chan bool, 1),
+		relayedConnDisconnected: make(chan struct{}, 1),
+		iCEConnDisconnected:     make(chan struct{}, 1),
 	}
 }
 
@@ -54,16 +54,16 @@ func (g *Guard) Start(ctx context.Context) {
 	}
 }
 
-func (g *Guard) SetRelayedConnDisconnected(changed bool) {
+func (g *Guard) SetRelayedConnDisconnected() {
 	select {
-	case g.relayedConnDisconnected <- changed:
+	case g.relayedConnDisconnected <- struct{}{}:
 	default:
 	}
 }
 
-func (g *Guard) SetICEConnDisconnected(changed bool) {
+func (g *Guard) SetICEConnDisconnected() {
 	select {
-	case g.iCEConnDisconnected <- changed:
+	case g.iCEConnDisconnected <- struct{}{}:
 	default:
 	}
 }
@@ -96,19 +96,13 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 				g.triggerOfferSending()
 			}
 
-		case changed := <-g.relayedConnDisconnected:
-			if !changed {
-				continue
-			}
+		case <-g.relayedConnDisconnected:
 			g.log.Debugf("Relay connection changed, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.prepareExponentTicker(ctx)
 			tickerChannel = ticker.C
 
-		case changed := <-g.iCEConnDisconnected:
-			if !changed {
-				continue
-			}
+		case <-g.iCEConnDisconnected:
 			g.log.Debugf("ICE connection changed, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.prepareExponentTicker(ctx)
@@ -138,16 +132,10 @@ func (g *Guard) listenForDisconnectEvents(ctx context.Context) {
 	g.log.Infof("start listen for reconnect events...")
 	for {
 		select {
-		case changed := <-g.relayedConnDisconnected:
-			if !changed {
-				continue
-			}
+		case <-g.relayedConnDisconnected:
 			g.log.Debugf("Relay connection changed, triggering reconnect")
 			g.triggerOfferSending()
-		case changed := <-g.iCEConnDisconnected:
-			if !changed {
-				continue
-			}
+		case <-g.iCEConnDisconnected:
 			g.log.Debugf("ICE state changed, try to send new offer")
 			g.triggerOfferSending()
 		case <-srReconnectedChan:

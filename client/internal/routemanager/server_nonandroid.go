@@ -11,8 +11,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/route"
 )
@@ -22,11 +22,11 @@ type serverRouter struct {
 	ctx            context.Context
 	routes         map[route.ID]*route.Route
 	firewall       firewall.Manager
-	wgInterface    iface.IWGIface
+	wgInterface    iface.WGIface
 	statusRecorder *peer.Status
 }
 
-func newServerRouter(ctx context.Context, wgInterface iface.IWGIface, firewall firewall.Manager, statusRecorder *peer.Status) (*serverRouter, error) {
+func newServerRouter(ctx context.Context, wgInterface iface.WGIface, firewall firewall.Manager, statusRecorder *peer.Status) (*serverRouter, error) {
 	return &serverRouter{
 		ctx:            ctx,
 		routes:         make(map[route.ID]*route.Route),
@@ -71,9 +71,15 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 	}
 
 	if len(m.routes) > 0 {
-		err := systemops.EnableIPForwarding()
-		if err != nil {
-			return err
+		if err := systemops.EnableIPForwarding(); err != nil {
+			return fmt.Errorf("enable ip forwarding: %w", err)
+		}
+		if err := m.firewall.EnableRouting(); err != nil {
+			return fmt.Errorf("enable routing: %w", err)
+		}
+	} else {
+		if err := m.firewall.DisableRouting(); err != nil {
+			return fmt.Errorf("disable routing: %w", err)
 		}
 	}
 

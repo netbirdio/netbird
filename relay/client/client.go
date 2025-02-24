@@ -10,6 +10,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
+	"github.com/netbirdio/netbird/relay/client/dialer"
+	"github.com/netbirdio/netbird/relay/client/dialer/quic"
 	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
@@ -95,8 +97,6 @@ func (cc *connContainer) writeMsg(msg Msg) {
 		msg.Free()
 	default:
 		msg.Free()
-		cc.log.Infof("message queue is full")
-		// todo consider to close the connection
 	}
 }
 
@@ -141,7 +141,6 @@ type Client struct {
 	muInstanceURL    sync.Mutex
 
 	onDisconnectListener func(string)
-	onConnectedListener  func()
 	listenerMutex        sync.Mutex
 }
 
@@ -179,8 +178,7 @@ func (c *Client) Connect() error {
 		return nil
 	}
 
-	err := c.connect()
-	if err != nil {
+	if err := c.connect(); err != nil {
 		return err
 	}
 
@@ -191,7 +189,6 @@ func (c *Client) Connect() error {
 
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
-	go c.notifyConnected()
 
 	return nil
 }
@@ -239,12 +236,6 @@ func (c *Client) SetOnDisconnectListener(fn func(string)) {
 	c.onDisconnectListener = fn
 }
 
-func (c *Client) SetOnConnectedListener(fn func()) {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-	c.onConnectedListener = fn
-}
-
 // HasConns returns true if there are connections.
 func (c *Client) HasConns() bool {
 	c.mu.Lock()
@@ -264,14 +255,14 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := ws.Dial(c.connectionURL)
+	rd := dialer.NewRaceDial(c.log, c.connectionURL, quic.Dialer{}, ws.Dialer{})
+	conn, err := rd.Dial()
 	if err != nil {
 		return err
 	}
 	c.relayConn = conn
 
-	err = c.handShake()
-	if err != nil {
+	if err = c.handShake(); err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
 			c.log.Errorf("failed to close connection: %s", cErr)
@@ -306,7 +297,7 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("validate version: %w", err)
 	}
 
-	msgType, err := messages.DetermineServerMessageType(buf[messages.SizeOfVersionByte:n])
+	msgType, err := messages.DetermineServerMessageType(buf[:n])
 	if err != nil {
 		c.log.Errorf("failed to determine message type: %s", err)
 		return err
@@ -317,7 +308,7 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("unexpected message type")
 	}
 
-	addr, err := messages.UnmarshalAuthResponse(buf[messages.SizeOfProtoHeader:n])
+	addr, err := messages.UnmarshalAuthResponse(buf[:n])
 	if err != nil {
 		return err
 	}
@@ -345,27 +336,30 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			c.log.Infof("start to Relay read loop exit")
 			c.mu.Lock()
 			if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-				c.log.Debugf("failed to read message from relay server: %s", errExit)
+				c.log.Errorf("failed to read message from relay server: %s", errExit)
 			}
 			c.mu.Unlock()
+			c.bufPool.Put(bufPtr)
 			break
 		}
 
-		_, err := messages.ValidateVersion(buf[:n])
+		buf = buf[:n]
+
+		_, err := messages.ValidateVersion(buf)
 		if err != nil {
 			c.log.Errorf("failed to validate protocol version: %s", err)
 			c.bufPool.Put(bufPtr)
 			continue
 		}
 
-		msgType, err := messages.DetermineServerMessageType(buf[messages.SizeOfVersionByte:n])
+		msgType, err := messages.DetermineServerMessageType(buf)
 		if err != nil {
 			c.log.Errorf("failed to determine message type: %s", err)
 			c.bufPool.Put(bufPtr)
 			continue
 		}
 
-		if !c.handleMsg(msgType, buf[messages.SizeOfProtoHeader:n], bufPtr, hc, internallyStoppedFlag) {
+		if !c.handleMsg(msgType, buf, bufPtr, hc, internallyStoppedFlag) {
 			break
 		}
 	}
@@ -555,16 +549,6 @@ func (c *Client) notifyDisconnected() {
 		return
 	}
 	go c.onDisconnectListener(c.connectionURL)
-}
-
-func (c *Client) notifyConnected() {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-
-	if c.onConnectedListener == nil {
-		return
-	}
-	go c.onConnectedListener()
 }
 
 func (c *Client) writeCloseMsg() {

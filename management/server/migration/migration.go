@@ -330,10 +330,7 @@ func MigrateNewField[T any](ctx context.Context, db *gorm.DB, columnName string,
 		}
 
 		var rows []map[string]any
-		if err := tx.Table(tableName).
-			Select("id", columnName).
-			Where(columnName + " IS NULL OR " + columnName + " = ''").
-			Find(&rows).Error; err != nil {
+		if err := tx.Table(tableName).Select("id", columnName).Where(columnName + " IS NULL").Find(&rows).Error; err != nil {
 			return fmt.Errorf("failed to find rows with empty %s: %w", columnName, err)
 		}
 

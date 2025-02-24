@@ -168,7 +168,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userId, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userId, false, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -417,7 +417,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userId, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, userId, false, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -489,7 +489,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// two peers one added by a regular user and one with a setup key
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, adminUser, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, nil, 999, adminUser, false, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -1099,13 +1099,13 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, "192.168.1.1/24", response.PeerConfig.Address)
 	assert.Equal(t, "peer1.example.com", response.PeerConfig.Fqdn)
 	assert.Equal(t, true, response.PeerConfig.SshConfig.SshEnabled)
-	// assert wiretrustee config
-	assert.Equal(t, "signal.uri", response.WiretrusteeConfig.Signal.Uri)
-	assert.Equal(t, proto.HostConfig_HTTPS, response.WiretrusteeConfig.Signal.GetProtocol())
-	assert.Equal(t, "stun.uri", response.WiretrusteeConfig.Stuns[0].Uri)
-	assert.Equal(t, "turn.uri", response.WiretrusteeConfig.Turns[0].HostConfig.GetUri())
-	assert.Equal(t, "turn-user", response.WiretrusteeConfig.Turns[0].User)
-	assert.Equal(t, "turn-pass", response.WiretrusteeConfig.Turns[0].Password)
+	// assert netbird config
+	assert.Equal(t, "signal.uri", response.NetbirdConfig.Signal.Uri)
+	assert.Equal(t, proto.HostConfig_HTTPS, response.NetbirdConfig.Signal.GetProtocol())
+	assert.Equal(t, "stun.uri", response.NetbirdConfig.Stuns[0].Uri)
+	assert.Equal(t, "turn.uri", response.NetbirdConfig.Turns[0].HostConfig.GetUri())
+	assert.Equal(t, "turn-user", response.NetbirdConfig.Turns[0].User)
+	assert.Equal(t, "turn-pass", response.NetbirdConfig.Turns[0].Password)
 	// assert RemotePeers
 	assert.Equal(t, 1, len(response.RemotePeers))
 	assert.Equal(t, "192.168.1.2/32", response.RemotePeers[0].AllowedIps[0])
@@ -1728,4 +1728,53 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
+}
+
+func Test_DeletePeer(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	// account with an admin and a regular user
+	accountID := "test_account"
+	adminUser := "account_creator"
+	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account.Peers = map[string]*nbpeer.Peer{
+		"peer1": {
+			ID:        "peer1",
+			AccountID: accountID,
+		},
+		"peer2": {
+			ID:        "peer2",
+			AccountID: accountID,
+		},
+	}
+	account.Groups = map[string]*types.Group{
+		"group1": {
+			ID:    "group1",
+			Name:  "Group1",
+			Peers: []string{"peer1", "peer2"},
+		},
+	}
+
+	err = manager.Store.SaveAccount(context.Background(), account)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	err = manager.DeletePeer(context.Background(), accountID, "peer1", adminUser)
+	if err != nil {
+		t.Fatalf("DeletePeer failed: %v", err)
+	}
+
+	_, err = manager.GetPeer(context.Background(), accountID, "peer1", adminUser)
+	assert.Error(t, err)
+
+	group, err := manager.GetGroup(context.Background(), accountID, "group1", adminUser)
+	assert.NoError(t, err)
+	assert.NotContains(t, group.Peers, "peer1")
+
 }

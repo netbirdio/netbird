@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -63,7 +64,7 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 	t.filteredDevice = newDeviceFilter(tunDevice)
 
 	log.Debugf("attaching to interface %v", name)
-	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[wiretrustee] "))
+	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[netbird] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
@@ -128,6 +129,10 @@ func (t *WGTunDevice) WgAddress() WGAddress {
 
 func (t *WGTunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
+}
+
+func (t *WGTunDevice) GetNet() *netstack.Net {
+	return nil
 }
 
 func routesToString(routes []string) string {

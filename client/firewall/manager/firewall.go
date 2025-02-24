@@ -69,7 +69,6 @@ type Manager interface {
 		proto Protocol,
 		sPort *Port,
 		dPort *Port,
-		direction RuleDirection,
 		action Action,
 		ipsetName string,
 		comment string,
@@ -100,6 +99,12 @@ type Manager interface {
 
 	// Flush the changes to firewall controller
 	Flush() error
+
+	SetLogLevel(log.Level)
+
+	EnableRouting() error
+
+	DisableRouting() error
 }
 
 func GenKey(format string, pair RouterPair) string {

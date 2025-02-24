@@ -11,21 +11,17 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/route"
-
-	"github.com/gorilla/mux"
-	"github.com/magiconair/properties/assert"
-
 	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/route"
 )
 
 const (
@@ -60,32 +56,6 @@ var baseExistingRoute = &route.Route{
 	Masquerade:  false,
 	Enabled:     true,
 	Groups:      []string{existingGroupID},
-}
-
-var testingAccount = &types.Account{
-	Id:     testAccountID,
-	Domain: "hotmail.com",
-	Peers: map[string]*nbpeer.Peer{
-		existingPeerID: {
-			Key: existingPeerKey,
-			IP:  netip.MustParseAddr(existingPeerIP1).AsSlice(),
-			ID:  existingPeerID,
-			Meta: nbpeer.PeerSystemMeta{
-				GoOS: "linux",
-			},
-		},
-		nonLinuxExistingPeerID: {
-			Key: nonLinuxExistingPeerID,
-			IP:  netip.MustParseAddr(existingPeerIP2).AsSlice(),
-			ID:  nonLinuxExistingPeerID,
-			Meta: nbpeer.PeerSystemMeta{
-				GoOS: "darwin",
-			},
-		},
-	},
-	Users: map[string]*types.User{
-		"test_user": types.NewAdminUser("test_user"),
-	},
 }
 
 func initRoutesTestData() *handler {
@@ -152,20 +122,7 @@ func initRoutesTestData() *handler {
 				}
 				return nil
 			},
-			GetAccountIDFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (string, string, error) {
-				// return testingAccount, testingAccount.Users["test_user"], nil
-				return testingAccount.Id, testingAccount.Users["test_user"].Id, nil
-			},
 		},
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
-					Domain:    "hotmail.com",
-					AccountId: testAccountID,
-				}
-			}),
-		),
 	}
 }
 
@@ -528,6 +485,11 @@ func TestRoutesHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: testAccountID,
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/routes/{routeId}", p.getRoute).Methods("GET")
@@ -559,96 +521,6 @@ func TestRoutesHandlers(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 			assert.Equal(t, got, tc.expectedRoute)
-		})
-	}
-}
-
-func TestValidateDomains(t *testing.T) {
-	tests := []struct {
-		name     string
-		domains  []string
-		expected domain.List
-		wantErr  bool
-	}{
-		{
-			name:     "Empty list",
-			domains:  nil,
-			expected: nil,
-			wantErr:  true,
-		},
-		{
-			name:     "Valid ASCII domain",
-			domains:  []string{"sub.ex-ample.com"},
-			expected: domain.List{"sub.ex-ample.com"},
-			wantErr:  false,
-		},
-		{
-			name:     "Valid Unicode domain",
-			domains:  []string{"münchen.de"},
-			expected: domain.List{"xn--mnchen-3ya.de"},
-			wantErr:  false,
-		},
-		{
-			name:     "Valid Unicode, all labels",
-			domains:  []string{"中国.中国.中国"},
-			expected: domain.List{"xn--fiqs8s.xn--fiqs8s.xn--fiqs8s"},
-			wantErr:  false,
-		},
-		{
-			name:     "With underscores",
-			domains:  []string{"_jabber._tcp.gmail.com"},
-			expected: domain.List{"_jabber._tcp.gmail.com"},
-			wantErr:  false,
-		},
-		{
-			name:     "Invalid domain format",
-			domains:  []string{"-example.com"},
-			expected: nil,
-			wantErr:  true,
-		},
-		{
-			name:     "Invalid domain format 2",
-			domains:  []string{"example.com-"},
-			expected: nil,
-			wantErr:  true,
-		},
-		{
-			name:     "Multiple domains valid and invalid",
-			domains:  []string{"google.com", "invalid,nbdomain.com", "münchen.de"},
-			expected: domain.List{"google.com"},
-			wantErr:  true,
-		},
-		{
-			name:     "Valid wildcard domain",
-			domains:  []string{"*.example.com"},
-			expected: domain.List{"*.example.com"},
-			wantErr:  false,
-		},
-		{
-			name:     "Wildcard with dot domain",
-			domains:  []string{".*.example.com"},
-			expected: nil,
-			wantErr:  true,
-		},
-		{
-			name:     "Wildcard with dot domain",
-			domains:  []string{".*.example.com"},
-			expected: nil,
-			wantErr:  true,
-		},
-		{
-			name:     "Invalid wildcard domain",
-			domains:  []string{"a.*.example.com"},
-			expected: nil,
-			wantErr:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := validateDomains(tt.domains)
-			assert.Equal(t, tt.wantErr, err != nil)
-			assert.Equal(t, got, tt.expected)
 		})
 	}
 }

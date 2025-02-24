@@ -263,16 +263,16 @@ install_netbird() {
         add_aur_repo
     ;;
     brew)
-        # Remove Wiretrustee if it had been installed using Homebrew before
-        if brew ls --versions wiretrustee >/dev/null 2>&1; then
-            echo "Removing existing wiretrustee client"
+        # Remove Netbird if it had been installed using Homebrew before
+        if brew ls --versions netbird >/dev/null 2>&1; then
+            echo "Removing existing netbird client"
 
             # Stop and uninstall daemon service:
-            wiretrustee service stop
-            wiretrustee service uninstall
+            netbird service stop
+            netbird service uninstall
 
             # Unlik the app
-            brew unlink wiretrustee
+            brew unlink netbird
         fi
 
         brew install netbirdio/tap/netbird

@@ -21,9 +21,7 @@ import (
 func setupDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
-		PrepareStmt: true,
-	})
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 
 	require.NoError(t, err, "Failed to open database")
 	return db

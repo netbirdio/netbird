@@ -51,6 +51,9 @@ type DaemonServiceClient interface {
 	DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error)
 	// SetNetworkMapPersistence enables or disables network map persistence
 	SetNetworkMapPersistence(ctx context.Context, in *SetNetworkMapPersistenceRequest, opts ...grpc.CallOption) (*SetNetworkMapPersistenceResponse, error)
+	TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error)
+	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error)
+	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -205,6 +208,56 @@ func (c *daemonServiceClient) SetNetworkMapPersistence(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *daemonServiceClient) TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error) {
+	out := new(TracePacketResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/TracePacket", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[0], "/daemon.DaemonService/SubscribeEvents", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &daemonServiceSubscribeEventsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type DaemonService_SubscribeEventsClient interface {
+	Recv() (*SystemEvent, error)
+	grpc.ClientStream
+}
+
+type daemonServiceSubscribeEventsClient struct {
+	grpc.ClientStream
+}
+
+func (x *daemonServiceSubscribeEventsClient) Recv() (*SystemEvent, error) {
+	m := new(SystemEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *daemonServiceClient) GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error) {
+	out := new(GetEventsResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetEvents", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -242,6 +295,9 @@ type DaemonServiceServer interface {
 	DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error)
 	// SetNetworkMapPersistence enables or disables network map persistence
 	SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error)
+	TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error)
+	SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error
+	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -296,6 +352,15 @@ func (UnimplementedDaemonServiceServer) DeleteState(context.Context, *DeleteStat
 }
 func (UnimplementedDaemonServiceServer) SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetNetworkMapPersistence not implemented")
+}
+func (UnimplementedDaemonServiceServer) TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TracePacket not implemented")
+}
+func (UnimplementedDaemonServiceServer) SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeEvents not implemented")
+}
+func (UnimplementedDaemonServiceServer) GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEvents not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -598,6 +663,63 @@ func _DaemonService_SetNetworkMapPersistence_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_TracePacket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TracePacketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).TracePacket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/TracePacket",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).TracePacket(ctx, req.(*TracePacketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_SubscribeEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DaemonServiceServer).SubscribeEvents(m, &daemonServiceSubscribeEventsServer{stream})
+}
+
+type DaemonService_SubscribeEventsServer interface {
+	Send(*SystemEvent) error
+	grpc.ServerStream
+}
+
+type daemonServiceSubscribeEventsServer struct {
+	grpc.ServerStream
+}
+
+func (x *daemonServiceSubscribeEventsServer) Send(m *SystemEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _DaemonService_GetEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GetEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/GetEvents",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GetEvents(ctx, req.(*GetEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -669,7 +791,21 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "SetNetworkMapPersistence",
 			Handler:    _DaemonService_SetNetworkMapPersistence_Handler,
 		},
+		{
+			MethodName: "TracePacket",
+			Handler:    _DaemonService_TracePacket_Handler,
+		},
+		{
+			MethodName: "GetEvents",
+			Handler:    _DaemonService_GetEvents_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeEvents",
+			Handler:       _DaemonService_SubscribeEvents_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "daemon.proto",
 }
