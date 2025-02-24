@@ -13,12 +13,11 @@ import (
 )
 
 type Manager struct {
+	PeerActivityChan chan wgtypes.Key
+
 	watcher      *watcher.Watcher
 	listenerMgr  *listener.Manager
 	managedPeers map[wgtypes.Key]lazyconn.PeerConfig
-
-	addPeers   chan []lazyconn.PeerConfig
-	removePeer chan wgtypes.Key
 
 	watcherWG sync.WaitGroup
 	mu        sync.Mutex
@@ -26,11 +25,10 @@ type Manager struct {
 
 func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
-		watcher:      watcher.NewWatcher(wgIface),
-		listenerMgr:  listener.NewManager(wgIface),
-		managedPeers: make(map[wgtypes.Key]lazyconn.PeerConfig),
-		addPeers:     make(chan []lazyconn.PeerConfig, 1),
-		removePeer:   make(chan wgtypes.Key, 1),
+		PeerActivityChan: make(chan wgtypes.Key, 1),
+		watcher:          watcher.NewWatcher(wgIface),
+		listenerMgr:      listener.NewManager(wgIface),
+		managedPeers:     make(map[wgtypes.Key]lazyconn.PeerConfig),
 	}
 	return m
 }
@@ -57,6 +55,7 @@ func (m *Manager) Start() {
 			m.mu.Lock()
 			cfg, ok := m.managedPeers[peerID]
 			if !ok {
+				m.mu.Unlock()
 				continue
 			}
 
@@ -68,20 +67,24 @@ func (m *Manager) Start() {
 			m.mu.Lock()
 			_, ok := m.managedPeers[peerID]
 			if !ok {
+				log.Debugf("lazy peer is not managed: %s", peerID)
+				m.mu.Unlock()
 				continue
 			}
 
-			log.Infof("peer %s started to send traffic", peerID)
-			m.watcher.AddPeer(peerID)
-			m.notifyPeerAction(peerID)
+			//m.watcher.AddPeer(peerID)
+			log.Infof("lazy peer is active: %s", peerID)
+			m.notifyPeerAction(ctx, peerID)
 			m.mu.Unlock()
 		}
 	}
 }
 
-func (m *Manager) SetPeer(peer lazyconn.PeerConfig) error {
+func (m *Manager) AddPeer(peer lazyconn.PeerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	log.Debugf("adding lazy peer: %s", peer.PublicKey)
 
 	if _, ok := m.managedPeers[peer.PublicKey]; ok {
 		return nil
@@ -91,17 +94,24 @@ func (m *Manager) SetPeer(peer lazyconn.PeerConfig) error {
 		return err
 	}
 
-	// todo: remove removed peers from the list
+	m.managedPeers[peer.PublicKey] = peer
 	return nil
 }
 
-func (m *Manager) RemovePeer(peerID wgtypes.Key) {
+func (m *Manager) RemovePeer(peerID wgtypes.Key) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if _, ok := m.managedPeers[peerID]; !ok {
+		return false
+	}
+
+	log.Debugf("removing lazy peer: %s", peerID)
 
 	m.watcher.RemovePeer(peerID)
 	m.listenerMgr.RemovePeer(peerID)
 	delete(m.managedPeers, peerID)
+	return false
 }
 
 func (m *Manager) Close() {
@@ -113,6 +123,9 @@ func (m *Manager) Close() {
 	m.managedPeers = make(map[wgtypes.Key]lazyconn.PeerConfig)
 }
 
-func (m *Manager) notifyPeerAction(peerID wgtypes.Key) {
-	// todo notify engine
+func (m *Manager) notifyPeerAction(ctx context.Context, peerID wgtypes.Key) {
+	select {
+	case <-ctx.Done():
+	case m.PeerActivityChan <- peerID:
+	}
 }

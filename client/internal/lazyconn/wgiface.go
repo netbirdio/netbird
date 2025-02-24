@@ -2,6 +2,7 @@ package lazyconn
 
 import (
 	"net"
+	"net/netip"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -11,6 +12,6 @@ import (
 
 type WGIface interface {
 	Transfers() (map[wgtypes.Key]configurer.WGStats, error)
-	RemovePeer(key wgtypes.Key) error
-	UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	RemovePeer(peerKey string) error
+	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 }

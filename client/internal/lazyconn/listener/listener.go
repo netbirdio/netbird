@@ -1,9 +1,10 @@
 package listener
 
 import (
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"sync"
+
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -12,7 +13,8 @@ type Listener struct {
 	peerID wgtypes.Key
 
 	conn *net.UDPConn
-	wg   sync.WaitGroup
+	// todo is not thread safe. If you start the ReadPackets in upper layer in a Go thread then wait for Close() there too
+	wg sync.WaitGroup
 }
 
 func NewListener(peerID wgtypes.Key, addr *net.UDPAddr) (*Listener, error) {
@@ -29,7 +31,7 @@ func NewListener(peerID wgtypes.Key, addr *net.UDPAddr) (*Listener, error) {
 }
 
 func (d *Listener) ReadPackets(trigger func(peerID wgtypes.Key)) {
-	d.wg.Done()
+	d.wg.Add(1)
 	defer d.wg.Done()
 
 	for {

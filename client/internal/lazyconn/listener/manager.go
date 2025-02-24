@@ -44,6 +44,7 @@ func NewManager(wgIface lazyconn.WGIface) *Manager {
 		TrafficStartChan: make(chan wgtypes.Key, 1),
 		wgIface:          wgIface,
 		portGenerator:    newPortGenerator(),
+		peers:            make(map[wgtypes.Key]*Listener),
 		done:             make(chan struct{}),
 	}
 	return m
@@ -69,7 +70,7 @@ func (m *Manager) RemovePeer(peerID wgtypes.Key) {
 
 	listener.Close()
 
-	if err := m.wgIface.RemovePeer(peerID); err != nil {
+	if err := m.wgIface.RemovePeer(peerID.String()); err != nil {
 		log.Warnf("failed to remove fake peer: %v", err)
 	}
 
@@ -119,9 +120,10 @@ func (m *Manager) createFakePeer(peerCfg lazyconn.PeerConfig) error {
 }
 
 func (m *Manager) onTrigger(peerID wgtypes.Key) {
-	if err := m.wgIface.RemovePeer(peerID); err != nil {
-		log.Errorf("failed to remove peer: %v", err)
-	}
+	log.Debugf("peer started to send traffic, remove lazy endpoint: %s", peerID)
+	// todo: it is not thread safe, but it is ok if we protect from upper layer
+	m.RemovePeer(peerID)
+
 	select {
 	case <-m.done:
 	case m.TrafficStartChan <- peerID:
@@ -129,5 +131,5 @@ func (m *Manager) onTrigger(peerID wgtypes.Key) {
 }
 
 func (m *Manager) createEndpoint(peerCfg lazyconn.PeerConfig, endpoint *net.UDPAddr) error {
-	return m.wgIface.UpdatePeer(peerCfg.PublicKey.String(), peerCfg.AllowedIP.String(), 0, endpoint, nil)
+	return m.wgIface.UpdatePeer(peerCfg.PublicKey.String(), peerCfg.AllowedIPs, 0, endpoint, nil)
 }
