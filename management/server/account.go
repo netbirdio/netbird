@@ -246,6 +246,11 @@ func BuildManager(
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
 ) (*DefaultAccountManager, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("took %v to instantiate account manager", time.Since(start))
+	}()
+
 	am := &DefaultAccountManager{
 		Store:                    store,
 		geo:                      geo,
@@ -263,39 +268,21 @@ func BuildManager(
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 	}
-	allAccounts := store.GetAllAccounts(ctx)
+	accountsCounter, err := store.GetAccountsCounter(ctx)
+	if err != nil {
+		log.WithContext(ctx).Error(err)
+	}
+
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
-	am.singleAccountMode = singleAccountModeDomain != "" && len(allAccounts) <= 1
+	am.singleAccountMode = singleAccountModeDomain != "" && accountsCounter <= 1
 	if am.singleAccountMode {
 		if !isDomainValid(singleAccountModeDomain) {
 			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for a single account mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
 		}
 		am.singleAccountModeDomain = singleAccountModeDomain
-		log.WithContext(ctx).Infof("single account mode enabled, accounts number %d", len(allAccounts))
+		log.WithContext(ctx).Infof("single account mode enabled, accounts number %d", accountsCounter)
 	} else {
-		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", len(allAccounts))
-	}
-
-	// if account doesn't have a default group
-	// we create 'all' group and add all peers into it
-	// also we create default rule with source as destination
-	for _, account := range allAccounts {
-		shouldSave := false
-
-		_, err := account.GetGroupAll()
-		if err != nil {
-			if err := addAllGroup(account); err != nil {
-				return nil, err
-			}
-			shouldSave = true
-		}
-
-		if shouldSave {
-			err = store.SaveAccount(ctx, account)
-			if err != nil {
-				return nil, err
-			}
-		}
+		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
 	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
@@ -1705,7 +1692,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 		},
 	}
 
-	if err := addAllGroup(acc); err != nil {
+	if err := acc.AddAllGroup(); err != nil {
 		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc

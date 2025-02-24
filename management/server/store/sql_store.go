@@ -616,6 +616,16 @@ func (s *SqlStore) GetResourceGroups(ctx context.Context, lockStrength LockingSt
 	return groups, nil
 }
 
+func (s *SqlStore) GetAccountsCounter(ctx context.Context) (int64, error) {
+	var count int64
+	result := s.db.Model(&types.Account{}).Count(&count)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to get all accounts counter: %w", result.Error)
+	}
+
+	return count, nil
+}
+
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	var accounts []types.Account
 	result := s.db.Find(&accounts)
@@ -1036,6 +1046,13 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 	}
 
 	for _, account := range fileStore.GetAllAccounts(ctx) {
+		_, err = account.GetGroupAll()
+		if err != nil {
+			if err := account.AddAllGroup(); err != nil {
+				return nil, err
+			}
+		}
+
 		err := store.SaveAccount(ctx, account)
 		if err != nil {
 			return nil, err
