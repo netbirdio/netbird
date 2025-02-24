@@ -274,6 +274,15 @@ type AccountSettings struct {
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
 
+// AvailablePorts defines model for AvailablePorts.
+type AvailablePorts struct {
+	// Tcp Number of available ports left for TCP
+	Tcp int `json:"tcp"`
+
+	// Udp Number of available ports left for UDP
+	Udp int `json:"udp"`
+}
+
 // Checks List of objects that perform the actual checks
 type Checks struct {
 	// GeoLocationCheck Posture check for geo location
@@ -449,8 +458,7 @@ type GroupRequest struct {
 
 // IngressPeer defines model for IngressPeer.
 type IngressPeer struct {
-	// AvailablePorts Number of available ports left on the ingress peer
-	AvailablePorts int `json:"available_ports"`
+	AvailablePorts AvailablePorts `json:"available_ports"`
 
 	// Connected Indicates if an ingress peer is connected to the management server
 	Connected bool `json:"connected"`
