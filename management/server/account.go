@@ -1607,47 +1607,6 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 	return am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 }
 
-// addAllGroup to account object if it doesn't exist
-func addAllGroup(account *types.Account) error {
-	if len(account.Groups) == 0 {
-		allGroup := &types.Group{
-			ID:     xid.New().String(),
-			Name:   "All",
-			Issued: types.GroupIssuedAPI,
-		}
-		for _, peer := range account.Peers {
-			allGroup.Peers = append(allGroup.Peers, peer.ID)
-		}
-		account.Groups = map[string]*types.Group{allGroup.ID: allGroup}
-
-		id := xid.New().String()
-
-		defaultPolicy := &types.Policy{
-			ID:          id,
-			Name:        types.DefaultRuleName,
-			Description: types.DefaultRuleDescription,
-			Enabled:     true,
-			Rules: []*types.PolicyRule{
-				{
-					ID:            id,
-					Name:          types.DefaultRuleName,
-					Description:   types.DefaultRuleDescription,
-					Enabled:       true,
-					Sources:       []string{allGroup.ID},
-					Destinations:  []string{allGroup.ID},
-					Bidirectional: true,
-					Protocol:      types.PolicyRuleProtocolALL,
-					Action:        types.PolicyTrafficActionAccept,
-				},
-			},
-		}
-
-		account.Policies = []*types.Policy{defaultPolicy}
-	}
-
-	return nil
-}
-
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
 func newAccountWithId(ctx context.Context, accountID, userID, domain string) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
