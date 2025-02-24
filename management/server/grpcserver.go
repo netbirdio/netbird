@@ -276,9 +276,14 @@ func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string
 	}
 
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
-	_, _, err = s.accountManager.GetAccountIDFromUserAuth(ctx, userAuth)
+	accountId, _, err := s.accountManager.GetAccountIDFromUserAuth(ctx, userAuth)
 	if err != nil {
 		return "", status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
+	}
+
+	if userAuth.AccountId != accountId {
+		log.WithContext(ctx).Debugf("gRPC server sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
+		userAuth.AccountId = accountId
 	}
 
 	userAuth, err = s.authManager.EnsureUserAccessByJWTGroups(ctx, userAuth, token)

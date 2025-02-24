@@ -9,10 +9,18 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
+var ErrRouteAllWithoutNameserverGroup = fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
+
+const (
+	ipv4ReverseZone = ".in-addr.arpa"
+	ipv6ReverseZone = ".ip6.arpa"
+)
+
 type hostManager interface {
 	applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error
 	restoreHostDNS() error
 	supportCustomPort() bool
+	string() string
 }
 
 type SystemDNSSettings struct {
@@ -39,6 +47,7 @@ type mockHostConfigurator struct {
 	restoreHostDNSFunc            func() error
 	supportCustomPortFunc         func() bool
 	restoreUncleanShutdownDNSFunc func(*netip.Addr) error
+	stringFunc                    func() string
 }
 
 func (m *mockHostConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
@@ -60,6 +69,13 @@ func (m *mockHostConfigurator) supportCustomPort() bool {
 		return m.supportCustomPortFunc()
 	}
 	return false
+}
+
+func (m *mockHostConfigurator) string() string {
+	if m.stringFunc != nil {
+		return m.stringFunc()
+	}
+	return "mock"
 }
 
 func newNoopHostMocker() hostManager {
@@ -94,9 +110,10 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 	}
 
 	for _, customZone := range dnsConfig.CustomZones {
+		matchOnly := strings.HasSuffix(customZone.Domain, ipv4ReverseZone) || strings.HasSuffix(customZone.Domain, ipv6ReverseZone)
 		config.Domains = append(config.Domains, DomainConfig{
 			Domain:    strings.TrimSuffix(customZone.Domain, "."),
-			MatchOnly: false,
+			MatchOnly: matchOnly,
 		})
 	}
 
@@ -115,4 +132,8 @@ func (n noopHostConfigurator) restoreHostDNS() error {
 
 func (n noopHostConfigurator) supportCustomPort() bool {
 	return true
+}
+
+func (n noopHostConfigurator) string() string {
+	return "noop"
 }

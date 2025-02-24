@@ -2,6 +2,7 @@ package dns
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"runtime"
@@ -15,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	cProto "github.com/netbirdio/netbird/client/proto"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -395,12 +397,12 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	localMuxUpdates, localRecordsByDomain, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
-		return fmt.Errorf("not applying dns update, error: %v", err)
+		return fmt.Errorf("local handler updater: %w", err)
 	}
 
 	upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
 	if err != nil {
-		return fmt.Errorf("not applying dns update, error: %v", err)
+		return fmt.Errorf("upstream handler updater: %w", err)
 	}
 	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...) //nolint:gocritic
 
@@ -420,6 +422,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	if err = s.hostManager.applyDNSConfig(hostUpdate, s.stateManager); err != nil {
 		log.Error(err)
+		s.handleErrNoGroupaAll(err)
 	}
 
 	go func() {
@@ -438,16 +441,33 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	return nil
 }
 
+func (s *DefaultServer) handleErrNoGroupaAll(err error) {
+	if !errors.Is(ErrRouteAllWithoutNameserverGroup, err) {
+		return
+	}
+
+	if s.statusRecorder == nil {
+		return
+	}
+
+	s.statusRecorder.PublishEvent(
+		cProto.SystemEvent_WARNING, cProto.SystemEvent_DNS,
+		"The host dns manager does not support match domains",
+		"The host dns manager does not support match domains without a catch-all nameserver group.",
+		map[string]string{"manager": s.hostManager.string()},
+	)
+}
+
 func (s *DefaultServer) buildLocalHandlerUpdate(
 	customZones []nbdns.CustomZone,
 ) ([]handlerWrapper, map[string][]nbdns.SimpleRecord, error) {
-
 	var muxUpdates []handlerWrapper
 	localRecords := make(map[string][]nbdns.SimpleRecord)
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
-			return nil, nil, fmt.Errorf("received an empty list of records")
+			log.Warnf("received a custom zone with empty records, skipping domain: %s", customZone.Domain)
+			continue
 		}
 
 		muxUpdates = append(muxUpdates, handlerWrapper{
@@ -460,7 +480,8 @@ func (s *DefaultServer) buildLocalHandlerUpdate(
 		for _, record := range customZone.Records {
 			var class uint16 = dns.ClassINET
 			if record.Class != nbdns.DefaultClass {
-				return nil, nil, fmt.Errorf("received an invalid class type: %s", record.Class)
+				log.Warnf("received an invalid class type: %s", record.Class)
+				continue
 			}
 
 			key := buildRecordKey(record.Name, class, uint16(record.Type))
@@ -670,6 +691,7 @@ func (s *DefaultServer) upstreamCallbacks(
 		}
 
 		if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
+			s.handleErrNoGroupaAll(err)
 			l.Errorf("Failed to apply nameserver deactivation on the host: %v", err)
 		}
 
@@ -708,6 +730,7 @@ func (s *DefaultServer) upstreamCallbacks(
 
 		if s.hostManager != nil {
 			if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
+				s.handleErrNoGroupaAll(err)
 				l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
 			}
 		}
