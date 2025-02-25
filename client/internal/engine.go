@@ -658,7 +658,6 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 		err = e.handleFlowUpdate(wCfg.GetFlow())
 		if err != nil {
-			log.Errorf("failed to handle the flow configuration: %v", err)
 			return fmt.Errorf("handle the flow configuration: %w", err)
 		}
 
