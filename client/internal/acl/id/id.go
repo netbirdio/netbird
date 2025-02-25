@@ -12,7 +12,7 @@ import (
 
 type RuleID string
 
-func (r RuleID) GetRuleID() string {
+func (r RuleID) ID() string {
 	return string(r)
 }
 

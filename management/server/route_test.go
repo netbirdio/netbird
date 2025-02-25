@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -457,7 +458,7 @@ func TestCreateRoute(t *testing.T) {
 			// assign generated ID
 			testCase.expectedRoute.ID = outRoute.ID
 
-			if !testCase.expectedRoute.IsEqual(outRoute) {
+			if !testCase.expectedRoute.Equal(outRoute) {
 				t.Errorf("new route didn't match expected route:\nGot %#v\nExpected:%#v\n", outRoute, testCase.expectedRoute)
 			}
 		})
@@ -998,7 +999,7 @@ func TestSaveRoute(t *testing.T) {
 			savedRoute, saved := account.Routes[testCase.expectedRoute.ID]
 			require.True(t, saved)
 
-			if !testCase.expectedRoute.IsEqual(savedRoute) {
+			if !testCase.expectedRoute.Equal(savedRoute) {
 				t.Errorf("new route didn't match expected route:\nGot %#v\nExpected:%#v\n", savedRoute, testCase.expectedRoute)
 			}
 		})
@@ -1192,7 +1193,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	peer1Routes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1Routes.Routes, 1, "we should receive one route for peer1")
-	require.True(t, expectedRoute.IsEqual(peer1Routes.Routes[0]), "received route should be equal")
+	require.True(t, expectedRoute.Equal(peer1Routes.Routes[0]), "received route should be equal")
 
 	peer2Routes, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
@@ -1204,7 +1205,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	peer2Routes, err = am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
-	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
+	require.True(t, peer1Routes.Routes[0].Equal(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
 
 	newGroup := &types.Group{
 		ID:    xid.New().String(),
@@ -1256,7 +1257,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
 }
 
 func createRouterStore(t *testing.T) (store.Store, error) {
