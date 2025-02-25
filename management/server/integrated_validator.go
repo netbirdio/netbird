@@ -88,7 +88,7 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 			return err
 		}
 
-		peers, err = transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID)
+		peers, err = transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
 		return err
 	})
 	if err != nil {

@@ -132,8 +132,8 @@ func (r *Route) Copy() *Route {
 	return route
 }
 
-// IsEqual compares one route with the other
-func (r *Route) IsEqual(other *Route) bool {
+// Equal compares one route with the other
+func (r *Route) Equal(other *Route) bool {
 	if r == nil && other == nil {
 		return true
 	} else if r == nil || other == nil {

@@ -37,6 +37,7 @@ type DaemonServiceClient interface {
 	SelectNetworks(ctx context.Context, in *SelectNetworksRequest, opts ...grpc.CallOption) (*SelectNetworksResponse, error)
 	// Deselect specific routes
 	DeselectNetworks(ctx context.Context, in *SelectNetworksRequest, opts ...grpc.CallOption) (*SelectNetworksResponse, error)
+	ForwardingRules(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*ForwardingRulesResponse, error)
 	// DebugBundle creates a debug bundle
 	DebugBundle(ctx context.Context, in *DebugBundleRequest, opts ...grpc.CallOption) (*DebugBundleResponse, error)
 	// GetLogLevel gets the log level of the daemon
@@ -139,6 +140,15 @@ func (c *daemonServiceClient) SelectNetworks(ctx context.Context, in *SelectNetw
 func (c *daemonServiceClient) DeselectNetworks(ctx context.Context, in *SelectNetworksRequest, opts ...grpc.CallOption) (*SelectNetworksResponse, error) {
 	out := new(SelectNetworksResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/DeselectNetworks", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) ForwardingRules(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*ForwardingRulesResponse, error) {
+	out := new(ForwardingRulesResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/ForwardingRules", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -281,6 +291,7 @@ type DaemonServiceServer interface {
 	SelectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error)
 	// Deselect specific routes
 	DeselectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error)
+	ForwardingRules(context.Context, *EmptyRequest) (*ForwardingRulesResponse, error)
 	// DebugBundle creates a debug bundle
 	DebugBundle(context.Context, *DebugBundleRequest) (*DebugBundleResponse, error)
 	// GetLogLevel gets the log level of the daemon
@@ -331,6 +342,9 @@ func (UnimplementedDaemonServiceServer) SelectNetworks(context.Context, *SelectN
 }
 func (UnimplementedDaemonServiceServer) DeselectNetworks(context.Context, *SelectNetworksRequest) (*SelectNetworksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeselectNetworks not implemented")
+}
+func (UnimplementedDaemonServiceServer) ForwardingRules(context.Context, *EmptyRequest) (*ForwardingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForwardingRules not implemented")
 }
 func (UnimplementedDaemonServiceServer) DebugBundle(context.Context, *DebugBundleRequest) (*DebugBundleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DebugBundle not implemented")
@@ -533,6 +547,24 @@ func _DaemonService_DeselectNetworks_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).DeselectNetworks(ctx, req.(*SelectNetworksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_ForwardingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EmptyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ForwardingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/ForwardingRules",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ForwardingRules(ctx, req.(*EmptyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -762,6 +794,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeselectNetworks",
 			Handler:    _DaemonService_DeselectNetworks_Handler,
+		},
+		{
+			MethodName: "ForwardingRules",
+			Handler:    _DaemonService_ForwardingRules_Handler,
 		},
 		{
 			MethodName: "DebugBundle",
