@@ -322,6 +322,13 @@ func (e *Engine) Stop() error {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
+	if e.flowStore != nil {
+		if err := e.flowStore.Close(); err != nil {
+			e.flowStore = nil
+			log.Errorf("failed to close flow store: %w", err)
+		}
+	}
+
 	return nil
 }
 
