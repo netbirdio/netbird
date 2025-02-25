@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 
 option go_package = "/proto";
 
@@ -220,6 +221,8 @@ message FlowConfig {
   string url = 1;
   string tokenPayload = 2;
   string tokenSignature = 3;
+  google.protobuf.Duration interval = 4;
+  bool enabled = 5;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
