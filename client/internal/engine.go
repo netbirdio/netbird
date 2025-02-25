@@ -325,7 +325,7 @@ func (e *Engine) Stop() error {
 	if e.flowStore != nil {
 		if err := e.flowStore.Close(); err != nil {
 			e.flowStore = nil
-			log.Errorf("failed to close flow store: %w", err)
+			log.Errorf("failed to close flow store: %v", err)
 		}
 	}
 
