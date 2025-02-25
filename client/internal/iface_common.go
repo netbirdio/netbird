@@ -1,9 +1,8 @@
-//go:build !windows
-
-package iface
+package internal
 
 import (
 	"net"
+	"net/netip"
 	"time"
 
 	wgdevice "golang.zx2c4.com/wireguard/device"
@@ -16,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
-type IWGIface interface {
+type wgIfaceBase interface {
 	Create() error
 	CreateOnAndroid(routeRange []string, ip string, domains []string) error
 	IsUserspaceBind() bool
@@ -26,7 +25,7 @@ type IWGIface interface {
 	Up() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddr(newAddr string) error
 	GetProxy() wgproxy.Proxy
-	UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeer(peerKey string) error
 	AddAllowedIP(peerKey string, allowedIP string) error
 	RemoveAllowedIP(peerKey string, allowedIP string) error

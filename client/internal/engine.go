@@ -44,6 +44,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
@@ -155,7 +156,7 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	wgInterface iface.IWGIface
+	wgInterface WGIface
 
 	udpMux *bind.UniversalUDPMuxDefault
 
@@ -535,15 +536,18 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
 		peerPubKey := p.GetWgPubKey()
-		if allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey); ok {
-			if allowedIPs != strings.Join(p.AllowedIps, ",") {
-				modified = append(modified, p)
-				continue
-			}
-			err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn())
-			if err != nil {
-				log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
-			}
+		allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey)
+		if !ok {
+			continue
+		}
+		if !compareNetIPLists(allowedIPs, p.GetAllowedIps()) {
+			modified = append(modified, p)
+			continue
+		}
+
+		err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn())
+		if err != nil {
+			log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
 		}
 	}
 
@@ -681,6 +685,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	if err := e.updateNetworkMap(nm); err != nil {
 		return err
 	}
+
+	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil
 }
@@ -967,7 +973,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
 
-	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig)); err != nil {
+	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
@@ -1036,7 +1042,7 @@ func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) []string {
 	return dnsRoutes
 }
 
-func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
+func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network *net.IPNet) nbdns.Config {
 	dnsUpdate := nbdns.Config{
 		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
 		CustomZones:      make([]nbdns.CustomZone, 0),
@@ -1076,6 +1082,11 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 		}
 		dnsUpdate.NameServerGroups = append(dnsUpdate.NameServerGroups, dnsNSGroup)
 	}
+
+	if len(dnsUpdate.CustomZones) > 0 {
+		addReverseZone(&dnsUpdate, network)
+	}
+
 	return dnsUpdate
 }
 
@@ -1109,34 +1120,45 @@ func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 // addNewPeer add peer if connection doesn't exist
 func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	peerKey := peerConfig.GetWgPubKey()
-	peerIPs := peerConfig.GetAllowedIps()
-	if _, ok := e.peerStore.PeerConn(peerKey); !ok {
-		conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
-		if err != nil {
-			return fmt.Errorf("create peer connection: %w", err)
-		}
-
-		if ok := e.peerStore.AddPeerConn(peerKey, conn); !ok {
-			conn.Close()
-			return fmt.Errorf("peer already exists: %s", peerKey)
-		}
-
-		if e.beforePeerHook != nil && e.afterPeerHook != nil {
-			conn.AddBeforeAddPeerHook(e.beforePeerHook)
-			conn.AddAfterRemovePeerHook(e.afterPeerHook)
-		}
-
-		err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
-		if err != nil {
-			log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
-		}
-
-		conn.Open()
+	peerIPs := make([]netip.Prefix, 0, len(peerConfig.GetAllowedIps()))
+	if _, ok := e.peerStore.PeerConn(peerKey); ok {
+		return nil
 	}
+
+	for _, ipString := range peerConfig.GetAllowedIps() {
+		allowedNetIP, err := netip.ParsePrefix(ipString)
+		if err != nil {
+			log.Errorf("failed to parse allowedIPS: %v", err)
+			return err
+		}
+		peerIPs = append(peerIPs, allowedNetIP)
+	}
+
+	conn, err := e.createPeerConn(peerKey, peerIPs)
+	if err != nil {
+		return fmt.Errorf("create peer connection: %w", err)
+	}
+
+	if ok := e.peerStore.AddPeerConn(peerKey, conn); !ok {
+		conn.Close()
+		return fmt.Errorf("peer already exists: %s", peerKey)
+	}
+
+	if e.beforePeerHook != nil && e.afterPeerHook != nil {
+		conn.AddBeforeAddPeerHook(e.beforePeerHook)
+		conn.AddAfterRemovePeerHook(e.afterPeerHook)
+	}
+
+	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
+	if err != nil {
+		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
+	}
+
+	conn.Open()
 	return nil
 }
 
-func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
+func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix) (*peer.Conn, error) {
 	log.Debugf("creating peer connection %s", pubKey)
 
 	wgConfig := peer.WgConfig{
@@ -1382,7 +1404,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 		return nil, nil, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
-	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
+	dnsCfg := toDNSConfig(netMap.GetDNSConfig(), e.wgInterface.Address().Network)
 	return routes, &dnsCfg, nil
 }
 
@@ -1888,4 +1910,37 @@ func getInterfacePrefixes() ([]netip.Prefix, error) {
 	}
 
 	return prefixes, nberrors.FormatErrorOrNil(merr)
+}
+
+// compareNetIPLists compares a list of netip.Prefix with a list of strings.
+// return true if both lists are equal, false otherwise.
+func compareNetIPLists(list1 []netip.Prefix, list2 []string) bool {
+	if len(list1) != len(list2) {
+		return false
+	}
+
+	freq := make(map[string]int, len(list1))
+	for _, p := range list1 {
+		freq[p.String()]++
+	}
+
+	for _, s := range list2 {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return false // invalid prefix in list2.
+		}
+		key := p.String()
+		if freq[key] == 0 {
+			return false
+		}
+		freq[key]--
+	}
+
+	// all counts should be zero if lists are equal.
+	for _, count := range freq {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
 }

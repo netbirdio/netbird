@@ -41,13 +41,12 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/http/configs"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -264,11 +263,11 @@ var (
 				tlsEnabled = true
 			}
 
-			jwtValidator, err := jwtclaims.NewJWTValidator(
-				ctx,
+			authManager := auth.NewManager(store,
 				config.HttpConfig.AuthIssuer,
-				config.GetAuthAudiences(),
+				config.HttpConfig.AuthAudience,
 				config.HttpConfig.AuthKeysLocation,
+<<<<<<< HEAD
 				config.HttpConfig.IdpSignKeyRefreshEnabled,
 			)
 			if err != nil {
@@ -282,12 +281,24 @@ var (
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
 
+=======
+				config.HttpConfig.AuthUserIDClaim,
+				config.GetAuthAudiences(),
+				config.HttpConfig.IdpSignKeyRefreshEnabled)
+			userManager := users.NewManager(store)
+			settingsManager := settings.NewManager(store)
+			permissionsManager := permissions.NewManager(userManager, settingsManager)
+>>>>>>> main
 			groupsManager := groups.NewManager(store, permissionsManager, accountManager)
 			resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, accountManager)
 			routersManager := routers.NewManager(store, permissionsManager, accountManager)
 			networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, accountManager)
 
+<<<<<<< HEAD
 			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, jwtValidator, appMetrics, httpAPIAuthCfg, integratedPeerValidator, proxyController, permissionsManager, peersManager)
+=======
+			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, config, integratedPeerValidator)
+>>>>>>> main
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
@@ -296,7 +307,7 @@ var (
 			ephemeralManager.LoadInitialPeers(ctx)
 
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(ctx, config, accountManager, settingsManager, peersUpdateManager, secretsManager, appMetrics, ephemeralManager)
+			srv, err := server.NewServer(ctx, config, accountManager, settingsManager, peersUpdateManager, secretsManager, appMetrics, ephemeralManager, authManager)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}

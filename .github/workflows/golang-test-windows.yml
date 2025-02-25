@@ -1,4 +1,4 @@
-name: Test Code Windows
+name: "Windows"
 
 on:
   push:
@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   test:
+    name: "Client / Unit"
     runs-on: windows-latest
     steps:
       - name: Checkout code

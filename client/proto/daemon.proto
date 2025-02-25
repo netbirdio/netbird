@@ -457,6 +457,7 @@ message SystemEvent {
     DNS = 1;
     AUTHENTICATION = 2;
     CONNECTIVITY = 3;
+    SYSTEM = 4;
   }
 
   string id = 1;

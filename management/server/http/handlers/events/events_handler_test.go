@@ -13,9 +13,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -29,22 +30,10 @@ func initEventsTestData(account string, events ...*activity.Event) *handler {
 				}
 				return []*activity.Event{}, nil
 			},
-			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return claims.AccountId, claims.UserId, nil
-			},
 			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) (map[string]*types.UserInfo, error) {
 				return make(map[string]*types.UserInfo), nil
 			},
 		},
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
-					Domain:    "hotmail.com",
-					AccountId: "test_account",
-				}
-			}),
-		),
 	}
 }
 
@@ -199,6 +188,11 @@ func TestEvents_GetEvents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_account",
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/events/", handler.getAllEvents).Methods("GET")

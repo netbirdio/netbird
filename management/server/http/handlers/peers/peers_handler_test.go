@@ -15,8 +15,8 @@ import (
 	"github.com/gorilla/mux"
 	"golang.org/x/exp/maps"
 
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -25,16 +25,13 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-type ctxKey string
-
 const (
 	testPeerID                = "test_peer"
 	noUpdateChannelTestPeerID = "no-update-channel"
 
-	adminUser          = "admin_user"
-	regularUser        = "regular_user"
-	serviceUser        = "service_user"
-	userIDKey   ctxKey = "user_id"
+	adminUser   = "admin_user"
+	regularUser = "regular_user"
+	serviceUser = "service_user"
 )
 
 func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
@@ -146,9 +143,6 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 			GetDNSDomainFunc: func() string {
 				return "netbird.selfhosted"
 			},
-			GetAccountIDFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (string, string, error) {
-				return claims.AccountId, claims.UserId, nil
-			},
 			GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
 				return account, nil
 			},
@@ -167,16 +161,6 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				return ok
 			},
 		},
-		claimsExtractor: jwtclaims.NewClaimsExtractor(
-			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
-				userID := r.Context().Value(userIDKey).(string)
-				return jwtclaims.AuthorizationClaims{
-					UserId:    userID,
-					Domain:    "hotmail.com",
-					AccountId: "test_id",
-				}
-			}),
-		),
 	}
 }
 
@@ -267,8 +251,11 @@ func TestGetPeers(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			ctx := context.WithValue(context.Background(), userIDKey, "admin_user")
-			req = req.WithContext(ctx)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    "admin_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/peers/", p.GetAllPeers).Methods("GET")
@@ -412,8 +399,11 @@ func TestGetAccessiblePeers(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/peers/%s/accessible-peers", tc.peerID), nil)
-			ctx := context.WithValue(context.Background(), userIDKey, tc.callerUserID)
-			req = req.WithContext(ctx)
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    tc.callerUserID,
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/peers/{peerId}/accessible-peers", p.GetAccessiblePeers).Methods("GET")

@@ -183,6 +183,19 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 	}
 
 	u.disable(err)
+
+	if u.statusRecorder == nil {
+		return
+	}
+
+	u.statusRecorder.PublishEvent(
+		proto.SystemEvent_WARNING,
+		proto.SystemEvent_DNS,
+		"All upstream servers failed (fail count exceeded)",
+		"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
+		map[string]string{"upstreams": strings.Join(u.upstreamServers, ", ")},
+		// TODO add domain meta
+	)
 }
 
 // probeAvailability tests all upstream servers simultaneously and
@@ -232,10 +245,14 @@ func (u *upstreamResolverBase) probeAvailability() {
 	if !success {
 		u.disable(errors.ErrorOrNil())
 
+		if u.statusRecorder == nil {
+			return
+		}
+
 		u.statusRecorder.PublishEvent(
 			proto.SystemEvent_WARNING,
 			proto.SystemEvent_DNS,
-			"All upstream servers failed",
+			"All upstream servers failed (probe failed)",
 			"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
 			map[string]string{"upstreams": strings.Join(u.upstreamServers, ", ")},
 		)

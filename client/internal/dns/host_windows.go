@@ -184,6 +184,10 @@ func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []s
 	return nil
 }
 
+func (r *registryConfigurator) string() string {
+	return "registry"
+}
+
 func (r *registryConfigurator) updateSearchDomains(domains []string) error {
 	if err := r.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, strings.Join(domains, ",")); err != nil {
 		return fmt.Errorf("update search domains: %w", err)

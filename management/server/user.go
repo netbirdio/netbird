@@ -8,16 +8,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
-	log "github.com/sirupsen/logrus"
 )
 
 // createServiceUser creates a new service user under the given account.
@@ -174,31 +174,26 @@ func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*t
 	return am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, id)
 }
 
-// GetUser looks up a user by provided authorization claims.
-// It will also create an account if didn't exist for this user before.
-func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*types.User, error) {
-	accountID, userID, err := am.GetAccountIDFromToken(ctx, claims)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get account with token claims %v", err)
-	}
-
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+// GetUser looks up a user by provided nbContext.UserAuths.
+// Expects account to have been created already.
+func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbContext.UserAuth) (*types.User, error) {
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
 	if err != nil {
 		return nil, err
 	}
 
 	// this code should be outside of the am.GetAccountIDFromToken(claims) because this method is called also by the gRPC
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
-	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
+	newLogin := user.LastDashboardLoginChanged(userAuth.LastLogin)
 
-	err = am.Store.SaveUserLastLogin(ctx, accountID, userID, claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed saving user last login: %v", err)
 	}
 
 	if newLogin {
-		meta := map[string]any{"timestamp": claims.LastLogin}
-		am.StoreEvent(ctx, claims.UserId, claims.UserId, accountID, activity.DashboardLogin, meta)
+		meta := map[string]any{"timestamp": userAuth.LastLogin}
+		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, userAuth.AccountId, activity.DashboardLogin, meta)
 	}
 
 	return user, nil
