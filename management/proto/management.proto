@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 
 option go_package = "/proto";
 
@@ -191,6 +192,8 @@ message NetbirdConfig {
   HostConfig signal = 3;
 
   RelayConfig relay = 4;
+
+  FlowConfig flow = 5;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -212,6 +215,14 @@ message RelayConfig {
   repeated string urls = 1;
   string tokenPayload = 2;
   string tokenSignature = 3;
+}
+
+message FlowConfig {
+  string url = 1;
+  string tokenPayload = 2;
+  string tokenSignature = 3;
+  google.protobuf.Duration interval = 4;
+  bool enabled = 5;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
