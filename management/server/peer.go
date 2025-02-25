@@ -375,6 +375,15 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
+		isIngressPeer, err := am.proxyController.IsIngressPeer(ctx, accountID, peerID)
+		if err != nil {
+			return err
+		}
+
+		if isIngressPeer {
+			return &GroupLinkError{"ingress ports", peerID}
+		}
+
 		updateAccountPeers, err = isPeerInActiveGroup(ctx, transaction, accountID, peerID)
 		if err != nil {
 			return err
