@@ -371,6 +371,9 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		return err
 	})
+	if err != nil {
+		return err
+	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
