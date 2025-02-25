@@ -1649,9 +1649,7 @@ components:
           type: string
           example: 192.34.0.123
         available_ports:
-          description: Number of available ports left on the ingress peer
-          type: integer
-          example: 45765
+          $ref: '#/components/schemas/AvailablePorts'
         enabled:
           description: Indicates if an ingress peer is enabled
           type: boolean
@@ -1677,6 +1675,21 @@ components:
         - connected
         - fallback
         - region
+
+    AvailablePorts:
+        type: object
+        properties:
+            tcp:
+                description: Number of available TCP  ports left on the ingress peer
+                type: integer
+                example: 45765
+            udp:
+                description: Number of available UDP ports left on the ingress peer
+                type: integer
+                example: 50000
+        required:
+            - tcp
+            - udp
     IngressPortAllocationRequest:
       type: object
       properties:
