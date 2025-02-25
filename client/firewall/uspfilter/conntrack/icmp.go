@@ -28,7 +28,7 @@ type ICMPConnKey struct {
 }
 
 func (i *ICMPConnKey) String() string {
-	return fmt.Sprintf("%s -> %s (%d/%d)", i.SrcIP, i.Sequence, i.ID)
+	return fmt.Sprintf("%s -> %s (%d/%d)", i.SrcIP, i.DstIP, i.Sequence, i.ID)
 }
 
 // ICMPConnTrack represents an ICMP connection state

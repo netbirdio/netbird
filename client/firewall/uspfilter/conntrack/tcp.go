@@ -113,7 +113,6 @@ func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 	t.mutex.Lock()
 	conn, exists := t.connections[*key]
 	if !exists {
-		// Use preallocated IPs
 		srcIPCopy := t.ipPool.Get()
 		dstIPCopy := t.ipPool.Get()
 		copyIP(srcIPCopy, srcIP)
@@ -136,7 +135,6 @@ func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 	}
 	t.mutex.Unlock()
 
-	// Lock individual connection for state update
 	conn.Lock()
 	t.updateState(key, conn, flags, true)
 	conn.Unlock()
