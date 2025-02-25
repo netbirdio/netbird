@@ -12,11 +12,7 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
-<<<<<<< HEAD
-=======
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
->>>>>>> main
 	"github.com/netbirdio/netbird/route"
 )
 
