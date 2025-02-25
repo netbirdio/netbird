@@ -9,6 +9,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 
@@ -27,12 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
-<<<<<<< HEAD
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-=======
-	"github.com/netbirdio/netbird/management/server/integrated_validator"
->>>>>>> main
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
@@ -43,13 +39,6 @@ import (
 const apiPrefix = "/api"
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-<<<<<<< HEAD
-func NewAPIHandler(ctx context.Context, accountManager s.AccountManager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg configs.AuthCfg, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager) (http.Handler, error) {
-	claimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(authCfg.Audience),
-		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
-	)
-=======
 func NewAPIHandler(
 	ctx context.Context,
 	accountManager s.AccountManager,
@@ -60,9 +49,11 @@ func NewAPIHandler(
 	LocationManager geolocation.Geolocation,
 	authManager auth.Manager,
 	appMetrics telemetry.AppMetrics,
-	config *s.Config,
-	integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
->>>>>>> main
+	integratedValidator integrated_validator.IntegratedValidator,
+	proxyController port_forwarding.Controller,
+	permissionsManager permissions.Manager,
+	peersManager nbpeers.Manager,
+) (http.Handler, error) {
 
 	authMiddleware := middleware.NewAuthMiddleware(
 		authManager,
@@ -82,11 +73,7 @@ func NewAPIHandler(
 
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
-<<<<<<< HEAD
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, claimsExtractor, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController); err != nil {
-=======
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter()); err != nil {
->>>>>>> main
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 

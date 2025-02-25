@@ -13,12 +13,7 @@ import (
 	"testing"
 	"time"
 
-<<<<<<< HEAD
-	"github.com/golang-jwt/jwt"
-
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-=======
->>>>>>> main
 	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"

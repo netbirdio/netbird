@@ -267,38 +267,17 @@ var (
 				config.HttpConfig.AuthIssuer,
 				config.HttpConfig.AuthAudience,
 				config.HttpConfig.AuthKeysLocation,
-<<<<<<< HEAD
-				config.HttpConfig.IdpSignKeyRefreshEnabled,
-			)
-			if err != nil {
-				return fmt.Errorf("failed creating JWT validator: %v", err)
-			}
-
-			httpAPIAuthCfg := configs.AuthCfg{
-				Issuer:       config.HttpConfig.AuthIssuer,
-				Audience:     config.HttpConfig.AuthAudience,
-				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
-				KeysLocation: config.HttpConfig.AuthKeysLocation,
-			}
-
-=======
 				config.HttpConfig.AuthUserIDClaim,
 				config.GetAuthAudiences(),
 				config.HttpConfig.IdpSignKeyRefreshEnabled)
-			userManager := users.NewManager(store)
-			settingsManager := settings.NewManager(store)
-			permissionsManager := permissions.NewManager(userManager, settingsManager)
->>>>>>> main
+
 			groupsManager := groups.NewManager(store, permissionsManager, accountManager)
 			resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, accountManager)
 			routersManager := routers.NewManager(store, permissionsManager, accountManager)
 			networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, accountManager)
 
-<<<<<<< HEAD
-			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, jwtValidator, appMetrics, httpAPIAuthCfg, integratedPeerValidator, proxyController, permissionsManager, peersManager)
-=======
-			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, config, integratedPeerValidator)
->>>>>>> main
+			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, integratedPeerValidator, proxyController, permissionsManager, peersManager)
+
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
