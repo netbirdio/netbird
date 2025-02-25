@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
+	"github.com/netbirdio/netbird/client/internal/flowstore"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -189,6 +190,7 @@ type Engine struct {
 	persistNetworkMap bool
 	latestNetworkMap  *mgmProto.NetworkMap
 	connSemaphore     *semaphoregroup.SemaphoreGroup
+	flowStore         flowstore.Store
 }
 
 // Peer is an instance of the Connection Peer
@@ -318,6 +320,13 @@ func (e *Engine) Stop() error {
 	}
 	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
+	}
+
+	if e.flowStore != nil {
+		if err := e.flowStore.Close(); err != nil {
+			e.flowStore = nil
+			log.Errorf("failed to close flow store: %v", err)
+		}
 	}
 
 	return nil
@@ -642,25 +651,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		stunTurn = append(stunTurn, e.TURNs...)
 		e.stunTurn.Store(stunTurn)
 
-		relayMsg := wCfg.GetRelay()
-		if relayMsg != nil {
-			// when we receive token we expect valid address list too
-			c := &auth.Token{
-				Payload:   relayMsg.GetTokenPayload(),
-				Signature: relayMsg.GetTokenSignature(),
-			}
-			if err := e.relayManager.UpdateToken(c); err != nil {
-				log.Errorf("failed to update relay token: %v", err)
-				return fmt.Errorf("update relay token: %w", err)
-			}
+		err = e.handleRelayUpdate(wCfg.GetRelay())
+		if err != nil {
+			return err
+		}
 
-			e.relayManager.UpdateServerURLs(relayMsg.Urls)
-
-			// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
-			// We can ignore all errors because the guard will manage the reconnection retries.
-			_ = e.relayManager.Serve()
-		} else {
-			e.relayManager.UpdateServerURLs(nil)
+		err = e.handleFlowUpdate(wCfg.GetFlow())
+		if err != nil {
+			return fmt.Errorf("handle the flow configuration: %w", err)
 		}
 
 		// todo update signal
@@ -688,6 +686,47 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
+	return nil
+}
+
+func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
+	if update != nil {
+		// when we receive token we expect valid address list too
+		c := &auth.Token{
+			Payload:   update.GetTokenPayload(),
+			Signature: update.GetTokenSignature(),
+		}
+		if err := e.relayManager.UpdateToken(c); err != nil {
+			return fmt.Errorf("update relay token: %w", err)
+		}
+
+		e.relayManager.UpdateServerURLs(update.Urls)
+
+		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
+		// We can ignore all errors because the guard will manage the reconnection retries.
+		_ = e.relayManager.Serve()
+	} else {
+		e.relayManager.UpdateServerURLs(nil)
+	}
+
+	return nil
+}
+
+func (e *Engine) handleFlowUpdate(update *mgmProto.FlowConfig) error {
+	if update == nil {
+		return nil
+	}
+
+	if update.GetEnabled() && e.flowStore == nil {
+		e.flowStore = flowstore.New(e.ctx)
+		return nil
+	}
+
+	if !update.GetEnabled() && e.flowStore != nil {
+		err := e.flowStore.Close()
+		e.flowStore = nil
+		return err
+	}
 	return nil
 }
 
