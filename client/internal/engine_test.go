@@ -88,6 +88,7 @@ type MockWGIface struct {
 	GetDeviceFunc              func() *device.FilteredDevice
 	GetWGDeviceFunc            func() *wgdevice.Device
 	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
+	TransfersMoc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
@@ -167,6 +168,10 @@ func (m *MockWGIface) GetWGDevice() *wgdevice.Device {
 
 func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 	return m.GetStatsFunc(peerKey)
+}
+
+func (m *MockWGIface) Transfers() (map[string]configurer.WGStats, error) {
+	return m.TransfersMoc()
 }
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {

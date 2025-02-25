@@ -5,7 +5,6 @@ import (
 	"net"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 )
@@ -30,27 +29,28 @@ func (p *portGenerator) nextPort() int {
 }
 
 type Manager struct {
-	TrafficStartChan chan wgtypes.Key
+	TrafficStartChan chan string
 
 	wgIface lazyconn.WGIface
 
 	portGenerator *portGenerator
-	peers         map[wgtypes.Key]*Listener
-	done          chan struct{}
+	// todo peers add/remove is not thread safe because of the callback function
+	peers map[string]*Listener
+	done  chan struct{}
 }
 
 func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
-		TrafficStartChan: make(chan wgtypes.Key, 1),
+		TrafficStartChan: make(chan string, 1),
 		wgIface:          wgIface,
 		portGenerator:    newPortGenerator(),
-		peers:            make(map[wgtypes.Key]*Listener),
+		peers:            make(map[string]*Listener),
 		done:             make(chan struct{}),
 	}
 	return m
 }
 
-func (m *Manager) CreateFakePeers(peerCfg lazyconn.PeerConfig) error {
+func (m *Manager) CreateFakePeer(peerCfg lazyconn.PeerConfig) error {
 	if _, ok := m.peers[peerCfg.PublicKey]; ok {
 		return nil
 	}
@@ -58,11 +58,11 @@ func (m *Manager) CreateFakePeers(peerCfg lazyconn.PeerConfig) error {
 	if err := m.createFakePeer(peerCfg); err != nil {
 		return err
 	}
-	log.Debugf("created lazy connection listener for: %s", peerCfg.PublicKey.String())
+	log.Debugf("created lazy connection listener for: %s", peerCfg.PublicKey)
 	return nil
 }
 
-func (m *Manager) RemovePeer(peerID wgtypes.Key) {
+func (m *Manager) RemovePeer(peerID string) {
 	listener, ok := m.peers[peerID]
 	if !ok {
 		return
@@ -70,7 +70,7 @@ func (m *Manager) RemovePeer(peerID wgtypes.Key) {
 
 	listener.Close()
 
-	if err := m.wgIface.RemovePeer(peerID.String()); err != nil {
+	if err := m.wgIface.RemovePeer(peerID); err != nil {
 		log.Warnf("failed to remove fake peer: %v", err)
 	}
 
@@ -104,11 +104,11 @@ func (m *Manager) createFakePeer(peerCfg lazyconn.PeerConfig) error {
 	}
 
 	if listener == nil {
-		return fmt.Errorf("failed to allocate lazy connection port for: %s", peerCfg.PublicKey.String())
+		return fmt.Errorf("failed to allocate lazy connection port for: %s", peerCfg.PublicKey)
 	}
 
 	if err := m.createEndpoint(peerCfg, addr); err != nil {
-		log.Errorf("failed to create endpoint for %s: %v", peerCfg.PublicKey.String(), err)
+		log.Errorf("failed to create endpoint for %s: %v", peerCfg.PublicKey, err)
 		listener.Close()
 		return err
 	}
@@ -119,10 +119,14 @@ func (m *Manager) createFakePeer(peerCfg lazyconn.PeerConfig) error {
 	return nil
 }
 
-func (m *Manager) onTrigger(peerID wgtypes.Key) {
+// todo: it is not thread safe, but it is ok if we protect from upper layer
+func (m *Manager) onTrigger(peerID string) {
 	log.Debugf("peer started to send traffic, remove lazy endpoint: %s", peerID)
-	// todo: it is not thread safe, but it is ok if we protect from upper layer
-	m.RemovePeer(peerID)
+	if err := m.wgIface.RemovePeer(peerID); err != nil {
+		log.Warnf("failed to remove fake peer: %v", err)
+	}
+
+	delete(m.peers, peerID)
 
 	select {
 	case <-m.done:
@@ -131,5 +135,5 @@ func (m *Manager) onTrigger(peerID wgtypes.Key) {
 }
 
 func (m *Manager) createEndpoint(peerCfg lazyconn.PeerConfig, endpoint *net.UDPAddr) error {
-	return m.wgIface.UpdatePeer(peerCfg.PublicKey.String(), peerCfg.AllowedIPs, 0, endpoint, nil)
+	return m.wgIface.UpdatePeer(peerCfg.PublicKey, peerCfg.AllowedIPs, 0, endpoint, nil)
 }

@@ -263,7 +263,7 @@ func (t *WGUSPConfigurer) GetStats(peerKey string) (WGStats, error) {
 	}, nil
 }
 
-func (t *WGUSPConfigurer) Transfers() (map[wgtypes.Key]WGStats, error) {
+func (t *WGUSPConfigurer) Transfers() (map[string]WGStats, error) {
 	ipc, err := t.device.IpcGet()
 	if err != nil {
 		return nil, fmt.Errorf("ipc get: %w", err)
@@ -272,10 +272,10 @@ func (t *WGUSPConfigurer) Transfers() (map[wgtypes.Key]WGStats, error) {
 	return parseTransfers(ipc)
 }
 
-func parseTransfers(ipc string) (map[wgtypes.Key]WGStats, error) {
-	stats := make(map[wgtypes.Key]WGStats)
+func parseTransfers(ipc string) (map[string]WGStats, error) {
+	stats := make(map[string]WGStats)
 	var (
-		currentKey   wgtypes.Key
+		currentKey   string
 		currentStats WGStats
 		hasPeer      bool
 	)
@@ -291,14 +291,7 @@ func parseTransfers(ipc string) (map[wgtypes.Key]WGStats, error) {
 			if err != nil {
 				return nil, fmt.Errorf("decode peerID: %w", err)
 			}
-			b64 := base64.StdEncoding.EncodeToString(h)
-
-			peerKeyParsed, err := wgtypes.ParseKey(b64)
-			if err != nil {
-				return nil, fmt.Errorf("parse key: %w", err)
-			}
-
-			currentKey = peerKeyParsed
+			currentKey = base64.StdEncoding.EncodeToString(h)
 			currentStats = WGStats{} // Reset stats for the new peer
 			hasPeer = true
 			stats[currentKey] = currentStats

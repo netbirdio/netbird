@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/listener"
@@ -13,11 +12,11 @@ import (
 )
 
 type Manager struct {
-	PeerActivityChan chan wgtypes.Key
+	PeerActivityChan chan string
 
 	watcher      *watcher.Watcher
 	listenerMgr  *listener.Manager
-	managedPeers map[wgtypes.Key]lazyconn.PeerConfig
+	managedPeers map[string]lazyconn.PeerConfig
 
 	watcherWG sync.WaitGroup
 	mu        sync.Mutex
@@ -25,10 +24,10 @@ type Manager struct {
 
 func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
-		PeerActivityChan: make(chan wgtypes.Key, 1),
+		PeerActivityChan: make(chan string, 1),
 		watcher:          watcher.NewWatcher(wgIface),
 		listenerMgr:      listener.NewManager(wgIface),
-		managedPeers:     make(map[wgtypes.Key]lazyconn.PeerConfig),
+		managedPeers:     make(map[string]lazyconn.PeerConfig),
 	}
 	return m
 }
@@ -59,7 +58,7 @@ func (m *Manager) Start() {
 				continue
 			}
 
-			if err := m.listenerMgr.CreateFakePeers(cfg); err != nil {
+			if err := m.listenerMgr.CreateFakePeer(cfg); err != nil {
 				log.Errorf("failed to start watch lazy connection tries: %s", err)
 			}
 			m.mu.Unlock()
@@ -90,7 +89,7 @@ func (m *Manager) AddPeer(peer lazyconn.PeerConfig) error {
 		return nil
 	}
 
-	if err := m.listenerMgr.CreateFakePeers(peer); err != nil {
+	if err := m.listenerMgr.CreateFakePeer(peer); err != nil {
 		return err
 	}
 
@@ -98,7 +97,7 @@ func (m *Manager) AddPeer(peer lazyconn.PeerConfig) error {
 	return nil
 }
 
-func (m *Manager) RemovePeer(peerID wgtypes.Key) bool {
+func (m *Manager) RemovePeer(peerID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -120,10 +119,10 @@ func (m *Manager) Close() {
 
 	m.listenerMgr.Close()
 	m.watcherWG.Wait()
-	m.managedPeers = make(map[wgtypes.Key]lazyconn.PeerConfig)
+	m.managedPeers = make(map[string]lazyconn.PeerConfig)
 }
 
-func (m *Manager) notifyPeerAction(ctx context.Context, peerID wgtypes.Key) {
+func (m *Manager) notifyPeerAction(ctx context.Context, peerID string) {
 	select {
 	case <-ctx.Done():
 	case m.PeerActivityChan <- peerID:

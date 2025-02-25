@@ -33,8 +33,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
-	"github.com/netbirdio/netbird/client/internal/lazyconn"
-	lazyConnManager "github.com/netbirdio/netbird/client/internal/lazyconn/manager"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -133,7 +131,7 @@ type Engine struct {
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerStore *peerstore.Store
 
-	lazyConnMgr *lazyConnManager.Manager
+	connMgr *ConnMgr
 
 	beforePeerHook nbnet.AddHookFunc
 	afterPeerHook  nbnet.RemoveHookFunc
@@ -261,6 +259,8 @@ func (e *Engine) Stop() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
+	e.connMgr.Close()
+
 	// stopping network monitor first to avoid starting the engine again
 	if e.networkMonitor != nil {
 		e.networkMonitor.Stop()
@@ -292,8 +292,6 @@ func (e *Engine) Stop() error {
 	if err := e.removeAllPeers(); err != nil {
 		return fmt.Errorf("failed to remove all peers: %s", err)
 	}
-
-	e.lazyConnMgr.Close()
 
 	if e.cancel != nil {
 		e.cancel()
@@ -406,10 +404,6 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
-	e.lazyConnMgr = lazyConnManager.NewManager(e.wgInterface)
-	go e.lazyConnMgr.Start()
-	go e.receiveLazyConnEvents()
-
 	if e.firewall != nil {
 		e.acl = acl.NewDefaultManager(e.firewall)
 	}
@@ -428,6 +422,9 @@ func (e *Engine) Start() error {
 		UDPMuxSrflx:          e.udpMux,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
+
+	e.connMgr = NewConnMgr(e.peerStore, wgIface)
+	e.connMgr.Start(e.ctx)
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
 	e.srWatcher.Start()
@@ -607,16 +604,11 @@ func (e *Engine) removePeer(peerKey string) error {
 		e.sshServer.RemoveAuthorizedKey(peerKey)
 	}
 
-	defer func() {
-		err := e.statusRecorder.RemovePeer(peerKey)
-		if err != nil {
-			log.Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)
-		}
-	}()
+	e.connMgr.RemovePeerConn(peerKey)
 
-	conn, exists := e.peerStore.Remove(peerKey)
-	if exists {
-		conn.Close()
+	err := e.statusRecorder.RemovePeer(peerKey)
+	if err != nil {
+		log.Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)
 	}
 	return nil
 }
@@ -1134,7 +1126,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("create peer connection: %w", err)
 	}
 
-	if ok := e.peerStore.AddPeerConn(peerKey, conn); !ok {
+	if exists := e.connMgr.AddPeerConn(peerKey, conn); exists {
 		conn.Close()
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
@@ -1147,19 +1139,6 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
 	if err != nil {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
-	}
-
-	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
-	if err != nil {
-		return err
-	}
-
-	lazyPeerCfg := lazyconn.PeerConfig{
-		PublicKey:  peerKeyParsed,
-		AllowedIPs: peerIPs,
-	}
-	if err := e.lazyConnMgr.AddPeer(lazyPeerCfg); err != nil {
-		return err
 	}
 
 	return nil
@@ -1237,17 +1216,9 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn, ok := e.peerStore.PeerConn(msg.Key)
+			conn, ok := e.connMgr.OnSignalMsg(msg.Key)
 			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
-			}
-
-			peerKeyParsed, err := wgtypes.ParseKey(msg.Key)
-			if err != nil {
-				return err
-			}
-			if ok := e.lazyConnMgr.RemovePeer(peerKeyParsed); ok {
-				conn.Open()
 			}
 
 			switch msg.GetBody().Type {
@@ -1375,12 +1346,6 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
-	log.Debugf("stop lazy connection manager")
-	if e.lazyConnMgr != nil {
-		e.lazyConnMgr.Close()
-		e.lazyConnMgr = nil
-	}
-
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
@@ -1803,23 +1768,6 @@ func (e *Engine) Address() (netip.Addr, error) {
 		return netip.Addr{}, errors.New("failed to convert address to netip.Addr")
 	}
 	return ip.Unmap(), nil
-}
-
-func (e *Engine) receiveLazyConnEvents() {
-	for {
-		select {
-		case peerID := <-e.lazyConnMgr.PeerActivityChan:
-			e.syncMsgMux.Lock()
-			peerConn, ok := e.peerStore.PeerConn(peerID.String())
-			if !ok {
-				e.syncMsgMux.Unlock()
-				continue
-			}
-			peerConn.Open()
-			e.syncMsgMux.Unlock()
-		case <-e.ctx.Done():
-		}
-	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.

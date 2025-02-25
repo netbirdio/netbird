@@ -213,8 +213,8 @@ func (c *KernelConfigurer) GetStats(peerKey string) (WGStats, error) {
 	}, nil
 }
 
-func (c *KernelConfigurer) Transfers() (map[wgtypes.Key]WGStats, error) {
-	stats := make(map[wgtypes.Key]WGStats)
+func (c *KernelConfigurer) Transfers() (map[string]WGStats, error) {
+	stats := make(map[string]WGStats)
 	wg, err := wgctrl.New()
 	if err != nil {
 		return nil, fmt.Errorf("wgctl: %w", err)
@@ -231,7 +231,7 @@ func (c *KernelConfigurer) Transfers() (map[wgtypes.Key]WGStats, error) {
 		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
 	}
 	for _, peer := range wgDevice.Peers {
-		stats[peer.PublicKey] = WGStats{
+		stats[peer.PublicKey.String()] = WGStats{
 			LastHandshake: peer.LastHandshakeTime,
 			TxBytes:       peer.TransmitBytes,
 			RxBytes:       peer.ReceiveBytes,

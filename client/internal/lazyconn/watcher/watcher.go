@@ -6,7 +6,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
@@ -22,19 +21,19 @@ type rxHistory struct {
 }
 
 type Watcher struct {
-	PeerTimedOutChan chan wgtypes.Key
+	PeerTimedOutChan chan string
 
 	wgIface lazyconn.WGIface
 
-	peers   map[wgtypes.Key]*rxHistory
+	peers   map[string]*rxHistory
 	peersMu sync.Mutex
 }
 
 func NewWatcher(wgIface lazyconn.WGIface) *Watcher {
 	return &Watcher{
-		PeerTimedOutChan: make(chan wgtypes.Key, 1),
+		PeerTimedOutChan: make(chan string, 1),
 		wgIface:          wgIface,
-		peers:            make(map[wgtypes.Key]*rxHistory),
+		peers:            make(map[string]*rxHistory),
 	}
 }
 
@@ -57,14 +56,14 @@ func (m *Watcher) Watch(ctx context.Context) {
 	}
 }
 
-func (m *Watcher) AddPeer(peerID wgtypes.Key) {
+func (m *Watcher) AddPeer(peerID string) {
 	m.peersMu.Lock()
 	defer m.peersMu.Unlock()
 
 	m.peers[peerID] = &rxHistory{}
 }
 
-func (m *Watcher) RemovePeer(id wgtypes.Key) {
+func (m *Watcher) RemovePeer(id string) {
 	m.peersMu.Lock()
 	defer m.peersMu.Unlock()
 
@@ -72,7 +71,7 @@ func (m *Watcher) RemovePeer(id wgtypes.Key) {
 }
 
 // Todo: this is a naive implementation, we must to finish it
-func (m *Watcher) checkTimeouts(ctx context.Context, allPeersStats map[wgtypes.Key]configurer.WGStats) {
+func (m *Watcher) checkTimeouts(ctx context.Context, allPeersStats map[string]configurer.WGStats) {
 	m.peersMu.Lock()
 	defer m.peersMu.Unlock()
 

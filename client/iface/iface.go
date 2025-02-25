@@ -218,7 +218,7 @@ func (w *WGIface) GetStats(peerKey string) (configurer.WGStats, error) {
 	return w.configurer.GetStats(peerKey)
 }
 
-func (w *WGIface) Transfers() (map[wgtypes.Key]configurer.WGStats, error) {
+func (w *WGIface) Transfers() (map[string]configurer.WGStats, error) {
 	return w.configurer.Transfers()
 }
 
