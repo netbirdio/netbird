@@ -6,10 +6,10 @@ package management;
 
 service FlowService {
   // Client to receiver streams of events and acknowledgements
-  rpc Events(stream FlowEventRequest) returns (stream FlowEventResponse) {}
+  rpc Events(stream FlowEvent) returns (stream FlowEventAck) {}
 }
 
-message FlowEventRequest {
+message FlowEvent {
   // Unique client event identifier
   string event_id = 1;
 
@@ -19,7 +19,7 @@ message FlowEventRequest {
   // @todo define event props
 }
 
-message FlowEventResponse {
+message FlowEventAck {
   // Unique client event identifier that has been ack'ed
   string event_id = 1;
 }

@@ -40,8 +40,8 @@ func (c *flowServiceClient) Events(ctx context.Context, opts ...grpc.CallOption)
 }
 
 type FlowService_EventsClient interface {
-	Send(*FlowEventRequest) error
-	Recv() (*FlowEventResponse, error)
+	Send(*FlowEvent) error
+	Recv() (*FlowEventAck, error)
 	grpc.ClientStream
 }
 
@@ -49,12 +49,12 @@ type flowServiceEventsClient struct {
 	grpc.ClientStream
 }
 
-func (x *flowServiceEventsClient) Send(m *FlowEventRequest) error {
+func (x *flowServiceEventsClient) Send(m *FlowEvent) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *flowServiceEventsClient) Recv() (*FlowEventResponse, error) {
-	m := new(FlowEventResponse)
+func (x *flowServiceEventsClient) Recv() (*FlowEventAck, error) {
+	m := new(FlowEventAck)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -95,8 +95,8 @@ func _FlowService_Events_Handler(srv interface{}, stream grpc.ServerStream) erro
 }
 
 type FlowService_EventsServer interface {
-	Send(*FlowEventResponse) error
-	Recv() (*FlowEventRequest, error)
+	Send(*FlowEventAck) error
+	Recv() (*FlowEvent, error)
 	grpc.ServerStream
 }
 
@@ -104,12 +104,12 @@ type flowServiceEventsServer struct {
 	grpc.ServerStream
 }
 
-func (x *flowServiceEventsServer) Send(m *FlowEventResponse) error {
+func (x *flowServiceEventsServer) Send(m *FlowEventAck) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *flowServiceEventsServer) Recv() (*FlowEventRequest, error) {
-	m := new(FlowEventRequest)
+func (x *flowServiceEventsServer) Recv() (*FlowEvent, error) {
+	m := new(FlowEvent)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
