@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
+	"github.com/netbirdio/netbird/client/internal/flowstore"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -189,6 +190,7 @@ type Engine struct {
 	persistNetworkMap bool
 	latestNetworkMap  *mgmProto.NetworkMap
 	connSemaphore     *semaphoregroup.SemaphoreGroup
+	flowStore         flowstore.Store
 }
 
 // Peer is an instance of the Connection Peer
@@ -663,6 +665,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			e.relayManager.UpdateServerURLs(nil)
 		}
 
+		err = e.handleFlowUpdate(wCfg.GetFlow())
+		if err != nil {
+			log.Errorf("failed to handle the flow configuration: %v", err)
+			return fmt.Errorf("failed to handle the flow configuration: %w", err)
+		}
+
 		// todo update signal
 	}
 
@@ -688,6 +696,24 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
+	return nil
+}
+
+func (e *Engine) handleFlowUpdate(update *mgmProto.FlowConfig) error {
+	if update == nil {
+		return nil
+	}
+
+	if update.GetEnabled() && e.flowStore == nil {
+		e.flowStore = flowstore.New(e.ctx)
+		return nil
+	}
+
+	if !update.GetEnabled() && e.flowStore != nil {
+		err := e.flowStore.Close()
+		e.flowStore = nil
+		return err
+	}
 	return nil
 }
 
