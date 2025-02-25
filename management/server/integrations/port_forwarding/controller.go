@@ -9,7 +9,7 @@ import (
 type Controller interface {
 	SendUpdate(ctx context.Context, accountID string, affectedProxyID string, affectedPeerIDs []string)
 	GetProxyNetworkMaps(ctx context.Context, accountID string) (map[string]*nbtypes.NetworkMap, error)
-	IsIngressPeer(ctx context.Context, accountID string, peerID string) (bool, error)
+	IsPeerInIngressPorts(ctx context.Context, accountID, peerID string) (bool, error)
 }
 
 type ControllerMock struct {
