@@ -191,6 +191,8 @@ message NetbirdConfig {
   HostConfig signal = 3;
 
   RelayConfig relay = 4;
+
+  FlowConfig flow = 5;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -210,6 +212,12 @@ message HostConfig {
 
 message RelayConfig {
   repeated string urls = 1;
+  string tokenPayload = 2;
+  string tokenSignature = 3;
+}
+
+message FlowConfig {
+  string url = 1;
   string tokenPayload = 2;
   string tokenSignature = 3;
 }
