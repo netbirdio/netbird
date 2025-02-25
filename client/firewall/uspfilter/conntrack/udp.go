@@ -55,7 +55,7 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 
 	t.mutex.Lock()
-	conn, exists := t.connections[key]
+	conn, exists := t.connections[*key]
 	if !exists {
 		srcIPCopy := t.ipPool.Get()
 		dstIPCopy := t.ipPool.Get()
@@ -71,9 +71,9 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 			},
 		}
 		conn.UpdateLastSeen()
-		t.connections[key] = conn
+		t.connections[*key] = conn
 
-		t.logger.Trace("New UDP connection: %v", conn)
+		t.logger.Trace("New UDP connection: %s", key)
 	}
 	t.mutex.Unlock()
 
@@ -85,7 +85,7 @@ func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
 
 	t.mutex.RLock()
-	conn, exists := t.connections[key]
+	conn, exists := t.connections[*key]
 	t.mutex.RUnlock()
 
 	if !exists {
@@ -124,7 +124,7 @@ func (t *UDPTracker) cleanup() {
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
-			t.logger.Trace("Removed UDP connection %v (timeout)", conn)
+			t.logger.Trace("Removed UDP connection %s (timeout)", &key)
 		}
 	}
 }
@@ -149,7 +149,7 @@ func (t *UDPTracker) GetConnection(srcIP net.IP, srcPort uint16, dstIP net.IP, d
 	defer t.mutex.RUnlock()
 
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
-	conn, exists := t.connections[key]
+	conn, exists := t.connections[*key]
 	if !exists {
 		return nil, false
 	}

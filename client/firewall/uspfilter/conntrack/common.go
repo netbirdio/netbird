@@ -2,6 +2,7 @@
 package conntrack
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -14,7 +15,7 @@ type BaseConnTrack struct {
 	DestIP     net.IP
 	SourcePort uint16
 	DestPort   uint16
-	lastSeen   atomic.Int64 // Unix nano for atomic access
+	lastSeen   atomic.Int64
 }
 
 // these small methods will be inlined by the compiler
@@ -38,9 +39,27 @@ func (b *BaseConnTrack) timeoutExceeded(timeout time.Duration) bool {
 // IPAddr is a fixed-size IP address to avoid allocations
 type IPAddr [16]byte
 
+// String returns a string representation of the IP address
+func (ip IPAddr) String() string {
+	isIPv4 := true
+	for i := 0; i < 12; i++ {
+		if ip[i] != 0 {
+			isIPv4 = false
+			break
+		}
+	}
+
+	if isIPv4 {
+		return fmt.Sprintf("%d.%d.%d.%d", ip[12], ip[13], ip[14], ip[15])
+	}
+
+	return fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+		ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7],
+		ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15])
+}
+
 // MakeIPAddr creates an IPAddr from net.IP
 func MakeIPAddr(ip net.IP) (addr IPAddr) {
-	// Optimization: check for v4 first as it's more common
 	if ip4 := ip.To4(); ip4 != nil {
 		copy(addr[12:], ip4)
 	} else {
@@ -57,9 +76,13 @@ type ConnKey struct {
 	DstPort uint16
 }
 
+func (c *ConnKey) String() string {
+	return fmt.Sprintf("%s:%d -> %s:%d", c.SrcIP, c.SrcPort, c.DstIP, c.DstPort)
+}
+
 // makeConnKey creates a connection key
-func makeConnKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) ConnKey {
-	return ConnKey{
+func makeConnKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) *ConnKey {
+	return &ConnKey{
 		SrcIP:   MakeIPAddr(srcIP),
 		DstIP:   MakeIPAddr(dstIP),
 		SrcPort: srcPort,
@@ -120,7 +143,6 @@ func copyIP(dst, src net.IP) {
 	if len(src) == 16 {
 		copy(dst, src)
 	} else {
-		// Handle IPv4
 		copy(dst[12:], src.To4())
 	}
 }

@@ -1,6 +1,7 @@
 package conntrack
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -22,15 +23,17 @@ type ICMPConnKey struct {
 	// Supports both IPv4 and IPv6
 	SrcIP    [16]byte
 	DstIP    [16]byte
-	Sequence uint16 // ICMP sequence number
-	ID       uint16 // ICMP identifier
+	Sequence uint16
+	ID       uint16
+}
+
+func (i *ICMPConnKey) String() string {
+	return fmt.Sprintf("%s -> %s (%d/%d)", i.SrcIP, i.Sequence, i.ID)
 }
 
 // ICMPConnTrack represents an ICMP connection state
 type ICMPConnTrack struct {
 	BaseConnTrack
-	Sequence uint16
-	ID       uint16
 }
 
 // ICMPTracker manages ICMP connection states
@@ -80,13 +83,11 @@ func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq u
 				SourceIP: srcIPCopy,
 				DestIP:   dstIPCopy,
 			},
-			ID:       id,
-			Sequence: seq,
 		}
 		conn.UpdateLastSeen()
 		t.connections[key] = conn
 
-		t.logger.Trace("New ICMP connection %v", key)
+		t.logger.Trace("New ICMP connection %s", key)
 	}
 	t.mutex.Unlock()
 
@@ -115,8 +116,8 @@ func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq 
 
 	return ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
 		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
-		conn.ID == id &&
-		conn.Sequence == seq
+		key.ID == id &&
+		key.Sequence == seq
 }
 
 func (t *ICMPTracker) cleanupRoutine() {
@@ -139,7 +140,7 @@ func (t *ICMPTracker) cleanup() {
 			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
-			t.logger.Debug("Removed ICMP connection %v (timeout)", key)
+			t.logger.Debug("Removed ICMP connection %s (timeout)", &key)
 		}
 	}
 }
