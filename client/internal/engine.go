@@ -698,7 +698,6 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 			Signature: update.GetTokenSignature(),
 		}
 		if err := e.relayManager.UpdateToken(c); err != nil {
-			log.Errorf("failed to update relay token: %v", err)
 			return fmt.Errorf("update relay token: %w", err)
 		}
 
