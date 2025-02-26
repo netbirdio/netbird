@@ -158,8 +158,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 
 	conn.guard = guard.NewGuard(connLog, ctrl, conn.isConnectedOnAllWay, config.Timeout, srWatcher)
 
-	go conn.handshaker.Listen()
-
 	return conn, nil
 }
 
@@ -169,11 +167,12 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 // todo: prevent double open
 func (conn *Conn) Open() {
 	conn.semaphore.Add(conn.ctx)
-	conn.Log.Infof("open connection to peer")
 
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 	conn.opened = true
+
+	go conn.handshaker.Listen()
 
 	peerState := State{
 		PubKey:           conn.config.Key,

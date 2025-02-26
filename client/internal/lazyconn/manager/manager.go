@@ -77,7 +77,7 @@ func (m *Manager) RemovePeer(peerID string) bool {
 
 	m.listenerMgr.RemovePeer(peerID)
 	delete(m.managedPeers, peerID)
-	return false
+	return true
 }
 
 // Close the manager and all the listeners
