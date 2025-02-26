@@ -80,6 +80,8 @@ func (m *Manager) createFakePeer(peerCfg lazyconn.PeerConfig) error {
 		return err
 	}
 
+	log.Infof("created on-demand listener: %s, for peer: %s", addr.String(), peerCfg.PublicKey)
+
 	go listener.ReadPackets(m.onTrigger)
 
 	m.peers[peerCfg.PublicKey] = listener
