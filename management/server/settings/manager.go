@@ -25,7 +25,8 @@ type managerImpl struct {
 	userManager          users.Manager
 }
 
-type managerMock struct {
+type ManagerMock struct {
+	GetSettingsFunc func(ctx context.Context, accountID, userID string) (*types.Settings, error)
 }
 
 func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager) Manager {
@@ -95,22 +96,30 @@ func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID string,
 	return m.extraSettingsManager.UpdateExtraSettings(ctx, accountID, extraSettings)
 }
 
-func NewManagerMock() Manager {
-	return &managerMock{}
+func NewManagerMock() *ManagerMock {
+	return &ManagerMock{}
 }
 
-func (m *managerMock) GetExtraSettingsManager() extra_settings.Manager {
+func (m *ManagerMock) GetExtraSettingsManager() extra_settings.Manager {
 	return nil
 }
 
-func (m *managerMock) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
+func (m *ManagerMock) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
+	if m.GetSettingsFunc != nil {
+		return m.GetSettingsFunc(ctx, accountID, userID)
+	}
+
 	return &types.Settings{}, nil
 }
 
-func (m *managerMock) GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error) {
+func (m *ManagerMock) SetGetSettingsFunc(f func(ctx context.Context, accountID, userID string) (*types.Settings, error)) {
+	m.GetSettingsFunc = f
+}
+
+func (m *ManagerMock) GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error) {
 	return &types.ExtraSettings{}, nil
 }
 
-func (m *managerMock) UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) error {
+func (m *ManagerMock) UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) error {
 	return nil
 }

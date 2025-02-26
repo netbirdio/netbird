@@ -22,6 +22,10 @@ import (
 )
 
 func initAccountsTestData(account *types.Account) *handler {
+	settingsMock := settings.NewManagerMock()
+	settingsMock.GetSettingsFunc = func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
+		return account.Settings, nil
+	}
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
@@ -42,7 +46,7 @@ func initAccountsTestData(account *types.Account) *handler {
 				return accCopy, nil
 			},
 		},
-		settingsManager: settings.NewManagerMock(),
+		settingsManager: settingsMock,
 	}
 }
 
