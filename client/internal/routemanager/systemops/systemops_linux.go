@@ -69,7 +69,7 @@ func getSetupRules() []ruleParams {
 // potential routes received and configured for the VPN.  This rule is skipped for the default route and routes
 // that are not in the main table.
 //
-// Rule 2 (VPN Flow Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
+// Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
 func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
