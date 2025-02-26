@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -16,8 +15,8 @@ import (
 type Manager interface {
 	GetExtraSettingsManager() extra_settings.Manager
 	GetSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
-	GetExtraSettings(ctx context.Context, accountID string) (*account.ExtraSettings, error)
-	UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *account.ExtraSettings) error
+	GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error)
+	UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) error
 }
 
 type managerImpl struct {
@@ -71,7 +70,7 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 	return settings, nil
 }
 
-func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*account.ExtraSettings, error) {
+func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error) {
 	extraSettings, err := m.extraSettingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get extra settings: %w", err)
@@ -84,7 +83,7 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 
 	// Once we migrate the peer approval to settings manager this merging is obsolete
 	if settings.Extra == nil {
-		settings.Extra = &account.ExtraSettings{}
+		settings.Extra = &types.ExtraSettings{}
 	}
 
 	settings.Extra.FlowEnabled = extraSettings.FlowEnabled
@@ -92,7 +91,7 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 	return settings.Extra, nil
 }
 
-func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *account.ExtraSettings) error {
+func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) error {
 	return m.extraSettingsManager.UpdateExtraSettings(ctx, accountID, extraSettings)
 }
 
@@ -108,10 +107,10 @@ func (m *managerMock) GetSettings(ctx context.Context, accountID, userID string)
 	return &types.Settings{}, nil
 }
 
-func (m *managerMock) GetExtraSettings(ctx context.Context, accountID string) (*account.ExtraSettings, error) {
-	return &account.ExtraSettings{}, nil
+func (m *managerMock) GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error) {
+	return &types.ExtraSettings{}, nil
 }
 
-func (m *managerMock) UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *account.ExtraSettings) error {
+func (m *managerMock) UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) error {
 	return nil
 }
