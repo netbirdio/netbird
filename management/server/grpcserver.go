@@ -595,14 +595,16 @@ func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, 
 	}
 
 	var flowCfg *proto.FlowConfig
-	if config.Flow != nil && flowEnabled != nil && relayToken != nil {
+	if config.Flow != nil {
 		flowCfg = &proto.FlowConfig{
 			Url:      config.Flow.Address,
 			Interval: durationpb.New(config.Flow.Interval.Duration),
-			Enabled:  *flowEnabled,
+			Enabled:  flowEnabled,
+		}
+		if relayToken != nil {
 			// for now we intend to use the relay secret for the flow
-			TokenPayload:   relayToken.Payload,
-			TokenSignature: relayToken.Signature,
+			flowCfg.TokenPayload = relayToken.Payload
+			flowCfg.TokenSignature = relayToken.Signature
 		}
 	}
 
