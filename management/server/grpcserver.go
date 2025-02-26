@@ -547,7 +547,7 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, extraSettings *account.ExtraSettings) *proto.NetbirdConfig {
+func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -621,7 +621,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dns
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnabled bool, extraSettings *account.ExtraSettings) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnabled bool, extraSettings *types.ExtraSettings) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		NetbirdConfig: toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings),
 		PeerConfig:    toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnabled),

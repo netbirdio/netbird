@@ -9,12 +9,13 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 
-	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
@@ -42,7 +43,7 @@ const apiPrefix = "/api"
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func NewAPIHandler(
 	ctx context.Context,
-	accountManager s.AccountManager,
+	accountManager account.AccountManager,
 	networksManager nbnetworks.Manager,
 	resourceManager resources.Manager,
 	routerManager routers.Manager,

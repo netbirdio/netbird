@@ -7,7 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -16,22 +16,22 @@ import (
 
 // dnsSettingsHandler is a handler that returns the DNS settings of the account
 type dnsSettingsHandler struct {
-	accountManager server.AccountManager
+	accountManager account.AccountManager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
 	addDNSSettingEndpoint(accountManager, router)
 	addDNSNameserversEndpoint(accountManager, router)
 }
 
-func addDNSSettingEndpoint(accountManager server.AccountManager, router *mux.Router) {
+func addDNSSettingEndpoint(accountManager account.AccountManager, router *mux.Router) {
 	dnsSettingsHandler := newDNSSettingsHandler(accountManager)
 	router.HandleFunc("/dns/settings", dnsSettingsHandler.getDNSSettings).Methods("GET", "OPTIONS")
 	router.HandleFunc("/dns/settings", dnsSettingsHandler.updateDNSSettings).Methods("PUT", "OPTIONS")
 }
 
 // newDNSSettingsHandler returns a new instance of dnsSettingsHandler handler
-func newDNSSettingsHandler(accountManager server.AccountManager) *dnsSettingsHandler {
+func newDNSSettingsHandler(accountManager account.AccountManager) *dnsSettingsHandler {
 	return &dnsSettingsHandler{accountManager: accountManager}
 }
 

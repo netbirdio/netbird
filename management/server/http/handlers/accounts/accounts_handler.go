@@ -7,7 +7,6 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -19,11 +18,11 @@ import (
 
 // handler is a handler that handles the server.Account HTTP endpoints
 type handler struct {
-	accountManager  server.AccountManager
+	accountManager  account.AccountManager
 	settingsManager settings.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, settingsManager settings.Manager, router *mux.Router) {
+func AddEndpoints(accountManager account.AccountManager, settingsManager settings.Manager, router *mux.Router) {
 	accountsHandler := newHandler(accountManager, settingsManager)
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
@@ -31,7 +30,7 @@ func AddEndpoints(accountManager server.AccountManager, settingsManager settings
 }
 
 // newHandler creates a new handler HTTP handler
-func newHandler(accountManager server.AccountManager, settingsManager settings.Manager) *handler {
+func newHandler(accountManager account.AccountManager, settingsManager settings.Manager) *handler {
 	return &handler{
 		accountManager:  accountManager,
 		settingsManager: settingsManager,
@@ -96,7 +95,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		if req.Settings.Extra.NetworkTrafficLogsEnabled != nil {
 			flowEnabled = *req.Settings.Extra.NetworkTrafficLogsEnabled
 		}
-		settings.Extra = &account.ExtraSettings{
+		settings.Extra = &types.ExtraSettings{
 			PeerApprovalEnabled: *req.Settings.Extra.PeerApprovalEnabled,
 			FlowEnabled:         flowEnabled,
 		}
