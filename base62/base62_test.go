@@ -1,6 +1,7 @@
 package base62
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
@@ -48,19 +49,19 @@ func TestEncodeDecode(t *testing.T) {
 
 // Decode handles empty string input with appropriate error
 func TestDecodeEmptyString(t *testing.T) {
-	if _, err := Decode(""); err == nil {
-		t.Error("Expected error for empty string, got nil")
+	if _, err := Decode(""); !errors.Is(err, ErrEmptyString) {
+		t.Errorf("Expected error %v, got %v", ErrEmptyString, err)
 	}
 }
 
 func TestDecodeOverflow(t *testing.T) {
-	if _, err := Decode("4gfFC4"); err == nil {
-		t.Error("Expected error overflow , got nil")
+	if _, err := Decode("4gfFC4"); !errors.Is(err, ErrOverflow) {
+		t.Errorf("Expected error %v, got %v", ErrOverflow, err)
 	}
 }
 
 func TestDecodeInvalid(t *testing.T) {
-	if _, err := Decode("/"); err == nil {
-		t.Error("Expected error invalid character, got nil")
+	if _, err := Decode("/"); !errors.Is(err, ErrInvalidChar) {
+		t.Errorf("Expected error %v, got %v", ErrInvalidChar, err)
 	}
 }
