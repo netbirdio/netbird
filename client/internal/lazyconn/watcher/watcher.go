@@ -20,6 +20,8 @@ type rxHistory struct {
 	received int64
 }
 
+// Watcher checks for peer timeouts
+// Todo: this is a naive implementation, we must to finish it
 type Watcher struct {
 	PeerTimedOutChan chan string
 
@@ -70,7 +72,6 @@ func (m *Watcher) RemovePeer(id string) {
 	delete(m.peers, id)
 }
 
-// Todo: this is a naive implementation, we must to finish it
 func (m *Watcher) checkTimeouts(ctx context.Context, allPeersStats map[string]configurer.WGStats) {
 	m.peersMu.Lock()
 	defer m.peersMu.Unlock()
