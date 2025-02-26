@@ -16,6 +16,12 @@ const (
 	envDisableLazyConn = "NB_LAZY_CONN_DISABLE"
 )
 
+// ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
+//
+// The connection manager is responsible for:
+// - Managing lazy connections via the lazyConnManager
+// - Maintaining a list of excluded peers that should always have permanent connections
+// - Handling connection establishment based on peer signaling
 type ConnMgr struct {
 	lazyConnMgr *lazyConnManager.Manager
 	peerStore   *peerstore.Store
@@ -24,19 +30,25 @@ type ConnMgr struct {
 }
 
 func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
+	var lazyConnMgr *lazyConnManager.Manager
+	if os.Getenv(envDisableLazyConn) != "true" {
+		lazyConnMgr = lazyConnManager.NewManager(iface)
+	}
+
 	e := &ConnMgr{
 		peerStore:   peerStore,
-		lazyConnMgr: lazyConnManager.NewManager(iface),
+		lazyConnMgr: lazyConnMgr,
 	}
 	return e
 }
 
 func (e *ConnMgr) Start(ctx context.Context) {
-	if os.Getenv(envDisableLazyConn) == "true" {
+	if e.lazyConnMgr == nil {
 		log.Infof("lazy connection manager is disabled")
 		return
 	}
-	go e.lazyConnMgr.Start()
+
+	e.lazyConnMgr.Start(ctx)
 	go e.receiveLazyConnEvents(ctx)
 }
 
@@ -47,6 +59,11 @@ func (e *ConnMgr) AddExcludeFromLazyConnection(peerID string) {
 func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	if success := e.peerStore.AddPeerConn(peerKey, conn); !success {
 		return true
+	}
+
+	if e.lazyConnMgr == nil {
+		conn.Open()
+		return
 	}
 
 	_, exists = e.excludes[peerKey]
@@ -72,6 +89,10 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 		return nil, false
 	}
 
+	if e.lazyConnMgr == nil {
+		return conn, true
+	}
+
 	if ok := e.lazyConnMgr.RemovePeer(peerKey); ok {
 		conn.Open()
 	}
@@ -84,10 +105,17 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 		conn.Close()
 	}
 
+	if e.lazyConnMgr == nil {
+		return
+	}
+
 	e.lazyConnMgr.RemovePeer(peerKey)
 }
 
 func (e *ConnMgr) Close() {
+	if e.lazyConnMgr == nil {
+		return
+	}
 	// todo wait for receiveLazyConnEvents to finish
 	e.lazyConnMgr.Close()
 }
