@@ -80,6 +80,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 		log.Errorf("failed to add peer to lazyconn manager: %v", err)
 		conn.Open()
 	}
+	conn.Log.Infof("peer added to lazy conn manager")
 	return
 }
 
@@ -94,6 +95,7 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 	}
 
 	if ok := e.lazyConnMgr.RemovePeer(peerKey); ok {
+		conn.Log.Infof("removed peer from lazy conn manager")
 		conn.Open()
 	}
 	return conn, true
@@ -101,15 +103,17 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 
 func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	conn, ok := e.peerStore.Remove(peerKey)
-	if ok {
-		conn.Close()
+	if !ok {
+		return
 	}
+	defer conn.Close()
 
 	if e.lazyConnMgr == nil {
 		return
 	}
 
 	e.lazyConnMgr.RemovePeer(peerKey)
+	conn.Log.Infof("removed peer from lazy conn manager")
 }
 
 func (e *ConnMgr) Close() {
