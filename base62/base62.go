@@ -30,6 +30,9 @@ func Encode(n uint32) string {
 
 // Decode decodes a base62 string to a uint32 value.
 func Decode(encoded string) (uint32, error) {
+	if len(encoded) == 0 {
+		return 0, fmt.Errorf("empty string")
+	}
 	var decoded uint32
 	for _, char := range encoded {
 		index := strings.IndexRune(alphabet, char)
