@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/management/proto"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
