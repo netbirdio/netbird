@@ -57,6 +57,17 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowStore flowst
 
 // TrackOutbound records an outbound UDP connection
 func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
+
+	t.mutex.RLock()
+	conn, exists := t.connections[*key]
+	t.mutex.RUnlock()
+
+	if exists {
+		conn.UpdateLastSeen()
+
+		return
+	}
 	t.track(srcIP, dstIP, srcPort, dstPort, flowstore.Egress)
 }
 
@@ -74,9 +85,7 @@ func (t *UDPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 	t.mutex.RUnlock()
 
 	if exists {
-		if direction == flowstore.Egress {
-			conn.UpdateLastSeen()
-		}
+		conn.UpdateLastSeen()
 		return
 	}
 

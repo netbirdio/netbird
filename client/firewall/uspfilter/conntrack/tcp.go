@@ -155,13 +155,11 @@ func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 	t.mutex.RUnlock()
 
 	if exists {
-		//if direction == flowstore.Egress {
 		conn.Lock()
 		t.updateState(key, conn, flags, conn.Direction == flowstore.Egress)
 		conn.Unlock()
 
 		conn.UpdateLastSeen()
-		//}
 
 		return
 	}

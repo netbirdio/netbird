@@ -576,8 +576,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
 
 	require.True(t, exists, "Connection should be tracked after outbound packet")
-	require.True(t, conntrack.ValidateIPs(conntrack.MakeIPAddr(srcIP), conn.SourceIP), "Source IP should match")
-	require.True(t, conntrack.ValidateIPs(conntrack.MakeIPAddr(dstIP), conn.DestIP), "Destination IP should match")
+	require.True(t, srcIP.Equal(conn.SourceIP), "Source IP should match")
+	require.True(t, dstIP.Equal(conn.DestIP), "Destination IP should match")
 	require.Equal(t, srcPort, conn.SourcePort, "Source port should match")
 	require.Equal(t, dstPort, conn.DestPort, "Destination port should match")
 
