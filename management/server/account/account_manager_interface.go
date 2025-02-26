@@ -22,6 +22,7 @@ import (
 
 type ExternalCacheManager cache.CacheInterface[*idp.UserData]
 
+// nolint
 type AccountManager interface {
 	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*types.Account, error)
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
