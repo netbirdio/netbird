@@ -90,7 +90,7 @@ func startManagement(t *testing.T, config *mgmt.Config, testFile string) (*grpc.
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock())
+	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settings.NewManagerMock())
 	if err != nil {
 		t.Fatal(err)
 	}

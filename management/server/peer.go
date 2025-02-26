@@ -1230,7 +1230,13 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 				remotePeerNetworkMap.Merge(proxyNetworkMap)
 			}
 
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled)
+			extraSetting, err := am.settingsManager.GetExtraSettings(ctx, accountID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("failed to get flow enabled status: %v", err)
+				return
+			}
+
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled, &extraSetting.FlowEnabled)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 		}(peer)
 	}
@@ -1293,7 +1299,13 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		remotePeerNetworkMap.Merge(proxyNetworkMap)
 	}
 
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled)
+	extraSettings, err := am.settingsManager.GetExtraSettings(ctx, peer.AccountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
+		return
+	}
+
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled, &extraSettings.FlowEnabled)
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 

@@ -6,6 +6,8 @@ type ExtraSettings struct {
 
 	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
 	IntegratedValidatorGroups []string `gorm:"serializer:json"`
+
+	FlowEnabled bool `gorm:"-"`
 }
 
 // Copy copies the ExtraSettings struct

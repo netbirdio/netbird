@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -431,7 +432,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	require.NoError(t, err)
 
 	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
+		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settings.NewManagerMock())
 
 	if err != nil {
 		cleanup()
@@ -441,7 +442,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManager(store, users.NewManagerMock()), peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}

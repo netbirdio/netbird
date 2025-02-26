@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -164,6 +165,7 @@ type DefaultAccountManager struct {
 	requestBuffer *AccountRequestBuffer
 
 	proxyController port_forwarding.Controller
+	settingsManager settings.Manager
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -249,6 +251,7 @@ func BuildManager(
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
 	proxyController port_forwarding.Controller,
+	settingsManager settings.Manager,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -272,6 +275,7 @@ func BuildManager(
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 		proxyController:          proxyController,
+		settingsManager:          settingsManager,
 	}
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
@@ -402,6 +406,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	updatedAccount := account.UpdateSettings(newSettings)
 
 	err = am.Store.SaveAccount(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.settingsManager.UpdateExtraSettings(ctx, accountID, newSettings.Extra)
 	if err != nil {
 		return nil, err
 	}

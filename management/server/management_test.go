@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -191,6 +192,7 @@ func startServer(
 		server.MocIntegratedValidator{},
 		metrics,
 		port_forwarding.NewControllerMock(),
+		settings.NewManagerMock(),
 	)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
@@ -201,7 +203,7 @@ func startServer(
 		context.Background(),
 		config,
 		accountManager,
-		settings.NewManager(str),
+		settings.NewManager(str, users.NewManagerMock()),
 		peersUpdateManager,
 		secretsManager,
 		nil,

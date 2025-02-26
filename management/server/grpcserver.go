@@ -17,9 +17,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -486,7 +488,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken),
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
 		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
@@ -544,7 +546,7 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token) *proto.NetbirdConfig {
+func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, flowEnabled *bool) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -592,6 +594,20 @@ func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token) 
 		}
 	}
 
+	var flowCfg *proto.FlowConfig
+	if config.Flow != nil {
+		flowCfg = &proto.FlowConfig{
+			Url:      config.Flow.Address,
+			Interval: durationpb.New(config.Flow.Interval.Duration),
+			Enabled:  flowEnabled,
+		}
+		if relayToken != nil {
+			// for now we intend to use the relay secret for the flow
+			flowCfg.TokenPayload = relayToken.Payload
+			flowCfg.TokenSignature = relayToken.Signature
+		}
+	}
+
 	return &proto.NetbirdConfig{
 		Stuns: stuns,
 		Turns: turns,
@@ -600,6 +616,7 @@ func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token) 
 			Protocol: ToResponseProto(config.Signal.Proto),
 		},
 		Relay: relayCfg,
+		Flow:  flowCfg,
 	}
 }
 
@@ -614,10 +631,10 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dns
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnbled bool) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnabled bool, flowEnabled *bool) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		NetbirdConfig: toNetbirdConfig(config, turnCredentials, relayCredentials),
-		PeerConfig:    toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
+		NetbirdConfig: toNetbirdConfig(config, turnCredentials, relayCredentials, flowEnabled),
+		PeerConfig:    toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnabled),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
@@ -693,12 +710,17 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		}
 	}
 
-	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, peer.UserID)
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled)
+	isFlowEnabled := false
+	if settings.Extra != nil {
+		isFlowEnabled = settings.Extra.FlowEnabled
+	}
+
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled, &isFlowEnabled)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
