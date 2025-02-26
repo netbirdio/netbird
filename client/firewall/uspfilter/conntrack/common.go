@@ -1,16 +1,22 @@
-// common.go
 package conntrack
 
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/netbirdio/netbird/client/internal/flowstore"
 )
 
 // BaseConnTrack provides common fields and locking for all connection types
 type BaseConnTrack struct {
+	FlowId     uuid.UUID
+	Direction  flowstore.Direction
 	SourceIP   net.IP
 	DestIP     net.IP
 	SourcePort uint16
@@ -36,42 +42,10 @@ func (b *BaseConnTrack) timeoutExceeded(timeout time.Duration) bool {
 	return time.Since(lastSeen) > timeout
 }
 
-// IPAddr is a fixed-size IP address to avoid allocations
-type IPAddr [16]byte
-
-// String returns a string representation of the IP address
-func (ip IPAddr) String() string {
-	isIPv4 := true
-	for i := 0; i < 12; i++ {
-		if ip[i] != 0 {
-			isIPv4 = false
-			break
-		}
-	}
-
-	if isIPv4 {
-		return fmt.Sprintf("%d.%d.%d.%d", ip[12], ip[13], ip[14], ip[15])
-	}
-
-	return fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-		ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7],
-		ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15])
-}
-
-// MakeIPAddr creates an IPAddr from net.IP
-func MakeIPAddr(ip net.IP) (addr IPAddr) {
-	if ip4 := ip.To4(); ip4 != nil {
-		copy(addr[12:], ip4)
-	} else {
-		copy(addr[:], ip.To16())
-	}
-	return addr
-}
-
 // ConnKey uniquely identifies a connection
 type ConnKey struct {
-	SrcIP   IPAddr
-	DstIP   IPAddr
+	SrcIP   netip.Addr
+	DstIP   netip.Addr
 	SrcPort uint16
 	DstPort uint16
 }
@@ -82,33 +56,24 @@ func (c *ConnKey) String() string {
 
 // makeConnKey creates a connection key
 func makeConnKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) *ConnKey {
+	srcAddr, _ := netip.AddrFromSlice(srcIP)
+	dstAddr, _ := netip.AddrFromSlice(dstIP)
+
 	return &ConnKey{
-		SrcIP:   MakeIPAddr(srcIP),
-		DstIP:   MakeIPAddr(dstIP),
+		SrcIP:   srcAddr,
+		DstIP:   dstAddr,
 		SrcPort: srcPort,
 		DstPort: dstPort,
 	}
 }
 
-// ValidateIPs checks if IPs match without allocation
-func ValidateIPs(connIP IPAddr, pktIP net.IP) bool {
-	if ip4 := pktIP.To4(); ip4 != nil {
-		// Compare IPv4 addresses (last 4 bytes)
-		for i := 0; i < 4; i++ {
-			if connIP[12+i] != ip4[i] {
-				return false
-			}
-		}
-		return true
+// ValidateIPs checks if IPs match
+func ValidateIPs(connIP netip.Addr, pktIP net.IP) bool {
+	pktAddr, ok := netip.AddrFromSlice(pktIP)
+	if !ok {
+		return false
 	}
-	// Compare full IPv6 addresses
-	ip6 := pktIP.To16()
-	for i := 0; i < 16; i++ {
-		if connIP[i] != ip6[i] {
-			return false
-		}
-	}
-	return true
+	return connIP == pktAddr
 }
 
 // PreallocatedIPs is a pool of IP byte slices to reduce allocations
@@ -136,13 +101,4 @@ func (p *PreallocatedIPs) Get() net.IP {
 // Put returns an IP to the pool
 func (p *PreallocatedIPs) Put(ip net.IP) {
 	p.Pool.Put(&ip)
-}
-
-// copyIP copies an IP address efficiently
-func copyIP(dst, src net.IP) {
-	if len(src) == 16 {
-		copy(dst, src)
-	} else {
-		copy(dst[12:], src.To4())
-	}
 }

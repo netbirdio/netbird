@@ -5,7 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/internal/flowstore"
 )
 
 const (
@@ -29,10 +32,11 @@ type UDPTracker struct {
 	mutex         sync.RWMutex
 	done          chan struct{}
 	ipPool        *PreallocatedIPs
+	flowStore     flowstore.Store
 }
 
 // NewUDPTracker creates a new UDP connection tracker
-func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
+func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowStore flowstore.Store) *UDPTracker {
 	if timeout == 0 {
 		timeout = DefaultUDPTimeout
 	}
@@ -44,6 +48,7 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
 		done:          make(chan struct{}),
 		ipPool:        NewPreallocatedIPs(),
+		flowStore:     flowStore,
 	}
 
 	go tracker.cleanupRoutine()
@@ -52,32 +57,52 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
 
 // TrackOutbound records an outbound UDP connection
 func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+	t.track(srcIP, dstIP, srcPort, dstPort, flowstore.Egress)
+}
+
+// TrackInbound records an inbound UDP connection
+func (t *UDPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+	t.track(srcIP, dstIP, srcPort, dstPort, flowstore.Ingress)
+}
+
+// track is the common implementation for tracking both inbound and outbound connections
+func (t *UDPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, direction flowstore.Direction) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 
-	t.mutex.Lock()
+	t.mutex.RLock()
 	conn, exists := t.connections[*key]
-	if !exists {
-		srcIPCopy := t.ipPool.Get()
-		dstIPCopy := t.ipPool.Get()
-		copyIP(srcIPCopy, srcIP)
-		copyIP(dstIPCopy, dstIP)
+	t.mutex.RUnlock()
 
-		conn = &UDPConnTrack{
-			BaseConnTrack: BaseConnTrack{
-				SourceIP:   srcIPCopy,
-				DestIP:     dstIPCopy,
-				SourcePort: srcPort,
-				DestPort:   dstPort,
-			},
+	if exists {
+		if direction == flowstore.Egress {
+			conn.UpdateLastSeen()
 		}
-		conn.UpdateLastSeen()
-		t.connections[*key] = conn
-
-		t.logger.Trace("New UDP connection: %s", key)
+		return
 	}
+
+	srcIPCopy := t.ipPool.Get()
+	dstIPCopy := t.ipPool.Get()
+	copy(srcIPCopy, srcIP)
+	copy(dstIPCopy, dstIP)
+
+	conn = &UDPConnTrack{
+		BaseConnTrack: BaseConnTrack{
+			FlowId:     uuid.New(),
+			Direction:  direction,
+			SourceIP:   srcIPCopy,
+			DestIP:     dstIPCopy,
+			SourcePort: srcPort,
+			DestPort:   dstPort,
+		},
+	}
+	conn.UpdateLastSeen()
+
+	t.mutex.Lock()
+	t.connections[*key] = conn
 	t.mutex.Unlock()
 
-	conn.UpdateLastSeen()
+	t.logger.Trace("New %s UDP connection: %s", direction, key)
+	t.sendEvent(flowstore.TypeStart, key, conn)
 }
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
@@ -88,18 +113,11 @@ func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 	conn, exists := t.connections[*key]
 	t.mutex.RUnlock()
 
-	if !exists {
+	if !exists || conn.timeoutExceeded(t.timeout) {
 		return false
 	}
 
-	if conn.timeoutExceeded(t.timeout) {
-		return false
-	}
-
-	return ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
-		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
-		conn.DestPort == srcPort &&
-		conn.SourcePort == dstPort
+	return true
 }
 
 // cleanupRoutine periodically removes stale connections
@@ -125,6 +143,7 @@ func (t *UDPTracker) cleanup() {
 			delete(t.connections, key)
 
 			t.logger.Trace("Removed UDP connection %s (timeout)", &key)
+			t.sendEvent(flowstore.TypeEnd, &key, conn)
 		}
 	}
 }
@@ -160,4 +179,17 @@ func (t *UDPTracker) GetConnection(srcIP net.IP, srcPort uint16, dstIP net.IP, d
 // Timeout returns the configured timeout duration for the tracker
 func (t *UDPTracker) Timeout() time.Duration {
 	return t.timeout
+}
+
+func (t *UDPTracker) sendEvent(typ flowstore.Type, key *ConnKey, conn *UDPConnTrack) {
+	t.flowStore.StoreEvent(flowstore.EventFields{
+		FlowID:     conn.FlowId,
+		Type:       typ,
+		Direction:  conn.Direction,
+		Protocol:   17,
+		SourceIP:   key.SrcIP,
+		DestIP:     key.DstIP,
+		SourcePort: key.SrcPort,
+		DestPort:   key.DstPort,
+	})
 }

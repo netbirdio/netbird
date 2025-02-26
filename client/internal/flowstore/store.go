@@ -14,14 +14,27 @@ import (
 type Type int
 
 const (
-	TypeStart = iota
+	TypeUnknown = iota
+	TypeStart
 	TypeEnd
 )
 
 type Direction int
 
+func (d Direction) String() string {
+	switch d {
+	case Ingress:
+		return "ingress"
+	case Egress:
+		return "egress"
+	default:
+		return "unknown"
+	}
+}
+
 const (
-	Ingress = iota
+	Unknown = iota
+	Ingress
 	Egress
 )
 

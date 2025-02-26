@@ -29,7 +29,7 @@ func TestNewUDPTracker(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tracker := NewUDPTracker(tt.timeout, logger)
+			tracker := NewUDPTracker(tt.timeout, logger, nil)
 			assert.NotNil(t, tracker)
 			assert.Equal(t, tt.wantTimeout, tracker.timeout)
 			assert.NotNil(t, tracker.connections)
@@ -40,7 +40,7 @@ func TestNewUDPTracker(t *testing.T) {
 }
 
 func TestUDPTracker_TrackOutbound(t *testing.T) {
-	tracker := NewUDPTracker(DefaultUDPTimeout, logger)
+	tracker := NewUDPTracker(DefaultUDPTimeout, logger, nil)
 	defer tracker.Close()
 
 	srcIP := net.ParseIP("192.168.1.2")
@@ -62,7 +62,7 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 }
 
 func TestUDPTracker_IsValidInbound(t *testing.T) {
-	tracker := NewUDPTracker(1*time.Second, logger)
+	tracker := NewUDPTracker(1*time.Second, logger, nil)
 	defer tracker.Close()
 
 	srcIP := net.ParseIP("192.168.1.2")
@@ -211,7 +211,7 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 
 func BenchmarkUDPTracker(b *testing.B) {
 	b.Run("TrackOutbound", func(b *testing.B) {
-		tracker := NewUDPTracker(DefaultUDPTimeout, logger)
+		tracker := NewUDPTracker(DefaultUDPTimeout, logger, nil)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")
@@ -224,7 +224,7 @@ func BenchmarkUDPTracker(b *testing.B) {
 	})
 
 	b.Run("IsValidInbound", func(b *testing.B) {
-		tracker := NewUDPTracker(DefaultUDPTimeout, logger)
+		tracker := NewUDPTracker(DefaultUDPTimeout, logger, nil)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")

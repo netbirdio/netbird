@@ -3,12 +3,15 @@ package conntrack
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/google/gopacket/layers"
+	"github.com/google/uuid"
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/internal/flowstore"
 )
 
 const (
@@ -20,9 +23,8 @@ const (
 
 // ICMPConnKey uniquely identifies an ICMP connection
 type ICMPConnKey struct {
-	// Supports both IPv4 and IPv6
-	SrcIP    [16]byte
-	DstIP    [16]byte
+	SrcIP    netip.Addr
+	DstIP    netip.Addr
 	Sequence uint16
 	ID       uint16
 }
@@ -45,10 +47,11 @@ type ICMPTracker struct {
 	mutex         sync.RWMutex
 	done          chan struct{}
 	ipPool        *PreallocatedIPs
+	flowStore     flowstore.Store
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
-func NewICMPTracker(timeout time.Duration, logger *nblog.Logger) *ICMPTracker {
+func NewICMPTracker(timeout time.Duration, logger *nblog.Logger, flowStore flowstore.Store) *ICMPTracker {
 	if timeout == 0 {
 		timeout = DefaultICMPTimeout
 	}
@@ -60,6 +63,7 @@ func NewICMPTracker(timeout time.Duration, logger *nblog.Logger) *ICMPTracker {
 		cleanupTicker: time.NewTicker(ICMPCleanupInterval),
 		done:          make(chan struct{}),
 		ipPool:        NewPreallocatedIPs(),
+		flowStore:     flowStore,
 	}
 
 	go tracker.cleanupRoutine()
@@ -68,30 +72,50 @@ func NewICMPTracker(timeout time.Duration, logger *nblog.Logger) *ICMPTracker {
 
 // TrackOutbound records an outbound ICMP Echo Request
 func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) {
+	t.track(srcIP, dstIP, id, seq, flowstore.Egress)
+}
+
+// TrackInbound records an inbound ICMP Echo Request
+func (t *ICMPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) {
+	t.track(srcIP, dstIP, id, seq, flowstore.Ingress)
+}
+
+// track is the common implementation for tracking both inbound and outbound ICMP connections
+func (t *ICMPTracker) track(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, direction flowstore.Direction) {
 	key := makeICMPKey(srcIP, dstIP, id, seq)
 
-	t.mutex.Lock()
-	conn, exists := t.connections[key]
-	if !exists {
-		srcIPCopy := t.ipPool.Get()
-		dstIPCopy := t.ipPool.Get()
-		copyIP(srcIPCopy, srcIP)
-		copyIP(dstIPCopy, dstIP)
+	t.mutex.RLock()
+	conn, exists := t.connections[*key]
+	t.mutex.RUnlock()
 
-		conn = &ICMPConnTrack{
-			BaseConnTrack: BaseConnTrack{
-				SourceIP: srcIPCopy,
-				DestIP:   dstIPCopy,
-			},
+	if exists {
+		if direction == flowstore.Egress {
+			conn.UpdateLastSeen()
 		}
-		conn.UpdateLastSeen()
-		t.connections[key] = conn
-
-		t.logger.Trace("New ICMP connection %s", key)
+		return
 	}
+
+	srcIPCopy := t.ipPool.Get()
+	dstIPCopy := t.ipPool.Get()
+	copy(srcIPCopy, srcIP)
+	copy(dstIPCopy, dstIP)
+
+	conn = &ICMPConnTrack{
+		BaseConnTrack: BaseConnTrack{
+			FlowId:    uuid.New(),
+			Direction: direction,
+			SourceIP:  srcIPCopy,
+			DestIP:    dstIPCopy,
+		},
+	}
+	conn.UpdateLastSeen()
+
+	t.mutex.Lock()
+	t.connections[*key] = conn
 	t.mutex.Unlock()
 
-	conn.UpdateLastSeen()
+	t.logger.Trace("New %s ICMP connection %s", conn.Direction, key)
+	t.sendEvent(flowstore.TypeStart, key, conn)
 }
 
 // IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request
@@ -103,21 +127,14 @@ func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq 
 	key := makeICMPKey(dstIP, srcIP, id, seq)
 
 	t.mutex.RLock()
-	conn, exists := t.connections[key]
+	conn, exists := t.connections[*key]
 	t.mutex.RUnlock()
 
-	if !exists {
+	if !exists || conn.timeoutExceeded(t.timeout) {
 		return false
 	}
 
-	if conn.timeoutExceeded(t.timeout) {
-		return false
-	}
-
-	return ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
-		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
-		key.ID == id &&
-		key.Sequence == seq
+	return true
 }
 
 func (t *ICMPTracker) cleanupRoutine() {
@@ -130,6 +147,7 @@ func (t *ICMPTracker) cleanupRoutine() {
 		}
 	}
 }
+
 func (t *ICMPTracker) cleanup() {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
@@ -141,6 +159,7 @@ func (t *ICMPTracker) cleanup() {
 			delete(t.connections, key)
 
 			t.logger.Debug("Removed ICMP connection %s (timeout)", &key)
+			t.sendEvent(flowstore.TypeEnd, &key, conn)
 		}
 	}
 }
@@ -159,11 +178,25 @@ func (t *ICMPTracker) Close() {
 	t.mutex.Unlock()
 }
 
+func (t *ICMPTracker) sendEvent(typ flowstore.Type, key *ICMPConnKey, conn *ICMPConnTrack) {
+	t.flowStore.StoreEvent(flowstore.EventFields{
+		FlowID:    conn.FlowId,
+		Type:      typ,
+		Direction: conn.Direction,
+		Protocol:  1, // TODO: adjust for IPv6/icmpv6
+		SourceIP:  key.SrcIP,
+		DestIP:    key.DstIP,
+		// TODO: add icmp code/type,
+	})
+}
+
 // makeICMPKey creates an ICMP connection key
-func makeICMPKey(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) ICMPConnKey {
-	return ICMPConnKey{
-		SrcIP:    MakeIPAddr(srcIP),
-		DstIP:    MakeIPAddr(dstIP),
+func makeICMPKey(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) *ICMPConnKey {
+	srcAddr, _ := netip.AddrFromSlice(srcIP)
+	dstAddr, _ := netip.AddrFromSlice(dstIP)
+	return &ICMPConnKey{
+		SrcIP:    srcAddr,
+		DstIP:    dstAddr,
 		ID:       id,
 		Sequence: seq,
 	}

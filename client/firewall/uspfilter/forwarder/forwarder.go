@@ -18,6 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/internal/flowstore"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 
 type Forwarder struct {
 	logger       *nblog.Logger
+	flowStore    flowstore.Store
 	stack        *stack.Stack
 	endpoint     *endpoint
 	udpForwarder *udpForwarder
@@ -38,7 +40,7 @@ type Forwarder struct {
 	netstack     bool
 }
 
-func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwarder, error) {
+func New(iface common.IFaceMapper, logger *nblog.Logger, flowStore flowstore.Store, netstack bool) (*Forwarder, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{
@@ -102,9 +104,10 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwar
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &Forwarder{
 		logger:       logger,
+		flowStore:    flowStore,
 		stack:        s,
 		endpoint:     endpoint,
-		udpForwarder: newUDPForwarder(mtu, logger),
+		udpForwarder: newUDPForwarder(mtu, logger, flowStore),
 		ctx:          ctx,
 		cancel:       cancel,
 		netstack:     netstack,

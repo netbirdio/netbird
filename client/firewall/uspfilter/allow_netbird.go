@@ -22,17 +22,17 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger, m.flowStore)
 	}
 
 	if m.icmpTracker != nil {
 		m.icmpTracker.Close()
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, m.flowStore)
 	}
 
 	if m.tcpTracker != nil {
 		m.tcpTracker.Close()
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, m.flowStore)
 	}
 
 	if m.forwarder != nil {

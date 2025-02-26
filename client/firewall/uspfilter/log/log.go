@@ -90,13 +90,8 @@ func (l *Logger) SetLevel(level Level) {
 }
 
 func (l *Logger) log(level Level, format string, args ...any) {
-	argsCopy := make([]any, len(args))
-	for i, arg := range args {
-		argsCopy[i] = arg
-	}
-
 	select {
-	case l.msgChannel <- logMessage{level: level, format: format, args: argsCopy}:
+	case l.msgChannel <- logMessage{level: level, format: format, args: args}:
 	default:
 	}
 }
