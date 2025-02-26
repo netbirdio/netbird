@@ -1,3 +1,5 @@
+//go:build linux && !android
+
 package udp
 
 import (
@@ -18,16 +20,18 @@ import (
 type WGUDPProxy struct {
 	localWGListenPort int
 
-	remoteConn net.Conn
-	localConn  net.Conn
-	ctx        context.Context
-	cancel     context.CancelFunc
-	closeMu    sync.Mutex
-	closed     bool
+	remoteConn   net.Conn
+	localConn    net.Conn
+	srcFakerConn *SrcFaker
+	sendPkg      func(data []byte) (int, error)
+	ctx          context.Context
+	cancel       context.CancelFunc
+	closeMu      sync.Mutex
+	closed       bool
 
-	pausedMu  sync.Mutex
-	paused    bool
-	isStarted bool
+	paused     bool
+	pausedCond *sync.Cond
+	isStarted  bool
 }
 
 // NewWGUDPProxy instantiate a UDP based WireGuard proxy. This is not a thread safe implementation
@@ -35,6 +39,7 @@ func NewWGUDPProxy(wgPort int) *WGUDPProxy {
 	log.Debugf("Initializing new user space proxy with port %d", wgPort)
 	p := &WGUDPProxy{
 		localWGListenPort: wgPort,
+		pausedCond:        sync.NewCond(&sync.Mutex{}),
 	}
 	return p
 }
@@ -54,6 +59,7 @@ func (p *WGUDPProxy) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, rem
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.localConn = localConn
+	p.sendPkg = p.localConn.Write
 	p.remoteConn = remoteConn
 
 	return err
@@ -73,15 +79,24 @@ func (p *WGUDPProxy) Work() {
 		return
 	}
 
-	p.pausedMu.Lock()
+	p.pausedCond.L.Lock()
 	p.paused = false
-	p.pausedMu.Unlock()
+	p.sendPkg = p.localConn.Write
+
+	if p.srcFakerConn != nil {
+		if err := p.srcFakerConn.Close(); err != nil {
+			log.Errorf("failed to close src faker conn: %s", err)
+		}
+		p.srcFakerConn = nil
+	}
 
 	if !p.isStarted {
 		p.isStarted = true
 		go p.proxyToRemote(p.ctx)
 		go p.proxyToLocal(p.ctx)
 	}
+	p.pausedCond.L.Unlock()
+	p.pausedCond.Signal()
 }
 
 // Pause pauses the proxy from receiving data from the remote peer
@@ -90,9 +105,35 @@ func (p *WGUDPProxy) Pause() {
 		return
 	}
 
-	p.pausedMu.Lock()
+	p.pausedCond.L.Lock()
 	p.paused = true
-	p.pausedMu.Unlock()
+	p.pausedCond.L.Unlock()
+}
+
+// RedirectAs start to use the fake sourced raw socket as package sender
+func (p *WGUDPProxy) RedirectAs(endpoint *net.UDPAddr) {
+	p.pausedCond.L.Lock()
+	defer func() {
+		p.pausedCond.L.Unlock()
+		p.pausedCond.Signal()
+	}()
+
+	p.paused = false
+	if p.srcFakerConn != nil {
+		if err := p.srcFakerConn.Close(); err != nil {
+			log.Errorf("failed to close src faker conn: %s", err)
+		}
+		p.srcFakerConn = nil
+	}
+	srcFakerConn, err := NewSrcFaker(p.localWGListenPort, endpoint)
+	if err != nil {
+		log.Errorf("failed to create src faker conn: %s", err)
+		// fallback to continue without redirecting
+		p.paused = true
+		return
+	}
+	p.srcFakerConn = srcFakerConn
+	p.sendPkg = p.srcFakerConn.SendPkg
 }
 
 // CloseConn close the localConn
@@ -104,6 +145,8 @@ func (p *WGUDPProxy) CloseConn() error {
 }
 
 func (p *WGUDPProxy) close() error {
+	var result *multierror.Error
+
 	p.closeMu.Lock()
 	defer p.closeMu.Unlock()
 
@@ -111,11 +154,14 @@ func (p *WGUDPProxy) close() error {
 	if p.closed {
 		return nil
 	}
-	p.closed = true
 
 	p.cancel()
 
-	var result *multierror.Error
+	p.pausedCond.L.Lock()
+	p.paused = false
+	p.pausedCond.L.Unlock()
+	p.pausedCond.Signal()
+
 	if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		result = multierror.Append(result, fmt.Errorf("remote conn: %s", err))
 	}
@@ -123,6 +169,13 @@ func (p *WGUDPProxy) close() error {
 	if err := p.localConn.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("local conn: %s", err))
 	}
+
+	if p.srcFakerConn != nil {
+		if err := p.srcFakerConn.Close(); err != nil {
+			result = multierror.Append(result, fmt.Errorf("src faker raw conn: %s", err))
+		}
+	}
+
 	return cerrors.FormatErrorOrNil(result)
 }
 
@@ -175,14 +228,12 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 			return
 		}
 
-		p.pausedMu.Lock()
-		if p.paused {
-			p.pausedMu.Unlock()
-			continue
+		p.pausedCond.L.Lock()
+		for p.paused {
+			p.pausedCond.Wait()
 		}
-
-		_, err = p.localConn.Write(buf[:n])
-		p.pausedMu.Unlock()
+		_, err = p.sendPkg(buf[:n])
+		p.pausedCond.L.Unlock()
 
 		if err != nil {
 			if ctx.Err() != nil {
