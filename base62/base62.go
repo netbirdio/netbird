@@ -2,6 +2,7 @@ package base62
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -38,6 +39,10 @@ func Decode(encoded string) (uint32, error) {
 		index := strings.IndexRune(alphabet, char)
 		if index < 0 {
 			return 0, fmt.Errorf("invalid character: %c", char)
+		}
+		// Add overflow check when calculating the decoded value to prevent silent overflow of uint32
+		if decoded > (math.MaxUint32-uint32(index))/base {
+			return 0, fmt.Errorf("integer overflow")
 		}
 
 		decoded = decoded*base + uint32(index)
