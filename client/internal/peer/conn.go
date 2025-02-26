@@ -176,7 +176,6 @@ func (conn *Conn) Open() {
 
 	peerState := State{
 		PubKey:           conn.config.Key,
-		IP:               conn.config.WgConfig.AllowedIps[0].Addr().String(),
 		ConnStatusUpdate: time.Now(),
 		ConnStatus:       StatusDisconnected,
 		Mux:              new(sync.RWMutex),

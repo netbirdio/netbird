@@ -1136,7 +1136,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		conn.AddAfterRemovePeerHook(e.afterPeerHook)
 	}
 
-	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
+	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String())
 	if err != nil {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
