@@ -10,8 +10,6 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/management-integrations/integrations"
-	"github.com/netbirdio/netbird/management/server/users"
-
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -136,7 +134,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	}
 
 	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store, users.NewManagerMock()), peersUpdateManager, secretsManager, nil, nil, nil)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManagerMock(), peersUpdateManager, secretsManager, nil, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}
