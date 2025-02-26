@@ -48,7 +48,7 @@ func (m *Watcher) Watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			stats, err := m.wgIface.Transfers()
+			stats, err := m.wgIface.GetStats()
 			if err != nil {
 				log.Errorf("failed to get peer stats: %s", err)
 				continue

@@ -11,7 +11,7 @@ import (
 )
 
 type WGIface interface {
-	Transfers() (map[string]configurer.WGStats, error)
 	RemovePeer(peerKey string) error
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	GetStats() (map[string]configurer.WGStats, error)
 }

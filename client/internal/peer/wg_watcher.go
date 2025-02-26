@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -20,7 +21,7 @@ var (
 )
 
 type WGInterfaceStater interface {
-	GetStats(key string) (configurer.WGStats, error)
+	GetStats() (map[string]configurer.WGStats, error)
 }
 
 type WGWatcher struct {
@@ -146,9 +147,13 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 }
 
 func (w *WGWatcher) wgState() (time.Time, error) {
-	wgState, err := w.wgIfaceStater.GetStats(w.peerKey)
+	wgStates, err := w.wgIfaceStater.GetStats()
 	if err != nil {
 		return time.Time{}, err
+	}
+	wgState, ok := wgStates[w.peerKey]
+	if !ok {
+		return time.Time{}, fmt.Errorf("peer %s not found in WireGuard endpoints", w.peerKey)
 	}
 	return wgState.LastHandshake, nil
 }

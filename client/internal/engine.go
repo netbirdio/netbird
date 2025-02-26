@@ -1542,13 +1542,17 @@ func (e *Engine) RunHealthProbes() bool {
 	}
 	log.Debugf("relay health check: healthy=%t", relayHealthy)
 
+	stats, err := e.wgInterface.GetStats()
+	if err != nil {
+		log.Warnf("failed to get wireguard stats: %v", err)
+		return false
+	}
 	for _, key := range e.peerStore.PeersPubKey() {
-		wgStats, err := e.wgInterface.GetStats(key)
-		if err != nil {
-			log.Debugf("failed to get wg stats for peer %s: %s", key, err)
+		// wgStats could be zero value, in which case we just reset the stats
+		wgStats, ok := stats[key]
+		if !ok {
 			continue
 		}
-		// wgStats could be zero value, in which case we just reset the stats
 		if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
 			log.Debugf("failed to update wg stats for peer %s: %s", key, err)
 		}

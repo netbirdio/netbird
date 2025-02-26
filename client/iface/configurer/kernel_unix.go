@@ -201,19 +201,7 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 func (c *KernelConfigurer) Close() {
 }
 
-func (c *KernelConfigurer) GetStats(peerKey string) (WGStats, error) {
-	peer, err := c.getPeer(c.deviceName, peerKey)
-	if err != nil {
-		return WGStats{}, fmt.Errorf("get wireguard stats: %w", err)
-	}
-	return WGStats{
-		LastHandshake: peer.LastHandshakeTime,
-		TxBytes:       peer.TransmitBytes,
-		RxBytes:       peer.ReceiveBytes,
-	}, nil
-}
-
-func (c *KernelConfigurer) Transfers() (map[string]WGStats, error) {
+func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
 	stats := make(map[string]WGStats)
 	wg, err := wgctrl.New()
 	if err != nil {
@@ -230,6 +218,7 @@ func (c *KernelConfigurer) Transfers() (map[string]WGStats, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
 	}
+
 	for _, peer := range wgDevice.Peers {
 		stats[peer.PublicKey.String()] = WGStats{
 			LastHandshake: peer.LastHandshakeTime,

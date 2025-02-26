@@ -11,26 +11,11 @@ import (
 )
 
 type MocWgIface struct {
-	initial       bool
-	lastHandshake time.Time
-	stop          bool
+	stop bool
 }
 
-func (m *MocWgIface) GetStats(key string) (configurer.WGStats, error) {
-	if !m.initial {
-		m.initial = true
-		return configurer.WGStats{}, nil
-	}
-
-	if !m.stop {
-		m.lastHandshake = time.Now()
-	}
-
-	stats := configurer.WGStats{
-		LastHandshake: m.lastHandshake,
-	}
-
-	return stats, nil
+func (m *MocWgIface) GetStats() (map[string]configurer.WGStats, error) {
+	return map[string]configurer.WGStats{}, nil
 }
 
 func (m *MocWgIface) disconnect() {
