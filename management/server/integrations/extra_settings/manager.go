@@ -1,4 +1,4 @@
-package settings
+package extra_settings
 
 import (
 	"context"
