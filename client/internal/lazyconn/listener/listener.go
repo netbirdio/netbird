@@ -15,17 +15,12 @@ type Listener struct {
 	wg sync.WaitGroup
 }
 
-func NewListener(peerID string, addr *net.UDPAddr) (*Listener, error) {
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		return nil, err
-	}
-
+func NewListener(peerID string, conn *net.UDPConn) *Listener {
 	d := &Listener{
 		conn:   conn,
 		peerID: peerID,
 	}
-	return d, nil
+	return d
 }
 
 func (d *Listener) ReadPackets(trigger func(peerID string)) {

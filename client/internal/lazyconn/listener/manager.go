@@ -9,31 +9,12 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 )
 
-type portGenerator struct {
-	nextFreePort uint16
-}
-
-func newPortGenerator() *portGenerator {
-	return &portGenerator{
-		nextFreePort: 65535,
-	}
-}
-
-func (p *portGenerator) nextPort() int {
-	port := p.nextFreePort
-	p.nextFreePort--
-	if p.nextFreePort == 0 {
-		p.nextFreePort = 65535
-	}
-	return int(port)
-}
-
 type Manager struct {
 	TrafficStartChan chan string
 
 	wgIface lazyconn.WGIface
 
-	portGenerator *portGenerator
+	portGenerator *portAllocator
 	// todo peers add/remove is not thread safe because of the callback function
 	peers map[string]*Listener
 	done  chan struct{}
@@ -43,7 +24,7 @@ func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
 		TrafficStartChan: make(chan string, 1),
 		wgIface:          wgIface,
-		portGenerator:    newPortGenerator(),
+		portGenerator:    newPortAllocator(),
 		peers:            make(map[string]*Listener),
 		done:             make(chan struct{}),
 	}
@@ -86,26 +67,12 @@ func (m *Manager) Close() {
 }
 
 func (m *Manager) createFakePeer(peerCfg lazyconn.PeerConfig) error {
-	var (
-		listener *Listener
-		err      error
-		addr     *net.UDPAddr
-	)
-	for i := 0; i < 100; i++ {
-		addr = &net.UDPAddr{
-			Port: m.portGenerator.nextPort(),
-			IP:   net.ParseIP("127.0.0.254"),
-		}
-		listener, err = NewListener(peerCfg.PublicKey, addr)
-		if err != nil {
-			log.Debugf("failed to allocate port: %d: %v", addr.Port, err)
-			continue
-		}
+	conn, addr, err := m.portGenerator.newConn()
+	if err != nil {
+		return fmt.Errorf("failed to bind lazy connection: %v", err)
 	}
 
-	if listener == nil {
-		return fmt.Errorf("failed to allocate lazy connection port for: %s", peerCfg.PublicKey)
-	}
+	listener := NewListener(peerCfg.PublicKey, conn)
 
 	if err := m.createEndpoint(peerCfg, addr); err != nil {
 		log.Errorf("failed to create endpoint for %s: %v", peerCfg.PublicKey, err)
