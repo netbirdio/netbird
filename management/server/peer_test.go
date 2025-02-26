@@ -1022,7 +1022,7 @@ func TestToSyncResponse(t *testing.T) {
 		},
 		Flow: &Flow{
 			Address:  "flow.uri",
-			Interval: commonUtil.Duration(time.Duration(10) * time.Second),
+			Interval: commonUtil.Duration{Duration: 10 * time.Second},
 		},
 	}
 	peer := &nbpeer.Peer{
