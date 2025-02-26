@@ -20,6 +20,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/users"
 
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -122,7 +123,9 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	geoMock := &geolocation.Mock{}
 	validatorMock := server.MocIntegratedValidator{}
 	proxyController := integrations.NewController(store)
-	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settings.NewManagerMock())
+	userManager := users.NewManager(store)
+	settingsManager := settings.NewManager(store, userManager, integrations.NewManager())
+	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
@@ -143,7 +146,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	permissionsManagerMock := permissions.NewManagerMock()
 	peersManager := peers.NewManager(store, permissionsManagerMock)
 
-	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManagerMock, peersManager, settings.NewManagerMock())
+	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManagerMock, peersManager, settingsManager)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
