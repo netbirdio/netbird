@@ -16,6 +16,8 @@ func TestEncodeDecode(t *testing.T) {
 		{9, "9"},
 		{10, "A"},
 		{42, "g"},
+		{61, "z"},
+		{62, "10"},
 		{'0', "m"},
 		{'9', "v"},
 		{'A', "13"},
@@ -53,6 +55,12 @@ func TestDecodeEmptyString(t *testing.T) {
 
 func TestDecodeOverflow(t *testing.T) {
 	if _, err := Decode("4gfFC4"); err == nil {
-		t.Error("Expected overflow error, got nil")
+		t.Error("Expected error overflow , got nil")
+	}
+}
+
+func TestDecodeInvalid(t *testing.T) {
+	if _, err := Decode("/"); err == nil {
+		t.Error("Expected error invalid character, got nil")
 	}
 }
