@@ -22,13 +22,13 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -442,7 +442,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManager(store, users.NewManagerMock()), peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, settings.NewManagerMock(), peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
@@ -741,7 +741,7 @@ func Test_LoginPerformance(t *testing.T) {
 							NetbirdVersion: "",
 						}
 
-						peerLogin := PeerLogin{
+						peerLogin := nbAccount.PeerLogin{
 							WireGuardPubKey: key.String(),
 							SSHKey:          "random",
 							Meta:            extractPeerMeta(context.Background(), meta),
@@ -766,7 +766,7 @@ func Test_LoginPerformance(t *testing.T) {
 						messageCalls = append(messageCalls, login)
 						mu.Unlock()
 
-						go func(peerLogin PeerLogin, counterStart *int32) {
+						go func(peerLogin nbAccount.PeerLogin, counterStart *int32) {
 							defer wgPeer.Done()
 							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
 							if err != nil {

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -37,7 +38,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *types.Account, userID string) {
+func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.AccountManager, account *types.Account, userID string) {
 	t.Helper()
 	peer := &nbpeer.Peer{
 		Key:  "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8=",
@@ -1404,7 +1405,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
-func getEvent(t *testing.T, accountID string, manager AccountManager, eventType activity.Activity) *activity.Event {
+func getEvent(t *testing.T, accountID string, manager nbAccount.AccountManager, eventType activity.Activity) *activity.Event {
 	t.Helper()
 	for {
 		select {
@@ -3025,7 +3026,7 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := manager.LoginPeer(context.Background(), PeerLogin{
+				_, _, _, err := manager.LoginPeer(context.Background(), nbAccount.PeerLogin{
 					WireGuardPubKey: account.Peers["peer-1"].Key,
 					SSHKey:          "someKey",
 					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
@@ -3100,7 +3101,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := manager.LoginPeer(context.Background(), PeerLogin{
+				_, _, _, err := manager.LoginPeer(context.Background(), nbAccount.PeerLogin{
 					WireGuardPubKey: "some-new-key" + strconv.Itoa(i),
 					SSHKey:          "someKey",
 					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},

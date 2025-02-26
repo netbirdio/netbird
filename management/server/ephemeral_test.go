@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -27,7 +28,7 @@ func (s *MockStore) GetAllEphemeralPeers(_ context.Context, _ store.LockingStren
 }
 
 type MocAccountManager struct {
-	AccountManager
+	nbAccount.AccountManager
 	store *MockStore
 }
 

@@ -26,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -203,7 +202,7 @@ func startServer(
 		context.Background(),
 		config,
 		accountManager,
-		settings.NewManager(str, users.NewManagerMock()),
+		settings.NewManagerMock(),
 		peersUpdateManager,
 		secretsManager,
 		nil,
