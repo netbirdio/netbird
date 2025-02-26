@@ -37,6 +37,10 @@ func (a MocAccountManager) DeletePeer(_ context.Context, accountID, peerID, user
 	return nil //nolint:nil
 }
 
+func (a MocAccountManager) GetStore() store.Store {
+	return a.store
+}
+
 func TestNewManager(t *testing.T) {
 	startTime := time.Now()
 	timeNow = func() time.Time {

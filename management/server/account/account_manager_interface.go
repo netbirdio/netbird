@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
@@ -110,6 +111,7 @@ type AccountManager interface {
 	UpdateAccountPeers(ctx context.Context, accountID string)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
+	GetStore() store.Store
 }
 
 // PeerSync used as a data object between the gRPC API and AccountManager on Sync request.

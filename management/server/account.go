@@ -1600,3 +1600,7 @@ func separateGroups(autoGroups []string, allGroups []*types.Group) ([]string, ma
 
 	return newAutoGroups, jwtAutoGroups
 }
+
+func (am *DefaultAccountManager) GetStore() store.Store {
+	return am.Store
+}
