@@ -12,23 +12,21 @@ const (
 )
 
 // Encode encodes a uint32 value to a base62 string.
-func Encode(num uint32) string {
-	if num == 0 {
-		return string(alphabet[0])
+func Encode(n uint32) string {
+	if n < base {
+		return string(alphabet[n])
+	}
+	// avoid dynamic memory usage for small, fixed size data
+	buf := [6]byte{} // 6 is max number of digits required to encode MaxUint32
+	idx := len(buf)
+
+	for n > 0 {
+		idx--
+		buf[idx] = alphabet[n%base]
+		n /= base
 	}
 
-	var encoded strings.Builder
-
-	for num > 0 {
-		remainder := num % base
-		encoded.WriteByte(alphabet[remainder])
-		num /= base
-	}
-
-	// Reverse the encoded string
-	encodedString := encoded.String()
-	reversed := reverse(encodedString)
-	return reversed
+	return string(buf[idx:])
 }
 
 // Decode decodes a base62 string to a uint32 value.
