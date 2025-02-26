@@ -34,6 +34,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/server/peers"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -202,7 +203,8 @@ var (
 			}
 
 			userManager := users.NewManager(store)
-			settingsManager := settings.NewManager(store, userManager)
+			extraSettingsManager := integrations.NewManager()
+			settingsManager := settings.NewManager(store, userManager, extraSettingsManager)
 			permissionsManager := permissions.NewManager(userManager, settingsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
 			proxyController := integrations.NewController(store)

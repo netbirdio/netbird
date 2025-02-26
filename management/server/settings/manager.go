@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	extra_settings "github.com/netbirdio/management-integrations/integrations/settings"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -29,10 +29,10 @@ type managerImpl struct {
 type managerMock struct {
 }
 
-func NewManager(store store.Store, userManager users.Manager) Manager {
+func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager) Manager {
 	return &managerImpl{
 		store:                store,
-		extraSettingsManager: extra_settings.NewManager(),
+		extraSettingsManager: extraSettingsManager,
 		userManager:          userManager,
 	}
 }
@@ -101,7 +101,7 @@ func NewManagerMock() Manager {
 }
 
 func (m *managerMock) GetExtraSettingsManager() extra_settings.Manager {
-	return extra_settings.NewManager()
+	return nil
 }
 
 func (m *managerMock) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
