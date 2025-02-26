@@ -36,7 +36,6 @@ type Config struct {
 	TURNConfig *TURNConfig
 	Relay      *Relay
 	Signal     *Host
-	Flow       *Flow
 
 	Datadir                string
 	DataStoreEncryptionKey string
@@ -81,11 +80,6 @@ type Relay struct {
 	Addresses      []string
 	CredentialsTTL util.Duration
 	Secret         string
-}
-
-type Flow struct {
-	Address  string
-	Interval util.Duration
 }
 
 // HttpServerConfig is a config of the HTTP Management service server

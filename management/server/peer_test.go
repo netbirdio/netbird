@@ -39,7 +39,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
-	commonUtil "github.com/netbirdio/netbird/util"
 )
 
 func TestPeer_LoginExpired(t *testing.T) {
@@ -1020,10 +1019,6 @@ func TestToSyncResponse(t *testing.T) {
 		TURNConfig: &TURNConfig{
 			Turns: []*Host{{URI: "turn.uri", Proto: UDP, Username: "turn-user", Password: "turn-pass"}},
 		},
-		Flow: &Flow{
-			Address:  "flow.uri",
-			Interval: commonUtil.Duration{Duration: 10 * time.Second},
-		},
 	}
 	peer := &nbpeer.Peer{
 		IP:         net.ParseIP("192.168.1.1"),
@@ -1114,8 +1109,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 
-	enableFlow := true
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, true, &enableFlow)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, true, nil)
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1129,11 +1123,6 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, "turn.uri", response.NetbirdConfig.Turns[0].HostConfig.GetUri())
 	assert.Equal(t, "turn-user", response.NetbirdConfig.Turns[0].User)
 	assert.Equal(t, "turn-pass", response.NetbirdConfig.Turns[0].Password)
-	// assert flow config
-	assert.NotNil(t, response.NetbirdConfig.Flow)
-	assert.True(t, response.NetbirdConfig.Flow.GetEnabled())
-	assert.Equal(t, response.NetbirdConfig.Flow.GetUrl(), "flow.uri")
-	assert.Equal(t, response.NetbirdConfig.Flow.GetInterval().AsDuration(), time.Duration(10)*time.Second)
 	// assert RemotePeers
 	assert.Equal(t, 1, len(response.RemotePeers))
 	assert.Equal(t, "192.168.1.2/32", response.RemotePeers[0].AllowedIps[0])

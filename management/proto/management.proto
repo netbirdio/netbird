@@ -222,7 +222,7 @@ message FlowConfig {
   string tokenPayload = 2;
   string tokenSignature = 3;
   google.protobuf.Duration interval = 4;
-  optional bool enabled = 5;
+  bool enabled = 5;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
