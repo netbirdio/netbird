@@ -17,6 +17,8 @@ import (
 	"github.com/golang-jwt/jwt"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
 
 	"github.com/stretchr/testify/assert"
@@ -91,7 +93,7 @@ type PerformanceMetrics struct {
 	MaxMsPerOpCICD  float64
 }
 
-func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, server.AccountManager, chan struct{}) {
+func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, account.AccountManager, chan struct{}) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
@@ -141,7 +143,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	permissionsManagerMock := permissions.NewManagerMock()
 	peersManager := peers.NewManager(store, permissionsManagerMock)
 
-	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManagerMock, peersManager)
+	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManagerMock, peersManager, settings.NewManagerMock())
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}

@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -1533,7 +1532,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	})
 
 	t.Run("validator requires update", func(t *testing.T) {
-		requireUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *nbAccount.ExtraSettings) (*nbpeer.Peer, bool, error) {
+		requireUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, true, nil
 		}
 
@@ -1555,7 +1554,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	})
 
 	t.Run("validator requires no update", func(t *testing.T) {
-		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *nbAccount.ExtraSettings) (*nbpeer.Peer, bool, error) {
+		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, false, nil
 		}
 

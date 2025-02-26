@@ -26,7 +26,6 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/management-integrations/integrations"
-	"github.com/netbirdio/netbird/management/server/users"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -1441,7 +1440,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 
 	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store, users.NewManagerMock()), peersUpdateManager, secretsManager, nil, nil, nil)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManagerMock(), peersUpdateManager, secretsManager, nil, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

@@ -16,7 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/management/server/users"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -79,7 +78,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	}
 
 	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settings.NewManager(store, users.NewManagerMock()), peersUpdateManager, secretsManager, nil, nil, nil)
+	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settings.NewManagerMock(), peersUpdateManager, secretsManager, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

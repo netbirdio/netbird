@@ -16,6 +16,7 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -41,6 +42,7 @@ func initAccountsTestData(account *types.Account) *handler {
 				return accCopy, nil
 			},
 		},
+		settingsManager: settings.NewManagerMock(),
 	}
 }
 
