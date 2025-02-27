@@ -122,7 +122,6 @@ type TCPTracker struct {
 	cleanupTicker *time.Ticker
 	done          chan struct{}
 	timeout       time.Duration
-	ipPool        *PreallocatedIPs
 	flowLogger    types.FlowLogger
 }
 
@@ -138,7 +137,6 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger types
 		cleanupTicker: time.NewTicker(TCPCleanupInterval),
 		done:          make(chan struct{}),
 		timeout:       timeout,
-		ipPool:        NewPreallocatedIPs(),
 		flowLogger:    flowLogger,
 	}
 
@@ -185,17 +183,12 @@ func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 		return
 	}
 
-	srcIPCopy := t.ipPool.Get()
-	dstIPCopy := t.ipPool.Get()
-	copy(srcIPCopy, srcIP)
-	copy(dstIPCopy, dstIP)
-
 	conn := &TCPConnTrack{
 		BaseConnTrack: BaseConnTrack{
 			FlowId:     uuid.New(),
 			Direction:  direction,
-			SourceIP:   srcIPCopy,
-			DestIP:     dstIPCopy,
+			SourceIP:   key.SrcIP,
+			DestIP:     key.DstIP,
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 		},
@@ -399,8 +392,6 @@ func (t *TCPTracker) cleanup() {
 	for key, conn := range t.connections {
 		if conn.IsTombstone() {
 			// Clean up tombstoned connections without sending an event
-			t.ipPool.Put(conn.SourceIP)
-			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 			continue
 		}
@@ -417,8 +408,6 @@ func (t *TCPTracker) cleanup() {
 
 		if conn.timeoutExceeded(timeout) {
 			// Return IPs to pool
-			t.ipPool.Put(conn.SourceIP)
-			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
 			t.logger.Trace("Cleaned up timed-out TCP connection %s", &key)
@@ -438,10 +427,6 @@ func (t *TCPTracker) Close() {
 
 	// Clean up all remaining IPs
 	t.mutex.Lock()
-	for _, conn := range t.connections {
-		t.ipPool.Put(conn.SourceIP)
-		t.ipPool.Put(conn.DestIP)
-	}
 	t.connections = nil
 	t.mutex.Unlock()
 }

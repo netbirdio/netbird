@@ -31,7 +31,6 @@ type UDPTracker struct {
 	cleanupTicker *time.Ticker
 	mutex         sync.RWMutex
 	done          chan struct{}
-	ipPool        *PreallocatedIPs
 	flowLogger    types.FlowLogger
 }
 
@@ -47,7 +46,6 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger types
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
 		done:          make(chan struct{}),
-		ipPool:        NewPreallocatedIPs(),
 		flowLogger:    flowLogger,
 	}
 
@@ -90,17 +88,12 @@ func (t *UDPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 		return
 	}
 
-	srcIPCopy := t.ipPool.Get()
-	dstIPCopy := t.ipPool.Get()
-	copy(srcIPCopy, srcIP)
-	copy(dstIPCopy, dstIP)
-
 	conn := &UDPConnTrack{
 		BaseConnTrack: BaseConnTrack{
 			FlowId:     uuid.New(),
 			Direction:  direction,
-			SourceIP:   srcIPCopy,
-			DestIP:     dstIPCopy,
+			SourceIP:   key.SrcIP,
+			DestIP:     key.DstIP,
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 		},
@@ -150,8 +143,6 @@ func (t *UDPTracker) cleanup() {
 
 	for key, conn := range t.connections {
 		if conn.timeoutExceeded(t.timeout) {
-			t.ipPool.Put(conn.SourceIP)
-			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
 			t.logger.Trace("Removed UDP connection %s (timeout)", key)
@@ -166,10 +157,6 @@ func (t *UDPTracker) Close() {
 	close(t.done)
 
 	t.mutex.Lock()
-	for _, conn := range t.connections {
-		t.ipPool.Put(conn.SourceIP)
-		t.ipPool.Put(conn.DestIP)
-	}
 	t.connections = nil
 	t.mutex.Unlock()
 }
@@ -181,11 +168,7 @@ func (t *UDPTracker) GetConnection(srcIP net.IP, srcPort uint16, dstIP net.IP, d
 
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 	conn, exists := t.connections[key]
-	if !exists {
-		return nil, false
-	}
-
-	return conn, true
+	return conn, exists
 }
 
 // Timeout returns the configured timeout duration for the tracker

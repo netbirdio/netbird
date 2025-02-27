@@ -46,7 +46,6 @@ type ICMPTracker struct {
 	cleanupTicker *time.Ticker
 	mutex         sync.RWMutex
 	done          chan struct{}
-	ipPool        *PreallocatedIPs
 	flowLogger    types.FlowLogger
 }
 
@@ -62,7 +61,6 @@ func NewICMPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger type
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(ICMPCleanupInterval),
 		done:          make(chan struct{}),
-		ipPool:        NewPreallocatedIPs(),
 		flowLogger:    flowLogger,
 	}
 
@@ -106,17 +104,12 @@ func (t *ICMPTracker) track(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, d
 		return
 	}
 
-	srcIPCopy := t.ipPool.Get()
-	dstIPCopy := t.ipPool.Get()
-	copy(srcIPCopy, srcIP)
-	copy(dstIPCopy, dstIP)
-
 	conn := &ICMPConnTrack{
 		BaseConnTrack: BaseConnTrack{
 			FlowId:    uuid.New(),
 			Direction: direction,
-			SourceIP:  srcIPCopy,
-			DestIP:    dstIPCopy,
+			SourceIP:  key.SrcIP,
+			DestIP:    key.DstIP,
 		},
 	}
 	conn.UpdateLastSeen()
@@ -167,8 +160,6 @@ func (t *ICMPTracker) cleanup() {
 
 	for key, conn := range t.connections {
 		if conn.timeoutExceeded(t.timeout) {
-			t.ipPool.Put(conn.SourceIP)
-			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
 			t.logger.Debug("Removed ICMP connection %s (timeout)", &key)
@@ -183,10 +174,6 @@ func (t *ICMPTracker) Close() {
 	close(t.done)
 
 	t.mutex.Lock()
-	for _, conn := range t.connections {
-		t.ipPool.Put(conn.SourceIP)
-		t.ipPool.Put(conn.DestIP)
-	}
 	t.connections = nil
 	t.mutex.Unlock()
 }

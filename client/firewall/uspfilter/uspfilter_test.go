@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -537,8 +538,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}()
 
 	// Set up packet parameters
-	srcIP := net.ParseIP("100.10.0.1")
-	dstIP := net.ParseIP("100.10.0.100")
+	srcIP := netip.MustParseAddr("100.10.0.1")
+	dstIP := netip.MustParseAddr("100.10.0.100")
 	srcPort := uint16(51334)
 	dstPort := uint16(53)
 
@@ -546,8 +547,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	outboundIPv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
-		SrcIP:    srcIP,
-		DstIP:    dstIP,
+		SrcIP:    srcIP.AsSlice(),
+		DstIP:    dstIP.AsSlice(),
 		Protocol: layers.IPProtocolUDP,
 	}
 	outboundUDP := &layers.UDP{
@@ -576,11 +577,11 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	require.False(t, drop, "Initial outbound packet should not be dropped")
 
 	// Verify connection was tracked
-	conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+	conn, exists := manager.udpTracker.GetConnection(srcIP.AsSlice(), srcPort, dstIP.AsSlice(), dstPort)
 
 	require.True(t, exists, "Connection should be tracked after outbound packet")
-	require.True(t, srcIP.Equal(conn.SourceIP), "Source IP should match")
-	require.True(t, dstIP.Equal(conn.DestIP), "Destination IP should match")
+	require.True(t, srcIP.Compare(conn.SourceIP) == 0, "Source IP should match")
+	require.True(t, dstIP.Compare(conn.DestIP) == 0, "Destination IP should match")
 	require.Equal(t, srcPort, conn.SourcePort, "Source port should match")
 	require.Equal(t, dstPort, conn.DestPort, "Destination port should match")
 
@@ -588,8 +589,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	inboundIPv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
-		SrcIP:    dstIP, // Original destination is now source
-		DstIP:    srcIP, // Original source is now destination
+		SrcIP:    dstIP.AsSlice(), // Original destination is now source
+		DstIP:    srcIP.AsSlice(), // Original source is now destination
 		Protocol: layers.IPProtocolUDP,
 	}
 	inboundUDP := &layers.UDP{
@@ -644,7 +645,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 
 		// If the connection should still be valid, verify it exists
 		if cp.shouldAllow {
-			conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+			conn, exists := manager.udpTracker.GetConnection(srcIP.AsSlice(), srcPort, dstIP.AsSlice(), dstPort)
 			require.True(t, exists, "Connection should still exist during valid window")
 			require.True(t, time.Since(conn.GetLastSeen()) < manager.udpTracker.Timeout(),
 				"LastSeen should be updated for valid responses")

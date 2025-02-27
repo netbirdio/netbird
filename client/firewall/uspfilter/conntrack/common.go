@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,8 +16,8 @@ import (
 type BaseConnTrack struct {
 	FlowId     uuid.UUID
 	Direction  types.Direction
-	SourceIP   net.IP
-	DestIP     net.IP
+	SourceIP   netip.Addr
+	DestIP     netip.Addr
 	SourcePort uint16
 	DestPort   uint16
 	lastSeen   atomic.Int64
@@ -51,7 +50,7 @@ type ConnKey struct {
 }
 
 func (c ConnKey) String() string {
-	return fmt.Sprintf("%s:%d -> %s:%d", c.SrcIP, c.SrcPort, c.DstIP, c.DstPort)
+	return fmt.Sprintf("%s:%d -> %s:%d", c.SrcIP.Unmap(), c.SrcPort, c.DstIP.Unmap(), c.DstPort)
 }
 
 // makeConnKey creates a connection key
@@ -65,40 +64,4 @@ func makeConnKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) Con
 		SrcPort: srcPort,
 		DstPort: dstPort,
 	}
-}
-
-// ValidateIPs checks if IPs match
-func ValidateIPs(connIP netip.Addr, pktIP net.IP) bool {
-	pktAddr, ok := netip.AddrFromSlice(pktIP)
-	if !ok {
-		return false
-	}
-	return connIP == pktAddr
-}
-
-// PreallocatedIPs is a pool of IP byte slices to reduce allocations
-type PreallocatedIPs struct {
-	sync.Pool
-}
-
-// NewPreallocatedIPs creates a new IP pool
-func NewPreallocatedIPs() *PreallocatedIPs {
-	return &PreallocatedIPs{
-		Pool: sync.Pool{
-			New: func() interface{} {
-				ip := make(net.IP, 16)
-				return &ip
-			},
-		},
-	}
-}
-
-// Get retrieves an IP from the pool
-func (p *PreallocatedIPs) Get() net.IP {
-	return *p.Pool.Get().(*net.IP)
-}
-
-// Put returns an IP to the pool
-func (p *PreallocatedIPs) Put(ip net.IP) {
-	p.Pool.Put(&ip)
 }

@@ -3,7 +3,6 @@ package conntrack
 import (
 	"context"
 	"net"
-	"net/netip"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -14,36 +13,6 @@ import (
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
 var flowLogger = netflow.NewManager(context.Background()).GetLogger()
-
-func BenchmarkIPOperations(b *testing.B) {
-	b.Run("MakeIPAddr", func(b *testing.B) {
-		ip := net.ParseIP("192.168.1.1")
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_, _ = netip.AddrFromSlice(ip)
-		}
-	})
-
-	b.Run("ValidateIPs", func(b *testing.B) {
-		ip1 := net.ParseIP("192.168.1.1")
-		ip2 := net.ParseIP("192.168.1.1")
-		addr, _ := netip.AddrFromSlice(ip1)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = ValidateIPs(addr, ip2)
-		}
-	})
-
-	b.Run("IPPool", func(b *testing.B) {
-		pool := NewPreallocatedIPs()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			ip := pool.Get()
-			pool.Put(ip)
-		}
-	})
-
-}
 
 // Memory pressure tests
 func BenchmarkMemoryPressure(b *testing.B) {
