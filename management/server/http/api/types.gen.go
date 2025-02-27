@@ -230,6 +230,9 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
+	// NetworkTrafficLogsEnabled Enables or disables network traffic logs. If enabled, all network traffic logs from peers will be stored.
+	NetworkTrafficLogsEnabled *bool `json:"network_traffic_logs_enabled,omitempty"`
+
 	// PeerApprovalEnabled (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
 	PeerApprovalEnabled *bool `json:"peer_approval_enabled,omitempty"`
 }

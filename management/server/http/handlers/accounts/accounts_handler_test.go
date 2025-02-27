@@ -16,11 +16,16 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
 func initAccountsTestData(account *types.Account) *handler {
+	settingsMock := settings.NewManagerMock()
+	settingsMock.GetSettingsFunc = func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
+		return account.Settings, nil
+	}
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
@@ -41,6 +46,7 @@ func initAccountsTestData(account *types.Account) *handler {
 				return accCopy, nil
 			},
 		},
+		settingsManager: settingsMock,
 	}
 }
 
