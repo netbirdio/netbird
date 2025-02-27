@@ -197,13 +197,14 @@ func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 	conn.UpdateLastSeen()
 	conn.established.Store(false)
 	conn.tombstone.Store(false)
+
+	t.logger.Trace("New %s TCP connection: %s", direction, key)
 	t.updateState(key, conn, flags, direction == types.Egress)
 
 	t.mutex.Lock()
 	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	t.logger.Trace("New %s TCP connection: %s", direction, key)
 	t.sendEvent(types.TypeStart, key, conn)
 }
 
