@@ -2177,3 +2177,17 @@ func (s *SqlStore) DeletePAT(ctx context.Context, lockStrength LockingStrength, 
 
 	return nil
 }
+
+func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error) {
+	jsonValue := fmt.Sprintf(`"%s"`, ip.String())
+
+	var peer nbpeer.Peer
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&peer, "account_id = ? AND ip = ?", accountID, jsonValue)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peer from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peer from store")
+	}
+
+	return &peer, nil
+}
