@@ -28,7 +28,7 @@ func New(ctx context.Context) *Logger {
 		ctx:      ctx,
 		cancel:   cancel,
 		Store:    store.NewMemoryStore(),
-		stopChan: make(chan struct{}),
+		stopChan: make(chan struct{}, 1),
 	}
 }
 
@@ -92,7 +92,10 @@ func (l *Logger) stop() {
 	}
 
 	l.enabled.Store(false)
-	l.stopChan <- struct{}{}
+	select {
+	case l.stopChan <- struct{}{}:
+	default:
+	}
 }
 
 func (l *Logger) GetEvents() []*types.Event {
