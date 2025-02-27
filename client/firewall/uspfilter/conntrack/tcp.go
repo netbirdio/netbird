@@ -146,24 +146,31 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowStore flowst
 	return tracker
 }
 
-// TrackOutbound processes an outbound TCP packet and updates connection state
-func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
-	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
+func (t *TCPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) (ConnKey, bool) {
+	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 
 	t.mutex.RLock()
-	conn, exists := t.connections[*key]
+	conn, exists := t.connections[key]
 	t.mutex.RUnlock()
 
 	if exists {
 		conn.Lock()
 		t.updateState(key, conn, flags, conn.Direction == flowstore.Egress)
+		conn.UpdateLastSeen()
 		conn.Unlock()
 
-		conn.UpdateLastSeen()
-
-		return
+		return key, true
 	}
-	t.track(srcIP, dstIP, srcPort, dstPort, flags, flowstore.Egress)
+
+	return key, false
+}
+
+// TrackOutbound records an outbound TCP connection
+func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
+	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags); !exists {
+		// if (inverted direction) conn is not tracked, track this direction
+		t.track(srcIP, dstIP, srcPort, dstPort, flags, flowstore.Egress)
+	}
 }
 
 // TrackInbound processes an inbound TCP packet and updates connection state
@@ -173,22 +180,8 @@ func (t *TCPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, ds
 
 // track is the common implementation for tracking both inbound and outbound connections
 func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8, direction flowstore.Direction) {
-	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
-
-	t.mutex.RLock()
-	conn, exists := t.connections[*key]
-	t.mutex.RUnlock()
-
+	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags)
 	if exists {
-		//if direction == flowstore.Egress {
-		conn.Lock()
-		//t.updateState(key, conn, flags, true)
-		t.updateState(key, conn, flags, direction == flowstore.Egress)
-		conn.Unlock()
-
-		conn.UpdateLastSeen()
-		//}
-
 		return
 	}
 
@@ -197,7 +190,7 @@ func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 	copy(srcIPCopy, srcIP)
 	copy(dstIPCopy, dstIP)
 
-	conn = &TCPConnTrack{
+	conn := &TCPConnTrack{
 		BaseConnTrack: BaseConnTrack{
 			FlowId:     uuid.New(),
 			Direction:  direction,
@@ -214,7 +207,7 @@ func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 	t.updateState(key, conn, flags, direction == flowstore.Egress)
 
 	t.mutex.Lock()
-	t.connections[*key] = conn
+	t.connections[key] = conn
 	t.mutex.Unlock()
 
 	t.logger.Trace("New %s TCP connection: %s", direction, key)
@@ -226,7 +219,7 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
 
 	t.mutex.RLock()
-	conn, exists := t.connections[*key]
+	conn, exists := t.connections[key]
 	t.mutex.RUnlock()
 
 	if !exists {
@@ -261,7 +254,7 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 }
 
 // updateState updates the TCP connection state based on flags
-func (t *TCPTracker) updateState(key *ConnKey, conn *TCPConnTrack, flags uint8, isOutbound bool) {
+func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, isOutbound bool) {
 	state := conn.State
 	defer func() {
 		if state != conn.State {
@@ -432,7 +425,7 @@ func (t *TCPTracker) cleanup() {
 
 			// event already handled by state change
 			if conn.State != TCPStateTimeWait {
-				t.sendEvent(flowstore.TypeEnd, &key, conn)
+				t.sendEvent(flowstore.TypeEnd, key, conn)
 			}
 		}
 	}
@@ -467,7 +460,7 @@ func isValidFlagCombination(flags uint8) bool {
 	return true
 }
 
-func (t *TCPTracker) sendEvent(typ flowstore.Type, key *ConnKey, conn *TCPConnTrack) {
+func (t *TCPTracker) sendEvent(typ flowstore.Type, key ConnKey, conn *TCPConnTrack) {
 	t.flowStore.StoreEvent(flowstore.EventFields{
 		FlowID:     conn.FlowId,
 		Type:       typ,

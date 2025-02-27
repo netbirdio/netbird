@@ -586,28 +586,13 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP net.IP) {
 	switch d.decoded[1] {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackOutbound(
-			srcIP,
-			dstIP,
-			uint16(d.udp.SrcPort),
-			uint16(d.udp.DstPort),
-		)
+		m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
 	case layers.LayerTypeTCP:
-		m.tcpTracker.TrackOutbound(
-			srcIP,
-			dstIP,
-			uint16(d.tcp.SrcPort),
-			uint16(d.tcp.DstPort),
-			getTCPFlags(&d.tcp),
-		)
+		flags := getTCPFlags(&d.tcp)
+		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
 	case layers.LayerTypeICMPv4:
 		if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
-			m.icmpTracker.TrackOutbound(
-				srcIP,
-				dstIP,
-				d.icmp4.Id,
-				d.icmp4.Seq,
-			)
+			m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq)
 		}
 	}
 }
@@ -615,29 +600,13 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP net.IP) {
 func (m *Manager) trackInbound(d *decoder, srcIP, dstIP net.IP) {
 	switch d.decoded[1] {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackInbound(
-			srcIP,
-			dstIP,
-			uint16(d.udp.SrcPort),
-			uint16(d.udp.DstPort),
-		)
+		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackInbound(
-			srcIP,
-			dstIP,
-			uint16(d.tcp.SrcPort),
-			uint16(d.tcp.DstPort),
-			flags,
-		)
+		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
 	case layers.LayerTypeICMPv4:
 		if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
-			m.icmpTracker.TrackInbound(
-				srcIP,
-				dstIP,
-				d.icmp4.Id,
-				d.icmp4.Seq,
-			)
+			m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq)
 		}
 	}
 }

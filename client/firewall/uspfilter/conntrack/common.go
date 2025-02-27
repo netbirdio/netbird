@@ -50,16 +50,16 @@ type ConnKey struct {
 	DstPort uint16
 }
 
-func (c *ConnKey) String() string {
+func (c ConnKey) String() string {
 	return fmt.Sprintf("%s:%d -> %s:%d", c.SrcIP, c.SrcPort, c.DstIP, c.DstPort)
 }
 
 // makeConnKey creates a connection key
-func makeConnKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) *ConnKey {
+func makeConnKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) ConnKey {
 	srcAddr, _ := netip.AddrFromSlice(srcIP)
 	dstAddr, _ := netip.AddrFromSlice(dstIP)
 
-	return &ConnKey{
+	return ConnKey{
 		SrcIP:   srcAddr,
 		DstIP:   dstAddr,
 		SrcPort: srcPort,
