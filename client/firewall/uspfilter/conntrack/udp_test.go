@@ -1,15 +1,12 @@
 package conntrack
 
 import (
-	"context"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/netbirdio/netbird/client/internal/netflow"
 )
 
 func TestNewUDPTracker(t *testing.T) {
