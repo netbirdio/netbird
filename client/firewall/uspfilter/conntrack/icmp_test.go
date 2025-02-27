@@ -7,7 +7,7 @@ import (
 
 func BenchmarkICMPTracker(b *testing.B) {
 	b.Run("TrackOutbound", func(b *testing.B) {
-		tracker := NewICMPTracker(DefaultICMPTimeout, logger, nil)
+		tracker := NewICMPTracker(DefaultICMPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")
@@ -20,7 +20,7 @@ func BenchmarkICMPTracker(b *testing.B) {
 	})
 
 	b.Run("IsValidInbound", func(b *testing.B) {
-		tracker := NewICMPTracker(DefaultICMPTimeout, logger, nil)
+		tracker := NewICMPTracker(DefaultICMPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")

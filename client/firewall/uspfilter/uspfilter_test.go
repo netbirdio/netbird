@@ -1,6 +1,7 @@
 package uspfilter
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -18,9 +19,11 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/internal/netflow"
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
+var flowLogger = netflow.NewManager(context.Background()).GetLogger()
 
 type IFaceMock struct {
 	SetFilterFunc   func(device.PacketFilter) error
@@ -62,7 +65,7 @@ func TestManagerCreate(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, nil)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -82,7 +85,7 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false, nil)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -116,7 +119,7 @@ func TestManagerDeleteRule(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, nil)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -187,7 +190,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, nil)
+			}, false, flowLogger)
 			require.NoError(t, err)
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
@@ -236,7 +239,7 @@ func TestManagerReset(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, nil)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -279,7 +282,7 @@ func TestNotMatchByIP(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false, nil)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -347,7 +350,7 @@ func TestRemovePacketHook(t *testing.T) {
 	}
 
 	// creating manager instance
-	manager, err := Create(iface, false, nil)
+	manager, err := Create(iface, false, flowLogger)
 	if err != nil {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
@@ -393,7 +396,7 @@ func TestRemovePacketHook(t *testing.T) {
 func TestProcessOutgoingHooks(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, nil)
+	}, false, flowLogger)
 	require.NoError(t, err)
 
 	manager.wgNetwork = &net.IPNet{
@@ -401,7 +404,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 		Mask: net.CIDRMask(16, 32),
 	}
 	manager.udpTracker.Close()
-	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger, nil)
+	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger, flowLogger)
 	defer func() {
 		require.NoError(t, manager.Reset(nil))
 	}()
@@ -479,7 +482,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ifaceMock := &IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}
-			manager, err := Create(ifaceMock, false, nil)
+			manager, err := Create(ifaceMock, false, flowLogger)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
@@ -506,7 +509,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, nil)
+	}, false, flowLogger)
 	require.NoError(t, err)
 
 	manager.wgNetwork = &net.IPNet{
@@ -515,7 +518,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}
 
 	manager.udpTracker.Close() // Close the existing tracker
-	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger, nil)
+	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger, flowLogger)
 	manager.decoders = sync.Pool{
 		New: func() any {
 			d := &decoder{

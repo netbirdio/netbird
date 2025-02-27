@@ -22,12 +22,15 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	pfmock "github.com/netbirdio/netbird/client/iface/mocks"
+	"github.com/netbirdio/netbird/client/internal/netflow"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
 )
+
+var flowLogger = netflow.NewManager(context.Background()).GetLogger()
 
 type mocWGIface struct {
 	filter device.PacketFilter
@@ -916,7 +919,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 		return nil, err
 	}
 
-	pf, err := uspfilter.Create(wgIface, false, nil)
+	pf, err := uspfilter.Create(wgIface, false, flowLogger)
 	if err != nil {
 		t.Fatalf("failed to create uspfilter: %v", err)
 		return nil, err
