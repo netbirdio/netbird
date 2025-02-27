@@ -162,6 +162,7 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 		done:          make(chan struct{}),
 		ipPool:        NewPreallocatedIPs(),
 		logger:        logger,
+		flowLogger:    flowLogger,
 	}
 
 	// Start cleanup routine
