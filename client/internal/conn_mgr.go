@@ -122,14 +122,16 @@ func (e *ConnMgr) Close() {
 	}
 	// todo wait for receiveLazyConnEvents to finish
 	e.lazyConnMgr.Close()
+	e.lazyConnMgr = nil
 }
 
 func (e *ConnMgr) receiveLazyConnEvents(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case peerID := <-e.lazyConnMgr.PeerActivityChan:
 			e.peerStore.PeerConnOpen(peerID)
-		case <-ctx.Done():
 		}
 	}
 }
