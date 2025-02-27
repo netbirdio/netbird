@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"os"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -28,6 +29,7 @@ type ConnMgr struct {
 
 	excludes map[string]struct{}
 
+	wg        sync.WaitGroup
 	ctxCancel context.CancelFunc
 }
 
@@ -54,6 +56,7 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 	e.ctxCancel = cancel
 
 	e.lazyConnMgr.Start(ctx)
+	e.wg.Add(1)
 	go e.receiveLazyConnEvents(ctx)
 }
 
@@ -126,13 +129,13 @@ func (e *ConnMgr) Close() {
 		return
 	}
 	e.ctxCancel()
-
-	// todo wait for receiveLazyConnEvents to finish
 	e.lazyConnMgr.Close()
+	e.wg.Wait()
 	e.lazyConnMgr = nil
 }
 
 func (e *ConnMgr) receiveLazyConnEvents(ctx context.Context) {
+	defer e.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
