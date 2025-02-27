@@ -52,7 +52,7 @@ func TestDefaultManager(t *testing.T) {
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
-	fw, err := firewall.NewFirewall(ifaceMock, nil, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, nil, false)
 	if err != nil {
 		t.Errorf("create firewall: %v", err)
 		return
@@ -346,7 +346,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
-	fw, err := firewall.NewFirewall(ifaceMock, nil, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, nil, false)
 	if err != nil {
 		t.Errorf("create firewall: %v", err)
 		return

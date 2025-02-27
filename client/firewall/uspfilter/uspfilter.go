@@ -1,7 +1,6 @@
 package uspfilter
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -23,7 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface/netstack"
-	"github.com/netbirdio/netbird/client/internal/flowstore"
+	"github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -98,7 +97,7 @@ type Manager struct {
 	tcpTracker  *conntrack.TCPTracker
 	forwarder   *forwarder.Forwarder
 	logger      *nblog.Logger
-	flowStore   flowstore.Store
+	flowLogger  types.FlowLogger
 }
 
 // decoder for packages
@@ -115,16 +114,16 @@ type decoder struct {
 }
 
 // Create userspace firewall manager constructor
-func Create(iface common.IFaceMapper, disableServerRoutes bool) (*Manager, error) {
-	return create(iface, nil, disableServerRoutes)
+func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger types.FlowLogger) (*Manager, error) {
+	return create(iface, nil, disableServerRoutes, flowLogger)
 }
 
-func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
+func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger types.FlowLogger) (*Manager, error) {
 	if nativeFirewall == nil {
 		return nil, errors.New("native firewall is nil")
 	}
 
-	mgr, err := create(iface, nativeFirewall, disableServerRoutes)
+	mgr, err := create(iface, nativeFirewall, disableServerRoutes, flowLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -151,10 +150,9 @@ func parseCreateEnv() (bool, bool) {
 	return disableConntrack, enableLocalForwarding
 }
 
-func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
+func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger types.FlowLogger) (*Manager, error) {
 	disableConntrack, enableLocalForwarding := parseCreateEnv()
 
-	fstore := flowstore.New(context.Background())
 	m := &Manager{
 		decoders: sync.Pool{
 			New: func() any {
@@ -178,7 +176,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		routingEnabled:      false,
 		stateful:            !disableConntrack,
 		logger:              nblog.NewFromLogrus(log.StandardLogger()),
-		flowStore:           fstore,
+		flowLogger:          flowLogger,
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
 	}
@@ -190,9 +188,9 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 	if disableConntrack {
 		log.Info("conntrack is disabled")
 	} else {
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger, fstore)
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, fstore)
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, fstore)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger, flowLogger)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, flowLogger)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, flowLogger)
 	}
 
 	// netstack needs the forwarder for local traffic
@@ -309,7 +307,7 @@ func (m *Manager) initForwarder() error {
 		return errors.New("forwarding not supported")
 	}
 
-	forwarder, err := forwarder.New(m.wgIface, m.logger, m.flowStore, m.netstack)
+	forwarder, err := forwarder.New(m.wgIface, m.logger, m.flowLogger, m.netstack)
 	if err != nil {
 		m.routingEnabled = false
 		return fmt.Errorf("create forwarder: %w", err)

@@ -34,7 +34,7 @@ func TestPeerACLFiltering(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false)
+	manager, err := Create(ifaceMock, false, nil)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -302,7 +302,7 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false)
+	manager, err := Create(ifaceMock, false, nil)
 	require.NoError(tb, manager.EnableRouting())
 	require.NoError(tb, err)
 	require.NotNil(tb, manager)

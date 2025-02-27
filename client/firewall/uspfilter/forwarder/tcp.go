@@ -14,7 +14,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/waiter"
 
-	"github.com/netbirdio/netbird/client/internal/flowstore"
+	"github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 // handleTCP is called by the TCP forwarder for new connections.
@@ -22,7 +22,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	id := r.ID()
 
 	flowID := uuid.New()
-	f.sendTCPEvent(flowstore.TypeStart, flowID, id)
+	f.sendTCPEvent(types.TypeStart, flowID, id)
 
 	dialAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 
@@ -66,7 +66,7 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 		}
 		ep.Close()
 
-		f.sendTCPEvent(flowstore.TypeEnd, flowID, id)
+		f.sendTCPEvent(types.TypeEnd, flowID, id)
 	}()
 
 	// Create context for managing the proxy goroutines
@@ -98,12 +98,12 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	}
 }
 
-func (f *Forwarder) sendTCPEvent(typ flowstore.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
+func (f *Forwarder) sendTCPEvent(typ types.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
 
-	f.flowStore.StoreEvent(flowstore.EventFields{
+	f.flowLogger.StoreEvent(types.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
-		Direction: flowstore.Ingress,
+		Direction: types.Ingress,
 		Protocol:  6,
 		// TODO: handle ipv6
 		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),

@@ -18,7 +18,7 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
-	"github.com/netbirdio/netbird/client/internal/flowstore"
+	"github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 const (
@@ -36,12 +36,12 @@ type udpPacketConn struct {
 
 type udpForwarder struct {
 	sync.RWMutex
-	logger    *nblog.Logger
-	flowStore flowstore.Store
-	conns     map[stack.TransportEndpointID]*udpPacketConn
-	bufPool   sync.Pool
-	ctx       context.Context
-	cancel    context.CancelFunc
+	logger     *nblog.Logger
+	flowLogger types.FlowLogger
+	conns      map[stack.TransportEndpointID]*udpPacketConn
+	bufPool    sync.Pool
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 type idleConn struct {
@@ -49,14 +49,14 @@ type idleConn struct {
 	conn *udpPacketConn
 }
 
-func newUDPForwarder(mtu int, logger *nblog.Logger, flowStore flowstore.Store) *udpForwarder {
+func newUDPForwarder(mtu int, logger *nblog.Logger, flowLogger types.FlowLogger) *udpForwarder {
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &udpForwarder{
-		logger:    logger,
-		flowStore: flowStore,
-		conns:     make(map[stack.TransportEndpointID]*udpPacketConn),
-		ctx:       ctx,
-		cancel:    cancel,
+		logger:     logger,
+		flowLogger: flowLogger,
+		conns:      make(map[stack.TransportEndpointID]*udpPacketConn),
+		ctx:        ctx,
+		cancel:     cancel,
 		bufPool: sync.Pool{
 			New: func() any {
 				b := make([]byte, mtu)
@@ -90,11 +90,11 @@ func (f *udpForwarder) Stop() {
 }
 
 // sendUDPEvent stores flow events for UDP connections
-func (f *udpForwarder) sendUDPEvent(typ flowstore.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
-	f.flowStore.StoreEvent(flowstore.EventFields{
+func (f *udpForwarder) sendUDPEvent(typ types.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
+	f.flowLogger.StoreEvent(types.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
-		Direction: flowstore.Ingress,
+		Direction: types.Ingress,
 		Protocol:  17,
 		// TODO: handle ipv6
 		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),
@@ -141,7 +141,7 @@ func (f *udpForwarder) cleanup() {
 
 				f.logger.Trace("forwarder: cleaned up idle UDP connection %v", idle.id)
 
-				f.sendUDPEvent(flowstore.TypeEnd, idle.conn.flowID, idle.id)
+				f.sendUDPEvent(types.TypeEnd, idle.conn.flowID, idle.id)
 			}
 		}
 	}
@@ -165,13 +165,13 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	}
 
 	flowID := uuid.New()
-	f.sendUDPEvent(flowstore.TypeStart, flowID, id)
+	f.sendUDPEvent(types.TypeStart, flowID, id)
 
 	dstAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", dstAddr)
 	if err != nil {
 		f.logger.Debug("forwarder: UDP dial error for %v: %v", id, err)
-		f.sendUDPEvent(flowstore.TypeEnd, flowID, id)
+		f.sendUDPEvent(types.TypeEnd, flowID, id)
 		// TODO: Send ICMP error message
 		return
 	}
@@ -184,7 +184,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
-		f.sendUDPEvent(flowstore.TypeEnd, flowID, id)
+		f.sendUDPEvent(types.TypeEnd, flowID, id)
 		return
 	}
 
@@ -212,7 +212,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
 
-		f.sendUDPEvent(flowstore.TypeEnd, flowID, id)
+		f.sendUDPEvent(types.TypeEnd, flowID, id)
 		return
 	}
 	f.udpForwarder.conns[id] = pConn
@@ -238,7 +238,7 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		delete(f.udpForwarder.conns, id)
 		f.udpForwarder.Unlock()
 
-		f.sendUDPEvent(flowstore.TypeEnd, pConn.flowID, id)
+		f.sendUDPEvent(types.TypeEnd, pConn.flowID, id)
 	}()
 
 	errChan := make(chan error, 2)
@@ -265,11 +265,11 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 }
 
 // sendUDPEvent stores flow events for UDP connections, mirrors the TCP version
-func (f *Forwarder) sendUDPEvent(typ flowstore.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
-	f.flowStore.StoreEvent(flowstore.EventFields{
+func (f *Forwarder) sendUDPEvent(typ types.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
+	f.flowLogger.StoreEvent(types.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
-		Direction: flowstore.Ingress,
+		Direction: types.Ingress,
 		Protocol:  17, // UDP protocol number
 		// TODO: handle ipv6
 		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),

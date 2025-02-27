@@ -209,7 +209,7 @@ func TestRSTHandling(t *testing.T) {
 
 			// Verify connection state is as expected
 			key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
-			conn := tracker.connections[*key]
+			conn := tracker.connections[key]
 			if tt.wantValid {
 				require.NotNil(t, conn)
 				require.Equal(t, TCPStateClosed, conn.State)

@@ -20,7 +20,7 @@ func NewFirewall(iface IFaceMapper, _ *statemanager.Manager, disableServerRoutes
 	}
 
 	// use userspace packet filtering firewall
-	fm, err := uspfilter.Create(iface, disableServerRoutes)
+	fm, err := uspfilter.Create(iface, disableServerRoutes, nil)
 	if err != nil {
 		return nil, err
 	}
