@@ -40,6 +40,8 @@ const (
 // Type is a type of the Error
 type Type int32
 
+var ErrExtraSettingsNotFound = fmt.Errorf("extra settings not found")
+
 // Error is an internal error
 type Error struct {
 	ErrorType Type
@@ -205,4 +207,8 @@ func NewOwnerDeletePermissionError() error {
 
 func NewPATNotFoundError(patID string) error {
 	return Errorf(NotFound, "PAT: %s not found", patID)
+}
+
+func NewExtraSettingsNotFoundError() error {
+	return ErrExtraSettingsNotFound
 }

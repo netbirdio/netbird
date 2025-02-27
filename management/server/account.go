@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"net/netip"
 	"reflect"
 	"regexp"
 	"slices"
@@ -22,7 +21,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -31,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -49,102 +49,9 @@ const (
 
 type userLoggedInOnce bool
 
-type ExternalCacheManager cache.CacheInterface[*idp.UserData]
-
 func cacheEntryExpiration() time.Duration {
 	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
-}
-
-type AccountManager interface {
-	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*types.Account, error)
-	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
-	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration,
-		autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
-	SaveSetupKey(ctx context.Context, accountID string, key *types.SetupKey, userID string) (*types.SetupKey, error)
-	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *types.UserInfo) (*types.UserInfo, error)
-	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
-	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
-	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
-	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error)
-	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error)
-	SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *types.User, addIfNotExists bool) (*types.UserInfo, error)
-	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*types.User, addIfNotExists bool) ([]*types.UserInfo, error)
-	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error)
-	GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error)
-	AccountExists(ctx context.Context, accountID string) (bool, error)
-	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
-	GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
-	DeleteAccount(ctx context.Context, accountID, userID string) error
-	GetUserByID(ctx context.Context, id string) (*types.User, error)
-	GetUserFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
-	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
-	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
-	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
-	UpdatePeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
-	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
-	GetPeerNetwork(ctx context.Context, peerID string) (*types.Network, error)
-	AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
-	CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error)
-	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
-	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error)
-	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error)
-	GetUsersFromAccount(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
-	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
-	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
-	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
-	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group) error
-	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
-	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
-	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
-	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
-	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
-	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
-	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
-	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
-	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
-	ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
-	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
-	CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
-	SaveRoute(ctx context.Context, accountID, userID string, route *route.Route) error
-	DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error
-	ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error)
-	GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
-	CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
-	SaveNameServerGroup(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
-	DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error
-	ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
-	GetDNSDomain() string
-	StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
-	GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error)
-	GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error)
-	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *types.DNSSettings) error
-	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error)
-	LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
-	SyncPeer(ctx context.Context, sync PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) // used by peer gRPC API
-	GetAllConnectedPeers() (map[string]struct{}, error)
-	HasConnectedChannel(peerID string) bool
-	GetExternalCacheManager() ExternalCacheManager
-	GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error)
-	DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error
-	ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
-	GetIdpManager() idp.Manager
-	UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error
-	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
-	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error)
-	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
-	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
-	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
-	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
-	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
-	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
-	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
-	UpdateAccountPeers(ctx context.Context, accountID string)
-	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
-	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
 }
 
 type DefaultAccountManager struct {
@@ -156,7 +63,7 @@ type DefaultAccountManager struct {
 	peersUpdateManager   *PeersUpdateManager
 	idpManager           idp.Manager
 	cacheManager         cache.CacheInterface[[]*idp.UserData]
-	externalCacheManager ExternalCacheManager
+	externalCacheManager account.ExternalCacheManager
 	ctx                  context.Context
 	eventStore           activity.Store
 	geo                  geolocation.Geolocation
@@ -164,6 +71,7 @@ type DefaultAccountManager struct {
 	requestBuffer *AccountRequestBuffer
 
 	proxyController port_forwarding.Controller
+	settingsManager settings.Manager
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -249,6 +157,7 @@ func BuildManager(
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
 	proxyController port_forwarding.Controller,
+	settingsManager settings.Manager,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -272,6 +181,7 @@ func BuildManager(
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 		proxyController:          proxyController,
+		settingsManager:          settingsManager,
 	}
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
@@ -317,7 +227,7 @@ func BuildManager(
 	return am, nil
 }
 
-func (am *DefaultAccountManager) GetExternalCacheManager() ExternalCacheManager {
+func (am *DefaultAccountManager) GetExternalCacheManager() account.ExternalCacheManager {
 	return am.externalCacheManager
 }
 
@@ -402,6 +312,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	updatedAccount := account.UpdateSettings(newSettings)
 
 	err = am.Store.SaveAccount(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.settingsManager.UpdateExtraSettings(ctx, accountID, newSettings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -1476,7 +1391,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
 	defer peerUnlock()
 
-	peer, netMap, postureChecks, err := am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
+	peer, netMap, postureChecks, err := am.SyncPeer(ctx, account.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error syncing peer: %w", err)
 	}
@@ -1516,7 +1431,7 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
 	defer unlockPeer()
 
-	_, _, _, err = am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
+	_, _, _, err = am.SyncPeer(ctx, account.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
 	if err != nil {
 		return mapError(ctx, err)
 	}
@@ -1684,4 +1599,8 @@ func separateGroups(autoGroups []string, allGroups []*types.Group) ([]string, ma
 	}
 
 	return newAutoGroups, jwtAutoGroups
+}
+
+func (am *DefaultAccountManager) GetStore() store.Store {
+	return am.Store
 }
