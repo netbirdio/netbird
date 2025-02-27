@@ -2,7 +2,6 @@ package logger
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 
 type rcvChan chan *types.EventFields
 type Logger struct {
-	mux      sync.Mutex
 	ctx      context.Context
 	cancel   context.CancelFunc
 	enabled  atomic.Bool

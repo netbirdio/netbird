@@ -710,6 +710,10 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 }
 
 func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
+	if config == nil {
+		return nil
+	}
+
 	flowConfig, err := toFlowLoggerConfig(config)
 	if err != nil {
 		return err
@@ -718,9 +722,6 @@ func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
 }
 
 func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*types.FlowConfig, error) {
-	if config == nil {
-		return nil, nil
-	}
 	if config.GetInterval() == nil {
 		return nil, errors.New("flow interval is nil")
 	}
