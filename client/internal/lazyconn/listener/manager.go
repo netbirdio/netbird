@@ -3,6 +3,7 @@ package listener
 import (
 	"fmt"
 	"net"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -17,6 +18,7 @@ type Manager struct {
 	portGenerator *portAllocator
 	// todo peers add/remove is not thread safe because of the callback function
 	peers map[string]*Listener
+	wg    sync.WaitGroup
 	done  chan struct{}
 }
 
@@ -31,12 +33,12 @@ func NewManager(wgIface lazyconn.WGIface) *Manager {
 	return m
 }
 
-func (m *Manager) CreateFakePeer(peerCfg lazyconn.PeerConfig) error {
+func (m *Manager) CreatePeerListener(peerCfg lazyconn.PeerConfig) error {
 	if _, ok := m.peers[peerCfg.PublicKey]; ok {
 		return nil
 	}
 
-	if err := m.createFakePeer(peerCfg); err != nil {
+	if err := m.createPeerlistener(peerCfg); err != nil {
 		return err
 	}
 	log.Debugf("created lazy connection listener for: %s", peerCfg.PublicKey)
@@ -51,9 +53,7 @@ func (m *Manager) RemovePeer(peerID string) {
 
 	listener.Close()
 
-	if err := m.wgIface.RemovePeer(peerID); err != nil {
-		log.Warnf("failed to remove fake peer: %v", err)
-	}
+	m.removeEndpoint(peerID)
 
 	delete(m.peers, peerID)
 }
@@ -64,9 +64,10 @@ func (m *Manager) Close() {
 		listener.Close()
 		delete(m.peers, peerID)
 	}
+	m.wg.Wait()
 }
 
-func (m *Manager) createFakePeer(peerCfg lazyconn.PeerConfig) error {
+func (m *Manager) createPeerlistener(peerCfg lazyconn.PeerConfig) error {
 	conn, addr, err := m.portGenerator.newConn()
 	if err != nil {
 		return fmt.Errorf("failed to bind lazy connection: %v", err)
@@ -82,7 +83,11 @@ func (m *Manager) createFakePeer(peerCfg lazyconn.PeerConfig) error {
 
 	log.Infof("created on-demand listener: %s, for peer: %s", addr.String(), peerCfg.PublicKey)
 
-	go listener.ReadPackets(m.onTrigger)
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		listener.ReadPackets(m.onTrigger)
+	}()
 
 	m.peers[peerCfg.PublicKey] = listener
 	return nil
@@ -91,15 +96,18 @@ func (m *Manager) createFakePeer(peerCfg lazyconn.PeerConfig) error {
 // todo: it is not thread safe, but it is ok if we protect from upper layer
 func (m *Manager) onTrigger(peerID string) {
 	log.Debugf("peer started to send traffic, remove lazy endpoint: %s", peerID)
-	if err := m.wgIface.RemovePeer(peerID); err != nil {
-		log.Warnf("failed to remove fake peer: %v", err)
-	}
-
+	m.removeEndpoint(peerID)
 	delete(m.peers, peerID)
 
 	select {
 	case <-m.done:
 	case m.TrafficStartChan <- peerID:
+	}
+}
+
+func (m *Manager) removeEndpoint(peerID string) {
+	if err := m.wgIface.RemovePeer(peerID); err != nil {
+		log.Warnf("failed to remove peer listener: %v", err)
 	}
 }
 

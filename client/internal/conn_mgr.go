@@ -55,9 +55,15 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	e.ctxCancel = cancel
 
-	e.lazyConnMgr.Start(ctx)
-	e.wg.Add(1)
-	go e.receiveLazyConnEvents(ctx)
+	e.wg.Add(2)
+	go func() {
+		defer e.wg.Done()
+		e.lazyConnMgr.Start(ctx)
+	}()
+	go func() {
+		defer e.wg.Done()
+		e.receiveLazyConnEvents(ctx)
+	}()
 }
 
 func (e *ConnMgr) AddExcludeFromLazyConnection(peerID string) {
@@ -135,7 +141,6 @@ func (e *ConnMgr) Close() {
 }
 
 func (e *ConnMgr) receiveLazyConnEvents(ctx context.Context) {
-	defer e.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():

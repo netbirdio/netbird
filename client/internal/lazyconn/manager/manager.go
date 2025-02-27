@@ -20,7 +20,6 @@ type Manager struct {
 	managedPeersMu sync.Mutex
 
 	ctxCancel context.CancelFunc
-	wg        sync.WaitGroup
 }
 
 func NewManager(wgIface lazyconn.WGIface) *Manager {
@@ -36,14 +35,7 @@ func NewManager(wgIface lazyconn.WGIface) *Manager {
 func (m *Manager) Start(parentCtx context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	m.ctxCancel = cancel
-
-	m.wg.Add(1)
-
-	go func() {
-		defer m.wg.Done()
-		defer cancel()
-		m.receiveLazyConnEvents(ctx)
-	}()
+	m.receiveLazyConnEvents(ctx)
 }
 
 func (m *Manager) AddPeer(peer lazyconn.PeerConfig) error {
@@ -57,7 +49,7 @@ func (m *Manager) AddPeer(peer lazyconn.PeerConfig) error {
 		return nil
 	}
 
-	if err := m.listenerMgr.CreateFakePeer(peer); err != nil {
+	if err := m.listenerMgr.CreatePeerListener(peer); err != nil {
 		return err
 	}
 
@@ -89,7 +81,7 @@ func (m *Manager) Close() {
 	m.ctxCancel()
 
 	m.listenerMgr.Close()
-	m.wg.Wait()
+
 	m.managedPeers = make(map[string]lazyconn.PeerConfig)
 
 	// clean up the channel for the future reuse
@@ -102,15 +94,11 @@ func (m *Manager) receiveLazyConnEvents(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case peerID := <-m.listenerMgr.TrafficStartChan:
-			m.notifyPeerAction(ctx, peerID)
+			select {
+			case <-ctx.Done():
+			case m.PeerActivityChan <- peerID:
+			}
 		}
-	}
-}
-
-func (m *Manager) notifyPeerAction(ctx context.Context, peerID string) {
-	select {
-	case <-ctx.Done():
-	case m.PeerActivityChan <- peerID:
 	}
 }
 
