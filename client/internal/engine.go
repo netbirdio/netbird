@@ -33,8 +33,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
-	"github.com/netbirdio/netbird/client/internal/flowstore"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/netflow"
+	"github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -190,7 +191,7 @@ type Engine struct {
 	persistNetworkMap bool
 	latestNetworkMap  *mgmProto.NetworkMap
 	connSemaphore     *semaphoregroup.SemaphoreGroup
-	flowStore         flowstore.Store
+	flowManager       types.FlowManager
 }
 
 // Peer is an instance of the Connection Peer
@@ -233,6 +234,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+		flowManager:    netflow.NewManager(clientCtx),
 	}
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
@@ -301,6 +303,8 @@ func (e *Engine) Stop() error {
 		return fmt.Errorf("failed to remove all peers: %s", err)
 	}
 
+	e.flowManager.Close()
+
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -320,13 +324,6 @@ func (e *Engine) Stop() error {
 	}
 	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
-	}
-
-	if e.flowStore != nil {
-		if err := e.flowStore.Close(); err != nil {
-			e.flowStore = nil
-			log.Errorf("failed to close flow store: %v", err)
-		}
 	}
 
 	return nil
@@ -712,22 +709,28 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 	return nil
 }
 
-func (e *Engine) handleFlowUpdate(update *mgmProto.FlowConfig) error {
-	if update == nil {
-		return nil
-	}
-
-	if update.GetEnabled() && e.flowStore == nil {
-		e.flowStore = flowstore.New(e.ctx)
-		return nil
-	}
-
-	if !update.GetEnabled() && e.flowStore != nil {
-		err := e.flowStore.Close()
-		e.flowStore = nil
+func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
+	flowConfig, err := toFlowLoggerConfig(config)
+	if err != nil {
 		return err
 	}
-	return nil
+	return e.flowManager.Update(flowConfig)
+}
+
+func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*types.FlowConfig, error) {
+	if config == nil {
+		return nil, nil
+	}
+	if config.GetInterval() == nil {
+		return nil, errors.New("flow interval is nil")
+	}
+	return &types.FlowConfig{
+		Enabled:        config.GetEnabled(),
+		URL:            config.GetUrl(),
+		TokenPayload:   config.GetTokenPayload(),
+		TokenSignature: config.GetTokenSignature(),
+		Interval:       config.GetInterval().AsDuration(),
+	}, nil
 }
 
 // updateChecksIfNew updates checks if there are changes and sync new meta with management
