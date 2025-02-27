@@ -27,6 +27,8 @@ type ConnMgr struct {
 	peerStore   *peerstore.Store
 
 	excludes map[string]struct{}
+
+	ctxCancel context.CancelFunc
 }
 
 func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
@@ -42,11 +44,14 @@ func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
 	return e
 }
 
-func (e *ConnMgr) Start(ctx context.Context) {
+func (e *ConnMgr) Start(parentCtx context.Context) {
 	if e.lazyConnMgr == nil {
 		log.Infof("lazy connection manager is disabled")
 		return
 	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
+	e.ctxCancel = cancel
 
 	e.lazyConnMgr.Start(ctx)
 	go e.receiveLazyConnEvents(ctx)
@@ -120,6 +125,8 @@ func (e *ConnMgr) Close() {
 	if e.lazyConnMgr == nil {
 		return
 	}
+	e.ctxCancel()
+
 	// todo wait for receiveLazyConnEvents to finish
 	e.lazyConnMgr.Close()
 	e.lazyConnMgr = nil
