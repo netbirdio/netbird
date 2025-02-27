@@ -51,10 +51,10 @@ message EventFields {
   // Layer 4 -specific information
   oneof connection_info {
     // TCP/UDP port information
-    FlowPortInfo port_info = 6;
+    PortInfo port_info = 6;
 
     // ICMP type and code
-    FlowICMPInfo icmp_info = 7;
+    ICMPInfo icmp_info = 7;
   }
 }
 
@@ -73,13 +73,13 @@ enum Direction {
 }
 
 // TCP/UDP port information
-message FlowPortInfo {
+message PortInfo {
   uint32 source_port = 1;
   uint32 dest_port = 2;
 }
 
 // ICMP message information
-message FlowICMPInfo {
+message ICMPInfo {
   uint32 icmp_type = 1;
   uint32 icmp_code = 2;
 }
