@@ -183,7 +183,7 @@ func (t *ICMPTracker) sendEvent(typ types.Type, key ICMPConnKey, conn *ICMPConnT
 		FlowID:    conn.FlowId,
 		Type:      typ,
 		Direction: conn.Direction,
-		Protocol:  1, // TODO: adjust for IPv6/icmpv6
+		Protocol:  types.ICMP, // TODO: adjust for IPv6/icmpv6
 		SourceIP:  key.SrcIP,
 		DestIP:    key.DstIP,
 		// TODO: add icmp code/type,

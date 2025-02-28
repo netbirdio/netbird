@@ -7,6 +7,28 @@ import (
 	"github.com/google/uuid"
 )
 
+type Protocol uint8
+
+const (
+	ProtocolUnknown = 0
+	ICMP            = 1
+	TCP             = 6
+	UDP             = 17
+)
+
+func (p Protocol) String() string {
+	switch p {
+	case 1:
+		return "ICMP"
+	case 6:
+		return "TCP"
+	case 17:
+		return "UDP"
+	default:
+		return "unknown"
+	}
+}
+
 type Type int
 
 const (
@@ -29,7 +51,7 @@ func (d Direction) String() string {
 }
 
 const (
-	Unknown = iota
+	DirectionUnknown = iota
 	Ingress
 	Egress
 )

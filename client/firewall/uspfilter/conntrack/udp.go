@@ -181,7 +181,7 @@ func (t *UDPTracker) sendEvent(typ types.Type, key ConnKey, conn *UDPConnTrack) 
 		FlowID:     conn.FlowId,
 		Type:       typ,
 		Direction:  conn.Direction,
-		Protocol:   17,
+		Protocol:   types.UDP,
 		SourceIP:   key.SrcIP,
 		DestIP:     key.DstIP,
 		SourcePort: key.SrcPort,

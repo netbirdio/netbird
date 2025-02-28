@@ -451,7 +451,7 @@ func (t *TCPTracker) sendEvent(typ types.Type, key ConnKey, conn *TCPConnTrack) 
 		FlowID:     conn.FlowId,
 		Type:       typ,
 		Direction:  conn.Direction,
-		Protocol:   6,
+		Protocol:   types.TCP,
 		SourceIP:   key.SrcIP,
 		DestIP:     key.DstIP,
 		SourcePort: key.SrcPort,
