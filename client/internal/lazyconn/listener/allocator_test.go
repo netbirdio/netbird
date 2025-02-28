@@ -9,7 +9,7 @@ func Test_portAllocator_newConn(t *testing.T) {
 	for i := 65535; i > 65535-10; i-- {
 		conn, addr, err := pa.newConn()
 		if err != nil {
-			t.Errorf("newConn() error = %v, want nil", err)
+			t.Fatalf("newConn() error = %v, want nil", err)
 		}
 		if addr.Port != i {
 			t.Errorf("newConn() addr.Port = %v, want %d", addr.Port, i)
