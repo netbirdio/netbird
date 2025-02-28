@@ -22,7 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface/netstack"
-	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -97,7 +97,7 @@ type Manager struct {
 	tcpTracker  *conntrack.TCPTracker
 	forwarder   *forwarder.Forwarder
 	logger      *nblog.Logger
-	flowLogger  types.FlowLogger
+	flowLogger  nftypes.FlowLogger
 }
 
 // decoder for packages
@@ -114,11 +114,11 @@ type decoder struct {
 }
 
 // Create userspace firewall manager constructor
-func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger types.FlowLogger) (*Manager, error) {
+func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
 	return create(iface, nil, disableServerRoutes, flowLogger)
 }
 
-func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger types.FlowLogger) (*Manager, error) {
+func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
 	if nativeFirewall == nil {
 		return nil, errors.New("native firewall is nil")
 	}
@@ -150,7 +150,7 @@ func parseCreateEnv() (bool, bool) {
 	return disableConntrack, enableLocalForwarding
 }
 
-func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger types.FlowLogger) (*Manager, error) {
+func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
 	disableConntrack, enableLocalForwarding := parseCreateEnv()
 
 	m := &Manager{

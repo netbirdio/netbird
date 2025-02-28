@@ -9,13 +9,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 // BaseConnTrack provides common fields and locking for all connection types
 type BaseConnTrack struct {
 	FlowId     uuid.UUID
-	Direction  types.Direction
+	Direction  nftypes.Direction
 	SourceIP   netip.Addr
 	DestIP     netip.Addr
 	SourcePort uint16

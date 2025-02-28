@@ -10,13 +10,13 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 
-	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 // handleICMP handles ICMP packets from the network stack
 func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBufferPtr) bool {
 	flowID := uuid.New()
-	f.sendICMPEvent(types.TypeStart, flowID, id)
+	f.sendICMPEvent(nftypes.TypeStart, flowID, id)
 
 	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 	defer cancel()
@@ -27,7 +27,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	if err != nil {
 		f.logger.Error("Failed to create ICMP socket for %v: %v", id, err)
 
-		f.sendICMPEvent(types.TypeEnd, flowID, id)
+		f.sendICMPEvent(nftypes.TypeEnd, flowID, id)
 
 		// This will make netstack reply on behalf of the original destination, that's ok for now
 		return false
@@ -37,7 +37,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 			f.logger.Debug("Failed to close ICMP socket: %v", err)
 		}
 
-		f.sendICMPEvent(types.TypeEnd, flowID, id)
+		f.sendICMPEvent(nftypes.TypeEnd, flowID, id)
 	}()
 
 	dstIP := f.determineDialAddr(id.LocalAddress)
@@ -121,11 +121,11 @@ func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, payload []byte, ds
 }
 
 // sendICMPEvent stores flow events for ICMP packets
-func (f *Forwarder) sendICMPEvent(typ types.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
-	f.flowLogger.StoreEvent(types.EventFields{
+func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
+	f.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
-		Direction: types.Ingress,
+		Direction: nftypes.Ingress,
 		Protocol:  1,
 		// TODO: handle ipv6
 		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),

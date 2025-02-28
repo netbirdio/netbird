@@ -18,7 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
-	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 const (
@@ -30,7 +30,7 @@ const (
 
 type Forwarder struct {
 	logger       *nblog.Logger
-	flowLogger   types.FlowLogger
+	flowLogger   nftypes.FlowLogger
 	stack        *stack.Stack
 	endpoint     *endpoint
 	udpForwarder *udpForwarder
@@ -40,7 +40,7 @@ type Forwarder struct {
 	netstack     bool
 }
 
-func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger types.FlowLogger, netstack bool) (*Forwarder, error) {
+func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool) (*Forwarder, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{
