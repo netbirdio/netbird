@@ -234,7 +234,6 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		flowManager:    netflow.NewManager(clientCtx),
 	}
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
@@ -303,8 +302,6 @@ func (e *Engine) Stop() error {
 		return fmt.Errorf("failed to remove all peers: %s", err)
 	}
 
-	e.flowManager.Close()
-
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -314,6 +311,10 @@ func (e *Engine) Stop() error {
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
+
+	// stop flow manager after wg interface is gone
+	e.flowManager.Close()
+
 	log.Infof("stopped Netbird Engine")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -347,6 +348,9 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
+
+	// start flow manager right after interface creation
+	e.flowManager = netflow.NewManager(e.ctx, e.wgInterface)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
