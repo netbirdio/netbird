@@ -88,7 +88,7 @@ func (c *GRPCClient) Receive(ctx context.Context, msgHandler func(msg *proto.Flo
 		}
 		c.stream = stream
 
-		err = checkHeader(err, stream)
+		err = checkHeader(stream)
 		if err != nil {
 			return err
 		}
@@ -118,7 +118,7 @@ func (c *GRPCClient) receive(stream proto.FlowService_EventsClient, msgHandler f
 	}
 }
 
-func checkHeader(err error, stream proto.FlowService_EventsClient) error {
+func checkHeader(stream proto.FlowService_EventsClient) error {
 	header, err := stream.Header()
 	if err != nil {
 		log.Errorf("waiting for flow receiver header: %s", err)
