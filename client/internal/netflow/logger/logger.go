@@ -107,6 +107,10 @@ func (l *Logger) GetEvents() []*types.Event {
 	return l.Store.GetEvents()
 }
 
+func (l *Logger) DeleteEvents(ids []string) {
+	l.Store.DeleteEvents(ids)
+}
+
 func (l *Logger) Close() {
 	l.stop()
 	l.cancel()

@@ -234,7 +234,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		flowManager:    netflow.NewManager(clientCtx),
+		flowManager:    netflow.NewManager(clientCtx, config.WgPrivateKey.PublicKey().String()),
 	}
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
