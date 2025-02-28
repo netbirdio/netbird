@@ -2,35 +2,50 @@ package netflow
 
 import (
 	"context"
+	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/flow/client"
 	"github.com/netbirdio/netbird/flow/proto"
 )
 
+// Manager handles netflow tracking and logging
 type Manager struct {
 	mux            sync.Mutex
 	logger         types.FlowLogger
 	flowConfig     *types.FlowConfig
+	conntrack      types.ConnTracker
 	ctx            context.Context
 	receiverClient *client.GRPCClient
 	publicKey      []byte
 }
 
-func NewManager(ctx context.Context, publicKey []byte) *Manager {
+// NewManager creates a new netflow manager
+func NewManager(ctx context.Context, iface types.IFaceMapper, publicKey []byte) *Manager {
+	flowLogger := logger.New(ctx)
+
+	var ct types.ConnTracker
+	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
+		ct = conntrack.New(flowLogger, iface)
+	}
+
 	return &Manager{
-		logger:    logger.New(ctx),
+		logger:    flowLogger,
+		conntrack: ct,
 		ctx:       ctx,
 		publicKey: publicKey,
 	}
 }
 
+// Update applies new flow configuration settings
 func (m *Manager) Update(update *types.FlowConfig) error {
 	if update == nil {
 		return nil
@@ -41,6 +56,12 @@ func (m *Manager) Update(update *types.FlowConfig) error {
 	m.flowConfig = update
 
 	if update.Enabled {
+		if m.conntrack != nil {
+			if err := m.conntrack.Start(); err != nil {
+				return fmt.Errorf("start conntrack: %w", err)
+			}
+		}
+
 		m.logger.Enable()
 		if previous == nil || !previous.Enabled {
 			flowClient, err := client.NewClient(m.ctx, m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature)
@@ -55,6 +76,9 @@ func (m *Manager) Update(update *types.FlowConfig) error {
 		return nil
 	}
 
+	if m.conntrack != nil {
+		m.conntrack.Stop()
+	}
 	m.logger.Disable()
 	if previous != nil && previous.Enabled {
 		return m.receiverClient.Close()
@@ -63,10 +87,18 @@ func (m *Manager) Update(update *types.FlowConfig) error {
 	return nil
 }
 
+// Close cleans up all resources
 func (m *Manager) Close() {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	if m.conntrack != nil {
+		m.conntrack.Close()
+	}
 	m.logger.Close()
 }
 
+// GetLogger returns the flow logger
 func (m *Manager) GetLogger() types.FlowLogger {
 	return m.logger
 }

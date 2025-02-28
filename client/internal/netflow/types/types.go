@@ -5,15 +5,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/netbirdio/netbird/client/iface/device"
 )
 
 type Protocol uint8
 
 const (
-	ProtocolUnknown = 0
-	ICMP            = 1
-	TCP             = 6
-	UDP             = 17
+	ProtocolUnknown = Protocol(0)
+	ICMP            = Protocol(1)
+	TCP             = Protocol(6)
+	UDP             = Protocol(17)
+	SCTP            = Protocol(132)
 )
 
 func (p Protocol) String() string {
@@ -51,7 +54,7 @@ func (d Direction) String() string {
 }
 
 const (
-	DirectionUnknown = iota
+	DirectionUnknown = Direction(iota)
 	Ingress
 	Egress
 )
@@ -66,7 +69,7 @@ type EventFields struct {
 	FlowID     uuid.UUID
 	Type       Type
 	Direction  Direction
-	Protocol   uint8
+	Protocol   Protocol
 	SourceIP   netip.Addr
 	DestIP     netip.Addr
 	SourcePort uint16
@@ -116,4 +119,21 @@ type Store interface {
 	DeleteEvents([]string)
 	// Close closes the store
 	Close()
+}
+
+// ConnTracker defines the interface for connection tracking functionality
+type ConnTracker interface {
+	// Start begins tracking connections by listening for conntrack events.
+	Start() error
+	// Stop stops the connection tracking.
+	Stop()
+	// Close stops listening for events and cleans up resources
+	Close() error
+}
+
+// IFaceMapper provides interface to check if we're using userspace WireGuard
+type IFaceMapper interface {
+	IsUserspaceBind() bool
+	Name() string
+	Address() device.WGAddress
 }

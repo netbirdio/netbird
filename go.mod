@@ -81,6 +81,8 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.31.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.31.0
 	github.com/things-go/go-socks5 v0.0.4
+	github.com/ti-mo/conntrack v0.5.1
+	github.com/ti-mo/netfilter v0.5.2
 	github.com/yusufpapurcu/wmi v1.2.4
 	github.com/zcalusic/sysinfo v1.1.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
