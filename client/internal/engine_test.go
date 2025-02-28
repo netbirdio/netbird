@@ -332,7 +332,7 @@ func TestEngine_SSH(t *testing.T) {
 }
 
 func TestEngine_UpdateNetworkMap(t *testing.T) {
-	os.Setenv(envDisableLazyConn, "true")
+	t.Setenv(envDisableLazyConn, "true")
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
