@@ -25,7 +25,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	// TODO: support non-root
 	conn, err := lc.ListenPacket(ctx, "ip4:icmp", "0.0.0.0")
 	if err != nil {
-		f.logger.Error("Failed to create ICMP socket for %v: %v", id, err)
+		f.logger.Error("Failed to create ICMP socket for %v: %v", epID(id), err)
 
 		f.sendICMPEvent(nftypes.TypeEnd, flowID, id)
 
@@ -52,7 +52,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	// For Echo Requests, send and handle response
 	switch icmpHdr.Type() {
 	case header.ICMPv4Echo:
-		return f.handleEchoResponse(icmpHdr, payload, dst, conn, id)
+		return f.handleEchoResponse(icmpHdr, payload, dst, conn, id, flowID)
 	case header.ICMPv4EchoReply:
 		// dont process our own replies
 		return true
@@ -62,24 +62,24 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	// For other ICMP types (Time Exceeded, Destination Unreachable, etc)
 	_, err = conn.WriteTo(payload, dst)
 	if err != nil {
-		f.logger.Error("Failed to write ICMP packet for %v: %v", id, err)
+		f.logger.Error("Failed to write ICMP packet for %v: %v", epID(id), err)
 		return true
 	}
 
-	f.logger.Trace("Forwarded ICMP packet %v type=%v code=%v",
-		id, icmpHdr.Type(), icmpHdr.Code())
+	f.logger.Trace("Forwarded ICMP packet %v type %v code %v",
+		epID(id), icmpHdr.Type(), icmpHdr.Code())
 
 	return true
 }
 
-func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, payload []byte, dst *net.IPAddr, conn net.PacketConn, id stack.TransportEndpointID) bool {
+func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, payload []byte, dst *net.IPAddr, conn net.PacketConn, id stack.TransportEndpointID, flowID uuid.UUID) bool {
 	if _, err := conn.WriteTo(payload, dst); err != nil {
-		f.logger.Error("Failed to write ICMP packet for %v: %v", id, err)
+		f.logger.Error("Failed to write ICMP packet for %v: %v", epID(id), err)
 		return true
 	}
 
-	f.logger.Trace("Forwarded ICMP packet %v type=%v code=%v",
-		id, icmpHdr.Type(), icmpHdr.Code())
+	f.logger.Trace("Forwarded ICMP packet %v type %v code %v",
+		epID(id), icmpHdr.Type(), icmpHdr.Code())
 
 	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		f.logger.Error("Failed to set read deadline for ICMP response: %v", err)
@@ -116,7 +116,9 @@ func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, payload []byte, ds
 		return true
 	}
 
-	f.logger.Trace("Forwarded ICMP echo reply for %v", id)
+	f.logger.Trace("Forwarded ICMP echo reply for %v type %v code %v",
+		epID(id), icmpHdr.Type(), icmpHdr.Code())
+
 	return true
 }
 
@@ -128,9 +130,8 @@ func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.T
 		Direction: nftypes.Ingress,
 		Protocol:  1,
 		// TODO: handle ipv6
-		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),
-		DestIP:     netip.AddrFrom4(id.RemoteAddress.As4()),
-		SourcePort: id.LocalPort,
-		DestPort:   id.RemotePort,
+		SourceIP: netip.AddrFrom4(id.LocalAddress.As4()),
+		DestIP:   netip.AddrFrom4(id.RemoteAddress.As4()),
+		// TODO: handle type and code
 	})
 }
