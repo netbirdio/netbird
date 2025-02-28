@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -16,6 +18,7 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 const (
@@ -28,15 +31,17 @@ type udpPacketConn struct {
 	lastSeen atomic.Int64
 	cancel   context.CancelFunc
 	ep       tcpip.Endpoint
+	flowID   uuid.UUID
 }
 
 type udpForwarder struct {
 	sync.RWMutex
-	logger  *nblog.Logger
-	conns   map[stack.TransportEndpointID]*udpPacketConn
-	bufPool sync.Pool
-	ctx     context.Context
-	cancel  context.CancelFunc
+	logger     *nblog.Logger
+	flowLogger nftypes.FlowLogger
+	conns      map[stack.TransportEndpointID]*udpPacketConn
+	bufPool    sync.Pool
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 type idleConn struct {
@@ -44,13 +49,14 @@ type idleConn struct {
 	conn *udpPacketConn
 }
 
-func newUDPForwarder(mtu int, logger *nblog.Logger) *udpForwarder {
+func newUDPForwarder(mtu int, logger *nblog.Logger, flowLogger nftypes.FlowLogger) *udpForwarder {
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &udpForwarder{
-		logger: logger,
-		conns:  make(map[stack.TransportEndpointID]*udpPacketConn),
-		ctx:    ctx,
-		cancel: cancel,
+		logger:     logger,
+		flowLogger: flowLogger,
+		conns:      make(map[stack.TransportEndpointID]*udpPacketConn),
+		ctx:        ctx,
+		cancel:     cancel,
 		bufPool: sync.Pool{
 			New: func() any {
 				b := make([]byte, mtu)
@@ -81,6 +87,21 @@ func (f *udpForwarder) Stop() {
 		conn.ep.Close()
 		delete(f.conns, id)
 	}
+}
+
+// sendUDPEvent stores flow events for UDP connections
+func (f *udpForwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
+	f.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:    flowID,
+		Type:      typ,
+		Direction: nftypes.Ingress,
+		Protocol:  17,
+		// TODO: handle ipv6
+		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),
+		DestIP:     netip.AddrFrom4(id.RemoteAddress.As4()),
+		SourcePort: id.LocalPort,
+		DestPort:   id.RemotePort,
+	})
 }
 
 // cleanup periodically removes idle UDP connections
@@ -119,6 +140,8 @@ func (f *udpForwarder) cleanup() {
 				f.Unlock()
 
 				f.logger.Trace("forwarder: cleaned up idle UDP connection %v", idle.id)
+
+				f.sendUDPEvent(nftypes.TypeEnd, idle.conn.flowID, idle.id)
 			}
 		}
 	}
@@ -141,10 +164,14 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		return
 	}
 
+	flowID := uuid.New()
+	f.sendUDPEvent(nftypes.TypeStart, flowID, id)
+
 	dstAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", dstAddr)
 	if err != nil {
 		f.logger.Debug("forwarder: UDP dial error for %v: %v", id, err)
+		f.sendUDPEvent(nftypes.TypeEnd, flowID, id)
 		// TODO: Send ICMP error message
 		return
 	}
@@ -157,6 +184,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
+		f.sendUDPEvent(nftypes.TypeEnd, flowID, id)
 		return
 	}
 
@@ -168,6 +196,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		outConn: outConn,
 		cancel:  connCancel,
 		ep:      ep,
+		flowID:  flowID,
 	}
 	pConn.updateLastSeen()
 
@@ -182,6 +211,8 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", id, err)
 		}
+
+		f.sendUDPEvent(nftypes.TypeEnd, flowID, id)
 		return
 	}
 	f.udpForwarder.conns[id] = pConn
@@ -206,6 +237,8 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		f.udpForwarder.Lock()
 		delete(f.udpForwarder.conns, id)
 		f.udpForwarder.Unlock()
+
+		f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id)
 	}()
 
 	errChan := make(chan error, 2)
@@ -229,6 +262,21 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		f.logger.Trace("forwarder: tearing down UDP connection %v", id)
 		return
 	}
+}
+
+// sendUDPEvent stores flow events for UDP connections, mirrors the TCP version
+func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
+	f.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:    flowID,
+		Type:      typ,
+		Direction: nftypes.Ingress,
+		Protocol:  17, // UDP protocol number
+		// TODO: handle ipv6
+		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),
+		DestIP:     netip.AddrFrom4(id.RemoteAddress.As4()),
+		SourcePort: id.LocalPort,
+		DestPort:   id.RemotePort,
+	})
 }
 
 func (c *udpPacketConn) updateLastSeen() {

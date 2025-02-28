@@ -1,8 +1,10 @@
 package uspfilter
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -18,9 +20,11 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/internal/netflow"
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
+var flowLogger = netflow.NewManager(context.Background()).GetLogger()
 
 type IFaceMock struct {
 	SetFilterFunc   func(device.PacketFilter) error
@@ -62,7 +66,7 @@ func TestManagerCreate(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -82,7 +86,7 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -116,7 +120,7 @@ func TestManagerDeleteRule(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -187,7 +191,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			require.NoError(t, err)
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
@@ -236,7 +240,7 @@ func TestManagerReset(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -279,7 +283,7 @@ func TestNotMatchByIP(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -347,7 +351,7 @@ func TestRemovePacketHook(t *testing.T) {
 	}
 
 	// creating manager instance
-	manager, err := Create(iface, false)
+	manager, err := Create(iface, false, flowLogger)
 	if err != nil {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
@@ -393,7 +397,7 @@ func TestRemovePacketHook(t *testing.T) {
 func TestProcessOutgoingHooks(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false)
+	}, false, flowLogger)
 	require.NoError(t, err)
 
 	manager.wgNetwork = &net.IPNet{
@@ -401,7 +405,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 		Mask: net.CIDRMask(16, 32),
 	}
 	manager.udpTracker.Close()
-	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger)
+	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger, flowLogger)
 	defer func() {
 		require.NoError(t, manager.Reset(nil))
 	}()
@@ -479,7 +483,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ifaceMock := &IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}
-			manager, err := Create(ifaceMock, false)
+			manager, err := Create(ifaceMock, false, flowLogger)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
@@ -506,7 +510,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false)
+	}, false, flowLogger)
 	require.NoError(t, err)
 
 	manager.wgNetwork = &net.IPNet{
@@ -515,7 +519,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}
 
 	manager.udpTracker.Close() // Close the existing tracker
-	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger)
+	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger, flowLogger)
 	manager.decoders = sync.Pool{
 		New: func() any {
 			d := &decoder{
@@ -534,8 +538,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}()
 
 	// Set up packet parameters
-	srcIP := net.ParseIP("100.10.0.1")
-	dstIP := net.ParseIP("100.10.0.100")
+	srcIP := netip.MustParseAddr("100.10.0.1")
+	dstIP := netip.MustParseAddr("100.10.0.100")
 	srcPort := uint16(51334)
 	dstPort := uint16(53)
 
@@ -543,8 +547,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	outboundIPv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
-		SrcIP:    srcIP,
-		DstIP:    dstIP,
+		SrcIP:    srcIP.AsSlice(),
+		DstIP:    dstIP.AsSlice(),
 		Protocol: layers.IPProtocolUDP,
 	}
 	outboundUDP := &layers.UDP{
@@ -573,11 +577,11 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	require.False(t, drop, "Initial outbound packet should not be dropped")
 
 	// Verify connection was tracked
-	conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+	conn, exists := manager.udpTracker.GetConnection(srcIP.AsSlice(), srcPort, dstIP.AsSlice(), dstPort)
 
 	require.True(t, exists, "Connection should be tracked after outbound packet")
-	require.True(t, conntrack.ValidateIPs(conntrack.MakeIPAddr(srcIP), conn.SourceIP), "Source IP should match")
-	require.True(t, conntrack.ValidateIPs(conntrack.MakeIPAddr(dstIP), conn.DestIP), "Destination IP should match")
+	require.True(t, srcIP.Compare(conn.SourceIP) == 0, "Source IP should match")
+	require.True(t, dstIP.Compare(conn.DestIP) == 0, "Destination IP should match")
 	require.Equal(t, srcPort, conn.SourcePort, "Source port should match")
 	require.Equal(t, dstPort, conn.DestPort, "Destination port should match")
 
@@ -585,8 +589,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	inboundIPv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
-		SrcIP:    dstIP, // Original destination is now source
-		DstIP:    srcIP, // Original source is now destination
+		SrcIP:    dstIP.AsSlice(), // Original destination is now source
+		DstIP:    srcIP.AsSlice(), // Original source is now destination
 		Protocol: layers.IPProtocolUDP,
 	}
 	inboundUDP := &layers.UDP{
@@ -641,7 +645,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 
 		// If the connection should still be valid, verify it exists
 		if cp.shouldAllow {
-			conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
+			conn, exists := manager.udpTracker.GetConnection(srcIP.AsSlice(), srcPort, dstIP.AsSlice(), dstPort)
 			require.True(t, exists, "Connection should still exist during valid window")
 			require.True(t, time.Since(conn.GetLastSeen()) < manager.udpTracker.Timeout(),
 				"LastSeen should be updated for valid responses")

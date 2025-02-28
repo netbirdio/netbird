@@ -35,7 +35,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/netflow"
-	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -191,7 +191,7 @@ type Engine struct {
 	persistNetworkMap bool
 	latestNetworkMap  *mgmProto.NetworkMap
 	connSemaphore     *semaphoregroup.SemaphoreGroup
-	flowManager       types.FlowManager
+	flowManager       nftypes.FlowManager
 }
 
 // Peer is an instance of the Connection Peer
@@ -454,7 +454,7 @@ func (e *Engine) createFirewall() error {
 	}
 
 	var err error
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.config.DisableServerRoutes)
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes)
 	if err != nil || e.firewall == nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 		return nil
@@ -721,11 +721,11 @@ func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
 	return e.flowManager.Update(flowConfig)
 }
 
-func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*types.FlowConfig, error) {
+func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error) {
 	if config.GetInterval() == nil {
 		return nil, errors.New("flow interval is nil")
 	}
-	return &types.FlowConfig{
+	return &nftypes.FlowConfig{
 		Enabled:        config.GetEnabled(),
 		URL:            config.GetUrl(),
 		TokenPayload:   config.GetTokenPayload(),
