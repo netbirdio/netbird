@@ -119,6 +119,16 @@ type Store interface {
 	Close()
 }
 
+// ConnTracker defines the interface for connection tracking functionality
+type ConnTracker interface {
+	// Start begins tracking connections by listening for conntrack events.
+	Start() error
+	// Stop stops the connection tracking.
+	Stop()
+	// Close stops listening for events and cleans up resources
+	Close() error
+}
+
 // IFaceMapper provides interface to check if we're using userspace WireGuard
 type IFaceMapper interface {
 	IsUserspaceBind() bool

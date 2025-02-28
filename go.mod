@@ -56,6 +56,7 @@ require (
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-netroute v0.2.1
 	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/mdlayher/netlink v1.7.2
 	github.com/mdlayher/socket v0.5.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
@@ -81,6 +82,8 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.31.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.31.0
 	github.com/things-go/go-socks5 v0.0.4
+	github.com/ti-mo/conntrack v0.5.1
+	github.com/ti-mo/netfilter v0.5.2
 	github.com/yusufpapurcu/wmi v1.2.4
 	github.com/zcalusic/sysinfo v1.1.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
@@ -187,7 +190,6 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20240513124658-fba389f38bae // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
-	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/mholt/acmez/v2 v2.0.1 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/patternmatcher v0.6.0 // indirect
@@ -216,8 +218,6 @@ require (
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/ti-mo/conntrack v0.5.1 // indirect
-	github.com/ti-mo/netfilter v0.5.2 // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.8.0 // indirect
 	github.com/vishvananda/netns v0.0.4 // indirect

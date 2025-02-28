@@ -3,6 +3,7 @@ package netflow
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
@@ -15,15 +16,15 @@ type Manager struct {
 	mux        sync.Mutex
 	logger     types.FlowLogger
 	flowConfig *types.FlowConfig
-	conntrack  *conntrack.ConnTrack
+	conntrack  types.ConnTracker
 }
 
 // NewManager creates a new netflow manager
 func NewManager(ctx context.Context, iface types.IFaceMapper) *Manager {
 	flowLogger := logger.New(ctx)
 
-	var ct *conntrack.ConnTrack
-	if iface != nil && !iface.IsUserspaceBind() {
+	var ct types.ConnTracker
+	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
 		ct = conntrack.New(flowLogger, iface)
 	}
 
