@@ -21,12 +21,41 @@ func TestStore(t *testing.T) {
 		Direction: types.Ingress,
 		Protocol:  6,
 	}
-	time.Sleep(time.Millisecond)
+
+	wait := func() { time.Sleep(time.Millisecond) }
+	wait()
 	logger.StoreEvent(event)
-	time.Sleep(time.Millisecond)
+	wait()
 
 	allEvents := logger.GetEvents()
 	matched := false
+	for _, e := range allEvents {
+		if e.EventFields.FlowID == event.FlowID {
+			matched = true
+		}
+	}
+	if !matched {
+		t.Errorf("didn't match any event")
+	}
+
+	// test disable
+	logger.Disable()
+	wait()
+	logger.StoreEvent(event)
+	wait()
+	allEvents = logger.GetEvents()
+	if len(allEvents) != 0 {
+		t.Errorf("expected 0 events, got %d", len(allEvents))
+	}
+
+	// test re-enable
+	logger.Enable()
+	wait()
+	logger.StoreEvent(event)
+	wait()
+
+	allEvents = logger.GetEvents()
+	matched = false
 	for _, e := range allEvents {
 		if e.EventFields.FlowID == event.FlowID {
 			matched = true
