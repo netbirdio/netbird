@@ -133,7 +133,7 @@ func (l *Logger) Trace(format string, args ...any) {
 
 func (l *Logger) formatMessage(buf *[]byte, level Level, format string, args ...any) {
 	*buf = (*buf)[:0]
-	*buf = time.Now().AppendFormat(*buf, "2006-01-02T15:04:05.000-07:00")
+	*buf = time.Now().AppendFormat(*buf, "2006-01-02T15:04:05-07:00")
 	*buf = append(*buf, ' ')
 	*buf = append(*buf, levelStrings[level]...)
 	*buf = append(*buf, ' ')
