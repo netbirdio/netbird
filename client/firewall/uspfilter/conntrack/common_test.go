@@ -12,7 +12,7 @@ import (
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
-var flowLogger = netflow.NewManager(context.Background(), nil).GetLogger()
+var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}).GetLogger()
 
 // Memory pressure tests
 func BenchmarkMemoryPressure(b *testing.B) {

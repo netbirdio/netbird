@@ -352,7 +352,8 @@ func (e *Engine) Start() error {
 	e.wgInterface = wgIface
 
 	// start flow manager right after interface creation
-	e.flowManager = netflow.NewManager(e.ctx, e.wgInterface)
+	publicKey := e.config.WgPrivateKey.PublicKey()
+	e.flowManager = netflow.NewManager(e.ctx, e.wgInterface, publicKey[:])
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
