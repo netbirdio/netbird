@@ -18,12 +18,12 @@ func Test_portAllocator_newConn(t *testing.T) {
 	}
 }
 
-func Test_portAllocator_port_zero(t *testing.T) {
+func Test_portAllocator_port_bottom(t *testing.T) {
 	pa := newPortAllocator()
-	pa.nextFreePort = 1
+	pa.nextFreePort = 1025
 
 	port := pa.nextPort()
-	if port != 1 {
+	if port != 1025 {
 		t.Errorf("nextPort() = %v, want %d", port, 1)
 	}
 

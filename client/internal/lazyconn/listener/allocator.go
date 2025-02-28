@@ -48,7 +48,7 @@ func (p *portAllocator) newConn() (*net.UDPConn, *net.UDPAddr, error) {
 func (p *portAllocator) nextPort() int {
 	port := p.nextFreePort
 	p.nextFreePort--
-	if p.nextFreePort == 0 {
+	if p.nextFreePort == 1024 {
 		p.nextFreePort = 65535
 	}
 	return int(port)
