@@ -73,10 +73,10 @@ func (m *Manager) GetLogger() types.FlowLogger {
 
 func (m *Manager) startSender() {
 	ticker := time.NewTicker(m.flowConfig.Interval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-m.ctx.Done():
-			ticker.Stop()
 			return
 		case <-ticker.C:
 			events := m.logger.GetEvents()

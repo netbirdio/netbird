@@ -88,27 +88,12 @@ func (c *GRPCClient) Receive(ctx context.Context, msgHandler func(msg *proto.Flo
 		}
 		c.stream = stream
 
-		header, err := stream.Header()
+		err = checkHeader(err, stream)
 		if err != nil {
-			log.Errorf("waiting for flow receiver header: %s", err)
 			return err
 		}
 
-		if len(header) == 0 {
-			log.Error("flow receiver sent no headers")
-			return fmt.Errorf("should have headers")
-		}
-
-		for {
-			msg, err := stream.Recv()
-			if err != nil {
-				return err
-			}
-
-			if err := msgHandler(msg); err != nil {
-				return err
-			}
-		}
+		return c.receive(stream, msgHandler)
 	}
 
 	err := backoff.Retry(operation, backOff)
@@ -117,6 +102,33 @@ func (c *GRPCClient) Receive(ctx context.Context, msgHandler func(msg *proto.Flo
 		return err
 	}
 
+	return nil
+}
+
+func (c *GRPCClient) receive(stream proto.FlowService_EventsClient, msgHandler func(msg *proto.FlowEventAck) error) error {
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+
+		if err := msgHandler(msg); err != nil {
+			return err
+		}
+	}
+}
+
+func checkHeader(err error, stream proto.FlowService_EventsClient) error {
+	header, err := stream.Header()
+	if err != nil {
+		log.Errorf("waiting for flow receiver header: %s", err)
+		return err
+	}
+
+	if len(header) == 0 {
+		log.Error("flow receiver sent no headers")
+		return fmt.Errorf("should have headers")
+	}
 	return nil
 }
 
