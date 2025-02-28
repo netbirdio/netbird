@@ -727,7 +727,7 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 		return nil, errors.New("flow interval is nil")
 	}
 	return &nftypes.FlowConfig{
-		Enabled:        true,
+		Enabled:        config.GetEnabled(),
 		URL:            config.GetUrl(),
 		TokenPayload:   config.GetTokenPayload(),
 		TokenSignature: config.GetTokenSignature(),
