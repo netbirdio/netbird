@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/flow/proto"
@@ -26,15 +28,20 @@ type GRPCClient struct {
 }
 
 func NewClient(ctx context.Context, addr, payload, signature string) (*GRPCClient, error) {
-	certPool, err := x509.SystemCertPool()
-	if err != nil || certPool == nil {
-		log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
-		certPool = embeddedroots.Get()
-	}
 
-	transportOption := grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-		RootCAs: certPool,
-	}))
+	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
+	if strings.Contains(addr, "443") {
+
+		certPool, err := x509.SystemCertPool()
+		if err != nil || certPool == nil {
+			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
+			certPool = embeddedroots.Get()
+		}
+
+		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			RootCAs: certPool,
+		}))
+	}
 
 	connCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

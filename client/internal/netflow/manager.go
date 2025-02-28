@@ -32,15 +32,11 @@ func NewManager(ctx context.Context, publicKey []byte) *Manager {
 }
 
 func (m *Manager) Update(update *types.FlowConfig) error {
-	m.mux.Lock()
-	defer m.mux.Unlock()
 	if update == nil {
 		return nil
 	}
-
 	m.mux.Lock()
 	defer m.mux.Unlock()
-
 	previous := m.flowConfig
 	m.flowConfig = update
 
