@@ -984,6 +984,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 
 func TestEngine_MultiplePeers(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
+	t.Setenv(envDisableLazyConn, "true")
 
 	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
