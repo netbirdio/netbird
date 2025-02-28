@@ -93,6 +93,7 @@ func (m *Manager) waitForTraffic(listener *Listener, peerID string, peerConnID p
 
 	m.mu.Lock()
 	if _, ok := m.peers[peerID]; !ok {
+		m.mu.Unlock()
 		return
 	}
 	delete(m.peers, peerID)
