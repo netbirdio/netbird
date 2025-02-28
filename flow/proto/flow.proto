@@ -4,7 +4,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "/proto";
 
-package management;
+package flow;
 
 service FlowService {
   // Client to receiver streams of events and acknowledgements
