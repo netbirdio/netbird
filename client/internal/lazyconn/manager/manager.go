@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -13,29 +14,18 @@ import (
 // Manager manages lazy connections
 // This is not a thread safe implementation, do not call exported functions concurrently
 type Manager struct {
-	PeerActivityChan chan string
-
 	listenerMgr    *listener.Manager
 	managedPeers   map[string]lazyconn.PeerConfig
 	managedPeersMu sync.Mutex
-
-	ctxCancel context.CancelFunc
+	closeChan      chan struct{}
 }
 
 func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
-		PeerActivityChan: make(chan string, 1),
-		listenerMgr:      listener.NewManager(wgIface),
-		managedPeers:     make(map[string]lazyconn.PeerConfig),
+		listenerMgr:  listener.NewManager(wgIface),
+		managedPeers: make(map[string]lazyconn.PeerConfig),
 	}
 	return m
-}
-
-// Start to listen for traffic start events
-func (m *Manager) Start(parentCtx context.Context) {
-	ctx, cancel := context.WithCancel(parentCtx)
-	m.ctxCancel = cancel
-	m.receiveLazyConnEvents(ctx)
 }
 
 func (m *Manager) AddPeer(peer lazyconn.PeerConfig) error {
@@ -78,36 +68,37 @@ func (m *Manager) Close() {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	m.ctxCancel()
+	// todo prevent double call
+	close(m.closeChan)
 
 	m.listenerMgr.Close()
 
 	m.managedPeers = make(map[string]lazyconn.PeerConfig)
-
-	// clean up the channel for the future reuse
-	m.drainPeerActivityChan()
 }
 
-func (m *Manager) receiveLazyConnEvents(ctx context.Context) {
+func (m *Manager) NextEvent(ctx context.Context) (string, error) {
 	for {
 		select {
+		case <-m.closeChan:
+			return "", fmt.Errorf("service closed")
 		case <-ctx.Done():
-			return
-		case peerID := <-m.listenerMgr.TrafficStartChan:
-			select {
-			case <-ctx.Done():
-			case m.PeerActivityChan <- peerID:
+			return "", ctx.Err()
+		case e := <-m.listenerMgr.TrafficStartChan:
+			m.managedPeersMu.Lock()
+			// todo instead of peer ID check, check by the peer conn instance id
+			pcfg, ok := m.managedPeers[e.PeerID]
+			if !ok {
+				m.managedPeersMu.Unlock()
+				continue
 			}
-		}
-	}
-}
 
-func (m *Manager) drainPeerActivityChan() {
-	for {
-		select {
-		case <-m.PeerActivityChan:
-		default:
-			return
+			if pcfg.PeerConnID != e.PeerConnId {
+				m.managedPeersMu.Unlock()
+				continue
+			}
+
+			m.managedPeersMu.Unlock()
+			return e.PeerID, nil
 		}
 	}
 }

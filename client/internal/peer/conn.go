@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/pion/ice/v3"
 	log "github.com/sirupsen/logrus"
@@ -25,6 +26,8 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
+
+type ConnID unsafe.Pointer
 
 type ConnPriority int
 
@@ -295,6 +298,10 @@ func (conn *Conn) Status() ConnStatus {
 
 func (conn *Conn) GetKey() string {
 	return conn.config.Key
+}
+
+func (conn *Conn) ConnID() ConnID {
+	return ConnID(conn)
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected

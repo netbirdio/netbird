@@ -55,11 +55,7 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	e.ctxCancel = cancel
 
-	e.wg.Add(2)
-	go func() {
-		defer e.wg.Done()
-		e.lazyConnMgr.Start(ctx)
-	}()
+	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
 		e.receiveLazyConnEvents(ctx)
@@ -89,6 +85,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	lazyPeerCfg := lazyconn.PeerConfig{
 		PublicKey:  peerKey,
 		AllowedIPs: conn.WgConfig().AllowedIps,
+		PeerConnID: conn.ConnID(),
 	}
 	if err := e.lazyConnMgr.AddPeer(lazyPeerCfg); err != nil {
 		log.Errorf("failed to add peer to lazyconn manager: %v", err)
@@ -142,11 +139,11 @@ func (e *ConnMgr) Close() {
 
 func (e *ConnMgr) receiveLazyConnEvents(ctx context.Context) {
 	for {
-		select {
-		case <-ctx.Done():
+		peerID, err := e.lazyConnMgr.NextEvent(ctx)
+		if err != nil {
+			log.Infof("lazy connection manager closed: %v", err)
 			return
-		case peerID := <-e.lazyConnMgr.PeerActivityChan:
-			e.peerStore.PeerConnOpen(peerID)
 		}
+		e.peerStore.PeerConnOpen(peerID)
 	}
 }

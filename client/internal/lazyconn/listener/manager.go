@@ -7,10 +7,16 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
+type OnDemandEvent struct {
+	PeerID     string
+	PeerConnId peer.ConnID
+}
+
 type Manager struct {
-	TrafficStartChan chan string
+	TrafficStartChan chan OnDemandEvent
 
 	wgIface lazyconn.WGIface
 
@@ -23,7 +29,7 @@ type Manager struct {
 
 func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
-		TrafficStartChan: make(chan string, 1),
+		TrafficStartChan: make(chan OnDemandEvent, 1),
 		wgIface:          wgIface,
 		portGenerator:    newPortAllocator(),
 		peers:            make(map[string]*Listener),
@@ -52,7 +58,7 @@ func (m *Manager) CreatePeerListener(peerCfg lazyconn.PeerConfig) error {
 	m.peers[peerCfg.PublicKey] = listener
 
 	log.Infof("created on-demand listener: %s, for peer: %s", addr.String(), peerCfg.PublicKey)
-	go m.waitForTraffic(listener, peerCfg.PublicKey)
+	go m.waitForTraffic(listener, peerCfg.PublicKey, peerCfg.PeerConnID)
 
 	log.Debugf("created lazy connection listener for: %s", peerCfg.PublicKey)
 	return nil
@@ -79,9 +85,10 @@ func (m *Manager) Close() {
 		listener.Close()
 		delete(m.peers, peerID)
 	}
+	// todo drain TrafficStartChan
 }
 
-func (m *Manager) waitForTraffic(listener *Listener, peerID string) {
+func (m *Manager) waitForTraffic(listener *Listener, peerID string, peerConnID peer.ConnID) {
 	listener.ReadPackets()
 
 	m.mu.Lock()
@@ -91,19 +98,13 @@ func (m *Manager) waitForTraffic(listener *Listener, peerID string) {
 	delete(m.peers, peerID)
 	m.mu.Unlock()
 
-	m.notify(peerID)
+	m.notify(OnDemandEvent{PeerID: peerID, PeerConnId: peerConnID})
 }
 
-// todo: cause issue in this scenario
-// - notify peerID to TrafficStartChan
-// - do not read the upper layer yet the event
-// - RemovePeer(peerID string)
-// at this moment we expect to never receive the event for peerID
-// - read from TrafficStartChan and the event will be there
-func (m *Manager) notify(peerID string) {
-	log.Debugf("peer started to send traffic, remove lazy endpoint: %s", peerID)
+func (m *Manager) notify(event OnDemandEvent) {
+	log.Debugf("peer started to send traffic: %s", event.PeerID)
 	select {
 	case <-m.done:
-	case m.TrafficStartChan <- peerID:
+	case m.TrafficStartChan <- event:
 	}
 }
