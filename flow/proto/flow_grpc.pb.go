@@ -31,7 +31,7 @@ func NewFlowServiceClient(cc grpc.ClientConnInterface) FlowServiceClient {
 }
 
 func (c *flowServiceClient) Events(ctx context.Context, opts ...grpc.CallOption) (FlowService_EventsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &FlowService_ServiceDesc.Streams[0], "/management.FlowService/Events", opts...)
+	stream, err := c.cc.NewStream(ctx, &FlowService_ServiceDesc.Streams[0], "/flow.FlowService/Events", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (x *flowServiceEventsServer) Recv() (*FlowEvent, error) {
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var FlowService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "management.FlowService",
+	ServiceName: "flow.FlowService",
 	HandlerType: (*FlowServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

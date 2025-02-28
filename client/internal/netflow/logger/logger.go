@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,21 +15,21 @@ import (
 
 type rcvChan chan *types.EventFields
 type Logger struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	enabled  atomic.Bool
-	rcvChan  atomic.Pointer[rcvChan]
-	stopChan chan struct{}
-	Store    types.Store
+	mux            sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	enabled        atomic.Bool
+	rcvChan        atomic.Pointer[rcvChan]
+	cancelReceiver context.CancelFunc
+	Store          types.Store
 }
 
 func New(ctx context.Context) *Logger {
 	ctx, cancel := context.WithCancel(ctx)
 	return &Logger{
-		ctx:      ctx,
-		cancel:   cancel,
-		Store:    store.NewMemoryStore(),
-		stopChan: make(chan struct{}, 1),
+		ctx:    ctx,
+		cancel: cancel,
+		Store:  store.NewMemoryStore(),
 	}
 }
 
@@ -57,6 +58,10 @@ func (l *Logger) startReceiver() {
 	if l.enabled.Load() {
 		return
 	}
+	l.mux.Lock()
+	ctx, cancel := context.WithCancel(l.ctx)
+	l.cancelReceiver = cancel
+	l.mux.Unlock()
 
 	c := make(rcvChan, 100)
 	l.rcvChan.Swap(&c)
@@ -64,7 +69,7 @@ func (l *Logger) startReceiver() {
 
 	for {
 		select {
-		case <-l.ctx.Done():
+		case <-ctx.Done():
 			log.Info("flow Memory store receiver stopped")
 			return
 		case eventFields := <-c:
@@ -75,8 +80,6 @@ func (l *Logger) startReceiver() {
 				Timestamp:   time.Now(),
 			}
 			l.Store.StoreEvent(&event)
-		case <-l.stopChan:
-			return
 		}
 	}
 }
@@ -92,10 +95,12 @@ func (l *Logger) stop() {
 	}
 
 	l.enabled.Store(false)
-	select {
-	case l.stopChan <- struct{}{}:
-	default:
+	l.mux.Lock()
+	if l.cancelReceiver != nil {
+		l.cancelReceiver()
+		l.cancelReceiver = nil
 	}
+	l.mux.Unlock()
 }
 
 func (l *Logger) GetEvents() []*types.Event {
