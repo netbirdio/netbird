@@ -261,6 +261,10 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		return errors.New("peer doesn't exist")
 	}
 
+	if receivedState.IP != "" {
+		peerState.IP = receivedState.IP
+	}
+
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
 
 	if receivedState.ConnStatus != peerState.ConnStatus {
