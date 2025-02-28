@@ -16,7 +16,13 @@ import (
 // handleICMP handles ICMP packets from the network stack
 func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBufferPtr) bool {
 	flowID := uuid.New()
-	f.sendICMPEvent(nftypes.TypeStart, flowID, id)
+
+	// Extract ICMP header to get type and code
+	icmpHdr := header.ICMPv4(pkt.TransportHeader().View().AsSlice())
+	icmpType := uint8(icmpHdr.Type())
+	icmpCode := uint8(icmpHdr.Code())
+
+	f.sendICMPEvent(nftypes.TypeStart, flowID, id, icmpType, icmpCode)
 
 	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 	defer cancel()
@@ -27,7 +33,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	if err != nil {
 		f.logger.Error("Failed to create ICMP socket for %v: %v", epID(id), err)
 
-		f.sendICMPEvent(nftypes.TypeEnd, flowID, id)
+		f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode)
 
 		// This will make netstack reply on behalf of the original destination, that's ok for now
 		return false
@@ -37,7 +43,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 			f.logger.Debug("Failed to close ICMP socket: %v", err)
 		}
 
-		f.sendICMPEvent(nftypes.TypeEnd, flowID, id)
+		f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode)
 	}()
 
 	dstIP := f.determineDialAddr(id.LocalAddress)
@@ -46,8 +52,6 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	// Get the complete ICMP message (header + data)
 	fullPacket := stack.PayloadSince(pkt.TransportHeader())
 	payload := fullPacket.AsSlice()
-
-	icmpHdr := header.ICMPv4(pkt.TransportHeader().View().AsSlice())
 
 	// For Echo Requests, send and handle response
 	switch icmpHdr.Type() {
@@ -123,15 +127,16 @@ func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, payload []byte, ds
 }
 
 // sendICMPEvent stores flow events for ICMP packets
-func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
+func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8) {
 	f.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
 		Direction: nftypes.Ingress,
-		Protocol:  1,
+		Protocol:  nftypes.ICMP,
 		// TODO: handle ipv6
 		SourceIP: netip.AddrFrom4(id.LocalAddress.As4()),
 		DestIP:   netip.AddrFrom4(id.RemoteAddress.As4()),
-		// TODO: handle type and code
+		ICMPType: icmpType,
+		ICMPCode: icmpCode,
 	})
 }
