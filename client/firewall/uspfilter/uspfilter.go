@@ -590,9 +590,7 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP net.IP) {
 		flags := getTCPFlags(&d.tcp)
 		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
 	case layers.LayerTypeICMPv4:
-		if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
-			m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq)
-		}
+		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq, d.icmp4.TypeCode)
 	}
 }
 
@@ -605,9 +603,7 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP net.IP) {
 		flags := getTCPFlags(&d.tcp)
 		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
 	case layers.LayerTypeICMPv4:
-		if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
-			m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq)
-		}
+		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq, d.icmp4.TypeCode)
 	}
 }
 

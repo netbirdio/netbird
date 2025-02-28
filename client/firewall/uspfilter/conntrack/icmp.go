@@ -29,13 +29,15 @@ type ICMPConnKey struct {
 	ID       uint16
 }
 
-func (i *ICMPConnKey) String() string {
-	return fmt.Sprintf("%s -> %s (%d/%d)", i.SrcIP, i.DstIP, i.Sequence, i.ID)
+func (i ICMPConnKey) String() string {
+	return fmt.Sprintf("%s -> %s (%d/%d)", i.SrcIP, i.DstIP, i.ID, i.Sequence)
 }
 
 // ICMPConnTrack represents an ICMP connection state
 type ICMPConnTrack struct {
 	BaseConnTrack
+	ICMPType uint8
+	ICMPCode uint8
 }
 
 // ICMPTracker manages ICMP connection states
@@ -85,22 +87,32 @@ func (t *ICMPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, id uint16, seq 
 }
 
 // TrackOutbound records an outbound ICMP connection
-func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) {
+func (t *ICMPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, typecode layers.ICMPv4TypeCode) {
 	if _, exists := t.updateIfExists(dstIP, srcIP, id, seq); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
-		t.track(srcIP, dstIP, id, seq, nftypes.Egress)
+		t.track(srcIP, dstIP, id, seq, typecode, nftypes.Egress)
 	}
 }
 
 // TrackInbound records an inbound ICMP Echo Request
-func (t *ICMPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16) {
-	t.track(srcIP, dstIP, id, seq, nftypes.Ingress)
+func (t *ICMPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, typecode layers.ICMPv4TypeCode) {
+	t.track(srcIP, dstIP, id, seq, typecode, nftypes.Ingress)
 }
 
 // track is the common implementation for tracking both inbound and outbound ICMP connections
-func (t *ICMPTracker) track(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, direction nftypes.Direction) {
+func (t *ICMPTracker) track(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, typecode layers.ICMPv4TypeCode, direction nftypes.Direction) {
+	// TODO: icmp doesn't need to extend the timeout
 	key, exists := t.updateIfExists(srcIP, dstIP, id, seq)
 	if exists {
+		return
+	}
+
+	typ, code := typecode.Type(), typecode.Code()
+
+	// non echo requests don't need tracking
+	if typ != uint8(layers.ICMPv4TypeEchoRequest) {
+		t.logger.Trace("New %s ICMP connection %s type %d code %d", direction, key, typ, code)
+		t.sendStartEvent(direction, key, typ, code)
 		return
 	}
 
@@ -111,6 +123,8 @@ func (t *ICMPTracker) track(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, d
 			SourceIP:  key.SrcIP,
 			DestIP:    key.DstIP,
 		},
+		ICMPType: typ,
+		ICMPCode: code,
 	}
 	conn.UpdateLastSeen()
 
@@ -118,7 +132,7 @@ func (t *ICMPTracker) track(srcIP net.IP, dstIP net.IP, id uint16, seq uint16, d
 	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	t.logger.Trace("New %s ICMP connection %s", conn.Direction, key)
+	t.logger.Trace("New %s ICMP connection %s type %d code %d", direction, key, typ, code)
 	t.sendEvent(nftypes.TypeStart, key, conn)
 }
 
@@ -186,7 +200,21 @@ func (t *ICMPTracker) sendEvent(typ nftypes.Type, key ICMPConnKey, conn *ICMPCon
 		Protocol:  nftypes.ICMP, // TODO: adjust for IPv6/icmpv6
 		SourceIP:  key.SrcIP,
 		DestIP:    key.DstIP,
-		// TODO: add icmp code/type,
+		ICMPType:  conn.ICMPType,
+		ICMPCode:  conn.ICMPCode,
+	})
+}
+
+func (t *ICMPTracker) sendStartEvent(direction nftypes.Direction, key ICMPConnKey, typ, code uint8) {
+	t.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:    uuid.New(),
+		Type:      nftypes.TypeStart,
+		Direction: direction,
+		Protocol:  nftypes.ICMP,
+		SourceIP:  key.SrcIP,
+		DestIP:    key.DstIP,
+		ICMPType:  typ,
+		ICMPCode:  code,
 	})
 }
 
