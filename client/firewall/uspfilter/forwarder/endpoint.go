@@ -85,5 +85,6 @@ func (e *endpoint) ParseHeader(*stack.PacketBuffer) bool {
 type epID stack.TransportEndpointID
 
 func (i epID) String() string {
-	return fmt.Sprintf("%s:%d -> %s:%d", i.LocalAddress, i.LocalPort, i.RemoteAddress, i.RemotePort)
+	// src and remote is swapped
+	return fmt.Sprintf("%s:%d -> %s:%d", i.RemoteAddress, i.RemotePort, i.LocalAddress, i.LocalPort)
 }
