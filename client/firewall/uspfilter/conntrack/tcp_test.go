@@ -9,7 +9,7 @@ import (
 )
 
 func TestTCPStateMachine(t *testing.T) {
-	tracker := NewTCPTracker(DefaultTCPTimeout, logger)
+	tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 	defer tracker.Close()
 
 	srcIP := net.ParseIP("100.64.0.1")
@@ -154,7 +154,7 @@ func TestTCPStateMachine(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Helper()
 
-				tracker = NewTCPTracker(DefaultTCPTimeout, logger)
+				tracker = NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 				tt.test(t)
 			})
 		}
@@ -162,7 +162,7 @@ func TestTCPStateMachine(t *testing.T) {
 }
 
 func TestRSTHandling(t *testing.T) {
-	tracker := NewTCPTracker(DefaultTCPTimeout, logger)
+	tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 	defer tracker.Close()
 
 	srcIP := net.ParseIP("100.64.0.1")
@@ -233,7 +233,7 @@ func establishConnection(t *testing.T, tracker *TCPTracker, srcIP, dstIP net.IP,
 
 func BenchmarkTCPTracker(b *testing.B) {
 	b.Run("TrackOutbound", func(b *testing.B) {
-		tracker := NewTCPTracker(DefaultTCPTimeout, logger)
+		tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")
@@ -246,7 +246,7 @@ func BenchmarkTCPTracker(b *testing.B) {
 	})
 
 	b.Run("IsValidInbound", func(b *testing.B) {
-		tracker := NewTCPTracker(DefaultTCPTimeout, logger)
+		tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")
@@ -264,7 +264,7 @@ func BenchmarkTCPTracker(b *testing.B) {
 	})
 
 	b.Run("ConcurrentAccess", func(b *testing.B) {
-		tracker := NewTCPTracker(DefaultTCPTimeout, logger)
+		tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
 		srcIP := net.ParseIP("192.168.1.1")
@@ -287,7 +287,7 @@ func BenchmarkTCPTracker(b *testing.B) {
 // Benchmark connection cleanup
 func BenchmarkCleanup(b *testing.B) {
 	b.Run("TCPCleanup", func(b *testing.B) {
-		tracker := NewTCPTracker(100*time.Millisecond, logger) // Short timeout for testing
+		tracker := NewTCPTracker(100*time.Millisecond, logger, flowLogger) // Short timeout for testing
 		defer tracker.Close()
 
 		// Pre-populate with expired connections

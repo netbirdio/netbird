@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -96,6 +97,7 @@ type Manager struct {
 	tcpTracker  *conntrack.TCPTracker
 	forwarder   *forwarder.Forwarder
 	logger      *nblog.Logger
+	flowLogger  nftypes.FlowLogger
 }
 
 // decoder for packages
@@ -112,16 +114,16 @@ type decoder struct {
 }
 
 // Create userspace firewall manager constructor
-func Create(iface common.IFaceMapper, disableServerRoutes bool) (*Manager, error) {
-	return create(iface, nil, disableServerRoutes)
+func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
+	return create(iface, nil, disableServerRoutes, flowLogger)
 }
 
-func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
+func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
 	if nativeFirewall == nil {
 		return nil, errors.New("native firewall is nil")
 	}
 
-	mgr, err := create(iface, nativeFirewall, disableServerRoutes)
+	mgr, err := create(iface, nativeFirewall, disableServerRoutes, flowLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +150,7 @@ func parseCreateEnv() (bool, bool) {
 	return disableConntrack, enableLocalForwarding
 }
 
-func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool) (*Manager, error) {
+func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
 	disableConntrack, enableLocalForwarding := parseCreateEnv()
 
 	m := &Manager{
@@ -174,6 +176,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		routingEnabled:      false,
 		stateful:            !disableConntrack,
 		logger:              nblog.NewFromLogrus(log.StandardLogger()),
+		flowLogger:          flowLogger,
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
 	}
@@ -185,9 +188,9 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 	if disableConntrack {
 		log.Info("conntrack is disabled")
 	} else {
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger)
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger)
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger, flowLogger)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, flowLogger)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, flowLogger)
 	}
 
 	// netstack needs the forwarder for local traffic
@@ -304,7 +307,7 @@ func (m *Manager) initForwarder() error {
 		return errors.New("forwarding not supported")
 	}
 
-	forwarder, err := forwarder.New(m.wgIface, m.logger, m.netstack)
+	forwarder, err := forwarder.New(m.wgIface, m.logger, m.flowLogger, m.netstack)
 	if err != nil {
 		m.routingEnabled = false
 		return fmt.Errorf("create forwarder: %w", err)
@@ -533,14 +536,7 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 
 	// Track all protocols if stateful mode is enabled
 	if m.stateful {
-		switch d.decoded[1] {
-		case layers.LayerTypeUDP:
-			m.trackUDPOutbound(d, srcIP, dstIP)
-		case layers.LayerTypeTCP:
-			m.trackTCPOutbound(d, srcIP, dstIP)
-		case layers.LayerTypeICMPv4:
-			m.trackICMPOutbound(d, srcIP, dstIP)
-		}
+		m.trackOutbound(d, srcIP, dstIP)
 	}
 
 	// Process UDP hooks even if stateful mode is disabled
@@ -560,17 +556,6 @@ func (m *Manager) extractIPs(d *decoder) (srcIP, dstIP net.IP) {
 	default:
 		return nil, nil
 	}
-}
-
-func (m *Manager) trackTCPOutbound(d *decoder, srcIP, dstIP net.IP) {
-	flags := getTCPFlags(&d.tcp)
-	m.tcpTracker.TrackOutbound(
-		srcIP,
-		dstIP,
-		uint16(d.tcp.SrcPort),
-		uint16(d.tcp.DstPort),
-		flags,
-	)
 }
 
 func getTCPFlags(tcp *layers.TCP) uint8 {
@@ -596,13 +581,34 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 	return flags
 }
 
-func (m *Manager) trackUDPOutbound(d *decoder, srcIP, dstIP net.IP) {
-	m.udpTracker.TrackOutbound(
-		srcIP,
-		dstIP,
-		uint16(d.udp.SrcPort),
-		uint16(d.udp.DstPort),
-	)
+func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP net.IP) {
+	transport := d.decoded[1]
+	switch transport {
+	case layers.LayerTypeUDP:
+		m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
+	case layers.LayerTypeTCP:
+		flags := getTCPFlags(&d.tcp)
+		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
+	case layers.LayerTypeICMPv4:
+		if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
+			m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq)
+		}
+	}
+}
+
+func (m *Manager) trackInbound(d *decoder, srcIP, dstIP net.IP) {
+	transport := d.decoded[1]
+	switch transport {
+	case layers.LayerTypeUDP:
+		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
+	case layers.LayerTypeTCP:
+		flags := getTCPFlags(&d.tcp)
+		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
+	case layers.LayerTypeICMPv4:
+		if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
+			m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq)
+		}
+	}
 }
 
 func (m *Manager) checkUDPHooks(d *decoder, dstIP net.IP, packetData []byte) bool {
@@ -616,17 +622,6 @@ func (m *Manager) checkUDPHooks(d *decoder, dstIP net.IP, packetData []byte) boo
 		}
 	}
 	return false
-}
-
-func (m *Manager) trackICMPOutbound(d *decoder, srcIP, dstIP net.IP) {
-	if d.icmp4.TypeCode.Type() == layers.ICMPv4TypeEchoRequest {
-		m.icmpTracker.TrackOutbound(
-			srcIP,
-			dstIP,
-			d.icmp4.Id,
-			d.icmp4.Seq,
-		)
-	}
 }
 
 // dropFilter implements filtering logic for incoming packets.
@@ -674,6 +669,9 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP net.IP, packetData
 	if m.netstack {
 		return m.handleNetstackLocalTraffic(packetData)
 	}
+
+	// track inbound packets to get the correct direction and session id for flows
+	m.trackInbound(d, srcIP, dstIP)
 
 	return false
 }

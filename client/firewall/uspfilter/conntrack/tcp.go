@@ -8,7 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 const (
@@ -39,6 +42,35 @@ const (
 // TCPState represents the state of a TCP connection
 type TCPState int
 
+func (s TCPState) String() string {
+	switch s {
+	case TCPStateNew:
+		return "New"
+	case TCPStateSynSent:
+		return "SYN Sent"
+	case TCPStateSynReceived:
+		return "SYN Received"
+	case TCPStateEstablished:
+		return "Established"
+	case TCPStateFinWait1:
+		return "FIN Wait 1"
+	case TCPStateFinWait2:
+		return "FIN Wait 2"
+	case TCPStateClosing:
+		return "Closing"
+	case TCPStateTimeWait:
+		return "Time Wait"
+	case TCPStateCloseWait:
+		return "Close Wait"
+	case TCPStateLastAck:
+		return "Last ACK"
+	case TCPStateClosed:
+		return "Closed"
+	default:
+		return "Unknown"
+	}
+}
+
 const (
 	TCPStateNew TCPState = iota
 	TCPStateSynSent
@@ -53,19 +85,12 @@ const (
 	TCPStateClosed
 )
 
-// TCPConnKey uniquely identifies a TCP connection
-type TCPConnKey struct {
-	SrcIP   [16]byte
-	DstIP   [16]byte
-	SrcPort uint16
-	DstPort uint16
-}
-
 // TCPConnTrack represents a TCP connection state
 type TCPConnTrack struct {
 	BaseConnTrack
 	State       TCPState
 	established atomic.Bool
+	tombstone   atomic.Bool
 	sync.RWMutex
 }
 
@@ -79,6 +104,16 @@ func (t *TCPConnTrack) SetEstablished(state bool) {
 	t.established.Store(state)
 }
 
+// IsTombstone safely checks if the connection is marked for deletion
+func (t *TCPConnTrack) IsTombstone() bool {
+	return t.tombstone.Load()
+}
+
+// SetTombstone safely marks the connection for deletion
+func (t *TCPConnTrack) SetTombstone() {
+	t.tombstone.Store(true)
+}
+
 // TCPTracker manages TCP connection states
 type TCPTracker struct {
 	logger        *nblog.Logger
@@ -87,68 +122,94 @@ type TCPTracker struct {
 	cleanupTicker *time.Ticker
 	done          chan struct{}
 	timeout       time.Duration
-	ipPool        *PreallocatedIPs
+	flowLogger    nftypes.FlowLogger
 }
 
 // NewTCPTracker creates a new TCP connection tracker
-func NewTCPTracker(timeout time.Duration, logger *nblog.Logger) *TCPTracker {
+func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftypes.FlowLogger) *TCPTracker {
+	if timeout == 0 {
+		timeout = DefaultTCPTimeout
+	}
+
 	tracker := &TCPTracker{
 		logger:        logger,
 		connections:   make(map[ConnKey]*TCPConnTrack),
 		cleanupTicker: time.NewTicker(TCPCleanupInterval),
 		done:          make(chan struct{}),
 		timeout:       timeout,
-		ipPool:        NewPreallocatedIPs(),
+		flowLogger:    flowLogger,
 	}
 
 	go tracker.cleanupRoutine()
 	return tracker
 }
 
-// TrackOutbound processes an outbound TCP packet and updates connection state
-func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
-	// Create key before lock
+func (t *TCPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) (ConnKey, bool) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 
-	t.mutex.Lock()
+	t.mutex.RLock()
 	conn, exists := t.connections[key]
-	if !exists {
-		// Use preallocated IPs
-		srcIPCopy := t.ipPool.Get()
-		dstIPCopy := t.ipPool.Get()
-		copyIP(srcIPCopy, srcIP)
-		copyIP(dstIPCopy, dstIP)
+	t.mutex.RUnlock()
 
-		conn = &TCPConnTrack{
-			BaseConnTrack: BaseConnTrack{
-				SourceIP:   srcIPCopy,
-				DestIP:     dstIPCopy,
-				SourcePort: srcPort,
-				DestPort:   dstPort,
-			},
-			State: TCPStateNew,
-		}
+	if exists {
+		conn.Lock()
+		t.updateState(key, conn, flags, conn.Direction == nftypes.Egress)
 		conn.UpdateLastSeen()
-		conn.established.Store(false)
-		t.connections[key] = conn
+		conn.Unlock()
 
-		t.logger.Trace("New TCP connection: %s:%d -> %s:%d", srcIP, srcPort, dstIP, dstPort)
+		return key, true
 	}
+
+	return key, false
+}
+
+// TrackOutbound records an outbound TCP connection
+func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
+	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags); !exists {
+		// if (inverted direction) conn is not tracked, track this direction
+		t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress)
+	}
+}
+
+// TrackInbound processes an inbound TCP packet and updates connection state
+func (t *TCPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
+	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress)
+}
+
+// track is the common implementation for tracking both inbound and outbound connections
+func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8, direction nftypes.Direction) {
+	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags)
+	if exists {
+		return
+	}
+
+	conn := &TCPConnTrack{
+		BaseConnTrack: BaseConnTrack{
+			FlowId:     uuid.New(),
+			Direction:  direction,
+			SourceIP:   key.SrcIP,
+			DestIP:     key.DstIP,
+			SourcePort: srcPort,
+			DestPort:   dstPort,
+		},
+	}
+
+	conn.UpdateLastSeen()
+	conn.established.Store(false)
+	conn.tombstone.Store(false)
+
+	t.logger.Trace("New %s TCP connection: %s", direction, key)
+	t.updateState(key, conn, flags, direction == nftypes.Egress)
+
+	t.mutex.Lock()
+	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	// Lock individual connection for state update
-	conn.Lock()
-	t.updateState(conn, flags, true)
-	conn.Unlock()
-	conn.UpdateLastSeen()
+	t.sendEvent(nftypes.TypeStart, key, conn)
 }
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection
 func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) bool {
-	if !isValidFlagCombination(flags) {
-		return false
-	}
-
 	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
 
 	t.mutex.RLock()
@@ -159,21 +220,25 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 		return false
 	}
 
-	// Handle RST packets
+	// Handle RST flag specially - it always causes transition to closed
 	if flags&TCPRst != 0 {
-		conn.Lock()
-		if conn.IsEstablished() || conn.State == TCPStateSynSent || conn.State == TCPStateSynReceived {
-			conn.State = TCPStateClosed
-			conn.SetEstablished(false)
-			conn.Unlock()
+		if conn.IsTombstone() {
 			return true
 		}
+
+		conn.Lock()
+		conn.SetTombstone()
+		conn.State = TCPStateClosed
+		conn.SetEstablished(false)
 		conn.Unlock()
-		return false
+
+		t.logger.Trace("TCP connection reset: %s", key)
+		t.sendEvent(nftypes.TypeEnd, key, conn)
+		return true
 	}
 
 	conn.Lock()
-	t.updateState(conn, flags, false)
+	t.updateState(key, conn, flags, false)
 	conn.UpdateLastSeen()
 	isEstablished := conn.IsEstablished()
 	isValidState := t.isValidStateForFlags(conn.State, flags)
@@ -183,18 +248,15 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 }
 
 // updateState updates the TCP connection state based on flags
-func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound bool) {
-	// Handle RST flag specially - it always causes transition to closed
-	if flags&TCPRst != 0 {
-		conn.State = TCPStateClosed
-		conn.SetEstablished(false)
+func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, isOutbound bool) {
+	state := conn.State
+	defer func() {
+		if state != conn.State {
+			t.logger.Trace("TCP connection %s transitioned from %s to %s", key, state, conn.State)
+		}
+	}()
 
-		t.logger.Trace("TCP connection reset: %s:%d -> %s:%d",
-			conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
-		return
-	}
-
-	switch conn.State {
+	switch state {
 	case TCPStateNew:
 		if flags&TCPSyn != 0 && flags&TCPAck == 0 {
 			conn.State = TCPStateSynSent
@@ -241,6 +303,9 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 	case TCPStateFinWait2:
 		if flags&TCPFin != 0 {
 			conn.State = TCPStateTimeWait
+
+			t.logger.Trace("TCP connection %s completed", key)
+			t.sendEvent(nftypes.TypeEnd, key, conn)
 		}
 
 	case TCPStateClosing:
@@ -248,8 +313,8 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 			conn.State = TCPStateTimeWait
 			// Keep established = false from previous state
 
-			t.logger.Trace("TCP connection closed (simultaneous) - %s:%d -> %s:%d",
-				conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
+			t.logger.Trace("TCP connection %s closed (simultaneous)", key)
+			t.sendEvent(nftypes.TypeEnd, key, conn)
 		}
 
 	case TCPStateCloseWait:
@@ -260,17 +325,12 @@ func (t *TCPTracker) updateState(conn *TCPConnTrack, flags uint8, isOutbound boo
 	case TCPStateLastAck:
 		if flags&TCPAck != 0 {
 			conn.State = TCPStateClosed
+			conn.SetTombstone()
 
-			t.logger.Trace("TCP connection gracefully closed: %s:%d -> %s:%d",
-				conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
+			// Send close event for gracefully closed connections
+			t.sendEvent(nftypes.TypeEnd, key, conn)
+			t.logger.Trace("TCP connection %s closed gracefully", key)
 		}
-
-	case TCPStateTimeWait:
-		// Stay in TIME-WAIT for 2MSL before transitioning to closed
-		// This is handled by the cleanup routine
-
-		t.logger.Trace("TCP connection completed - %s:%d -> %s:%d",
-			conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
 	}
 }
 
@@ -331,6 +391,12 @@ func (t *TCPTracker) cleanup() {
 	defer t.mutex.Unlock()
 
 	for key, conn := range t.connections {
+		if conn.IsTombstone() {
+			// Clean up tombstoned connections without sending an event
+			delete(t.connections, key)
+			continue
+		}
+
 		var timeout time.Duration
 		switch {
 		case conn.State == TCPStateTimeWait:
@@ -341,14 +407,16 @@ func (t *TCPTracker) cleanup() {
 			timeout = TCPHandshakeTimeout
 		}
 
-		lastSeen := conn.GetLastSeen()
-		if time.Since(lastSeen) > timeout {
+		if conn.timeoutExceeded(timeout) {
 			// Return IPs to pool
-			t.ipPool.Put(conn.SourceIP)
-			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
-			t.logger.Trace("Cleaned up TCP connection: %s:%d -> %s:%d", conn.SourceIP, conn.SourcePort, conn.DestIP, conn.DestPort)
+			t.logger.Trace("Cleaned up timed-out TCP connection %s", &key)
+
+			// event already handled by state change
+			if conn.State != TCPStateTimeWait {
+				t.sendEvent(nftypes.TypeEnd, key, conn)
+			}
 		}
 	}
 }
@@ -360,10 +428,6 @@ func (t *TCPTracker) Close() {
 
 	// Clean up all remaining IPs
 	t.mutex.Lock()
-	for _, conn := range t.connections {
-		t.ipPool.Put(conn.SourceIP)
-		t.ipPool.Put(conn.DestIP)
-	}
 	t.connections = nil
 	t.mutex.Unlock()
 }
@@ -380,4 +444,17 @@ func isValidFlagCombination(flags uint8) bool {
 	}
 
 	return true
+}
+
+func (t *TCPTracker) sendEvent(typ nftypes.Type, key ConnKey, conn *TCPConnTrack) {
+	t.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:     conn.FlowId,
+		Type:       typ,
+		Direction:  conn.Direction,
+		Protocol:   nftypes.TCP,
+		SourceIP:   key.SrcIP,
+		DestIP:     key.DstIP,
+		SourcePort: key.SrcPort,
+		DestPort:   key.DstPort,
+	})
 }

@@ -5,7 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 const (
@@ -28,11 +31,11 @@ type UDPTracker struct {
 	cleanupTicker *time.Ticker
 	mutex         sync.RWMutex
 	done          chan struct{}
-	ipPool        *PreallocatedIPs
+	flowLogger    nftypes.FlowLogger
 }
 
 // NewUDPTracker creates a new UDP connection tracker
-func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
+func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftypes.FlowLogger) *UDPTracker {
 	if timeout == 0 {
 		timeout = DefaultUDPTimeout
 	}
@@ -43,7 +46,7 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
 		done:          make(chan struct{}),
-		ipPool:        NewPreallocatedIPs(),
+		flowLogger:    flowLogger,
 	}
 
 	go tracker.cleanupRoutine()
@@ -52,32 +55,57 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger) *UDPTracker {
 
 // TrackOutbound records an outbound UDP connection
 func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort); !exists {
+		// if (inverted direction) conn is not tracked, track this direction
+		t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Egress)
+	}
+}
+
+// TrackInbound records an inbound UDP connection
+func (t *UDPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Ingress)
+}
+
+func (t *UDPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) (ConnKey, bool) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 
-	t.mutex.Lock()
+	t.mutex.RLock()
 	conn, exists := t.connections[key]
-	if !exists {
-		srcIPCopy := t.ipPool.Get()
-		dstIPCopy := t.ipPool.Get()
-		copyIP(srcIPCopy, srcIP)
-		copyIP(dstIPCopy, dstIP)
+	t.mutex.RUnlock()
 
-		conn = &UDPConnTrack{
-			BaseConnTrack: BaseConnTrack{
-				SourceIP:   srcIPCopy,
-				DestIP:     dstIPCopy,
-				SourcePort: srcPort,
-				DestPort:   dstPort,
-			},
-		}
+	if exists {
 		conn.UpdateLastSeen()
-		t.connections[key] = conn
-
-		t.logger.Trace("New UDP connection: %v", conn)
+		return key, true
 	}
+
+	return key, false
+}
+
+// track is the common implementation for tracking both inbound and outbound connections
+func (t *UDPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, direction nftypes.Direction) {
+	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort)
+	if exists {
+		return
+	}
+
+	conn := &UDPConnTrack{
+		BaseConnTrack: BaseConnTrack{
+			FlowId:     uuid.New(),
+			Direction:  direction,
+			SourceIP:   key.SrcIP,
+			DestIP:     key.DstIP,
+			SourcePort: srcPort,
+			DestPort:   dstPort,
+		},
+	}
+	conn.UpdateLastSeen()
+
+	t.mutex.Lock()
+	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	conn.UpdateLastSeen()
+	t.logger.Trace("New %s UDP connection: %s", direction, key)
+	t.sendEvent(nftypes.TypeStart, key, conn)
 }
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
@@ -88,18 +116,13 @@ func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 	conn, exists := t.connections[key]
 	t.mutex.RUnlock()
 
-	if !exists {
+	if !exists || conn.timeoutExceeded(t.timeout) {
 		return false
 	}
 
-	if conn.timeoutExceeded(t.timeout) {
-		return false
-	}
+	conn.UpdateLastSeen()
 
-	return ValidateIPs(MakeIPAddr(srcIP), conn.DestIP) &&
-		ValidateIPs(MakeIPAddr(dstIP), conn.SourceIP) &&
-		conn.DestPort == srcPort &&
-		conn.SourcePort == dstPort
+	return true
 }
 
 // cleanupRoutine periodically removes stale connections
@@ -120,11 +143,10 @@ func (t *UDPTracker) cleanup() {
 
 	for key, conn := range t.connections {
 		if conn.timeoutExceeded(t.timeout) {
-			t.ipPool.Put(conn.SourceIP)
-			t.ipPool.Put(conn.DestIP)
 			delete(t.connections, key)
 
-			t.logger.Trace("Removed UDP connection %v (timeout)", conn)
+			t.logger.Trace("Removed UDP connection %s (timeout)", key)
+			t.sendEvent(nftypes.TypeEnd, key, conn)
 		}
 	}
 }
@@ -135,10 +157,6 @@ func (t *UDPTracker) Close() {
 	close(t.done)
 
 	t.mutex.Lock()
-	for _, conn := range t.connections {
-		t.ipPool.Put(conn.SourceIP)
-		t.ipPool.Put(conn.DestIP)
-	}
 	t.connections = nil
 	t.mutex.Unlock()
 }
@@ -150,14 +168,23 @@ func (t *UDPTracker) GetConnection(srcIP net.IP, srcPort uint16, dstIP net.IP, d
 
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 	conn, exists := t.connections[key]
-	if !exists {
-		return nil, false
-	}
-
-	return conn, true
+	return conn, exists
 }
 
 // Timeout returns the configured timeout duration for the tracker
 func (t *UDPTracker) Timeout() time.Duration {
 	return t.timeout
+}
+
+func (t *UDPTracker) sendEvent(typ nftypes.Type, key ConnKey, conn *UDPConnTrack) {
+	t.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:     conn.FlowId,
+		Type:       typ,
+		Direction:  conn.Direction,
+		Protocol:   nftypes.UDP,
+		SourceIP:   key.SrcIP,
+		DestIP:     key.DstIP,
+		SourcePort: key.SrcPort,
+		DestPort:   key.DstPort,
+	})
 }
