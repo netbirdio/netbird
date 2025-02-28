@@ -54,7 +54,7 @@ func (d Direction) String() string {
 }
 
 const (
-	DirectionUnknown = iota
+	DirectionUnknown = Direction(iota)
 	Ingress
 	Egress
 )

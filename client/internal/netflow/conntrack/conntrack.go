@@ -56,7 +56,7 @@ func (c *ConnTrack) Start() error {
 
 	config := &netlink.Config{
 		// TODO: ipv6
-		Groups: uint32(netfilter.NetlinkGroup(1)),
+		Groups: uint32(netfilter.NetlinkGroup(1) | netfilter.NetlinkGroup(2)),
 	}
 
 	conn, err := nfct.Dial(config)
@@ -68,8 +68,8 @@ func (c *ConnTrack) Start() error {
 	events := make(chan nfct.Event, defaultChannelSize)
 	errChan, err := conn.Listen(events, 1, []netfilter.NetlinkGroup{
 		netfilter.NetlinkGroup(1), // GroupOrigIPv4
+		netfilter.NetlinkGroup(2), // GroupDestIPv4
 	})
-
 	if err != nil {
 		if err := c.conn.Close(); err != nil {
 			log.Errorf("Error closing conntrack connection: %v", err)
@@ -190,7 +190,7 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 	case nfct.EventDestroy:
 		c.handleDestroyFlow(flow.ID, proto, srcIP, dstIP, srcPort, dstPort, icmpType, icmpCode)
 
-	case nfct.EventUpdate:
+	default:
 	}
 }
 
@@ -251,13 +251,21 @@ func (c *ConnTrack) getFlowID(conntrackID uint32) uuid.UUID {
 
 func (c *ConnTrack) inferDirection(srcIP, dstIP netip.Addr) nftypes.Direction {
 	wgaddr := c.iface.Address().IP
-	if wgaddr.Equal(srcIP.AsSlice()) {
+	wgnetwork := c.iface.Address().Network
+	switch {
+	case wgaddr.Equal(srcIP.AsSlice()):
 		return nftypes.Egress
-	}
-	if wgaddr.Equal(dstIP.AsSlice()) {
+	case wgaddr.Equal(dstIP.AsSlice()):
 		return nftypes.Ingress
+	case wgnetwork.Contains(srcIP.AsSlice()):
+		// netbird network -> resource network
+		return nftypes.Ingress
+	case wgnetwork.Contains(dstIP.AsSlice()):
+		// resource network -> netbird network
+		return nftypes.Egress
+
+		// TODO: handle site2site traffic
 	}
-	// TODO: handle routed networks
 
 	return nftypes.DirectionUnknown
 }
