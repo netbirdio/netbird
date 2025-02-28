@@ -203,35 +203,37 @@ func (c *ConnTrack) handleNewFlow(id uint32, proto nftypes.Protocol, srcIP, dstI
 	flowID := c.getFlowID(id)
 	direction := c.inferDirection(srcIP, dstIP)
 
-	c.sendEvent(nftypes.TypeStart, flowID, direction, proto, srcIP, dstIP, srcPort, dstPort)
 	log.Tracef("New %s %s connection: %s:%d -> %s:%d", direction, proto, srcIP, srcPort, dstIP, dstPort)
+	c.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:     flowID,
+		Type:       nftypes.TypeStart,
+		Direction:  direction,
+		Protocol:   proto,
+		SourceIP:   srcIP,
+		DestIP:     dstIP,
+		SourcePort: srcPort,
+		DestPort:   dstPort,
+		ICMPType:   icmpType,
+		ICMPCode:   icmpCode,
+	})
 }
 
 func (c *ConnTrack) handleDestroyFlow(id uint32, proto nftypes.Protocol, srcIP, dstIP netip.Addr, srcPort, dstPort uint16, icmpType, icmpCode uint8) {
 	flowID := c.getFlowID(id)
 	direction := c.inferDirection(srcIP, dstIP)
 
-	c.sendEvent(nftypes.TypeEnd, flowID, direction, proto, srcIP, dstIP, srcPort, dstPort)
 	log.Tracef("Ended %s %s connection: %s:%d -> %s:%d", direction, proto, srcIP, srcPort, dstIP, dstPort)
-}
-
-func (c *ConnTrack) sendEvent(
-	typ nftypes.Type,
-	flowID uuid.UUID,
-	direction nftypes.Direction,
-	protocol nftypes.Protocol,
-	srcIP, dstIP netip.Addr,
-	srcPort, dstPort uint16,
-) {
 	c.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:     flowID,
-		Type:       typ,
+		Type:       nftypes.TypeEnd,
 		Direction:  direction,
-		Protocol:   protocol,
+		Protocol:   proto,
 		SourceIP:   srcIP,
 		DestIP:     dstIP,
 		SourcePort: srcPort,
 		DestPort:   dstPort,
+		ICMPType:   icmpType,
+		ICMPCode:   icmpCode,
 	})
 }
 
@@ -245,15 +247,17 @@ func (c *ConnTrack) getFlowID(conntrackID uint32) uuid.UUID {
 func (c *ConnTrack) inferDirection(srcIP, dstIP netip.Addr) nftypes.Direction {
 	wgaddr := c.iface.Address().IP
 	wgnetwork := c.iface.Address().Network
+	src, dst := srcIP.AsSlice(), dstIP.AsSlice()
+
 	switch {
-	case wgaddr.Equal(srcIP.AsSlice()):
+	case wgaddr.Equal(src):
 		return nftypes.Egress
-	case wgaddr.Equal(dstIP.AsSlice()):
+	case wgaddr.Equal(dst):
 		return nftypes.Ingress
-	case wgnetwork.Contains(srcIP.AsSlice()):
+	case wgnetwork.Contains(src):
 		// netbird network -> resource network
 		return nftypes.Ingress
-	case wgnetwork.Contains(dstIP.AsSlice()):
+	case wgnetwork.Contains(dst):
 		// resource network -> netbird network
 		return nftypes.Egress
 
