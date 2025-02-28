@@ -582,7 +582,8 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 }
 
 func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP net.IP) {
-	switch d.decoded[1] {
+	transport := d.decoded[1]
+	switch transport {
 	case layers.LayerTypeUDP:
 		m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
 	case layers.LayerTypeTCP:
@@ -596,7 +597,8 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP net.IP) {
 }
 
 func (m *Manager) trackInbound(d *decoder, srcIP, dstIP net.IP) {
-	switch d.decoded[1] {
+	transport := d.decoded[1]
+	switch transport {
 	case layers.LayerTypeUDP:
 		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
 	case layers.LayerTypeTCP:
