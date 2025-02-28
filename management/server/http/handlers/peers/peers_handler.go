@@ -180,9 +180,12 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	nameFilter := r.URL.Query().Get("name")
+	ipFilter := r.URL.Query().Get("ip")
+
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	peers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, nameFilter, ipFilter)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

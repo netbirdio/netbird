@@ -10,6 +10,9 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
+
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -25,10 +28,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
-	"github.com/netbirdio/netbird/management/server/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	nbpeers "github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -45,8 +49,11 @@ func NewAPIHandler(
 	LocationManager geolocation.Geolocation,
 	authManager auth.Manager,
 	appMetrics telemetry.AppMetrics,
-	config *s.Config,
-	integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
+	integratedValidator integrated_validator.IntegratedValidator,
+	proxyController port_forwarding.Controller,
+	permissionsManager permissions.Manager,
+	peersManager nbpeers.Manager,
+) (http.Handler, error) {
 
 	authMiddleware := middleware.NewAuthMiddleware(
 		authManager,
@@ -66,7 +73,7 @@ func NewAPIHandler(
 
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter()); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
