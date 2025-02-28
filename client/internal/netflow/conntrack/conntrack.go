@@ -17,6 +17,8 @@ import (
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
+const defaultChannelSize = 100
+
 // ConnTrack manages kernel-based conntrack events
 type ConnTrack struct {
 	flowLogger nftypes.FlowLogger
@@ -63,8 +65,8 @@ func (c *ConnTrack) Start() error {
 	}
 	c.conn = conn
 
-	events := make(chan nfct.Event)
-	errChan, err := conn.Listen(events, 2, []netfilter.NetlinkGroup{
+	events := make(chan nfct.Event, defaultChannelSize)
+	errChan, err := conn.Listen(events, 1, []netfilter.NetlinkGroup{
 		netfilter.NetlinkGroup(1), // GroupOrigIPv4
 	})
 
