@@ -313,7 +313,9 @@ func (e *Engine) Stop() error {
 	e.close()
 
 	// stop flow manager after wg interface is gone
-	e.flowManager.Close()
+	if e.flowManager != nil {
+		e.flowManager.Close()
+	}
 
 	log.Infof("stopped Netbird Engine")
 
