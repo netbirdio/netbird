@@ -2,12 +2,13 @@ package listener
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"net"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
-	retryLimit = 100
+	retryLimit = 5000
 )
 
 var (
