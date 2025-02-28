@@ -332,7 +332,6 @@ func TestEngine_SSH(t *testing.T) {
 }
 
 func TestEngine_UpdateNetworkMap(t *testing.T) {
-	t.Setenv(envDisableLazyConn, "true")
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -766,6 +765,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 
 			engine.routeManager = mockRouteManager
 			engine.dnsServer = &dns.MockServer{}
+			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -962,6 +962,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 
 			engine.dnsServer = mockDNSServer
+			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface)
 
 			defer func() {
 				exitErr := engine.Stop()

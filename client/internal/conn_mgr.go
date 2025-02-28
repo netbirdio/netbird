@@ -71,7 +71,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 		return true
 	}
 
-	if e.lazyConnMgr == nil {
+	if !e.isStarted() {
 		conn.Open()
 		return
 	}
@@ -101,7 +101,7 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 		return nil, false
 	}
 
-	if e.lazyConnMgr == nil {
+	if !e.isStarted() {
 		return conn, true
 	}
 
@@ -119,7 +119,7 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	}
 	defer conn.Close()
 
-	if e.lazyConnMgr == nil {
+	if !e.isStarted() {
 		return
 	}
 
@@ -128,9 +128,10 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 }
 
 func (e *ConnMgr) Close() {
-	if e.lazyConnMgr == nil {
+	if !e.isStarted() {
 		return
 	}
+
 	e.ctxCancel()
 	e.lazyConnMgr.Close()
 	e.wg.Wait()
@@ -146,4 +147,8 @@ func (e *ConnMgr) receiveLazyConnEvents(ctx context.Context) {
 		}
 		e.peerStore.PeerConnOpen(peerID)
 	}
+}
+
+func (e *ConnMgr) isStarted() bool {
+	return e.lazyConnMgr != nil && e.ctxCancel != nil
 }
