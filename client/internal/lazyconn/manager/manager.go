@@ -24,6 +24,7 @@ func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
 		listenerMgr:  listener.NewManager(wgIface),
 		managedPeers: make(map[string]lazyconn.PeerConfig),
+		closeChan:    make(chan struct{}),
 	}
 	return m
 }
