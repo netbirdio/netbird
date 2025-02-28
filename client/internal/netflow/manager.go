@@ -23,11 +23,11 @@ type Manager struct {
 	publicKey      []byte
 }
 
-func NewManager(ctx context.Context, publicKey string) *Manager {
+func NewManager(ctx context.Context, publicKey []byte) *Manager {
 	return &Manager{
 		logger:    logger.New(ctx),
 		ctx:       ctx,
-		publicKey: []byte(publicKey),
+		publicKey: publicKey,
 	}
 }
 
