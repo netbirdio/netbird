@@ -2,6 +2,7 @@ package listener
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"net"
 )
 
@@ -10,7 +11,7 @@ const (
 )
 
 var (
-	listenIP      = net.ParseIP("127.0.0.254")
+	listenIP      = net.ParseIP("127.0.0.1")
 	ErrNoFreePort = fmt.Errorf("no free port")
 )
 
@@ -34,6 +35,7 @@ func (p *portAllocator) newConn() (*net.UDPConn, *net.UDPAddr, error) {
 
 		conn, err := net.ListenUDP("udp", addr)
 		if err != nil {
+			log.Errorf("failed to listen on port %d: %v", addr.Port, err)
 			// port could be allocated by another process
 			continue
 		}
