@@ -1,6 +1,8 @@
 package forwarder
 
 import (
+	"fmt"
+
 	wgdevice "golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -78,4 +80,10 @@ func (e *endpoint) AddHeader(*stack.PacketBuffer) {
 
 func (e *endpoint) ParseHeader(*stack.PacketBuffer) bool {
 	return true
+}
+
+type epID stack.TransportEndpointID
+
+func (i epID) String() string {
+	return fmt.Sprintf("%s:%d -> %s:%d", i.LocalAddress, i.LocalPort, i.RemoteAddress, i.RemotePort)
 }
