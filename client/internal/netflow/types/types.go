@@ -97,6 +97,8 @@ type FlowLogger interface {
 	StoreEvent(flowEvent EventFields)
 	// GetEvents returns all stored events
 	GetEvents() []*Event
+	// DeleteEvents deletes events from the store
+	DeleteEvents([]string)
 	// Close closes the logger
 	Close()
 	// Enable enables the flow logger receiver

@@ -30,7 +30,7 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 )
 
-var flowLogger = netflow.NewManager(context.Background()).GetLogger()
+var flowLogger = netflow.NewManager(context.Background(), []byte{}).GetLogger()
 
 type mocWGIface struct {
 	filter device.PacketFilter

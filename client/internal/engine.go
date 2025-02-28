@@ -216,6 +216,7 @@ func NewEngine(
 	statusRecorder *peer.Status,
 	checks []*mgmProto.Checks,
 ) *Engine {
+	publicKey := config.WgPrivateKey.PublicKey()
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -234,7 +235,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		flowManager:    netflow.NewManager(clientCtx),
+		flowManager:    netflow.NewManager(clientCtx, publicKey[:]),
 	}
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
