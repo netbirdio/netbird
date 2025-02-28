@@ -63,6 +63,7 @@ enum Type {
   TYPE_UNKNOWN = 0;
   TYPE_START = 1;
   TYPE_END = 2;
+  TYPE_DROP = 3;
 }
 
 // Flow direction

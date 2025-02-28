@@ -656,8 +656,25 @@ func (m *Manager) dropFilter(packetData []byte) bool {
 // If it returns true, the packet should be dropped.
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
 	if m.peerACLsBlock(srcIP, packetData, m.incomingRules, d) {
-		m.logger.Trace("Dropping local packet (ACL denied): src=%s dst=%s",
-			srcIP, dstIP)
+		srcIP, _ := netip.AddrFromSlice(srcIP)
+		dstIP, _ := netip.AddrFromSlice(dstIP)
+		_, pnum := getProtocolFromPacket(d)
+		srcPort, dstPort := getPortsFromPacket(d)
+
+		m.logger.Trace("Dropping local packet (ACL denied): proto=%v src=%s:%d dst=%s:%d",
+			pnum, srcIP, srcPort, dstIP, dstPort)
+
+		m.flowLogger.StoreEvent(nftypes.EventFields{
+			FlowID:     uuid.New(),
+			Type:       nftypes.TypeDrop,
+			Direction:  nftypes.Ingress,
+			Protocol:   pnum,
+			SourceIP:   srcIP,
+			DestIP:     dstIP,
+			SourcePort: srcPort,
+			DestPort:   dstPort,
+			// TODO: icmp type/code
+		})
 		return true
 	}
 
@@ -706,12 +723,27 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 		return false
 	}
 
-	proto := getProtocolFromPacket(d)
+	proto, pnum := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
 
 	if !m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort) {
-		m.logger.Trace("Dropping routed packet (ACL denied): src=%s:%d dst=%s:%d proto=%v",
-			srcIP, srcPort, dstIP, dstPort, proto)
+		srcIP, _ := netip.AddrFromSlice(srcIP)
+		dstIP, _ := netip.AddrFromSlice(dstIP)
+
+		m.logger.Trace("Dropping routed packet (ACL denied): proto=%v src=%s:%d dst=%s:%d",
+			pnum, srcIP, srcPort, dstIP, dstPort)
+
+		m.flowLogger.StoreEvent(nftypes.EventFields{
+			FlowID:     uuid.New(),
+			Type:       nftypes.TypeDrop,
+			Direction:  nftypes.Ingress,
+			Protocol:   pnum,
+			SourceIP:   srcIP,
+			DestIP:     dstIP,
+			SourcePort: srcPort,
+			DestPort:   dstPort,
+			// TODO: icmp type/code
+		})
 		return true
 	}
 
@@ -724,16 +756,16 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 	return true
 }
 
-func getProtocolFromPacket(d *decoder) firewall.Protocol {
+func getProtocolFromPacket(d *decoder) (firewall.Protocol, nftypes.Protocol) {
 	switch d.decoded[1] {
 	case layers.LayerTypeTCP:
-		return firewall.ProtocolTCP
+		return firewall.ProtocolTCP, nftypes.TCP
 	case layers.LayerTypeUDP:
-		return firewall.ProtocolUDP
+		return firewall.ProtocolUDP, nftypes.UDP
 	case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-		return firewall.ProtocolICMP
+		return firewall.ProtocolICMP, nftypes.ICMP
 	default:
-		return firewall.ProtocolALL
+		return firewall.ProtocolALL, nftypes.ProtocolUnknown
 	}
 }
 

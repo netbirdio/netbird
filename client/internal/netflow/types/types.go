@@ -35,9 +35,10 @@ func (p Protocol) String() string {
 type Type int
 
 const (
-	TypeUnknown = iota
+	TypeUnknown = Type(iota)
 	TypeStart
 	TypeEnd
+	TypeDrop
 )
 
 type Direction int
