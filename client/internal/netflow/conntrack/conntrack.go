@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/mdlayher/netlink"
 	log "github.com/sirupsen/logrus"
 	nfct "github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
@@ -54,12 +53,7 @@ func (c *ConnTrack) Start() error {
 
 	log.Info("Starting conntrack event listening")
 
-	config := &netlink.Config{
-		// TODO: ipv6
-		Groups: uint32(netfilter.NetlinkGroup(1) | netfilter.NetlinkGroup(2)),
-	}
-
-	conn, err := nfct.Dial(config)
+	conn, err := nfct.Dial(nil)
 	if err != nil {
 		return fmt.Errorf("dial conntrack: %w", err)
 	}
@@ -67,9 +61,10 @@ func (c *ConnTrack) Start() error {
 
 	events := make(chan nfct.Event, defaultChannelSize)
 	errChan, err := conn.Listen(events, 1, []netfilter.NetlinkGroup{
-		netfilter.NetlinkGroup(1), // GroupOrigIPv4
-		netfilter.NetlinkGroup(2), // GroupDestIPv4
+		netfilter.GroupCTNew,
+		netfilter.GroupCTDestroy,
 	})
+
 	if err != nil {
 		if err := c.conn.Close(); err != nil {
 			log.Errorf("Error closing conntrack connection: %v", err)
@@ -189,8 +184,6 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 
 	case nfct.EventDestroy:
 		c.handleDestroyFlow(flow.ID, proto, srcIP, dstIP, srcPort, dstPort, icmpType, icmpCode)
-
-	default:
 	}
 }
 
