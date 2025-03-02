@@ -15,7 +15,6 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
-	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
@@ -23,6 +22,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -40,8 +40,6 @@ import (
 )
 
 const (
-	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
-	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
@@ -50,7 +48,7 @@ const (
 type userLoggedInOnce bool
 
 func cacheEntryExpiration() time.Duration {
-	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
+	r := rand.Intn(int(nbcache.DefaultIDPCacheExpirationMax.Milliseconds()-nbcache.DefaultIDPCacheExpirationMin.Milliseconds())) + int(nbcache.DefaultIDPCacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
 }
 
@@ -200,14 +198,8 @@ func BuildManager(
 		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
-	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
-	goCacheStore := cacheStore.NewGoCache(goCacheClient)
-	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
-
-	// TODO: what is max expiration time? Should be quite long
-	am.externalCacheManager = cache.New[*idp.UserData](
-		cacheStore.NewGoCache(goCacheClient),
-	)
+	cacheStore := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	am.externalCacheManager, am.cacheManager = nbcache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](am.loadAccount, cacheStore)
 
 	if !isNil(am.idpManager) {
 		go func() {

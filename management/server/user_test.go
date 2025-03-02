@@ -7,19 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eko/gocache/v3/cache"
-	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
 
+	"golang.org/x/exp/maps"
+
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/util"
-	"golang.org/x/exp/maps"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
-	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -517,9 +516,9 @@ func TestUser_InviteNewUser(t *testing.T) {
 		cacheLoading: map[string]chan struct{}{},
 	}
 
-	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
-	goCacheStore := cacheStore.NewGoCache(goCacheClient)
-	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
+	cs := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+
+	_, am.cacheManager = nbcache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](am.loadAccount, cs)
 
 	mockData := []*idp.UserData{
 		{
@@ -1092,13 +1091,10 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		eventStore:   &activity.InMemoryEventStore{},
 		idpManager:   &idp.GoogleWorkspaceManager{}, // empty manager
 		cacheLoading: map[string]chan struct{}{},
-		cacheManager: cache.New[[]*idp.UserData](
-			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
-		),
-		externalCacheManager: cache.New[*idp.UserData](
-			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
-		),
 	}
+
+	cacheStore := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	am.externalCacheManager, am.cacheManager = nbcache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](am.loadAccount, cacheStore)
 
 	// pretend that we receive mockUserID from IDP
 	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}})
