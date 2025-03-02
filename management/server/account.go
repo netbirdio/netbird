@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eko/gocache/v3/cache"
-	cacheStore "github.com/eko/gocache/v3/store"
+	"github.com/eko/gocache/lib/v4/cache"
+	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
@@ -625,18 +625,18 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, u
 	return nil
 }
 
-func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID interface{}) ([]*idp.UserData, error) {
+func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any) ([]*idp.UserData, []cacheStore.Option, error) {
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
 	account, err := am.Store.GetAccount(ctx, accountIDString)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	userData, err := am.idpManager.GetAccount(ctx, accountIDString)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	log.WithContext(ctx).Debugf("%d entries received from IdP management", len(userData))
 
@@ -657,7 +657,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID inte
 		}
 		matchedUserData = append(matchedUserData, datum)
 	}
-	return matchedUserData, nil
+	return matchedUserData, []cacheStore.Option{cacheStore.WithExpiration(cacheEntryExpiration())}, nil
 }
 
 func (am *DefaultAccountManager) lookupUserInCacheByEmail(ctx context.Context, email string, accountID string) (*idp.UserData, error) {

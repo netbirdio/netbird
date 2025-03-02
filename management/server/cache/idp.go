@@ -3,8 +3,8 @@ package cache
 import (
 	"time"
 
-	"github.com/eko/gocache/v3/cache"
-	"github.com/eko/gocache/v3/store"
+	"github.com/eko/gocache/lib/v4/cache"
+	"github.com/eko/gocache/lib/v4/store"
 )
 
 const (

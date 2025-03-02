@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/eko/gocache/v3/cache"
+	"github.com/eko/gocache/lib/v4/cache"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
