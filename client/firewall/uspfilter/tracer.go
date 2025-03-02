@@ -353,11 +353,16 @@ func (m *Manager) handleNativeRouter(trace *PacketTrace) *PacketTrace {
 func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP net.IP) *PacketTrace {
 	proto, _ := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
-	allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	id, allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
 
-	msg := "Allowed by route ACLs"
+	strId := string(id)
+	if id == nil {
+		strId = "implicit"
+	}
+
+	msg := fmt.Sprintf("Allowed by route ACLs (%s)", strId)
 	if !allowed {
-		msg = "Blocked by route ACLs"
+		msg = fmt.Sprintf("Blocked by route ACLs (%s)", strId)
 	}
 	trace.AddResult(StageRouteACL, msg, allowed)
 

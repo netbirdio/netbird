@@ -96,9 +96,8 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
-	comment := "Test rule"
 
-	rule, err := m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
+	rule, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -130,9 +129,8 @@ func TestManagerDeleteRule(t *testing.T) {
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
-	comment := "Test rule 2"
 
-	rule2, err := m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
+	rule2, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -250,9 +248,8 @@ func TestManagerReset(t *testing.T) {
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
-	comment := "Test rule"
 
-	_, err = m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
+	_, err = m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -296,9 +293,8 @@ func TestNotMatchByIP(t *testing.T) {
 	ip := net.ParseIP("0.0.0.0")
 	proto := fw.ProtocolUDP
 	action := fw.ActionAccept
-	comment := "Test rule"
 
-	_, err = m.AddPeerFiltering(ip, proto, nil, nil, action, "", comment)
+	_, err = m.AddPeerFiltering(nil, ip, proto, nil, nil, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -498,7 +494,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
-				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
+				_, err = manager.AddPeerFiltering(nil, ip, "tcp", nil, port, fw.ActionAccept, "")
 
 				require.NoError(t, err, "failed to add rule")
 			}

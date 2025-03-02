@@ -221,6 +221,7 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) error {
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
 	if _, err := m.AddRouteFiltering(
+		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
 		wgPrefix,
 		firewall.ProtocolALL,
@@ -351,21 +352,21 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
 func (m *Manager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 	_ string,
-	comment string,
 ) ([]firewall.Rule, error) {
 	r := PeerRule{
 		id:        uuid.New().String(),
+		mgmtId:    id,
 		ip:        ip,
 		ipLayer:   layers.LayerTypeIPv6,
 		matchByIP: true,
 		drop:      action == firewall.ActionDrop,
-		comment:   comment,
 	}
 	if ipNormalized := ip.To4(); ipNormalized != nil {
 		r.ipLayer = layers.LayerTypeIPv4
@@ -403,6 +404,7 @@ func (m *Manager) AddPeerFiltering(
 }
 
 func (m *Manager) AddRouteFiltering(
+	id []byte,
 	sources []netip.Prefix,
 	destination netip.Prefix,
 	proto firewall.Protocol,
@@ -411,7 +413,7 @@ func (m *Manager) AddRouteFiltering(
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	if m.nativeRouter && m.nativeFirewall != nil {
-		return m.nativeFirewall.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+		return m.nativeFirewall.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 	}
 
 	m.mutex.Lock()
@@ -419,7 +421,9 @@ func (m *Manager) AddRouteFiltering(
 
 	ruleID := uuid.New().String()
 	rule := RouteRule{
+		// TODO: consolidate these IDs
 		id:          ruleID,
+		mgmtId:      id,
 		sources:     sources,
 		destination: destination,
 		proto:       proto,
@@ -725,10 +729,10 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 
 	proto, pnum := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
+	srcAddr, _ := netip.AddrFromSlice(srcIP)
+	dstAddr, _ := netip.AddrFromSlice(dstIP)
 
-	if !m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort) {
-		srcIP, _ := netip.AddrFromSlice(srcIP)
-		dstIP, _ := netip.AddrFromSlice(dstIP)
+	if id, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort); !pass {
 
 		m.logger.Trace("Dropping routed packet (ACL denied): proto=%v src=%s:%d dst=%s:%d",
 			pnum, srcIP, srcPort, dstIP, dstPort)
@@ -736,10 +740,11 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
+			RuleID:     id,
 			Direction:  nftypes.Ingress,
 			Protocol:   pnum,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
+			SourceIP:   srcAddr,
+			DestIP:     dstAddr,
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 			// TODO: icmp type/code
@@ -914,7 +919,7 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *de
 }
 
 // routeACLsPass returns treu if the packet is allowed by the route ACLs
-func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, srcPort, dstPort uint16) ([]byte, bool) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -923,10 +928,10 @@ func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, sr
 
 	for _, rule := range m.routeRules {
 		if m.ruleMatches(rule, srcAddr, dstAddr, proto, srcPort, dstPort) {
-			return rule.action == firewall.ActionAccept
+			return rule.mgmtId, rule.action == firewall.ActionAccept
 		}
 	}
-	return false
+	return nil, false
 }
 
 func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
@@ -975,7 +980,6 @@ func (m *Manager) AddUDPPacketHook(
 		protoLayer: layers.LayerTypeUDP,
 		dPort:      &firewall.Port{Values: []uint16{dPort}},
 		ipLayer:    layers.LayerTypeIPv6,
-		comment:    fmt.Sprintf("UDP Hook direction: %v, ip:%v, dport:%d", in, ip, dPort),
 		udpHook:    hook,
 	}
 

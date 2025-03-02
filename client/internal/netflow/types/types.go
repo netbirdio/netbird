@@ -69,6 +69,7 @@ type Event struct {
 type EventFields struct {
 	FlowID     uuid.UUID
 	Type       Type
+	RuleID     []byte
 	Direction  Direction
 	Protocol   Protocol
 	SourceIP   netip.Addr

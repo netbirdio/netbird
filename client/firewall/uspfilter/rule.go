@@ -12,6 +12,7 @@ import (
 // PeerRule to handle management of rules
 type PeerRule struct {
 	id         string
+	mgmtId     []byte
 	ip         net.IP
 	ipLayer    gopacket.LayerType
 	matchByIP  bool
@@ -19,7 +20,6 @@ type PeerRule struct {
 	sPort      *firewall.Port
 	dPort      *firewall.Port
 	drop       bool
-	comment    string
 
 	udpHook func([]byte) bool
 }
@@ -31,6 +31,7 @@ func (r *PeerRule) ID() string {
 
 type RouteRule struct {
 	id          string
+	mgmtId      []byte
 	sources     []netip.Prefix
 	destination netip.Prefix
 	proto       firewall.Protocol

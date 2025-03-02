@@ -93,8 +93,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			stateful: false,
 			setupFunc: func(m *Manager) {
 				// Single rule allowing all traffic
-				_, err := m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolALL, nil, nil,
-					fw.ActionAccept, "", "allow all")
+				_, err := m.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolALL, nil, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			},
 			desc: "Baseline: Single 'allow all' rule without connection tracking",
@@ -114,10 +113,15 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Add explicit rules matching return traffic pattern
 				for i := 0; i < 1000; i++ { // Simulate realistic ruleset size
 					ip := generateRandomIPs(1)[0]
-					_, err := m.AddPeerFiltering(ip, fw.ProtocolTCP,
+					_, err := m.AddPeerFiltering(
+						nil,
+						ip,
+						fw.ProtocolTCP,
 						&fw.Port{Values: []uint16{uint16(1024 + i)}},
 						&fw.Port{Values: []uint16{80}},
-						fw.ActionAccept, "", "explicit return")
+						fw.ActionAccept,
+						"",
+					)
 					require.NoError(b, err)
 				}
 			},
@@ -128,8 +132,15 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			stateful: true,
 			setupFunc: func(m *Manager) {
 				// Add some basic rules but rely on state for established connections
-				_, err := m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP, nil, nil,
-					fw.ActionDrop, "", "default drop")
+				_, err := m.AddPeerFiltering(
+					nil,
+					net.ParseIP("0.0.0.0"),
+					fw.ProtocolTCP,
+					nil,
+					nil,
+					fw.ActionDrop,
+					"",
+				)
 				require.NoError(b, err)
 			},
 			desc: "Connection tracking with established connections",
@@ -590,10 +601,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 			// Setup initial state based on scenario
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
-				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []uint16{80}},
-					nil,
-					fw.ActionAccept, "", "return traffic")
+				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			}
 
@@ -681,10 +689,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 			// Setup initial state based on scenario
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
-				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []uint16{80}},
-					nil,
-					fw.ActionAccept, "", "return traffic")
+				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			}
 
@@ -799,10 +804,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 
 			// Setup initial state based on scenario
 			if sc.rules {
-				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []uint16{80}},
-					nil,
-					fw.ActionAccept, "", "return traffic")
+				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			}
 
@@ -886,10 +888,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 			})
 
 			if sc.rules {
-				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []uint16{80}},
-					nil,
-					fw.ActionAccept, "", "return traffic")
+				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			}
 
@@ -1033,14 +1032,7 @@ func BenchmarkRouteACLs(b *testing.B) {
 	}
 
 	for _, r := range rules {
-		_, err := manager.AddRouteFiltering(
-			r.sources,
-			r.dest,
-			r.proto,
-			nil,
-			r.port,
-			fw.ActionAccept,
-		)
+		_, err := manager.AddRouteFiltering(nil, r.sources, r.dest, r.proto, nil, r.port, fw.ActionAccept)
 		if err != nil {
 			b.Fatal(err)
 		}

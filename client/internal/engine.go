@@ -495,12 +495,12 @@ func (e *Engine) initFirewall() error {
 
 	// this rule is static and will be torn down on engine down by the firewall manager
 	if _, err := e.firewall.AddPeerFiltering(
+		nil,
 		net.IP{0, 0, 0, 0},
 		firewallManager.ProtocolUDP,
 		nil,
 		&port,
 		firewallManager.ActionAccept,
-		"",
 		"",
 	); err != nil {
 		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
@@ -525,6 +525,7 @@ func (e *Engine) blockLanAccess() {
 	v4 := netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 	for _, network := range toBlock {
 		if _, err := e.firewall.AddRouteFiltering(
+			nil,
 			[]netip.Prefix{v4},
 			network,
 			firewallManager.ProtocolALL,
