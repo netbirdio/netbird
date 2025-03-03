@@ -17,7 +17,6 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
-	"github.com/netbirdio/netbird/client/internal/acl/id"
 )
 
 const (
