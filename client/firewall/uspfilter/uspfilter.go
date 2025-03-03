@@ -729,10 +729,10 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 
 	proto, pnum := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
-	srcAddr, _ := netip.AddrFromSlice(srcIP)
-	dstAddr, _ := netip.AddrFromSlice(dstIP)
 
 	if id, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort); !pass {
+		srcAddr, _ := netip.AddrFromSlice(srcIP)
+		dstAddr, _ := netip.AddrFromSlice(dstIP)
 
 		m.logger.Trace("Dropping routed packet (ACL denied): proto=%v src=%s:%d dst=%s:%d",
 			pnum, srcIP, srcPort, dstIP, dstPort)
