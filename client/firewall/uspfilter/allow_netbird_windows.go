@@ -3,6 +3,7 @@ package uspfilter
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os/exec"
 	"syscall"
 	"time"
