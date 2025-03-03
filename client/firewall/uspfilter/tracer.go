@@ -317,12 +317,19 @@ func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *
 	}
 
 	trace.AddResult(StageRouting, "Packet destined for local delivery", true)
-	blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
 
-	msg := "Allowed by peer ACL rules"
-	if blocked {
-		msg = "Blocked by peer ACL rules"
+	ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+
+	strRuleId := "implicit"
+	if ruleId != nil {
+		strRuleId = string(ruleId)
 	}
+
+	msg := fmt.Sprintf("Allowed by peer ACL rules (%s)", strRuleId)
+	if blocked {
+		msg = fmt.Sprintf("Blocked by peer ACL rules (%s)", strRuleId)
+	}
+
 	trace.AddResult(StagePeerACL, msg, !blocked)
 
 	if m.netstack {

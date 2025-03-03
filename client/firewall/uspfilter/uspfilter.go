@@ -659,22 +659,23 @@ func (m *Manager) dropFilter(packetData []byte) bool {
 // handleLocalTraffic handles local traffic.
 // If it returns true, the packet should be dropped.
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
-	if m.peerACLsBlock(srcIP, packetData, m.incomingRules, d) {
-		srcIP, _ := netip.AddrFromSlice(srcIP)
-		dstIP, _ := netip.AddrFromSlice(dstIP)
+	if ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d); blocked {
+		srcAddr, _ := netip.AddrFromSlice(srcIP)
+		dstAddr, _ := netip.AddrFromSlice(dstIP)
 		_, pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
 
-		m.logger.Trace("Dropping local packet (ACL denied): proto=%v src=%s:%d dst=%s:%d",
-			pnum, srcIP, srcPort, dstIP, dstPort)
+		m.logger.Trace("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			ruleId, pnum, srcAddr, srcPort, dstAddr, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
+			RuleID:     ruleId,
 			Direction:  nftypes.Ingress,
 			Protocol:   pnum,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
+			SourceIP:   srcAddr,
+			DestIP:     dstAddr,
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 			// TODO: icmp type/code
@@ -843,25 +844,25 @@ func (m *Manager) isSpecialICMP(d *decoder) bool {
 		icmpType == layers.ICMPv4TypeTimeExceeded
 }
 
-func (m *Manager) peerACLsBlock(srcIP net.IP, packetData []byte, rules map[string]RuleSet, d *decoder) bool {
+func (m *Manager) peerACLsBlock(srcIP net.IP, packetData []byte, rules map[string]RuleSet, d *decoder) ([]byte, bool) {
 	if m.isSpecialICMP(d) {
-		return false
+		return nil, false
 	}
 
-	if filter, ok := validateRule(srcIP, packetData, rules[srcIP.String()], d); ok {
-		return filter
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[srcIP.String()], d); ok {
+		return mgmtId, filter
 	}
 
-	if filter, ok := validateRule(srcIP, packetData, rules["0.0.0.0"], d); ok {
-		return filter
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules["0.0.0.0"], d); ok {
+		return mgmtId, filter
 	}
 
-	if filter, ok := validateRule(srcIP, packetData, rules["::"], d); ok {
-		return filter
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules["::"], d); ok {
+		return mgmtId, filter
 	}
 
 	// Default policy: DROP ALL
-	return true
+	return nil, true
 }
 
 func portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
@@ -881,7 +882,7 @@ func portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
 	return false
 }
 
-func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *decoder) (bool, bool) {
+func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *decoder) ([]byte, bool, bool) {
 	payloadLayer := d.decoded[1]
 	for _, rule := range rules {
 		if rule.matchByIP && !ip.Equal(rule.ip) {
@@ -889,7 +890,7 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *de
 		}
 
 		if rule.protoLayer == layerTypeAll {
-			return rule.drop, true
+			return rule.mgmtId, rule.drop, true
 		}
 
 		if payloadLayer != rule.protoLayer {
@@ -899,23 +900,23 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *de
 		switch payloadLayer {
 		case layers.LayerTypeTCP:
 			if portsMatch(rule.sPort, uint16(d.tcp.SrcPort)) && portsMatch(rule.dPort, uint16(d.tcp.DstPort)) {
-				return rule.drop, true
+				return rule.mgmtId, rule.drop, true
 			}
 		case layers.LayerTypeUDP:
 			// if rule has UDP hook (and if we are here we match this rule)
 			// we ignore rule.drop and call this hook
 			if rule.udpHook != nil {
-				return rule.udpHook(packetData), true
+				return rule.mgmtId, rule.udpHook(packetData), true
 			}
 
 			if portsMatch(rule.sPort, uint16(d.udp.SrcPort)) && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
-				return rule.drop, true
+				return rule.mgmtId, rule.drop, true
 			}
 		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-			return rule.drop, true
+			return rule.mgmtId, rule.drop, true
 		}
 	}
-	return false, false
+	return nil, false, false
 }
 
 // routeACLsPass returns treu if the packet is allowed by the route ACLs
