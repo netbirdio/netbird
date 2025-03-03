@@ -58,7 +58,7 @@ func TestTCPStateMachine(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				isValid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, tt.flags)
+				isValid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, tt.flags, 0)
 				require.Equal(t, !tt.wantDrop, isValid, tt.desc)
 			})
 		}
@@ -76,17 +76,17 @@ func TestTCPStateMachine(t *testing.T) {
 					t.Helper()
 
 					// Send initial SYN
-					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn)
+					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn, 0)
 
 					// Receive SYN-ACK
-					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPSyn|TCPAck)
+					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPSyn|TCPAck, 0)
 					require.True(t, valid, "SYN-ACK should be allowed")
 
 					// Send ACK
-					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck)
+					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck, 0)
 
 					// Test data transfer
-					valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPPush|TCPAck)
+					valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPPush|TCPAck, 0)
 					require.True(t, valid, "Data should be allowed after handshake")
 				},
 			},
@@ -99,18 +99,18 @@ func TestTCPStateMachine(t *testing.T) {
 					establishConnection(t, tracker, srcIP, dstIP, srcPort, dstPort)
 
 					// Send FIN
-					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPFin|TCPAck)
+					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPFin|TCPAck, 0)
 
 					// Receive ACK for FIN
-					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPAck)
+					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPAck, 0)
 					require.True(t, valid, "ACK for FIN should be allowed")
 
 					// Receive FIN from other side
-					valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPFin|TCPAck)
+					valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPFin|TCPAck, 0)
 					require.True(t, valid, "FIN should be allowed")
 
 					// Send final ACK
-					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck)
+					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck, 0)
 				},
 			},
 			{
@@ -122,7 +122,7 @@ func TestTCPStateMachine(t *testing.T) {
 					establishConnection(t, tracker, srcIP, dstIP, srcPort, dstPort)
 
 					// Receive RST
-					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst)
+					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst, 0)
 					require.True(t, valid, "RST should be allowed for established connection")
 
 					// Connection is logically dead but we don't enforce blocking subsequent packets
@@ -138,13 +138,13 @@ func TestTCPStateMachine(t *testing.T) {
 					establishConnection(t, tracker, srcIP, dstIP, srcPort, dstPort)
 
 					// Both sides send FIN+ACK
-					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPFin|TCPAck)
-					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPFin|TCPAck)
+					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPFin|TCPAck, 0)
+					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPFin|TCPAck, 0)
 					require.True(t, valid, "Simultaneous FIN should be allowed")
 
 					// Both sides send final ACK
-					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck)
-					valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPAck)
+					tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck, 0)
+					valid = tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPAck, 0)
 					require.True(t, valid, "Final ACKs should be allowed")
 				},
 			},
@@ -181,12 +181,12 @@ func TestRSTHandling(t *testing.T) {
 			name: "RST in established",
 			setupState: func() {
 				// Establish connection first
-				tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn)
-				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPSyn|TCPAck)
-				tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck)
+				tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn, 0)
+				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPSyn|TCPAck, 0)
+				tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck, 0)
 			},
 			sendRST: func() {
-				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst)
+				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst, 0)
 			},
 			wantValid: true,
 			desc:      "Should accept RST for established connection",
@@ -195,7 +195,7 @@ func TestRSTHandling(t *testing.T) {
 			name:       "RST without connection",
 			setupState: func() {},
 			sendRST: func() {
-				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst)
+				tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst, 0)
 			},
 			wantValid: false,
 			desc:      "Should reject RST without connection",
@@ -228,12 +228,12 @@ func TestRSTHandling(t *testing.T) {
 func establishConnection(t *testing.T, tracker *TCPTracker, srcIP, dstIP netip.Addr, srcPort, dstPort uint16) {
 	t.Helper()
 
-	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn)
+	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn, 0)
 
-	valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPSyn|TCPAck)
+	valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPSyn|TCPAck, 0)
 	require.True(t, valid, "SYN-ACK should be allowed")
 
-	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck)
+	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPAck, 0)
 }
 
 func BenchmarkTCPTracker(b *testing.B) {
@@ -246,7 +246,7 @@ func BenchmarkTCPTracker(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn)
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn, 0)
 		}
 	})
 
@@ -259,12 +259,12 @@ func BenchmarkTCPTracker(b *testing.B) {
 
 		// Pre-populate some connections
 		for i := 0; i < 1000; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn)
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn, 0)
 		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000), TCPAck)
+			tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000), TCPAck, 0)
 		}
 	})
 
@@ -279,9 +279,9 @@ func BenchmarkTCPTracker(b *testing.B) {
 			i := 0
 			for pb.Next() {
 				if i%2 == 0 {
-					tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn)
+					tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn, 0)
 				} else {
-					tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%65535), TCPAck)
+					tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%65535), TCPAck, 0)
 				}
 				i++
 			}
@@ -299,7 +299,7 @@ func BenchmarkCleanup(b *testing.B) {
 		srcIP := netip.MustParseAddr("192.168.1.1")
 		dstIP := netip.MustParseAddr("192.168.1.2")
 		for i := 0; i < 10000; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn)
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn, 0)
 		}
 
 		// Wait for connections to expire

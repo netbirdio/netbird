@@ -13,13 +13,15 @@ import (
 
 // BaseConnTrack provides common fields and locking for all connection types
 type BaseConnTrack struct {
-	FlowId     uuid.UUID
-	Direction  nftypes.Direction
-	SourceIP   netip.Addr
-	DestIP     netip.Addr
-	SourcePort uint16
-	DestPort   uint16
-	lastSeen   atomic.Int64
+	FlowId    uuid.UUID
+	Direction nftypes.Direction
+	SourceIP  netip.Addr
+	DestIP    netip.Addr
+	lastSeen  atomic.Int64
+	PacketsTx atomic.Uint64
+	PacketsRx atomic.Uint64
+	BytesTx   atomic.Uint64
+	BytesRx   atomic.Uint64
 }
 
 // these small methods will be inlined by the compiler
@@ -27,6 +29,17 @@ type BaseConnTrack struct {
 // UpdateLastSeen safely updates the last seen timestamp
 func (b *BaseConnTrack) UpdateLastSeen() {
 	b.lastSeen.Store(time.Now().UnixNano())
+}
+
+// UpdateCounters safely updates the packet and byte counters
+func (b *BaseConnTrack) UpdateCounters(direction nftypes.Direction, bytes int) {
+	if direction == nftypes.Egress {
+		b.PacketsTx.Add(1)
+		b.BytesTx.Add(uint64(bytes))
+	} else {
+		b.PacketsRx.Add(1)
+		b.BytesRx.Add(uint64(bytes))
+	}
 }
 
 // GetLastSeen safely gets the last seen timestamp
