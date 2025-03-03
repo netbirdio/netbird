@@ -332,16 +332,13 @@ func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *
 
 	// Handle netstack mode
 	if m.netstack {
-		if !m.localForwarding {
-			// In netstack mode with local forwarding disabled, the packet
-			// goes to the virtual stack for processing
+		switch {
+		case !m.localForwarding:
 			trace.AddResult(StageCompleted, "Packet sent to virtual stack", true)
-		} else if m.forwarder != nil {
-			// In netstack mode with local forwarding enabled, the packet
-			// is forwarded to localhost
+		case m.forwarder != nil:
 			m.addForwardingResult(trace, "proxy-local", "127.0.0.1", true)
 			trace.AddResult(StageCompleted, msgProcessingCompleted, true)
-		} else {
+		default:
 			trace.AddResult(StageCompleted, "Packet dropped - forwarder not initialized", false)
 		}
 		return true
