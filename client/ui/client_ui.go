@@ -593,21 +593,21 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Netbird Admin Panel")
 	systray.AddSeparator()
 
-	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
-	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", "Allow SSH connections", false)
-	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", "Connect automatically when the service starts", false)
-	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", "Enable post-quantum security via Rosenpass", false)
-	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", "Enable notifications", false)
-	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
-	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", "Create and open debug information bundle")
+	s.mSettings = systray.AddMenuItem("Settings", settingsMenuDescr)
+	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
+	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
+	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
+	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
+	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
+	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
 
 	s.exitNodeMu.Lock()
-	s.mExitNode = systray.AddMenuItem("Exit Node", "Select exit node for routing traffic")
+	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
 	s.mExitNode.Disable()
 	s.exitNodeMu.Unlock()
 
-	s.mNetworks = systray.AddMenuItem("Networks", "Open the networks management window")
+	s.mNetworks = systray.AddMenuItem("Networks", networksMenuDescr)
 	s.mNetworks.Disable()
 	systray.AddSeparator()
 
@@ -621,11 +621,11 @@ func (s *serviceClient) onTrayReady() {
 	s.mVersionDaemon.Disable()
 	s.mVersionDaemon.Hide()
 
-	s.mUpdate = s.mAbout.AddSubMenuItem("Download latest version", "Download latest version")
+	s.mUpdate = s.mAbout.AddSubMenuItem("Download latest version", latestVersionMenuDescr)
 	s.mUpdate.Hide()
 
 	systray.AddSeparator()
-	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
+	s.mQuit = systray.AddMenuItem("Quit", quitMenuDescr)
 
 	// update exit node menu in case service is already connected
 	go s.updateExitNodes()
