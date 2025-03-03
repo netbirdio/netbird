@@ -162,7 +162,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 		name       string
 		in         bool
 		expDir     fw.RuleDirection
-		ip         net.IP
+		ip         netip.Addr
 		dPort      uint16
 		hook       func([]byte) bool
 		expectedID string
@@ -171,7 +171,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 			name:   "Test Outgoing UDP Packet Hook",
 			in:     false,
 			expDir: fw.RuleDirectionOUT,
-			ip:     net.IPv4(10, 168, 0, 1),
+			ip:     netip.MustParseAddr("10.168.0.1"),
 			dPort:  8000,
 			hook:   func([]byte) bool { return true },
 		},
@@ -179,7 +179,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 			name:   "Test Incoming UDP Packet Hook",
 			in:     true,
 			expDir: fw.RuleDirectionIN,
-			ip:     net.IPv6loopback,
+			ip:     netip.MustParseAddr("::1"),
 			dPort:  9000,
 			hook:   func([]byte) bool { return false },
 		},
@@ -213,7 +213,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 				}
 			}
 
-			if !tt.ip.Equal(addedRule.ip) {
+			if tt.ip.Compare(addedRule.ip) != 0 {
 				t.Errorf("expected ip %s, got %s", tt.ip, addedRule.ip)
 				return
 			}
@@ -357,7 +357,7 @@ func TestRemovePacketHook(t *testing.T) {
 
 	// Add a UDP packet hook
 	hookFunc := func(data []byte) bool { return true }
-	hookID := manager.AddUDPPacketHook(false, net.IPv4(192, 168, 0, 1), 8080, hookFunc)
+	hookID := manager.AddUDPPacketHook(false, netip.MustParseAddr("192.168.0.1"), 8080, hookFunc)
 
 	// Assert the hook is added by finding it in the manager's outgoing rules
 	found := false
@@ -423,7 +423,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	hookCalled := false
 	hookID := manager.AddUDPPacketHook(
 		false,
-		net.ParseIP("100.10.0.100"),
+		netip.MustParseAddr("100.10.0.100"),
 		53,
 		func([]byte) bool {
 			hookCalled = true
@@ -573,7 +573,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	require.False(t, drop, "Initial outbound packet should not be dropped")
 
 	// Verify connection was tracked
-	conn, exists := manager.udpTracker.GetConnection(srcIP.AsSlice(), srcPort, dstIP.AsSlice(), dstPort)
+	conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
 
 	require.True(t, exists, "Connection should be tracked after outbound packet")
 	require.True(t, srcIP.Compare(conn.SourceIP) == 0, "Source IP should match")
@@ -641,7 +641,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 
 		// If the connection should still be valid, verify it exists
 		if cp.shouldAllow {
-			conn, exists := manager.udpTracker.GetConnection(srcIP.AsSlice(), srcPort, dstIP.AsSlice(), dstPort)
+			conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
 			require.True(t, exists, "Connection should still exist during valid window")
 			require.True(t, time.Since(conn.GetLastSeen()) < manager.udpTracker.Timeout(),
 				"LastSeen should be updated for valid responses")

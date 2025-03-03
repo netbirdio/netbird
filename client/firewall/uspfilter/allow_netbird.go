@@ -35,8 +35,8 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, m.flowLogger)
 	}
 
-	if m.forwarder != nil {
-		m.forwarder.Stop()
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.Stop()
 	}
 
 	if m.logger != nil {

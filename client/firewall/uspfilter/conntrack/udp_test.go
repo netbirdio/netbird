@@ -1,7 +1,6 @@
 package conntrack
 
 import (
-	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -49,10 +48,10 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 	srcPort := uint16(12345)
 	dstPort := uint16(53)
 
-	tracker.TrackOutbound(srcIP.AsSlice(), dstIP.AsSlice(), srcPort, dstPort)
+	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort)
 
 	// Verify connection was tracked
-	key := makeConnKey(srcIP.AsSlice(), dstIP.AsSlice(), srcPort, dstPort)
+	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 	conn, exists := tracker.connections[key]
 	require.True(t, exists)
 	assert.True(t, conn.SourceIP.Compare(srcIP) == 0)
@@ -66,8 +65,8 @@ func TestUDPTracker_IsValidInbound(t *testing.T) {
 	tracker := NewUDPTracker(1*time.Second, logger, flowLogger)
 	defer tracker.Close()
 
-	srcIP := net.ParseIP("192.168.1.2")
-	dstIP := net.ParseIP("192.168.1.3")
+	srcIP := netip.MustParseAddr("192.168.1.2")
+	dstIP := netip.MustParseAddr("192.168.1.3")
 	srcPort := uint16(12345)
 	dstPort := uint16(53)
 
@@ -76,8 +75,8 @@ func TestUDPTracker_IsValidInbound(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		srcIP   net.IP
-		dstIP   net.IP
+		srcIP   netip.Addr
+		dstIP   netip.Addr
 		srcPort uint16
 		dstPort uint16
 		sleep   time.Duration
@@ -94,7 +93,7 @@ func TestUDPTracker_IsValidInbound(t *testing.T) {
 		},
 		{
 			name:    "invalid source IP",
-			srcIP:   net.ParseIP("192.168.1.4"),
+			srcIP:   netip.MustParseAddr("192.168.1.4"),
 			dstIP:   srcIP,
 			srcPort: dstPort,
 			dstPort: srcPort,
@@ -104,7 +103,7 @@ func TestUDPTracker_IsValidInbound(t *testing.T) {
 		{
 			name:    "invalid destination IP",
 			srcIP:   dstIP,
-			dstIP:   net.ParseIP("192.168.1.4"),
+			dstIP:   netip.MustParseAddr("192.168.1.4"),
 			srcPort: dstPort,
 			dstPort: srcPort,
 			sleep:   0,
@@ -170,20 +169,20 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 
 	// Add some connections
 	connections := []struct {
-		srcIP   net.IP
-		dstIP   net.IP
+		srcIP   netip.Addr
+		dstIP   netip.Addr
 		srcPort uint16
 		dstPort uint16
 	}{
 		{
-			srcIP:   net.ParseIP("192.168.1.2"),
-			dstIP:   net.ParseIP("192.168.1.3"),
+			srcIP:   netip.MustParseAddr("192.168.1.2"),
+			dstIP:   netip.MustParseAddr("192.168.1.3"),
 			srcPort: 12345,
 			dstPort: 53,
 		},
 		{
-			srcIP:   net.ParseIP("192.168.1.4"),
-			dstIP:   net.ParseIP("192.168.1.5"),
+			srcIP:   netip.MustParseAddr("192.168.1.4"),
+			dstIP:   netip.MustParseAddr("192.168.1.5"),
 			srcPort: 12346,
 			dstPort: 53,
 		},
@@ -215,8 +214,8 @@ func BenchmarkUDPTracker(b *testing.B) {
 		tracker := NewUDPTracker(DefaultUDPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -228,8 +227,8 @@ func BenchmarkUDPTracker(b *testing.B) {
 		tracker := NewUDPTracker(DefaultUDPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		// Pre-populate some connections
 		for i := 0; i < 1000; i++ {

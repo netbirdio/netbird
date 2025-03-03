@@ -3,7 +3,7 @@ package conntrack
 // TODO: Send RST packets for invalid/timed-out connections
 
 import (
-	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -144,7 +144,7 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 	return tracker
 }
 
-func (t *TCPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) (ConnKey, bool) {
+func (t *TCPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) (ConnKey, bool) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 
 	t.mutex.RLock()
@@ -154,7 +154,6 @@ func (t *TCPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 	if exists {
 		conn.Lock()
 		t.updateState(key, conn, flags, conn.Direction == nftypes.Egress)
-		conn.UpdateLastSeen()
 		conn.Unlock()
 
 		return key, true
@@ -164,7 +163,7 @@ func (t *TCPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 }
 
 // TrackOutbound records an outbound TCP connection
-func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
+func (t *TCPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) {
 	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
 		t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress)
@@ -172,12 +171,12 @@ func (t *TCPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 }
 
 // TrackInbound processes an inbound TCP packet and updates connection state
-func (t *TCPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) {
+func (t *TCPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) {
 	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress)
 }
 
 // track is the common implementation for tracking both inbound and outbound connections
-func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8, direction nftypes.Direction) {
+func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, direction nftypes.Direction) {
 	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags)
 	if exists {
 		return
@@ -187,14 +186,13 @@ func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 		BaseConnTrack: BaseConnTrack{
 			FlowId:     uuid.New(),
 			Direction:  direction,
-			SourceIP:   key.SrcIP,
-			DestIP:     key.DstIP,
+			SourceIP:   srcIP,
+			DestIP:     dstIP,
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 		},
 	}
 
-	conn.UpdateLastSeen()
 	conn.established.Store(false)
 	conn.tombstone.Store(false)
 
@@ -205,11 +203,11 @@ func (t *TCPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	t.sendEvent(nftypes.TypeStart, key, conn)
+	t.sendEvent(nftypes.TypeStart, conn)
 }
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection
-func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, flags uint8) bool {
+func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) bool {
 	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
 
 	t.mutex.RLock()
@@ -233,13 +231,12 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 		conn.Unlock()
 
 		t.logger.Trace("TCP connection reset: %s", key)
-		t.sendEvent(nftypes.TypeEnd, key, conn)
+		t.sendEvent(nftypes.TypeEnd, conn)
 		return true
 	}
 
 	conn.Lock()
 	t.updateState(key, conn, flags, false)
-	conn.UpdateLastSeen()
 	isEstablished := conn.IsEstablished()
 	isValidState := t.isValidStateForFlags(conn.State, flags)
 	conn.Unlock()
@@ -249,6 +246,8 @@ func (t *TCPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 
 // updateState updates the TCP connection state based on flags
 func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, isOutbound bool) {
+	conn.UpdateLastSeen()
+
 	state := conn.State
 	defer func() {
 		if state != conn.State {
@@ -305,7 +304,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 			conn.State = TCPStateTimeWait
 
 			t.logger.Trace("TCP connection %s completed", key)
-			t.sendEvent(nftypes.TypeEnd, key, conn)
+			t.sendEvent(nftypes.TypeEnd, conn)
 		}
 
 	case TCPStateClosing:
@@ -314,7 +313,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 			// Keep established = false from previous state
 
 			t.logger.Trace("TCP connection %s closed (simultaneous)", key)
-			t.sendEvent(nftypes.TypeEnd, key, conn)
+			t.sendEvent(nftypes.TypeEnd, conn)
 		}
 
 	case TCPStateCloseWait:
@@ -328,7 +327,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 			conn.SetTombstone()
 
 			// Send close event for gracefully closed connections
-			t.sendEvent(nftypes.TypeEnd, key, conn)
+			t.sendEvent(nftypes.TypeEnd, conn)
 			t.logger.Trace("TCP connection %s closed gracefully", key)
 		}
 	}
@@ -415,7 +414,7 @@ func (t *TCPTracker) cleanup() {
 
 			// event already handled by state change
 			if conn.State != TCPStateTimeWait {
-				t.sendEvent(nftypes.TypeEnd, key, conn)
+				t.sendEvent(nftypes.TypeEnd, conn)
 			}
 		}
 	}
@@ -446,15 +445,15 @@ func isValidFlagCombination(flags uint8) bool {
 	return true
 }
 
-func (t *TCPTracker) sendEvent(typ nftypes.Type, key ConnKey, conn *TCPConnTrack) {
+func (t *TCPTracker) sendEvent(typ nftypes.Type, conn *TCPConnTrack) {
 	t.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:     conn.FlowId,
 		Type:       typ,
 		Direction:  conn.Direction,
 		Protocol:   nftypes.TCP,
-		SourceIP:   key.SrcIP,
-		DestIP:     key.DstIP,
-		SourcePort: key.SrcPort,
-		DestPort:   key.DstPort,
+		SourceIP:   conn.SourceIP,
+		DestIP:     conn.DestIP,
+		SourcePort: conn.SourcePort,
+		DestPort:   conn.DestPort,
 	})
 }

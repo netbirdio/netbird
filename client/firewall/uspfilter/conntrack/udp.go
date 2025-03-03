@@ -1,7 +1,7 @@
 package conntrack
 
 import (
-	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -54,7 +54,7 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 }
 
 // TrackOutbound records an outbound UDP connection
-func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+func (t *UDPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16) {
 	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
 		t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Egress)
@@ -62,11 +62,11 @@ func (t *UDPTracker) TrackOutbound(srcIP net.IP, dstIP net.IP, srcPort uint16, d
 }
 
 // TrackInbound records an inbound UDP connection
-func (t *UDPTracker) TrackInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) {
+func (t *UDPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16) {
 	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Ingress)
 }
 
-func (t *UDPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) (ConnKey, bool) {
+func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16) (ConnKey, bool) {
 	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
 
 	t.mutex.RLock()
@@ -82,7 +82,7 @@ func (t *UDPTracker) updateIfExists(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 }
 
 // track is the common implementation for tracking both inbound and outbound connections
-func (t *UDPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, direction nftypes.Direction) {
+func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction) {
 	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort)
 	if exists {
 		return
@@ -92,8 +92,8 @@ func (t *UDPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 		BaseConnTrack: BaseConnTrack{
 			FlowId:     uuid.New(),
 			Direction:  direction,
-			SourceIP:   key.SrcIP,
-			DestIP:     key.DstIP,
+			SourceIP:   srcIP,
+			DestIP:     dstIP,
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 		},
@@ -105,11 +105,11 @@ func (t *UDPTracker) track(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort u
 	t.mutex.Unlock()
 
 	t.logger.Trace("New %s UDP connection: %s", direction, key)
-	t.sendEvent(nftypes.TypeStart, key, conn)
+	t.sendEvent(nftypes.TypeStart, conn)
 }
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
-func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) bool {
+func (t *UDPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16) bool {
 	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
 
 	t.mutex.RLock()
@@ -146,7 +146,7 @@ func (t *UDPTracker) cleanup() {
 			delete(t.connections, key)
 
 			t.logger.Trace("Removed UDP connection %s (timeout)", key)
-			t.sendEvent(nftypes.TypeEnd, key, conn)
+			t.sendEvent(nftypes.TypeEnd, conn)
 		}
 	}
 }
@@ -162,7 +162,7 @@ func (t *UDPTracker) Close() {
 }
 
 // GetConnection safely retrieves a connection state
-func (t *UDPTracker) GetConnection(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPort uint16) (*UDPConnTrack, bool) {
+func (t *UDPTracker) GetConnection(srcIP netip.Addr, srcPort uint16, dstIP netip.Addr, dstPort uint16) (*UDPConnTrack, bool) {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 
@@ -176,15 +176,15 @@ func (t *UDPTracker) Timeout() time.Duration {
 	return t.timeout
 }
 
-func (t *UDPTracker) sendEvent(typ nftypes.Type, key ConnKey, conn *UDPConnTrack) {
+func (t *UDPTracker) sendEvent(typ nftypes.Type, conn *UDPConnTrack) {
 	t.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:     conn.FlowId,
 		Type:       typ,
 		Direction:  conn.Direction,
 		Protocol:   nftypes.UDP,
-		SourceIP:   key.SrcIP,
-		DestIP:     key.DstIP,
-		SourcePort: key.SrcPort,
-		DestPort:   key.DstPort,
+		SourceIP:   conn.SourceIP,
+		DestIP:     conn.DestIP,
+		SourcePort: conn.SourcePort,
+		DestPort:   conn.DestPort,
 	})
 }
