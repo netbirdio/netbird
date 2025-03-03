@@ -44,6 +44,10 @@ const (
 	failFastTimeout    = time.Second
 )
 
+const (
+	censoredPreSharedKey = "**********"
+)
+
 func main() {
 	var daemonAddr string
 
@@ -116,22 +120,22 @@ func main() {
 	}
 }
 
-//go:embed netbird-systemtray-connected-macos.png
+//go:embed assets/netbird-systemtray-connected-macos.png
 var iconConnectedMacOS []byte
 
-//go:embed netbird-systemtray-disconnected-macos.png
+//go:embed assets/netbird-systemtray-disconnected-macos.png
 var iconDisconnectedMacOS []byte
 
-//go:embed netbird-systemtray-update-disconnected-macos.png
+//go:embed assets/netbird-systemtray-update-disconnected-macos.png
 var iconUpdateDisconnectedMacOS []byte
 
-//go:embed netbird-systemtray-update-connected-macos.png
+//go:embed assets/netbird-systemtray-update-connected-macos.png
 var iconUpdateConnectedMacOS []byte
 
-//go:embed netbird-systemtray-connecting-macos.png
+//go:embed assets/netbird-systemtray-connecting-macos.png
 var iconConnectingMacOS []byte
 
-//go:embed netbird-systemtray-error-macos.png
+//go:embed assets/netbird-systemtray-error-macos.png
 var iconErrorMacOS []byte
 
 type serviceClient struct {
@@ -327,7 +331,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 		},
 		SubmitText: "Save",
 		OnSubmit: func() {
-			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != "**********" {
+			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 				// validate preSharedKey if it added
 				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
 					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
@@ -365,7 +369,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					WireguardPort:        &port,
 				}
 
-				if s.iPreSharedKey.Text != "**********" {
+				if s.iPreSharedKey.Text != censoredPreSharedKey {
 					loginRequest.OptionalPreSharedKey = &s.iPreSharedKey.Text
 				}
 
