@@ -55,7 +55,7 @@ func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
 
 	skipProxy, err := strconv.ParseBool(os.Getenv(EnvSkipProxy))
 	if err != nil {
-		log.Errorf("failed to parse NB_ETSTACK_SKIP_PROXY: %s", err)
+		log.Errorf("failed to parse %s: %s", EnvSkipProxy, err)
 	}
 	if skipProxy {
 		return nsTunDev, tunNet, nil
