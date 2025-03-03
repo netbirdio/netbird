@@ -609,7 +609,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAbout = systray.AddMenuItem("About", "About")
 	s.mAbout.SetIcon(s.icAbout)
 	
-	s.mGitHub = s.mAbout.AddSubMenuItem(fmt.Sprint("GitHub"), fmt.Sprint("GitHub"))
+	s.mGitHub = s.mAbout.AddSubMenuItem("GitHub", "GitHub")
 
 	versionString := normalizedVersion(version.NetbirdVersion())
 	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
