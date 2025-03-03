@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -13,12 +15,29 @@ import (
 
 const RedisStoreEnvVar = "NB_IDP_CACHE_REDIS_ADDRESS"
 
-func NewStore(maxTimeout, cleanupInterval time.Duration) store.StoreInterface {
-	if os.Getenv(RedisStoreEnvVar) != "" {
-		addr := os.Getenv(RedisStoreEnvVar)
-		redisClient := redis.NewClient(&redis.Options{Addr: addr})
-		return redis_store.NewRedis(redisClient)
+func NewStore(maxTimeout, cleanupInterval time.Duration) (store.StoreInterface, error) {
+	redisAddr := os.Getenv(RedisStoreEnvVar)
+	if redisAddr != "" {
+		return getRedisStore(redisAddr)
 	}
 	goc := gocache.New(maxTimeout, cleanupInterval)
-	return gocache_store.NewGoCache(goc)
+	return gocache_store.NewGoCache(goc), nil
+}
+
+func getRedisStore(redisEnvAddr string) (store.StoreInterface, error) {
+	options, err := redis.ParseURL(redisEnvAddr)
+	if err != nil {
+		return nil, fmt.Errorf("parsing redis cache url: %s", err)
+	}
+
+	redisClient := redis.NewClient(options)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err = redisClient.Ping(ctx).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	return redis_store.NewRedis(redisClient), nil
 }

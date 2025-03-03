@@ -198,7 +198,10 @@ func BuildManager(
 		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
-	cacheStore := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	cacheStore, err := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	if err != nil {
+		return nil, fmt.Errorf("getting cache store: %s", err)
+	}
 	am.externalCacheManager, am.cacheManager = nbcache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](am.loadAccount, cacheStore)
 
 	if !isNil(am.idpManager) {
