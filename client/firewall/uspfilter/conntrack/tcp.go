@@ -145,7 +145,12 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 }
 
 func (t *TCPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) (ConnKey, bool) {
-	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+	key := ConnKey{
+		SrcIP:   srcIP,
+		DstIP:   dstIP,
+		SrcPort: srcPort,
+		DstPort: dstPort,
+	}
 
 	t.mutex.RLock()
 	conn, exists := t.connections[key]
@@ -208,7 +213,12 @@ func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection
 func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) bool {
-	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
+	key := ConnKey{
+		SrcIP:   dstIP,
+		DstIP:   srcIP,
+		SrcPort: dstPort,
+		DstPort: srcPort,
+	}
 
 	t.mutex.RLock()
 	conn, exists := t.connections[key]

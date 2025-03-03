@@ -51,7 +51,12 @@ func TestUDPTracker_TrackOutbound(t *testing.T) {
 	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort)
 
 	// Verify connection was tracked
-	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+	key := ConnKey{
+		SrcIP:   srcIP,
+		DstIP:   dstIP,
+		SrcPort: srcPort,
+		DstPort: dstPort,
+	}
 	conn, exists := tracker.connections[key]
 	require.True(t, exists)
 	assert.True(t, conn.SourceIP.Compare(srcIP) == 0)

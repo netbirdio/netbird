@@ -51,13 +51,3 @@ type ConnKey struct {
 func (c ConnKey) String() string {
 	return fmt.Sprintf("%s:%d -> %s:%d", c.SrcIP.Unmap(), c.SrcPort, c.DstIP.Unmap(), c.DstPort)
 }
-
-// makeConnKey creates a connection key
-func makeConnKey(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16) ConnKey {
-	return ConnKey{
-		SrcIP:   srcIP,
-		DstIP:   dstIP,
-		SrcPort: srcPort,
-		DstPort: dstPort,
-	}
-}

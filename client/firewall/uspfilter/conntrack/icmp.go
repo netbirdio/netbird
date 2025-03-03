@@ -70,7 +70,12 @@ func NewICMPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nfty
 }
 
 func (t *ICMPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq uint16) (ICMPConnKey, bool) {
-	key := makeICMPKey(srcIP, dstIP, id, seq)
+	key := ICMPConnKey{
+		SrcIP:    srcIP,
+		DstIP:    dstIP,
+		ID:       id,
+		Sequence: seq,
+	}
 
 	t.mutex.RLock()
 	conn, exists := t.connections[key]
@@ -141,7 +146,12 @@ func (t *ICMPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, id uint
 		return false
 	}
 
-	key := makeICMPKey(dstIP, srcIP, id, seq)
+	key := ICMPConnKey{
+		SrcIP:    dstIP,
+		DstIP:    srcIP,
+		ID:       id,
+		Sequence: seq,
+	}
 
 	t.mutex.RLock()
 	conn, exists := t.connections[key]
@@ -215,14 +225,4 @@ func (t *ICMPTracker) sendStartEvent(direction nftypes.Direction, srcIP netip.Ad
 		ICMPType:  typ,
 		ICMPCode:  code,
 	})
-}
-
-// makeICMPKey creates an ICMP connection key
-func makeICMPKey(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq uint16) ICMPConnKey {
-	return ICMPConnKey{
-		SrcIP:    srcIP,
-		DstIP:    dstIP,
-		ID:       id,
-		Sequence: seq,
-	}
 }

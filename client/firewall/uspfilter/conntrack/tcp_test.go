@@ -208,7 +208,12 @@ func TestRSTHandling(t *testing.T) {
 			tt.sendRST()
 
 			// Verify connection state is as expected
-			key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+			key := ConnKey{
+				SrcIP:   srcIP,
+				DstIP:   dstIP,
+				SrcPort: srcPort,
+				DstPort: dstPort,
+			}
 			conn := tracker.connections[key]
 			if tt.wantValid {
 				require.NotNil(t, conn)

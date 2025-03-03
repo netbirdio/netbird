@@ -67,7 +67,12 @@ func (t *UDPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort ui
 }
 
 func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16) (ConnKey, bool) {
-	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+	key := ConnKey{
+		SrcIP:   srcIP,
+		DstIP:   dstIP,
+		SrcPort: srcPort,
+		DstPort: dstPort,
+	}
 
 	t.mutex.RLock()
 	conn, exists := t.connections[key]
@@ -110,7 +115,12 @@ func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 
 // IsValidInbound checks if an inbound packet matches a tracked connection
 func (t *UDPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16) bool {
-	key := makeConnKey(dstIP, srcIP, dstPort, srcPort)
+	key := ConnKey{
+		SrcIP:   dstIP,
+		DstIP:   srcIP,
+		SrcPort: dstPort,
+		DstPort: srcPort,
+	}
 
 	t.mutex.RLock()
 	conn, exists := t.connections[key]
@@ -166,7 +176,12 @@ func (t *UDPTracker) GetConnection(srcIP netip.Addr, srcPort uint16, dstIP netip
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 
-	key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+	key := ConnKey{
+		SrcIP:   srcIP,
+		DstIP:   dstIP,
+		SrcPort: srcPort,
+		DstPort: dstPort,
+	}
 	conn, exists := t.connections[key]
 	return conn, exists
 }
