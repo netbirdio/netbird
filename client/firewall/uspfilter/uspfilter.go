@@ -367,10 +367,11 @@ func (m *Manager) AddPeerFiltering(
 		return nil, fmt.Errorf("invalid IP: %s", ip)
 	}
 
+	i = i.Unmap()
 	r := PeerRule{
 		id:        uuid.New().String(),
 		mgmtId:    id,
-		ip:        i.Unmap(),
+		ip:        i,
 		ipLayer:   layers.LayerTypeIPv6,
 		matchByIP: true,
 		drop:      action == firewall.ActionDrop,
