@@ -333,18 +333,6 @@ func (s *serviceClient) showSettingsUI() {
 	s.wSettings.Show()
 }
 
-// showErrorMSG opens a fyne app window to display the supplied message
-func showErrorMSG(msg string) {
-	app := app.New()
-	w := app.NewWindow("NetBird Error")
-	content := widget.NewLabel(msg)
-	content.Wrapping = fyne.TextWrapWord
-	w.SetContent(content)
-	w.Resize(fyne.NewSize(400, 100))
-	w.Show()
-	app.Run()
-}
-
 // getSettingsForm to embed it into settings window.
 func (s *serviceClient) getSettingsForm() *widget.Form {
 	return &widget.Form{
