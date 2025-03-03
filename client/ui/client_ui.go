@@ -35,6 +35,8 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
+	"github.com/netbirdio/netbird/client/ui/process"
+
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
@@ -107,7 +109,7 @@ func main() {
 	if showSettings || showRoutes {
 		a.Run()
 	} else {
-		running, err := isAnotherProcessRunning()
+		running, err := process.IsAnotherProcessRunning()
 		if err != nil {
 			log.Errorf("error while checking process: %v", err)
 		}
