@@ -125,19 +125,19 @@ func TestManagerDeleteRule(t *testing.T) {
 		return
 	}
 
-	ip := net.ParseIP("192.168.1.1")
+	ip := netip.MustParseAddr("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
 
-	rule2, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+	rule2, err := m.AddPeerFiltering(nil, ip.AsSlice(), proto, nil, port, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
 	}
 
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip.String()][r.ID()]; !ok {
+		if _, ok := m.incomingRules[ip][r.ID()]; !ok {
 			t.Errorf("rule2 is not in the incomingRules")
 		}
 	}
@@ -151,7 +151,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip.String()][r.ID()]; ok {
+		if _, ok := m.incomingRules[ip][r.ID()]; ok {
 			t.Errorf("rule2 is not in the incomingRules")
 		}
 	}
@@ -196,11 +196,11 @@ func TestAddUDPPacketHook(t *testing.T) {
 
 			var addedRule PeerRule
 			if tt.in {
-				if len(manager.incomingRules[tt.ip.String()]) != 1 {
+				if len(manager.incomingRules[tt.ip]) != 1 {
 					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules))
 					return
 				}
-				for _, rule := range manager.incomingRules[tt.ip.String()] {
+				for _, rule := range manager.incomingRules[tt.ip] {
 					addedRule = rule
 				}
 			} else {
@@ -208,7 +208,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules))
 					return
 				}
-				for _, rule := range manager.outgoingRules[tt.ip.String()] {
+				for _, rule := range manager.outgoingRules[tt.ip] {
 					addedRule = rule
 				}
 			}

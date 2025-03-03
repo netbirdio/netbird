@@ -67,9 +67,9 @@ func (r RouteRules) Sort() {
 // Manager userspace firewall manager
 type Manager struct {
 	// outgoingRules is used for hooks only
-	outgoingRules map[string]RuleSet
+	outgoingRules map[netip.Addr]RuleSet
 	// incomingRules is used for filtering and hooks
-	incomingRules  map[string]RuleSet
+	incomingRules  map[netip.Addr]RuleSet
 	routeRules     RouteRules
 	wgNetwork      *net.IPNet
 	decoders       sync.Pool
@@ -169,8 +169,8 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 			},
 		},
 		nativeFirewall:      nativeFirewall,
-		outgoingRules:       make(map[string]RuleSet),
-		incomingRules:       make(map[string]RuleSet),
+		outgoingRules:       make(map[netip.Addr]RuleSet),
+		incomingRules:       make(map[netip.Addr]RuleSet),
 		wgIface:             iface,
 		localipmanager:      newLocalIPManager(),
 		disableServerRoutes: disableServerRoutes,
@@ -402,10 +402,10 @@ func (m *Manager) AddPeerFiltering(
 	}
 
 	m.mutex.Lock()
-	if _, ok := m.incomingRules[r.ip.String()]; !ok {
-		m.incomingRules[r.ip.String()] = make(RuleSet)
+	if _, ok := m.incomingRules[r.ip]; !ok {
+		m.incomingRules[r.ip] = make(RuleSet)
 	}
-	m.incomingRules[r.ip.String()][r.id] = r
+	m.incomingRules[r.ip][r.id] = r
 	m.mutex.Unlock()
 	return []firewall.Rule{&r}, nil
 }
@@ -474,10 +474,10 @@ func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
 		return fmt.Errorf("delete rule: invalid rule type: %T", rule)
 	}
 
-	if _, ok := m.incomingRules[r.ip.String()][r.id]; !ok {
+	if _, ok := m.incomingRules[r.ip][r.id]; !ok {
 		return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
 	}
-	delete(m.incomingRules[r.ip.String()], r.id)
+	delete(m.incomingRules[r.ip], r.id)
 
 	return nil
 }
@@ -623,7 +623,7 @@ func (m *Manager) checkUDPHooks(d *decoder, dstIP netip.Addr, packetData []byte)
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	for _, ipKey := range []string{dstIP.String(), "0.0.0.0", "::"} {
+	for _, ipKey := range []netip.Addr{dstIP, netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
 		if rules, exists := m.outgoingRules[ipKey]; exists {
 			for _, rule := range rules {
 				if rule.udpHook != nil && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
@@ -847,22 +847,22 @@ func (m *Manager) isSpecialICMP(d *decoder) bool {
 		icmpType == layers.ICMPv4TypeTimeExceeded
 }
 
-func (m *Manager) peerACLsBlock(srcIP netip.Addr, packetData []byte, rules map[string]RuleSet, d *decoder) ([]byte, bool) {
+func (m *Manager) peerACLsBlock(srcIP netip.Addr, packetData []byte, rules map[netip.Addr]RuleSet, d *decoder) ([]byte, bool) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 	if m.isSpecialICMP(d) {
 		return nil, false
 	}
 
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[srcIP.String()], d); ok {
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[srcIP], d); ok {
 		return mgmtId, filter
 	}
 
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules["0.0.0.0"], d); ok {
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[netip.IPv4Unspecified()], d); ok {
 		return mgmtId, filter
 	}
 
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules["::"], d); ok {
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[netip.IPv6Unspecified()], d); ok {
 		return mgmtId, filter
 	}
 
@@ -990,15 +990,15 @@ func (m *Manager) AddUDPPacketHook(in bool, ip netip.Addr, dPort uint16, hook fu
 
 	m.mutex.Lock()
 	if in {
-		if _, ok := m.incomingRules[r.ip.String()]; !ok {
-			m.incomingRules[r.ip.String()] = make(map[string]PeerRule)
+		if _, ok := m.incomingRules[r.ip]; !ok {
+			m.incomingRules[r.ip] = make(map[string]PeerRule)
 		}
-		m.incomingRules[r.ip.String()][r.id] = r
+		m.incomingRules[r.ip][r.id] = r
 	} else {
-		if _, ok := m.outgoingRules[r.ip.String()]; !ok {
-			m.outgoingRules[r.ip.String()] = make(map[string]PeerRule)
+		if _, ok := m.outgoingRules[r.ip]; !ok {
+			m.outgoingRules[r.ip] = make(map[string]PeerRule)
 		}
-		m.outgoingRules[r.ip.String()][r.id] = r
+		m.outgoingRules[r.ip][r.id] = r
 	}
 	m.mutex.Unlock()
 
