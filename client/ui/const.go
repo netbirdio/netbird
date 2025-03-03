@@ -1,4 +1,4 @@
-//go:build !(linux && 386) && !windows
+//go:build !(linux && 386)
 
 package main
 
