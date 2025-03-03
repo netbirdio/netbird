@@ -734,8 +734,8 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 		srcAddr, _ := netip.AddrFromSlice(srcIP)
 		dstAddr, _ := netip.AddrFromSlice(dstIP)
 
-		m.logger.Trace("Dropping routed packet (ACL denied): proto=%v src=%s:%d dst=%s:%d",
-			pnum, srcIP, srcPort, dstIP, dstPort)
+		m.logger.Trace("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			id, pnum, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
