@@ -36,8 +36,8 @@ import (
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/client/ui/process"
-
 	"github.com/netbirdio/netbird/util"
+
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -51,75 +51,102 @@ const (
 )
 
 func main() {
-	var daemonAddr string
+	daemonAddr, showSettings, showNetworks, errorMsg, saveLogsInFile := parseFlags()
 
-	defaultDaemonAddr := "unix:///var/run/netbird.sock"
-	if runtime.GOOS == "windows" {
-		defaultDaemonAddr = "tcp://127.0.0.1:41731"
-	}
-
-	flag.StringVar(
-		&daemonAddr, "daemon-addr",
-		defaultDaemonAddr,
-		"Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
-
-	var showSettings bool
-	flag.BoolVar(&showSettings, "settings", false, "run settings windows")
-	var showRoutes bool
-	flag.BoolVar(&showRoutes, "networks", false, "run networks windows")
-	var errorMSG string
-	flag.StringVar(&errorMSG, "error-msg", "", "displays a error message window")
-
-	tmpDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		tmpDir = os.TempDir()
-	}
-
-	var saveLogsInFile bool
-	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
-
-	flag.Parse()
-
+	// Initialize file logging if needed.
 	if saveLogsInFile {
-		logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
-		err := util.InitLog("trace", logFile)
-		if err != nil {
+		if err := initLogFile(); err != nil {
 			log.Errorf("error while initializing log: %v", err)
 			return
 		}
 	}
 
+	// Create the Fyne application.
 	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnected))
 
-	if errorMSG != "" {
-		showErrorMSG(errorMSG)
+	// Show error message window if needed.
+	if errorMsg != "" {
+		showErrorMessage(errorMsg)
 		return
 	}
 
-	client := newServiceClient(daemonAddr, a, showSettings, showRoutes)
+	// Create the service client (this also builds the settings or networks UI if requested).
+	client := newServiceClient(daemonAddr, a, showSettings, showNetworks)
+
+	// Watch for theme/settings changes to update the icon.
+	go watchSettingsChanges(a, client)
+
+	// Run in window mode if any UI flag was set.
+	if showSettings || showNetworks {
+		a.Run()
+		return
+	}
+
+	// Check for another running process.
+	running, err := process.IsAnotherProcessRunning()
+	if err != nil {
+		log.Errorf("error while checking process: %v", err)
+		return
+	}
+	if running {
+		log.Warn("another process is running")
+		return
+	}
+
+	client.setDefaultFonts()
+	systray.Run(client.onTrayReady, client.onTrayExit)
+}
+
+// parseFlags reads and returns all needed command-line flags.
+func parseFlags() (daemonAddr string, showSettings, showNetworks bool, errorMsg string, saveLogsInFile bool) {
+	defaultDaemonAddr := "unix:///var/run/netbird.sock"
+	if runtime.GOOS == "windows" {
+		defaultDaemonAddr = "tcp://127.0.0.1:41731"
+	}
+	flag.StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
+	flag.BoolVar(&showSettings, "settings", false, "run settings window")
+	flag.BoolVar(&showNetworks, "networks", false, "run networks window")
+	flag.StringVar(&errorMsg, "error-msg", "", "displays an error message window")
+
+	tmpDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		tmpDir = os.TempDir()
+	}
+	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
+	flag.Parse()
+	return
+}
+
+// initLogFile initializes logging into a file.
+func initLogFile() error {
+	tmpDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		tmpDir = os.TempDir()
+	}
+	logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
+	return util.InitLog("trace", logFile)
+}
+
+// watchSettingsChanges listens for Fyne theme/settings changes and updates the client icon.
+func watchSettingsChanges(a fyne.App, client *serviceClient) {
 	settingsChangeChan := make(chan fyne.Settings)
 	a.Settings().AddChangeListener(settingsChangeChan)
-	go func() {
-		for range settingsChangeChan {
-			client.updateIcon()
-		}
-	}()
-
-	if showSettings || showRoutes {
-		a.Run()
-	} else {
-		running, err := process.IsAnotherProcessRunning()
-		if err != nil {
-			log.Errorf("error while checking process: %v", err)
-		}
-		if running {
-			log.Warn("another process is running")
-			return
-		}
-		client.setDefaultFonts()
-		systray.Run(client.onTrayReady, client.onTrayExit)
+	for range settingsChangeChan {
+		client.updateIcon()
 	}
+}
+
+// showErrorMessage displays an error message in a simple window.
+func showErrorMessage(msg string) {
+	a := app.New()
+	w := a.NewWindow("NetBird Error")
+	label := widget.NewLabel(msg)
+	label.Wrapping = fyne.TextWrapWord
+	w.SetContent(label)
+	w.Resize(fyne.NewSize(400, 100))
+	w.Show()
+	a.Run()
 }
 
 //go:embed assets/netbird-systemtray-connected-macos.png
