@@ -195,7 +195,6 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 	flowID := c.getFlowID(flow.ID)
 	direction := c.inferDirection(srcIP, dstIP)
 
-	// Common EventFields for both event types
 	eventType := nftypes.TypeStart
 	eventStr := "New"
 
