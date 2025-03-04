@@ -184,7 +184,7 @@ func (r *Route) startResolver(ctx context.Context) {
 					ticker.Reset(failureInterval)
 				}
 			} else if interval > failureInterval {
-				// Close to the original interval if the update succeeds
+				// Reset to the original interval if the update succeeds
 				ticker.Reset(interval)
 			}
 		}
