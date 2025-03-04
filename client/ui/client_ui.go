@@ -35,7 +35,9 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
+	"github.com/netbirdio/netbird/client/ui/process"
 	"github.com/netbirdio/netbird/util"
+
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -44,94 +46,125 @@ const (
 	failFastTimeout    = time.Second
 )
 
+const (
+	censoredPreSharedKey = "**********"
+)
+
 func main() {
-	var daemonAddr string
+	daemonAddr, showSettings, showNetworks, errorMsg, saveLogsInFile := parseFlags()
 
-	defaultDaemonAddr := "unix:///var/run/netbird.sock"
-	if runtime.GOOS == "windows" {
-		defaultDaemonAddr = "tcp://127.0.0.1:41731"
-	}
-
-	flag.StringVar(
-		&daemonAddr, "daemon-addr",
-		defaultDaemonAddr,
-		"Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
-
-	var showSettings bool
-	flag.BoolVar(&showSettings, "settings", false, "run settings windows")
-	var showRoutes bool
-	flag.BoolVar(&showRoutes, "networks", false, "run networks windows")
-	var errorMSG string
-	flag.StringVar(&errorMSG, "error-msg", "", "displays a error message window")
-
-	tmpDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		tmpDir = os.TempDir()
-	}
-
-	var saveLogsInFile bool
-	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
-
-	flag.Parse()
-
+	// Initialize file logging if needed.
 	if saveLogsInFile {
-		logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
-		err := util.InitLog("trace", logFile)
-		if err != nil {
+		if err := initLogFile(); err != nil {
 			log.Errorf("error while initializing log: %v", err)
 			return
 		}
 	}
 
+	// Create the Fyne application.
 	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnected))
 
-	if errorMSG != "" {
-		showErrorMSG(errorMSG)
+	// Show error message window if needed.
+	if errorMsg != "" {
+		showErrorMessage(errorMsg)
 		return
 	}
 
-	client := newServiceClient(daemonAddr, a, showSettings, showRoutes)
+	// Create the service client (this also builds the settings or networks UI if requested).
+	client := newServiceClient(daemonAddr, a, showSettings, showNetworks)
+
+	// Watch for theme/settings changes to update the icon.
+	go watchSettingsChanges(a, client)
+
+	// Run in window mode if any UI flag was set.
+	if showSettings || showNetworks {
+		a.Run()
+		return
+	}
+
+	// Check for another running process.
+	running, err := process.IsAnotherProcessRunning()
+	if err != nil {
+		log.Errorf("error while checking process: %v", err)
+		return
+	}
+	if running {
+		log.Warn("another process is running")
+		return
+	}
+
+	client.setDefaultFonts()
+	systray.Run(client.onTrayReady, client.onTrayExit)
+}
+
+// parseFlags reads and returns all needed command-line flags.
+func parseFlags() (daemonAddr string, showSettings, showNetworks bool, errorMsg string, saveLogsInFile bool) {
+	defaultDaemonAddr := "unix:///var/run/netbird.sock"
+	if runtime.GOOS == "windows" {
+		defaultDaemonAddr = "tcp://127.0.0.1:41731"
+	}
+	flag.StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
+	flag.BoolVar(&showSettings, "settings", false, "run settings window")
+	flag.BoolVar(&showNetworks, "networks", false, "run networks window")
+	flag.StringVar(&errorMsg, "error-msg", "", "displays an error message window")
+
+	tmpDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		tmpDir = os.TempDir()
+	}
+	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
+	flag.Parse()
+	return
+}
+
+// initLogFile initializes logging into a file.
+func initLogFile() error {
+	tmpDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		tmpDir = os.TempDir()
+	}
+	logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
+	return util.InitLog("trace", logFile)
+}
+
+// watchSettingsChanges listens for Fyne theme/settings changes and updates the client icon.
+func watchSettingsChanges(a fyne.App, client *serviceClient) {
 	settingsChangeChan := make(chan fyne.Settings)
 	a.Settings().AddChangeListener(settingsChangeChan)
-	go func() {
-		for range settingsChangeChan {
-			client.updateIcon()
-		}
-	}()
-
-	if showSettings || showRoutes {
-		a.Run()
-	} else {
-		running, err := isAnotherProcessRunning()
-		if err != nil {
-			log.Errorf("error while checking process: %v", err)
-		}
-		if running {
-			log.Warn("another process is running")
-			return
-		}
-		client.setDefaultFonts()
-		systray.Run(client.onTrayReady, client.onTrayExit)
+	for range settingsChangeChan {
+		client.updateIcon()
 	}
 }
 
-//go:embed netbird-systemtray-connected-macos.png
+// showErrorMessage displays an error message in a simple window.
+func showErrorMessage(msg string) {
+	a := app.New()
+	w := a.NewWindow("NetBird Error")
+	label := widget.NewLabel(msg)
+	label.Wrapping = fyne.TextWrapWord
+	w.SetContent(label)
+	w.Resize(fyne.NewSize(400, 100))
+	w.Show()
+	a.Run()
+}
+
+//go:embed assets/netbird-systemtray-connected-macos.png
 var iconConnectedMacOS []byte
 
-//go:embed netbird-systemtray-disconnected-macos.png
+//go:embed assets/netbird-systemtray-disconnected-macos.png
 var iconDisconnectedMacOS []byte
 
-//go:embed netbird-systemtray-update-disconnected-macos.png
+//go:embed assets/netbird-systemtray-update-disconnected-macos.png
 var iconUpdateDisconnectedMacOS []byte
 
-//go:embed netbird-systemtray-update-connected-macos.png
+//go:embed assets/netbird-systemtray-update-connected-macos.png
 var iconUpdateConnectedMacOS []byte
 
-//go:embed netbird-systemtray-connecting-macos.png
+//go:embed assets/netbird-systemtray-connecting-macos.png
 var iconConnectingMacOS []byte
 
-//go:embed netbird-systemtray-error-macos.png
+//go:embed assets/netbird-systemtray-error-macos.png
 var iconErrorMacOS []byte
 
 type serviceClient struct {
@@ -301,18 +334,6 @@ func (s *serviceClient) showSettingsUI() {
 	s.wSettings.Show()
 }
 
-// showErrorMSG opens a fyne app window to display the supplied message
-func showErrorMSG(msg string) {
-	app := app.New()
-	w := app.NewWindow("NetBird Error")
-	content := widget.NewLabel(msg)
-	content.Wrapping = fyne.TextWrapWord
-	w.SetContent(content)
-	w.Resize(fyne.NewSize(400, 100))
-	w.Show()
-	app.Run()
-}
-
 // getSettingsForm to embed it into settings window.
 func (s *serviceClient) getSettingsForm() *widget.Form {
 	return &widget.Form{
@@ -328,7 +349,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 		},
 		SubmitText: "Save",
 		OnSubmit: func() {
-			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != "**********" {
+			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 				// validate preSharedKey if it added
 				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
 					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
@@ -366,7 +387,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					WireguardPort:        &port,
 				}
 
-				if s.iPreSharedKey.Text != "**********" {
+				if s.iPreSharedKey.Text != censoredPreSharedKey {
 					loginRequest.OptionalPreSharedKey = &s.iPreSharedKey.Text
 				}
 
@@ -588,21 +609,21 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Netbird Admin Panel")
 	systray.AddSeparator()
 
-	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
-	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", "Allow SSH connections", false)
-	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", "Connect automatically when the service starts", false)
-	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", "Enable post-quantum security via Rosenpass", false)
-	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", "Enable notifications", false)
-	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
-	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", "Create and open debug information bundle")
+	s.mSettings = systray.AddMenuItem("Settings", settingsMenuDescr)
+	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
+	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
+	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
+	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
+	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
+	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
 
 	s.exitNodeMu.Lock()
-	s.mExitNode = systray.AddMenuItem("Exit Node", "Select exit node for routing traffic")
+	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
 	s.mExitNode.Disable()
 	s.exitNodeMu.Unlock()
 
-	s.mNetworks = systray.AddMenuItem("Networks", "Open the networks management window")
+	s.mNetworks = systray.AddMenuItem("Networks", networksMenuDescr)
 	s.mNetworks.Disable()
 	systray.AddSeparator()
 
@@ -619,11 +640,11 @@ func (s *serviceClient) onTrayReady() {
 	s.mVersionDaemon.Disable()
 	s.mVersionDaemon.Hide()
 
-	s.mUpdate = s.mAbout.AddSubMenuItem("Download latest version", "Download latest version")
+	s.mUpdate = s.mAbout.AddSubMenuItem("Download latest version", latestVersionMenuDescr)
 	s.mUpdate.Hide()
 
 	systray.AddSeparator()
-	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
+	s.mQuit = systray.AddMenuItem("Quit", quitMenuDescr)
 
 	// update exit node menu in case service is already connected
 	go s.updateExitNodes()
