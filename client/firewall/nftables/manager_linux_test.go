@@ -65,7 +65,7 @@ func TestNftablesManager(t *testing.T) {
 	time.Sleep(time.Second * 3)
 
 	defer func() {
-		err = manager.Reset(nil)
+		err = manager.Close(nil)
 		require.NoError(t, err, "failed to reset")
 		time.Sleep(time.Second)
 	}()
@@ -162,7 +162,7 @@ func TestNftablesManager(t *testing.T) {
 	// established rule remains
 	require.Len(t, rules, 1, "expected 1 rules after deletion")
 
-	err = manager.Reset(nil)
+	err = manager.Close(nil)
 	require.NoError(t, err, "failed to reset")
 }
 
@@ -191,7 +191,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			time.Sleep(time.Second * 3)
 
 			defer func() {
-				if err := manager.Reset(nil); err != nil {
+				if err := manager.Close(nil); err != nil {
 					t.Errorf("clear the manager state: %v", err)
 				}
 				time.Sleep(time.Second)
@@ -274,7 +274,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	require.NoError(t, manager.Init(nil))
 
 	t.Cleanup(func() {
-		err := manager.Reset(nil)
+		err := manager.Close(nil)
 		require.NoError(t, err, "failed to reset manager state")
 
 		// Verify iptables output after reset

@@ -39,7 +39,7 @@ func (s *ShutdownState) Cleanup() error {
 		return fmt.Errorf("create nftables manager: %w", err)
 	}
 
-	if err := nft.Reset(nil); err != nil {
+	if err := nft.Close(nil); err != nil {
 		return fmt.Errorf("reset nftables manager: %w", err)
 	}
 

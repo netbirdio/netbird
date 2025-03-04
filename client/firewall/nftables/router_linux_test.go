@@ -38,7 +38,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 			// need fw manager to init both acl mgr and router for all chains to be present
 			manager, err := Create(ifaceMock)
 			t.Cleanup(func() {
-				require.NoError(t, manager.Reset(nil))
+				require.NoError(t, manager.Close(nil))
 			})
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
@@ -127,7 +127,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			manager, err := Create(ifaceMock)
 			t.Cleanup(func() {
-				require.NoError(t, manager.Reset(nil))
+				require.NoError(t, manager.Close(nil))
 			})
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))

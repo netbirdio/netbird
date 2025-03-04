@@ -1015,7 +1015,7 @@ func TestHandlerChain_DomainPriorities(t *testing.T) {
 				mh.AssertExpectations(t)
 			}
 
-			// Reset mocks
+			// Close mocks
 			if mh, ok := tc.expectedHandler.(*MockHandler); ok {
 				mh.ExpectedCalls = nil
 				mh.Calls = nil

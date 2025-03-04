@@ -39,7 +39,7 @@ func TestPeerACLFiltering(t *testing.T) {
 	require.NotNil(t, manager)
 
 	t.Cleanup(func() {
-		require.NoError(t, manager.Reset(nil))
+		require.NoError(t, manager.Close(nil))
 	})
 
 	manager.wgNetwork = wgNet
@@ -310,7 +310,7 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 	require.False(tb, manager.nativeRouter)
 
 	tb.Cleanup(func() {
-		require.NoError(tb, manager.Reset(nil))
+		require.NoError(tb, manager.Close(nil))
 	})
 
 	return manager
