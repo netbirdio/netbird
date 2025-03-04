@@ -265,11 +265,11 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 	case TCPStateSynSent:
 		if flags&TCPSyn != 0 && flags&TCPAck != 0 {
 			if isOutbound {
-				conn.State = TCPStateSynReceived
-			} else {
-				// Simultaneous open
 				conn.State = TCPStateEstablished
 				conn.SetEstablished(true)
+			} else {
+				// Simultaneous open
+				conn.State = TCPStateSynReceived
 			}
 		}
 
