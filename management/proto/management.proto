@@ -98,7 +98,7 @@ message LoginRequest {
   string jwtToken = 3;
   // Can be absent for now.
   PeerKeys peerKeys = 4;
-  
+
   repeated string dnsLabels = 5;
 }
 
@@ -223,6 +223,9 @@ message FlowConfig {
   string tokenSignature = 3;
   google.protobuf.Duration interval = 4;
   bool enabled = 5;
+
+  // counters determines if flow packets and bytes counters should be sent
+  bool counters = 6;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password

@@ -735,6 +735,7 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 	}
 	return &nftypes.FlowConfig{
 		Enabled:        config.GetEnabled(),
+		Counters:       config.GetCounters(),
 		URL:            config.GetUrl(),
 		TokenPayload:   config.GetTokenPayload(),
 		TokenSignature: config.GetTokenSignature(),
