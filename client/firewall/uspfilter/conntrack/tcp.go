@@ -287,17 +287,24 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 				conn.State = TCPStateCloseWait
 			}
 			conn.SetEstablished(false)
+		} else if flags&TCPRst != 0 {
+			conn.State = TCPStateClosed
+			conn.SetTombstone()
+			t.sendEvent(nftypes.TypeEnd, key, conn)
 		}
 
 	case TCPStateFinWait1:
 		switch {
 		case flags&TCPFin != 0 && flags&TCPAck != 0:
-			// Simultaneous close - both sides sent FIN
 			conn.State = TCPStateClosing
 		case flags&TCPFin != 0:
 			conn.State = TCPStateFinWait2
 		case flags&TCPAck != 0:
 			conn.State = TCPStateFinWait2
+		case flags&TCPRst != 0:
+			conn.State = TCPStateClosed
+			conn.SetTombstone()
+			t.sendEvent(nftypes.TypeEnd, key, conn)
 		}
 
 	case TCPStateFinWait2:
