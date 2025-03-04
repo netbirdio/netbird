@@ -12,7 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
-	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/flow/client"
 	"github.com/netbirdio/netbird/flow/proto"
 )
@@ -20,19 +20,19 @@ import (
 // Manager handles netflow tracking and logging
 type Manager struct {
 	mux            sync.Mutex
-	logger         types.FlowLogger
-	flowConfig     *types.FlowConfig
-	conntrack      types.ConnTracker
+	logger         nftypes.FlowLogger
+	flowConfig     *nftypes.FlowConfig
+	conntrack      nftypes.ConnTracker
 	ctx            context.Context
 	receiverClient *client.GRPCClient
 	publicKey      []byte
 }
 
 // NewManager creates a new netflow manager
-func NewManager(ctx context.Context, iface types.IFaceMapper, publicKey []byte) *Manager {
+func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte) *Manager {
 	flowLogger := logger.New(ctx)
 
-	var ct types.ConnTracker
+	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
 		ct = conntrack.New(flowLogger, iface)
 	}
@@ -46,7 +46,7 @@ func NewManager(ctx context.Context, iface types.IFaceMapper, publicKey []byte) 
 }
 
 // Update applies new flow configuration settings
-func (m *Manager) Update(update *types.FlowConfig) error {
+func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	if update == nil {
 		return nil
 	}
@@ -99,7 +99,7 @@ func (m *Manager) Close() {
 }
 
 // GetLogger returns the flow logger
-func (m *Manager) GetLogger() types.FlowLogger {
+func (m *Manager) GetLogger() nftypes.FlowLogger {
 	return m.logger
 }
 
@@ -137,20 +137,21 @@ func (m *Manager) receiveACKs() {
 	}
 }
 
-func (m *Manager) send(event *types.Event) error {
+func (m *Manager) send(event *nftypes.Event) error {
 	if m.receiverClient == nil {
 		return nil
 	}
 	return m.receiverClient.Send(m.ctx, toProtoEvent(m.publicKey, event))
 }
 
-func toProtoEvent(publicKey []byte, event *types.Event) *proto.FlowEvent {
+func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 	protoEvent := &proto.FlowEvent{
 		EventId:   event.ID,
-		FlowId:    event.FlowID.String(),
 		Timestamp: timestamppb.New(event.Timestamp),
 		PublicKey: publicKey,
-		EventFields: &proto.EventFields{
+		FlowFields: &proto.FlowFields{
+			FlowId:    event.FlowID[:],
+			RuleId:    event.RuleID,
 			Type:      proto.Type(event.Type),
 			Direction: proto.Direction(event.Direction),
 			Protocol:  uint32(event.Protocol),
@@ -158,8 +159,8 @@ func toProtoEvent(publicKey []byte, event *types.Event) *proto.FlowEvent {
 			DestIp:    event.DestIP.AsSlice(),
 		},
 	}
-	if event.Protocol == 1 {
-		protoEvent.EventFields.ConnectionInfo = &proto.EventFields_IcmpInfo{
+	if event.Protocol == nftypes.ICMP {
+		protoEvent.FlowFields.ConnectionInfo = &proto.FlowFields_IcmpInfo{
 			IcmpInfo: &proto.ICMPInfo{
 				IcmpType: uint32(event.ICMPType),
 				IcmpCode: uint32(event.ICMPCode),
@@ -168,7 +169,7 @@ func toProtoEvent(publicKey []byte, event *types.Event) *proto.FlowEvent {
 		return protoEvent
 	}
 
-	protoEvent.EventFields.ConnectionInfo = &proto.EventFields_PortInfo{
+	protoEvent.FlowFields.ConnectionInfo = &proto.FlowFields_PortInfo{
 		PortInfo: &proto.PortInfo{
 			SourcePort: uint32(event.SourcePort),
 			DestPort:   uint32(event.DestPort),

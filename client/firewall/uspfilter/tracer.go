@@ -317,12 +317,19 @@ func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *
 	}
 
 	trace.AddResult(StageRouting, "Packet destined for local delivery", true)
-	blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
 
-	msg := "Allowed by peer ACL rules"
-	if blocked {
-		msg = "Blocked by peer ACL rules"
+	ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+
+	strRuleId := "implicit"
+	if ruleId != nil {
+		strRuleId = string(ruleId)
 	}
+
+	msg := fmt.Sprintf("Allowed by peer ACL rules (%s)", strRuleId)
+	if blocked {
+		msg = fmt.Sprintf("Blocked by peer ACL rules (%s)", strRuleId)
+	}
+
 	trace.AddResult(StagePeerACL, msg, !blocked)
 
 	if m.netstack {
@@ -353,11 +360,16 @@ func (m *Manager) handleNativeRouter(trace *PacketTrace) *PacketTrace {
 func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP net.IP) *PacketTrace {
 	proto, _ := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
-	allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	id, allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
 
-	msg := "Allowed by route ACLs"
+	strId := string(id)
+	if id == nil {
+		strId = "implicit"
+	}
+
+	msg := fmt.Sprintf("Allowed by route ACLs (%s)", strId)
 	if !allowed {
-		msg = "Blocked by route ACLs"
+		msg = fmt.Sprintf("Blocked by route ACLs (%s)", strId)
 	}
 	trace.AddResult(StageRouteACL, msg, allowed)
 

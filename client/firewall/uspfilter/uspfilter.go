@@ -221,6 +221,7 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) error {
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
 	if _, err := m.AddRouteFiltering(
+		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
 		wgPrefix,
 		firewall.ProtocolALL,
@@ -351,21 +352,21 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
 func (m *Manager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 	_ string,
-	comment string,
 ) ([]firewall.Rule, error) {
 	r := PeerRule{
 		id:        uuid.New().String(),
+		mgmtId:    id,
 		ip:        ip,
 		ipLayer:   layers.LayerTypeIPv6,
 		matchByIP: true,
 		drop:      action == firewall.ActionDrop,
-		comment:   comment,
 	}
 	if ipNormalized := ip.To4(); ipNormalized != nil {
 		r.ipLayer = layers.LayerTypeIPv4
@@ -403,6 +404,7 @@ func (m *Manager) AddPeerFiltering(
 }
 
 func (m *Manager) AddRouteFiltering(
+	id []byte,
 	sources []netip.Prefix,
 	destination netip.Prefix,
 	proto firewall.Protocol,
@@ -411,7 +413,7 @@ func (m *Manager) AddRouteFiltering(
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	if m.nativeRouter && m.nativeFirewall != nil {
-		return m.nativeFirewall.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+		return m.nativeFirewall.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 	}
 
 	m.mutex.Lock()
@@ -419,7 +421,9 @@ func (m *Manager) AddRouteFiltering(
 
 	ruleID := uuid.New().String()
 	rule := RouteRule{
+		// TODO: consolidate these IDs
 		id:          ruleID,
+		mgmtId:      id,
 		sources:     sources,
 		destination: destination,
 		proto:       proto,
@@ -655,22 +659,23 @@ func (m *Manager) dropFilter(packetData []byte) bool {
 // handleLocalTraffic handles local traffic.
 // If it returns true, the packet should be dropped.
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP net.IP, packetData []byte) bool {
-	if m.peerACLsBlock(srcIP, packetData, m.incomingRules, d) {
-		srcIP, _ := netip.AddrFromSlice(srcIP)
-		dstIP, _ := netip.AddrFromSlice(dstIP)
+	if ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d); blocked {
+		srcAddr, _ := netip.AddrFromSlice(srcIP)
+		dstAddr, _ := netip.AddrFromSlice(dstIP)
 		_, pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
 
-		m.logger.Trace("Dropping local packet (ACL denied): proto=%v src=%s:%d dst=%s:%d",
-			pnum, srcIP, srcPort, dstIP, dstPort)
+		m.logger.Trace("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			ruleId, pnum, srcAddr, srcPort, dstAddr, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
+			RuleID:     ruleId,
 			Direction:  nftypes.Ingress,
 			Protocol:   pnum,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
+			SourceIP:   srcAddr,
+			DestIP:     dstAddr,
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 			// TODO: icmp type/code
@@ -726,20 +731,21 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP net.IP, packetDat
 	proto, pnum := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
 
-	if !m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort) {
-		srcIP, _ := netip.AddrFromSlice(srcIP)
-		dstIP, _ := netip.AddrFromSlice(dstIP)
+	if id, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort); !pass {
+		srcAddr, _ := netip.AddrFromSlice(srcIP)
+		dstAddr, _ := netip.AddrFromSlice(dstIP)
 
-		m.logger.Trace("Dropping routed packet (ACL denied): proto=%v src=%s:%d dst=%s:%d",
-			pnum, srcIP, srcPort, dstIP, dstPort)
+		m.logger.Trace("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+			id, pnum, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
+			RuleID:     id,
 			Direction:  nftypes.Ingress,
 			Protocol:   pnum,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
+			SourceIP:   srcAddr,
+			DestIP:     dstAddr,
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 			// TODO: icmp type/code
@@ -838,25 +844,25 @@ func (m *Manager) isSpecialICMP(d *decoder) bool {
 		icmpType == layers.ICMPv4TypeTimeExceeded
 }
 
-func (m *Manager) peerACLsBlock(srcIP net.IP, packetData []byte, rules map[string]RuleSet, d *decoder) bool {
+func (m *Manager) peerACLsBlock(srcIP net.IP, packetData []byte, rules map[string]RuleSet, d *decoder) ([]byte, bool) {
 	if m.isSpecialICMP(d) {
-		return false
+		return nil, false
 	}
 
-	if filter, ok := validateRule(srcIP, packetData, rules[srcIP.String()], d); ok {
-		return filter
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[srcIP.String()], d); ok {
+		return mgmtId, filter
 	}
 
-	if filter, ok := validateRule(srcIP, packetData, rules["0.0.0.0"], d); ok {
-		return filter
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules["0.0.0.0"], d); ok {
+		return mgmtId, filter
 	}
 
-	if filter, ok := validateRule(srcIP, packetData, rules["::"], d); ok {
-		return filter
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules["::"], d); ok {
+		return mgmtId, filter
 	}
 
 	// Default policy: DROP ALL
-	return true
+	return nil, true
 }
 
 func portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
@@ -876,7 +882,7 @@ func portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
 	return false
 }
 
-func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *decoder) (bool, bool) {
+func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *decoder) ([]byte, bool, bool) {
 	payloadLayer := d.decoded[1]
 	for _, rule := range rules {
 		if rule.matchByIP && !ip.Equal(rule.ip) {
@@ -884,7 +890,7 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *de
 		}
 
 		if rule.protoLayer == layerTypeAll {
-			return rule.drop, true
+			return rule.mgmtId, rule.drop, true
 		}
 
 		if payloadLayer != rule.protoLayer {
@@ -894,27 +900,27 @@ func validateRule(ip net.IP, packetData []byte, rules map[string]PeerRule, d *de
 		switch payloadLayer {
 		case layers.LayerTypeTCP:
 			if portsMatch(rule.sPort, uint16(d.tcp.SrcPort)) && portsMatch(rule.dPort, uint16(d.tcp.DstPort)) {
-				return rule.drop, true
+				return rule.mgmtId, rule.drop, true
 			}
 		case layers.LayerTypeUDP:
 			// if rule has UDP hook (and if we are here we match this rule)
 			// we ignore rule.drop and call this hook
 			if rule.udpHook != nil {
-				return rule.udpHook(packetData), true
+				return rule.mgmtId, rule.udpHook(packetData), true
 			}
 
 			if portsMatch(rule.sPort, uint16(d.udp.SrcPort)) && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
-				return rule.drop, true
+				return rule.mgmtId, rule.drop, true
 			}
 		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-			return rule.drop, true
+			return rule.mgmtId, rule.drop, true
 		}
 	}
-	return false, false
+	return nil, false, false
 }
 
 // routeACLsPass returns treu if the packet is allowed by the route ACLs
-func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, srcPort, dstPort uint16) ([]byte, bool) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -923,10 +929,10 @@ func (m *Manager) routeACLsPass(srcIP, dstIP net.IP, proto firewall.Protocol, sr
 
 	for _, rule := range m.routeRules {
 		if m.ruleMatches(rule, srcAddr, dstAddr, proto, srcPort, dstPort) {
-			return rule.action == firewall.ActionAccept
+			return rule.mgmtId, rule.action == firewall.ActionAccept
 		}
 	}
-	return false
+	return nil, false
 }
 
 func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
@@ -975,7 +981,6 @@ func (m *Manager) AddUDPPacketHook(
 		protoLayer: layers.LayerTypeUDP,
 		dPort:      &firewall.Port{Values: []uint16{dPort}},
 		ipLayer:    layers.LayerTypeIPv6,
-		comment:    fmt.Sprintf("UDP Hook direction: %v, ip:%v, dport:%d", in, ip, dPort),
 		udpHook:    hook,
 	}
 

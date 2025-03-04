@@ -445,6 +445,9 @@ message FirewallRule {
   RuleProtocol Protocol = 4;
   string Port = 5;
   PortInfo PortInfo = 6;
+
+  // Id is the unique rule Id
+  bytes id = 7;
 }
 
 message NetworkAddress {
@@ -494,6 +497,9 @@ message RouteFirewallRule {
 
   // CustomProtocol is a custom protocol ID.
   uint32 customProtocol = 8;
+
+  // Id is the unique rule Id
+  bytes id = 9;
 }
 
 message ForwardingRule {
@@ -504,7 +510,6 @@ message ForwardingRule {
   PortInfo destinationPort = 2;
 
   // IP address of the translated address (remote peer) to send traffic to
-  // todo type pending
   bytes translatedAddress = 3;
 
   // Translated port information, where the traffic should be forwarded to
