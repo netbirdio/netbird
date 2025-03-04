@@ -36,7 +36,7 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/formatter/hook"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
@@ -90,7 +90,7 @@ var (
 			flag.Parse()
 
 			//nolint
-			ctx := context.WithValue(cmd.Context(), formatter.ExecutionContextKey, formatter.SystemSource)
+			ctx := context.WithValue(cmd.Context(), hook.ExecutionContextKey, hook.SystemSource)
 
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
@@ -136,7 +136,7 @@ var (
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 			//nolint
-			ctx = context.WithValue(ctx, formatter.ExecutionContextKey, formatter.SystemSource)
+			ctx = context.WithValue(ctx, hook.ExecutionContextKey, hook.SystemSource)
 
 			err := handleRebrand(cmd)
 			if err != nil {
@@ -374,7 +374,7 @@ func unaryInterceptor(
 ) (interface{}, error) {
 	reqID := uuid.New().String()
 	//nolint
-	ctx = context.WithValue(ctx, formatter.ExecutionContextKey, formatter.GRPCSource)
+	ctx = context.WithValue(ctx, hook.ExecutionContextKey, hook.GRPCSource)
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(ctx, req)
@@ -389,7 +389,7 @@ func streamInterceptor(
 	reqID := uuid.New().String()
 	wrapped := grpcMiddleware.WrapServerStream(ss)
 	//nolint
-	ctx := context.WithValue(ss.Context(), formatter.ExecutionContextKey, formatter.GRPCSource)
+	ctx := context.WithValue(ss.Context(), hook.ExecutionContextKey, hook.GRPCSource)
 	//nolint
 	wrapped.WrappedContext = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(srv, wrapped)

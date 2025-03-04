@@ -1,10 +1,12 @@
-package formatter
+package logcat
 
 import (
 	"fmt"
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/formatter/levels"
 )
 
 // LogcatFormatter formats logs into text what is fit for logcat
@@ -15,7 +17,7 @@ type LogcatFormatter struct {
 // NewLogcatFormatter create new LogcatFormatter instance
 func NewLogcatFormatter() *LogcatFormatter {
 	return &LogcatFormatter{
-		levelDesc: []string{"PANC", "FATL", "ERRO", "WARN", "INFO", "DEBG", "TRAC"},
+		levelDesc: levels.ValidLevelDesc,
 	}
 }
 
