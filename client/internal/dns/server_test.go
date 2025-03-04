@@ -26,7 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/formatter/txt"
+	"github.com/netbirdio/netbird/formatter"
 )
 
 type mocWGIface struct {
@@ -86,7 +86,7 @@ var zoneRecords = []nbdns.SimpleRecord{
 
 func init() {
 	log.SetLevel(log.TraceLevel)
-	txt.SetTextFormatter(log.StandardLogger())
+	formatter.SetTextFormatter(log.StandardLogger())
 }
 
 func generateDummyHandler(domain string, servers []nbdns.NameServer) *upstreamResolverBase {

@@ -9,20 +9,20 @@ import (
 	"github.com/netbirdio/netbird/formatter/levels"
 )
 
-// SyslogFormatter formats logs into text
-type SyslogFormatter struct {
+// Formatter formats logs into text
+type Formatter struct {
 	levelDesc []string
 }
 
 // NewSyslogFormatter create new MySyslogFormatter instance
-func NewSyslogFormatter() *SyslogFormatter {
-	return &SyslogFormatter{
+func NewSyslogFormatter() *Formatter {
+	return &Formatter{
 		levelDesc: levels.ValidLevelDesc,
 	}
 }
 
 // Format renders a single log entry
-func (f *SyslogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+func (f *Formatter) Format(entry *logrus.Entry) ([]byte, error) {
 	var fields string
 	keys := make([]string, 0, len(entry.Data))
 	for k, v := range entry.Data {
