@@ -163,6 +163,10 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 		return
 	}
 
+	if event.Type != nfct.EventNew && event.Type != nfct.EventDestroy {
+		return
+	}
+
 	flow := *event.Flow
 
 	proto := nftypes.Protocol(flow.TupleOrig.Proto.Protocol)
@@ -188,13 +192,36 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 		icmpCode = flow.TupleOrig.Proto.ICMPCode
 	}
 
-	switch event.Type {
-	case nfct.EventNew:
-		c.handleNewFlow(flow, proto, srcIP, dstIP, srcPort, dstPort, icmpType, icmpCode)
+	flowID := c.getFlowID(flow.ID)
+	direction := c.inferDirection(srcIP, dstIP)
 
-	case nfct.EventDestroy:
-		c.handleDestroyFlow(flow, proto, srcIP, dstIP, srcPort, dstPort, icmpType, icmpCode)
+	// Common EventFields for both event types
+	eventType := nftypes.TypeStart
+	eventStr := "New"
+
+	if event.Type == nfct.EventDestroy {
+		eventType = nftypes.TypeEnd
+		eventStr = "Ended"
 	}
+
+	log.Tracef("%s %s %s connection: %s:%d -> %s:%d", eventStr, direction, proto, srcIP, srcPort, dstIP, dstPort)
+
+	c.flowLogger.StoreEvent(nftypes.EventFields{
+		FlowID:     flowID,
+		Type:       eventType,
+		Direction:  direction,
+		Protocol:   proto,
+		SourceIP:   srcIP,
+		DestIP:     dstIP,
+		SourcePort: srcPort,
+		DestPort:   dstPort,
+		ICMPType:   icmpType,
+		ICMPCode:   icmpCode,
+		RxPackets:  c.mapRxPackets(flow, direction),
+		TxPackets:  c.mapTxPackets(flow, direction),
+		RxBytes:    c.mapRxBytes(flow, direction),
+		TxBytes:    c.mapTxBytes(flow, direction),
+	})
 }
 
 // relevantFlow checks if the flow is related to the specified interface
@@ -207,52 +234,6 @@ func (c *ConnTrack) relevantFlow(srcIP, dstIP netip.Addr) bool {
 	}
 
 	return true
-}
-
-func (c *ConnTrack) handleNewFlow(flow nfct.Flow, proto nftypes.Protocol, srcIP, dstIP netip.Addr, srcPort, dstPort uint16, icmpType, icmpCode uint8) {
-	flowID := c.getFlowID(flow.ID)
-	direction := c.inferDirection(srcIP, dstIP)
-
-	log.Tracef("New %s %s connection: %s:%d -> %s:%d", direction, proto, srcIP, srcPort, dstIP, dstPort)
-	c.flowLogger.StoreEvent(nftypes.EventFields{
-		FlowID:     flowID,
-		Type:       nftypes.TypeStart,
-		Direction:  direction,
-		Protocol:   proto,
-		SourceIP:   srcIP,
-		DestIP:     dstIP,
-		SourcePort: srcPort,
-		DestPort:   dstPort,
-		ICMPType:   icmpType,
-		ICMPCode:   icmpCode,
-		RxPackets:  c.mapRxPackets(flow, direction),
-		TxPackets:  c.mapTxPackets(flow, direction),
-		RxBytes:    c.mapRxBytes(flow, direction),
-		TxBytes:    c.mapTxBytes(flow, direction),
-	})
-}
-
-func (c *ConnTrack) handleDestroyFlow(flow nfct.Flow, proto nftypes.Protocol, srcIP, dstIP netip.Addr, srcPort, dstPort uint16, icmpType, icmpCode uint8) {
-	flowID := c.getFlowID(flow.ID)
-	direction := c.inferDirection(srcIP, dstIP)
-
-	log.Tracef("Ended %s %s connection: %s:%d -> %s:%d", direction, proto, srcIP, srcPort, dstIP, dstPort)
-	c.flowLogger.StoreEvent(nftypes.EventFields{
-		FlowID:     flowID,
-		Type:       nftypes.TypeEnd,
-		Direction:  direction,
-		Protocol:   proto,
-		SourceIP:   srcIP,
-		DestIP:     dstIP,
-		SourcePort: srcPort,
-		DestPort:   dstPort,
-		ICMPType:   icmpType,
-		ICMPCode:   icmpCode,
-		RxPackets:  c.mapRxPackets(flow, direction),
-		TxPackets:  c.mapTxPackets(flow, direction),
-		RxBytes:    c.mapRxBytes(flow, direction),
-		TxBytes:    c.mapTxBytes(flow, direction),
-	})
 }
 
 // mapRxPackets maps packet counts to RX based on flow direction
