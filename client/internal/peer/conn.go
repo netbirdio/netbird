@@ -398,7 +398,7 @@ func (conn *Conn) onICEStateDisconnected() {
 		conn.workerRelay.EnableWgWatcher(conn.ctx)
 		conn.currentConnPriority = connPriorityRelay
 	} else {
-		conn.log.Infof("ICE disconnected, do not switch to Relay. Close priority to: %s", connPriorityNone.String())
+		conn.log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", connPriorityNone.String())
 		conn.currentConnPriority = connPriorityNone
 	}
 
