@@ -16,12 +16,12 @@ message FlowEvent {
   string event_id = 1;
 
   // When the event occurred
-  google.protobuf.Timestamp timestamp = 3;
+  google.protobuf.Timestamp timestamp = 2;
 
   // Public key of the sending peer
-  bytes public_key = 4;
+  bytes public_key = 3;
 
-  FlowFields flow_fields = 5;
+  FlowFields flow_fields = 4;
 }
 
 message FlowEventAck {
