@@ -26,9 +26,10 @@ type ConnTrack struct {
 	conn *nfct.Conn
 	mux  sync.Mutex
 
-	instanceID uuid.UUID
-	started    bool
-	done       chan struct{}
+	instanceID     uuid.UUID
+	started        bool
+	done           chan struct{}
+	sysctlModified bool
 }
 
 // New creates a new connection tracker that interfaces with the kernel's conntrack system
@@ -43,7 +44,7 @@ func New(flowLogger nftypes.FlowLogger, iface nftypes.IFaceMapper) *ConnTrack {
 }
 
 // Start begins tracking connections by listening for conntrack events. This method is idempotent.
-func (c *ConnTrack) Start() error {
+func (c *ConnTrack) Start(enableCounters bool) error {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
@@ -52,6 +53,10 @@ func (c *ConnTrack) Start() error {
 	}
 
 	log.Info("Starting conntrack event listening")
+
+	if enableCounters {
+		c.EnableAccounting()
+	}
 
 	conn, err := nfct.Dial(nil)
 	if err != nil {
@@ -121,6 +126,8 @@ func (c *ConnTrack) Stop() {
 	}
 
 	c.started = false
+
+	c.RestoreAccounting()
 }
 
 // Close stops listening for events and cleans up resources
@@ -139,6 +146,9 @@ func (c *ConnTrack) Close() error {
 		err := c.conn.Close()
 		c.conn = nil
 		c.started = false
+
+		c.RestoreAccounting()
+
 		if err != nil {
 			return fmt.Errorf("close conntrack: %w", err)
 		}
@@ -180,10 +190,10 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 
 	switch event.Type {
 	case nfct.EventNew:
-		c.handleNewFlow(flow.ID, proto, srcIP, dstIP, srcPort, dstPort, icmpType, icmpCode)
+		c.handleNewFlow(flow, proto, srcIP, dstIP, srcPort, dstPort, icmpType, icmpCode)
 
 	case nfct.EventDestroy:
-		c.handleDestroyFlow(flow.ID, proto, srcIP, dstIP, srcPort, dstPort, icmpType, icmpCode)
+		c.handleDestroyFlow(flow, proto, srcIP, dstIP, srcPort, dstPort, icmpType, icmpCode)
 	}
 }
 
@@ -199,8 +209,8 @@ func (c *ConnTrack) relevantFlow(srcIP, dstIP netip.Addr) bool {
 	return true
 }
 
-func (c *ConnTrack) handleNewFlow(id uint32, proto nftypes.Protocol, srcIP, dstIP netip.Addr, srcPort, dstPort uint16, icmpType, icmpCode uint8) {
-	flowID := c.getFlowID(id)
+func (c *ConnTrack) handleNewFlow(flow nfct.Flow, proto nftypes.Protocol, srcIP, dstIP netip.Addr, srcPort, dstPort uint16, icmpType, icmpCode uint8) {
+	flowID := c.getFlowID(flow.ID)
 	direction := c.inferDirection(srcIP, dstIP)
 
 	log.Tracef("New %s %s connection: %s:%d -> %s:%d", direction, proto, srcIP, srcPort, dstIP, dstPort)
@@ -215,11 +225,15 @@ func (c *ConnTrack) handleNewFlow(id uint32, proto nftypes.Protocol, srcIP, dstI
 		DestPort:   dstPort,
 		ICMPType:   icmpType,
 		ICMPCode:   icmpCode,
+		RxPackets:  c.mapRxPackets(flow, direction),
+		TxPackets:  c.mapTxPackets(flow, direction),
+		RxBytes:    c.mapRxBytes(flow, direction),
+		TxBytes:    c.mapTxBytes(flow, direction),
 	})
 }
 
-func (c *ConnTrack) handleDestroyFlow(id uint32, proto nftypes.Protocol, srcIP, dstIP netip.Addr, srcPort, dstPort uint16, icmpType, icmpCode uint8) {
-	flowID := c.getFlowID(id)
+func (c *ConnTrack) handleDestroyFlow(flow nfct.Flow, proto nftypes.Protocol, srcIP, dstIP netip.Addr, srcPort, dstPort uint16, icmpType, icmpCode uint8) {
+	flowID := c.getFlowID(flow.ID)
 	direction := c.inferDirection(srcIP, dstIP)
 
 	log.Tracef("Ended %s %s connection: %s:%d -> %s:%d", direction, proto, srcIP, srcPort, dstIP, dstPort)
@@ -234,7 +248,51 @@ func (c *ConnTrack) handleDestroyFlow(id uint32, proto nftypes.Protocol, srcIP, 
 		DestPort:   dstPort,
 		ICMPType:   icmpType,
 		ICMPCode:   icmpCode,
+		RxPackets:  c.mapRxPackets(flow, direction),
+		TxPackets:  c.mapTxPackets(flow, direction),
+		RxBytes:    c.mapRxBytes(flow, direction),
+		TxBytes:    c.mapTxBytes(flow, direction),
 	})
+}
+
+// mapRxPackets maps packet counts to RX based on flow direction
+func (c *ConnTrack) mapRxPackets(flow nfct.Flow, direction nftypes.Direction) uint64 {
+	// For Ingress: CountersOrig is from external to us (RX)
+	// For Egress: CountersReply is from external to us (RX)
+	if direction == nftypes.Ingress {
+		return flow.CountersOrig.Packets
+	}
+	return flow.CountersReply.Packets
+}
+
+// mapTxPackets maps packet counts to TX based on flow direction
+func (c *ConnTrack) mapTxPackets(flow nfct.Flow, direction nftypes.Direction) uint64 {
+	// For Ingress: CountersReply is from us to external (TX)
+	// For Egress: CountersOrig is from us to external (TX)
+	if direction == nftypes.Ingress {
+		return flow.CountersReply.Packets
+	}
+	return flow.CountersOrig.Packets
+}
+
+// mapRxBytes maps byte counts to RX based on flow direction
+func (c *ConnTrack) mapRxBytes(flow nfct.Flow, direction nftypes.Direction) uint64 {
+	// For Ingress: CountersOrig is from external to us (RX)
+	// For Egress: CountersReply is from external to us (RX)
+	if direction == nftypes.Ingress {
+		return flow.CountersOrig.Bytes
+	}
+	return flow.CountersReply.Bytes
+}
+
+// mapTxBytes maps byte counts to TX based on flow direction
+func (c *ConnTrack) mapTxBytes(flow nfct.Flow, direction nftypes.Direction) uint64 {
+	// For Ingress: CountersReply is from us to external (TX)
+	// For Egress: CountersOrig is from us to external (TX)
+	if direction == nftypes.Ingress {
+		return flow.CountersReply.Bytes
+	}
+	return flow.CountersOrig.Bytes
 }
 
 // getFlowID creates a unique UUID based on the conntrack ID and instance ID

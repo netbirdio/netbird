@@ -57,7 +57,7 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 
 	if update.Enabled {
 		if m.conntrack != nil {
-			if err := m.conntrack.Start(); err != nil {
+			if err := m.conntrack.Start(update.Counters); err != nil {
 				return fmt.Errorf("start conntrack: %w", err)
 			}
 		}
@@ -157,6 +157,10 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 			Protocol:  uint32(event.Protocol),
 			SourceIp:  event.SourceIP.AsSlice(),
 			DestIp:    event.DestIP.AsSlice(),
+			RxPackets: event.RxPackets,
+			TxPackets: event.TxPackets,
+			RxBytes:   event.RxBytes,
+			TxBytes:   event.TxBytes,
 		},
 	}
 	if event.Protocol == nftypes.ICMP {

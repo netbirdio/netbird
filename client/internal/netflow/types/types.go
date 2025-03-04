@@ -78,12 +78,17 @@ type EventFields struct {
 	DestPort   uint16
 	ICMPType   uint8
 	ICMPCode   uint8
+	RxPackets  uint64
+	TxPackets  uint64
+	RxBytes    uint64
+	TxBytes    uint64
 }
 
 type FlowConfig struct {
 	URL            string
 	Interval       time.Duration
 	Enabled        bool
+	Counters       bool
 	TokenPayload   string
 	TokenSignature string
 }
@@ -126,7 +131,7 @@ type Store interface {
 // ConnTracker defines the interface for connection tracking functionality
 type ConnTracker interface {
 	// Start begins tracking connections by listening for conntrack events.
-	Start() error
+	Start(bool) error
 	// Stop stops the connection tracking.
 	Stop()
 	// Close stops listening for events and cleans up resources
