@@ -162,7 +162,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	runningChanOpen := true
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
-		if c.isContextCancelled() {
+		if c.ctx.Err() != nil {
 			return nil
 		}
 
@@ -377,15 +377,6 @@ func (c *ConnectClient) Stop() error {
 	}
 
 	return nil
-}
-
-func (c *ConnectClient) isContextCancelled() bool {
-	select {
-	case <-c.ctx.Done():
-		return true
-	default:
-		return false
-	}
 }
 
 // SetNetworkMapPersistence enables or disables network map persistence.
