@@ -59,6 +59,14 @@ message FlowFields {
     // ICMP type and code
     ICMPInfo icmp_info = 9;
   }
+
+  // Number of packets
+  uint64 rx_packets = 10;
+  uint64 tx_packets = 11;
+
+  // Number of bytes
+  uint64 rx_bytes = 12;
+  uint64 tx_bytes = 13;
 }
 
 // Flow event types
