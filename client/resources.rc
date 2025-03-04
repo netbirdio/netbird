@@ -5,5 +5,5 @@
 #define STRINGIZE(x) #x
 #define EXPAND(x) STRINGIZE(x)
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST manifest.xml
-7 ICON ui/netbird.ico
+7 ICON ui/assets/netbird.ico
 wintun.dll RCDATA wintun.dll

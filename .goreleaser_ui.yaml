@@ -53,9 +53,9 @@ nfpms:
     scripts:
       postinstall: "release_files/ui-post-install.sh"
     contents:
-      - src: client/ui/netbird.desktop
+      - src: client/ui/build/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/netbird.png
+      - src: client/ui/assets/netbird.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
@@ -72,9 +72,9 @@ nfpms:
     scripts:
       postinstall: "release_files/ui-post-install.sh"
     contents:
-      - src: client/ui/netbird.desktop
+      - src: client/ui/build/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/netbird.png
+      - src: client/ui/assets/netbird.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird

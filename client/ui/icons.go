@@ -6,38 +6,38 @@ import (
 	_ "embed"
 )
 
-//go:embed netbird.png
+//go:embed assets/netbird.png
 var iconAbout []byte
 
-//go:embed netbird-systemtray-connected.png
+//go:embed assets/netbird-systemtray-connected.png
 var iconConnected []byte
 
-//go:embed netbird-systemtray-connected-dark.png
+//go:embed assets/netbird-systemtray-connected-dark.png
 var iconConnectedDark []byte
 
-//go:embed netbird-systemtray-disconnected.png
+//go:embed assets/netbird-systemtray-disconnected.png
 var iconDisconnected []byte
 
-//go:embed netbird-systemtray-update-disconnected.png
+//go:embed assets/netbird-systemtray-update-disconnected.png
 var iconUpdateDisconnected []byte
 
-//go:embed netbird-systemtray-update-disconnected-dark.png
+//go:embed assets/netbird-systemtray-update-disconnected-dark.png
 var iconUpdateDisconnectedDark []byte
 
-//go:embed netbird-systemtray-update-connected.png
+//go:embed assets/netbird-systemtray-update-connected.png
 var iconUpdateConnected []byte
 
-//go:embed netbird-systemtray-update-connected-dark.png
+//go:embed assets/netbird-systemtray-update-connected-dark.png
 var iconUpdateConnectedDark []byte
 
-//go:embed netbird-systemtray-connecting.png
+//go:embed assets/netbird-systemtray-connecting.png
 var iconConnecting []byte
 
-//go:embed netbird-systemtray-connecting-dark.png
+//go:embed assets/netbird-systemtray-connecting-dark.png
 var iconConnectingDark []byte
 
-//go:embed netbird-systemtray-error.png
+//go:embed assets/netbird-systemtray-error.png
 var iconError []byte
 
-//go:embed netbird-systemtray-error-dark.png
+//go:embed assets/netbird-systemtray-error-dark.png
 var iconErrorDark []byte
