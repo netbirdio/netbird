@@ -342,7 +342,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 
 	if filename != "" {
-		err = loadSQL(db, filename)
+		err = LoadSQL(db, filename)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
 		}
@@ -515,7 +515,7 @@ func replaceDBName(dsn, newDBName string) string {
 	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
-func loadSQL(db *gorm.DB, filepath string) error {
+func LoadSQL(db *gorm.DB, filepath string) error {
 	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {
 		return err
