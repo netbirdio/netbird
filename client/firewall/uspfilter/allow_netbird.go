@@ -13,7 +13,7 @@ import (
 )
 
 // Reset firewall to the default state
-func (m *Manager) Reset(stateManager *statemanager.Manager) error {
+func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -48,7 +48,7 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 	}
 
 	if m.nativeFirewall != nil {
-		return m.nativeFirewall.Reset(stateManager)
+		return m.nativeFirewall.Close(stateManager)
 	}
 	return nil
 }

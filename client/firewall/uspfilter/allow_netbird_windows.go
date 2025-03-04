@@ -21,8 +21,8 @@ const (
 	firewallRuleName        = "Netbird"
 )
 
-// Reset firewall to the default state
-func (m *Manager) Reset(*statemanager.Manager) error {
+// Close closes the firewall manager
+func (m *Manager) Close(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

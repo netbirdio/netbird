@@ -62,7 +62,7 @@ func (s *ShutdownState) Cleanup() error {
 		ipt.aclMgr.ipsetStore = s.ACLIPsetStore
 	}
 
-	if err := ipt.Reset(nil); err != nil {
+	if err := ipt.Close(nil); err != nil {
 		return fmt.Errorf("reset iptables manager: %w", err)
 	}
 
