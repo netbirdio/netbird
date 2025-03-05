@@ -1,5 +1,5 @@
-//go:build benchmark
-// +build benchmark
+//go:build api_benchmark
+// +build api_benchmark
 
 package benchmarks
 
