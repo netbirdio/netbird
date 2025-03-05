@@ -22,8 +22,8 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	if user.IsRegularUser() {
@@ -43,8 +43,8 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	if user.IsRegularUser() {
@@ -100,8 +100,8 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
 	}
 
 	if user.IsRegularUser() {
@@ -148,8 +148,8 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	if user.IsRegularUser() {
@@ -261,6 +261,7 @@ func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule 
 			Action:    getProtoAction(rule.Action),
 			Protocol:  getProtoProtocol(rule.Protocol),
 			Port:      rule.Port,
+			PortInfo:  rule.PortRange.ToProto(),
 		}
 	}
 	return result

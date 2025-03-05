@@ -74,7 +74,7 @@ func TestDefaultManager(t *testing.T) {
 	t.Run("add extra rules", func(t *testing.T) {
 		existedPairs := map[string]struct{}{}
 		for id := range acl.peerRulesPairs {
-			existedPairs[id.GetRuleID()] = struct{}{}
+			existedPairs[id.ID()] = struct{}{}
 		}
 
 		// remove first rule
@@ -100,7 +100,7 @@ func TestDefaultManager(t *testing.T) {
 		// check that old rule was removed
 		previousCount := 0
 		for id := range acl.peerRulesPairs {
-			if _, ok := existedPairs[id.GetRuleID()]; ok {
+			if _, ok := existedPairs[id.ID()]; ok {
 				previousCount++
 			}
 		}

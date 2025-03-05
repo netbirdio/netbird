@@ -35,6 +35,8 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/server/peers"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
@@ -49,7 +51,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -199,8 +200,14 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
+
+			userManager := users.NewManager(store)
+			settingsManager := settings.NewManager(store)
+			permissionsManager := integrations.InitPermissionsManager(userManager, settingsManager)
+			peersManager := peers.NewManager(store, permissionsManager)
+			proxyController := integrations.NewController(store)
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, permissionsManager)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
@@ -261,15 +268,14 @@ var (
 				config.HttpConfig.AuthUserIDClaim,
 				config.GetAuthAudiences(),
 				config.HttpConfig.IdpSignKeyRefreshEnabled)
-			userManager := users.NewManager(store)
-			settingsManager := settings.NewManager(store)
-			permissionsManager := permissions.NewManager(userManager, settingsManager)
+
 			groupsManager := groups.NewManager(store, permissionsManager, accountManager)
 			resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, accountManager)
 			routersManager := routers.NewManager(store, permissionsManager, accountManager)
 			networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, accountManager)
 
-			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, config, integratedPeerValidator)
+			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, integratedPeerValidator, proxyController, permissionsManager, peersManager)
+
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
