@@ -17,6 +17,12 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
+const (
+	debounceTime = 2 * time.Second
+)
+
+var checkChangeFn = checkChange
+
 // NetworkMonitor watches for changes in network configuration.
 type NetworkMonitor struct {
 	cancel context.CancelFunc
@@ -78,16 +84,22 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 		}
 	}()
 
-	if err := checkChange(ctx, nexthop4, nexthop6); err != nil {
-		return err
-	}
+	event := make(chan struct{}, 1)
+	go nw.checkChanges(ctx, event, nexthop4, nexthop6)
 
 	// debounce changes
-	select {
-	case <-time.After(time.Second * 2):
-		return
-	case <-ctx.Done():
-		return ctx.Err()
+	timer := time.NewTimer(0)
+	timer.Stop()
+	for {
+		select {
+		case <-event:
+			timer.Reset(debounceTime)
+		case <-timer.C:
+			return nil
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		}
 	}
 }
 
@@ -97,9 +109,24 @@ func (nw *NetworkMonitor) Stop() {
 	defer nw.mu.Unlock()
 
 	if nw.cancel == nil {
+		log.Infof("cancel is nil")
 		return
 	}
 
 	nw.cancel()
 	nw.wg.Wait()
+}
+
+func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{}, nexthop4 systemops.Nexthop, nexthop6 systemops.Nexthop) {
+	for {
+		if err := checkChangeFn(ctx, nexthop4, nexthop6); err != nil {
+			close(event)
+			return
+		}
+		// prevent blocking
+		select {
+		case event <- struct{}{}:
+		default:
+		}
+	}
 }
