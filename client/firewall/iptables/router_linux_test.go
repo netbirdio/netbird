@@ -39,12 +39,14 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	}()
 
 	// Now 5 rules:
-	// 1. established rule in forward chain
-	// 2. jump rule to NAT chain
-	// 3. jump rule to PRE chain
-	// 4. static outbound masquerade rule
-	// 5. static return masquerade rule
-	require.Len(t, manager.rules, 5, "should have created rules map")
+	// 1. established rule forward in
+	// 2. estbalished rule forward out
+	// 3. jump rule to POST nat chain
+	// 4. jump rule to PRE mangle chain
+	// 5. jump rule to PRE nat chain
+	// 6. static outbound masquerade rule
+	// 7. static return masquerade rule
+	require.Len(t, manager.rules, 7, "should have created rules map")
 
 	exists, err := manager.iptablesClient.Exists(tableNat, chainPOSTROUTING, "-j", chainRTNAT)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainPOSTROUTING)
@@ -332,14 +334,14 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			require.NoError(t, err, "AddRouteFiltering failed")
 
 			// Check if the rule is in the internal map
-			rule, ok := r.rules[ruleKey.GetRuleID()]
+			rule, ok := r.rules[ruleKey.ID()]
 			assert.True(t, ok, "Rule not found in internal map")
 
 			// Log the internal rule
 			t.Logf("Internal rule: %v", rule)
 
 			// Check if the rule exists in iptables
-			exists, err := iptablesClient.Exists(tableFilter, chainRTFWD, rule...)
+			exists, err := iptablesClient.Exists(tableFilter, chainRTFWDIN, rule...)
 			assert.NoError(t, err, "Failed to check rule existence")
 			assert.True(t, exists, "Rule not found in iptables")
 

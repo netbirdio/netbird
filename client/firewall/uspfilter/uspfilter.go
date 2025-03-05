@@ -42,6 +42,8 @@ const (
 	EnvEnableNetstackLocalForwarding = "NB_ENABLE_NETSTACK_LOCAL_FORWARDING"
 )
 
+var errNatNotSupported = errors.New("nat not supported with userspace firewall")
+
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
@@ -437,7 +439,7 @@ func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	ruleID := rule.GetRuleID()
+	ruleID := rule.ID()
 	idx := slices.IndexFunc(m.routeRules, func(r RouteRule) bool {
 		return r.id == ruleID
 	})
@@ -477,6 +479,22 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
+
+// AddDNATRule adds a DNAT rule
+func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	if m.nativeFirewall == nil {
+		return nil, errNatNotSupported
+	}
+	return m.nativeFirewall.AddDNATRule(rule)
+}
+
+// DeleteDNATRule deletes a DNAT rule
+func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
+	if m.nativeFirewall == nil {
+		return errNatNotSupported
+	}
+	return m.nativeFirewall.DeleteDNATRule(rule)
+}
 
 // DropOutgoing filter outgoing packets
 func (m *Manager) DropOutgoing(packetData []byte) bool {

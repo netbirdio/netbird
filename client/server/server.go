@@ -810,6 +810,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
+	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{

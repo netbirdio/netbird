@@ -30,3 +30,28 @@ type RouteFirewallRule struct {
 	// isDynamic indicates whether the rule is for DNS routing
 	IsDynamic bool
 }
+
+func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
+	if r.Action != other.Action {
+		return false
+	}
+	if r.Destination != other.Destination {
+		return false
+	}
+	if r.Protocol != other.Protocol {
+		return false
+	}
+	if r.Port != other.Port {
+		return false
+	}
+	if !r.PortRange.Equal(&other.PortRange) {
+		return false
+	}
+	if !r.Domains.Equal(other.Domains) {
+		return false
+	}
+	if r.IsDynamic != other.IsDynamic {
+		return false
+	}
+	return true
+}
