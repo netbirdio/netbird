@@ -49,7 +49,7 @@ func TestNetworkMonitor_Close(t *testing.T) {
 
 func TestNetworkMonitor_Event(t *testing.T) {
 	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
-		time.Sleep(1 * time.Second)
+		time.Sleep(3 * time.Second)
 		return nil
 	}
 	nw := New()
