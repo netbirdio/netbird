@@ -58,7 +58,7 @@ func (m *MockPacketFilter) DropIncoming(arg0 []byte, arg1 int) bool {
 }
 
 // DropIncoming indicates an expected call of DropIncoming.
-func (mr *MockPacketFilterMockRecorder) DropIncoming(arg0 interface{}, arg1 int) *gomock.Call {
+func (mr *MockPacketFilterMockRecorder) DropIncoming(arg0 interface{}, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropIncoming", reflect.TypeOf((*MockPacketFilter)(nil).DropIncoming), arg0, arg1)
 }
@@ -72,7 +72,7 @@ func (m *MockPacketFilter) DropOutgoing(arg0 []byte, arg1 int) bool {
 }
 
 // DropOutgoing indicates an expected call of DropOutgoing.
-func (mr *MockPacketFilterMockRecorder) DropOutgoing(arg0 interface{}, arg1 int) *gomock.Call {
+func (mr *MockPacketFilterMockRecorder) DropOutgoing(arg0 interface{}, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropOutgoing", reflect.TypeOf((*MockPacketFilter)(nil).DropOutgoing), arg0, arg1)
 }
