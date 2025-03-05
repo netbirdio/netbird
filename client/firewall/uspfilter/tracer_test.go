@@ -59,8 +59,8 @@ func TestTracePacket(t *testing.T) {
 
 	createPacketBuilder := func(srcIP, dstIP string, protocol fw.Protocol, srcPort, dstPort uint16, direction fw.RuleDirection) *PacketBuilder {
 		builder := &PacketBuilder{
-			SrcIP:     net.ParseIP(srcIP),
-			DstIP:     net.ParseIP(dstIP),
+			SrcIP:     netip.MustParseAddr(srcIP),
+			DstIP:     netip.MustParseAddr(dstIP),
 			Protocol:  protocol,
 			SrcPort:   srcPort,
 			DstPort:   dstPort,
@@ -76,8 +76,8 @@ func TestTracePacket(t *testing.T) {
 
 	createICMPPacketBuilder := func(srcIP, dstIP string, icmpType, icmpCode uint8, direction fw.RuleDirection) *PacketBuilder {
 		return &PacketBuilder{
-			SrcIP:     net.ParseIP(srcIP),
-			DstIP:     net.ParseIP(dstIP),
+			SrcIP:     netip.MustParseAddr(srcIP),
+			DstIP:     netip.MustParseAddr(dstIP),
 			Protocol:  "icmp",
 			ICMPType:  icmpType,
 			ICMPCode:  icmpCode,
@@ -142,7 +142,7 @@ func TestTracePacket(t *testing.T) {
 				m.netstack = true
 				m.localForwarding = true
 
-				m.forwarder = &forwarder.Forwarder{}
+				m.forwarder.Store(&forwarder.Forwarder{})
 
 				ip := net.ParseIP("1.1.1.1")
 				proto := fw.ProtocolTCP
@@ -192,10 +192,10 @@ func TestTracePacket(t *testing.T) {
 		{
 			name: "RoutedTraffic_ACLAllowed",
 			setup: func(m *Manager) {
-				m.routingEnabled = true
-				m.nativeRouter = false
+				m.routingEnabled.Store(true)
+				m.nativeRouter.Store(false)
 
-				m.forwarder = &forwarder.Forwarder{}
+				m.forwarder.Store(&forwarder.Forwarder{})
 
 				src := netip.PrefixFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 32)
 				dst := netip.PrefixFrom(netip.AddrFrom4([4]byte{172, 17, 0, 2}), 32)
@@ -218,8 +218,8 @@ func TestTracePacket(t *testing.T) {
 		{
 			name: "RoutedTraffic_ACLDenied",
 			setup: func(m *Manager) {
-				m.routingEnabled = true
-				m.nativeRouter = false
+				m.routingEnabled.Store(true)
+				m.nativeRouter.Store(false)
 
 				src := netip.PrefixFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 32)
 				dst := netip.PrefixFrom(netip.AddrFrom4([4]byte{172, 17, 0, 2}), 32)
@@ -241,8 +241,8 @@ func TestTracePacket(t *testing.T) {
 		{
 			name: "RoutedTraffic_NativeRouter",
 			setup: func(m *Manager) {
-				m.routingEnabled = true
-				m.nativeRouter = true
+				m.routingEnabled.Store(true)
+				m.nativeRouter.Store(true)
 			},
 			packetBuilder: func() *PacketBuilder {
 				return createPacketBuilder("1.1.1.1", "172.17.0.2", "tcp", 12345, 80, fw.RuleDirectionIN)
@@ -260,7 +260,7 @@ func TestTracePacket(t *testing.T) {
 		{
 			name: "RoutedTraffic_RoutingDisabled",
 			setup: func(m *Manager) {
-				m.routingEnabled = false
+				m.routingEnabled.Store(false)
 			},
 			packetBuilder: func() *PacketBuilder {
 				return createPacketBuilder("1.1.1.1", "172.17.0.2", "tcp", 12345, 80, fw.RuleDirectionIN)
@@ -276,8 +276,8 @@ func TestTracePacket(t *testing.T) {
 		{
 			name: "ConnectionTracking_Hit",
 			setup: func(m *Manager) {
-				srcIP := net.ParseIP("100.10.0.100").To4()
-				dstIP := net.ParseIP("1.1.1.1").To4()
+				srcIP := netip.MustParseAddr("100.10.0.100")
+				dstIP := netip.MustParseAddr("1.1.1.1")
 				srcPort := uint16(12345)
 				dstPort := uint16(80)
 
@@ -378,7 +378,7 @@ func TestTracePacket(t *testing.T) {
 				hookFunc := func([]byte) bool {
 					return true
 				}
-				m.AddUDPPacketHook(true, net.ParseIP("1.1.1.1"), 53, hookFunc)
+				m.AddUDPPacketHook(true, netip.MustParseAddr("1.1.1.1"), 53, hookFunc)
 			},
 			packetBuilder: func() *PacketBuilder {
 				return createPacketBuilder("1.1.1.1", "100.10.0.100", "udp", 12345, 53, fw.RuleDirectionIN)
@@ -423,9 +423,9 @@ func TestTracePacket(t *testing.T) {
 
 			tc.setup(m)
 
-			require.True(t, m.localipmanager.IsLocalIP(net.ParseIP("100.10.0.100")),
+			require.True(t, m.localipmanager.IsLocalIP(netip.MustParseAddr("100.10.0.100")),
 				"100.10.0.100 should be recognized as a local IP")
-			require.False(t, m.localipmanager.IsLocalIP(net.ParseIP("172.17.0.2")),
+			require.False(t, m.localipmanager.IsLocalIP(netip.MustParseAddr("172.17.0.2")),
 				"172.17.0.2 should not be recognized as a local IP")
 
 			pb := tc.packetBuilder()
