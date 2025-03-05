@@ -22,8 +22,8 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	if !user.HasAdminPower() {
@@ -43,8 +43,8 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	if !user.HasAdminPower() {
@@ -99,8 +99,8 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
 	}
 
 	if !user.HasAdminPower() {
@@ -141,8 +141,8 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	if !user.HasAdminPower() {

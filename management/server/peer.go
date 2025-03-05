@@ -67,8 +67,8 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
@@ -218,8 +218,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	var peer *nbpeer.Peer
@@ -351,8 +351,8 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		if user.AccountID != accountID {
-			return status.NewUserNotPartOfAccountError()
+		if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+			return err
 		}
 	}
 
@@ -1129,8 +1129,8 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
