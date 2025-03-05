@@ -25,7 +25,11 @@ func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string,
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdminOrServiceUser() {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 
@@ -342,7 +346,11 @@ func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdminOrServiceUser() {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 

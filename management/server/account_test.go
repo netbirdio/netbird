@@ -17,6 +17,7 @@ import (
 
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/util"
 
@@ -2815,6 +2816,8 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 
+	permissionsManagerMock := permissions.NewManagerMock()
+
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
@@ -2828,7 +2831,7 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 		Return(false, nil).
 		AnyTimes()
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
 	if err != nil {
 		return nil, err
 	}

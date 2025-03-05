@@ -7,6 +7,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 )
@@ -28,6 +29,7 @@ const (
 
 type Manager interface {
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error)
+	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error
 }
 
 type managerImpl struct {
@@ -52,11 +54,11 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 	}
 
 	if user == nil {
-		return false, errors.New("user not found")
+		return false, status.NewUserNotFoundError(userID)
 	}
 
-	if user.AccountID != accountID {
-		return false, errors.New("user does not belong to account")
+	if err := m.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return false, err
 	}
 
 	switch user.Role {
@@ -91,6 +93,13 @@ func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accoun
 	return false, nil
 }
 
+func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error {
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
+	}
+	return nil
+}
+
 func NewManagerMock() Manager {
 	return &managerMock{}
 }
@@ -100,4 +109,12 @@ func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, us
 		return true, nil
 	}
 	return false, nil
+}
+
+func (m *managerMock) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error {
+	// @note managers explicitly checked this, so should the mock
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
+	}
+	return nil
 }

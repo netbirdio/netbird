@@ -25,8 +25,8 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	if user.IsRegularUser() {
@@ -46,8 +46,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	newNSGroup := &nbdns.NameServerGroup{
@@ -108,8 +108,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
 	}
 
 	var updateAccountPeers bool
@@ -159,8 +159,8 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
 	}
 
 	var nsGroup *nbdns.NameServerGroup
@@ -203,8 +203,8 @@ func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accou
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	if user.IsRegularUser() {
