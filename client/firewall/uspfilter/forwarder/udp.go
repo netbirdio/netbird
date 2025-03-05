@@ -165,13 +165,19 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	}
 
 	flowID := uuid.New()
-	f.sendUDPEvent(nftypes.TypeStart, flowID, id)
+
+	f.sendUDPEvent(nftypes.TypeStart, flowID, id, nil)
+	var success bool
+	defer func() {
+		if !success {
+			f.sendUDPEvent(nftypes.TypeEnd, flowID, id, nil)
+		}
+	}()
 
 	dstAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", dstAddr)
 	if err != nil {
 		f.logger.Debug("forwarder: UDP dial error for %v: %v", epID(id), err)
-		f.sendUDPEvent(nftypes.TypeEnd, flowID, id)
 		// TODO: Send ICMP error message
 		return
 	}
@@ -184,7 +190,6 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
-		f.sendUDPEvent(nftypes.TypeEnd, flowID, id)
 		return
 	}
 
@@ -212,13 +217,14 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
 
-		f.sendUDPEvent(nftypes.TypeEnd, flowID, id)
 		return
 	}
 	f.udpForwarder.conns[id] = pConn
 	f.udpForwarder.Unlock()
 
+	success = true
 	f.logger.Trace("forwarder: established UDP connection %v", epID(id))
+
 	go f.proxyUDP(connCtx, pConn, id, ep)
 }
 
@@ -238,7 +244,7 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		delete(f.udpForwarder.conns, id)
 		f.udpForwarder.Unlock()
 
-		f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id)
+		f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id, ep)
 	}()
 
 	errChan := make(chan error, 2)
@@ -265,8 +271,8 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 }
 
 // sendUDPEvent stores flow events for UDP connections, mirrors the TCP version
-func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
-	f.flowLogger.StoreEvent(nftypes.EventFields{
+func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint) {
+	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
 		Direction: nftypes.Ingress,
@@ -276,7 +282,18 @@ func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		DestIP:     netip.AddrFrom4(id.RemoteAddress.As4()),
 		SourcePort: id.LocalPort,
 		DestPort:   id.RemotePort,
-	})
+	}
+
+	if ep != nil {
+		if tcpStats, ok := ep.Stats().(*tcpip.TransportEndpointStats); ok {
+			// fields are flipped since this is the in conn
+			// TODO: get bytes
+			fields.RxPackets = tcpStats.PacketsSent.Value()
+			fields.TxPackets = tcpStats.PacketsReceived.Value()
+		}
+	}
+
+	f.flowLogger.StoreEvent(fields)
 }
 
 func (c *udpPacketConn) updateLastSeen() {

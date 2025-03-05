@@ -2,6 +2,7 @@ package types
 
 import (
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,8 +28,10 @@ func (p Protocol) String() string {
 		return "TCP"
 	case 17:
 		return "UDP"
+	case 132:
+		return "SCTP"
 	default:
-		return "unknown"
+		return strconv.FormatUint(uint64(p), 10)
 	}
 }
 

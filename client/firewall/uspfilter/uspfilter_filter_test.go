@@ -192,7 +192,7 @@ func TestPeerACLFiltering(t *testing.T) {
 
 	t.Run("Implicit DROP (no rules)", func(t *testing.T) {
 		packet := createTestPacket(t, "100.10.0.1", "100.10.0.100", fw.ProtocolTCP, 12345, 443)
-		isDropped := manager.DropIncoming(packet)
+		isDropped := manager.DropIncoming(packet, 0)
 		require.True(t, isDropped, "Packet should be dropped when no rules exist")
 	})
 
@@ -217,7 +217,7 @@ func TestPeerACLFiltering(t *testing.T) {
 			})
 
 			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
-			isDropped := manager.DropIncoming(packet)
+			isDropped := manager.DropIncoming(packet, 0)
 			require.Equal(t, tc.shouldBeBlocked, isDropped)
 		})
 	}

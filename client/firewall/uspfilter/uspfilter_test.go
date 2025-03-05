@@ -328,7 +328,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if m.dropFilter(buf.Bytes()) {
+	if m.dropFilter(buf.Bytes(), 0) {
 		t.Errorf("expected packet to be accepted")
 		return
 	}
@@ -458,7 +458,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test hook gets called
-	result := manager.processOutgoingHooks(buf.Bytes())
+	result := manager.processOutgoingHooks(buf.Bytes(), 0)
 	require.True(t, result)
 	require.True(t, hookCalled)
 
@@ -468,7 +468,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	err = gopacket.SerializeLayers(buf, opts, ipv4)
 	require.NoError(t, err)
 
-	result = manager.processOutgoingHooks(buf.Bytes())
+	result = manager.processOutgoingHooks(buf.Bytes(), 0)
 	require.False(t, result)
 }
 
@@ -569,7 +569,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	require.NoError(t, err)
 
 	// Process outbound packet and verify connection tracking
-	drop := manager.DropOutgoing(outboundBuf.Bytes())
+	drop := manager.DropOutgoing(outboundBuf.Bytes(), 0)
 	require.False(t, drop, "Initial outbound packet should not be dropped")
 
 	// Verify connection was tracked
@@ -636,7 +636,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	for _, cp := range checkPoints {
 		time.Sleep(cp.sleep)
 
-		drop = manager.dropFilter(inboundBuf.Bytes())
+		drop = manager.dropFilter(inboundBuf.Bytes(), 0)
 		require.Equal(t, cp.shouldAllow, !drop, cp.description)
 
 		// If the connection should still be valid, verify it exists
@@ -685,7 +685,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}
 
 	// Create a new outbound connection for invalid tests
-	drop = manager.processOutgoingHooks(outboundBuf.Bytes())
+	drop = manager.processOutgoingHooks(outboundBuf.Bytes(), 0)
 	require.False(t, drop, "Second outbound packet should not be dropped")
 
 	for _, tc := range invalidCases {
@@ -707,7 +707,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the invalid packet is dropped
-			drop = manager.dropFilter(testBuf.Bytes())
+			drop = manager.dropFilter(testBuf.Bytes(), 0)
 			require.True(t, drop, tc.description)
 		})
 	}

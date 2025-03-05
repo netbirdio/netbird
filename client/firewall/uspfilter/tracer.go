@@ -281,7 +281,7 @@ func (m *Manager) traceInbound(packetData []byte, trace *PacketTrace, d *decoder
 }
 
 func (m *Manager) handleConntrackState(trace *PacketTrace, d *decoder, srcIP, dstIP netip.Addr) bool {
-	allowed := m.isValidTrackedConnection(d, srcIP, dstIP)
+	allowed := m.isValidTrackedConnection(d, srcIP, dstIP, 0)
 	msg := "No existing connection found"
 	if allowed {
 		msg = m.buildConntrackStateMessage(d)
@@ -391,7 +391,7 @@ func (m *Manager) addForwardingResult(trace *PacketTrace, action, remoteAddr str
 
 func (m *Manager) traceOutbound(packetData []byte, trace *PacketTrace) *PacketTrace {
 	// will create or update the connection state
-	dropped := m.processOutgoingHooks(packetData)
+	dropped := m.processOutgoingHooks(packetData, 0)
 	if dropped {
 		trace.AddResult(StageCompleted, "Packet dropped by outgoing hook", false)
 	} else {
