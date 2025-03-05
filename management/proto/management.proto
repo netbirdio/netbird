@@ -449,8 +449,8 @@ message FirewallRule {
   string Port = 5;
   PortInfo PortInfo = 6;
 
-  // Id is the unique rule Id
-  bytes id = 7;
+  // PolicyID is the ID of the policy that this rule belongs to
+  bytes PolicyID = 7;
 }
 
 message NetworkAddress {
@@ -501,8 +501,8 @@ message RouteFirewallRule {
   // CustomProtocol is a custom protocol ID.
   uint32 customProtocol = 8;
 
-  // Id is the unique rule Id
-  bytes id = 9;
+  // PolicyID is the ID of the policy that this rule belongs to
+  bytes PolicyID = 9;
 }
 
 message ForwardingRule {
