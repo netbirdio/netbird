@@ -11,6 +11,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/proto"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	authv2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
@@ -216,6 +218,8 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		}
 	}
 
+	integrations.ExtendNetBirdConfig(update.NetbirdConfig, nil)
+
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
 }
@@ -237,6 +241,8 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, pe
 			// omit Turns to avoid updates there
 		},
 	}
+
+	integrations.ExtendNetBirdConfig(update.NetbirdConfig, nil)
 
 	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})

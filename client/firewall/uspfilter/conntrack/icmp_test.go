@@ -1,34 +1,34 @@
 package conntrack
 
 import (
-	"net"
+	"net/netip"
 	"testing"
 )
 
 func BenchmarkICMPTracker(b *testing.B) {
 	b.Run("TrackOutbound", func(b *testing.B) {
-		tracker := NewICMPTracker(DefaultICMPTimeout, logger)
+		tracker := NewICMPTracker(DefaultICMPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), uint16(i%65535))
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), uint16(i%65535), 0)
 		}
 	})
 
 	b.Run("IsValidInbound", func(b *testing.B) {
-		tracker := NewICMPTracker(DefaultICMPTimeout, logger)
+		tracker := NewICMPTracker(DefaultICMPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		// Pre-populate some connections
 		for i := 0; i < 1000; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i), uint16(i))
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i), uint16(i), 0)
 		}
 
 		b.ResetTimer()

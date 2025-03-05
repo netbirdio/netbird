@@ -4,6 +4,7 @@ package uspfilter
 
 import (
 	"context"
+	"net/netip"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -17,26 +18,26 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	m.outgoingRules = make(map[string]RuleSet)
-	m.incomingRules = make(map[string]RuleSet)
+	m.outgoingRules = make(map[netip.Addr]RuleSet)
+	m.incomingRules = make(map[netip.Addr]RuleSet)
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger)
+		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger, m.flowLogger)
 	}
 
 	if m.icmpTracker != nil {
 		m.icmpTracker.Close()
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger)
+		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, m.flowLogger)
 	}
 
 	if m.tcpTracker != nil {
 		m.tcpTracker.Close()
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger)
+		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, m.flowLogger)
 	}
 
-	if m.forwarder != nil {
-		m.forwarder.Stop()
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.Stop()
 	}
 
 	if m.logger != nil {

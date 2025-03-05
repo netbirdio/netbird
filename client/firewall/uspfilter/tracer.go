@@ -2,7 +2,7 @@ package uspfilter
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"time"
 
 	"github.com/google/gopacket"
@@ -53,8 +53,8 @@ type TraceResult struct {
 }
 
 type PacketTrace struct {
-	SourceIP        net.IP
-	DestinationIP   net.IP
+	SourceIP        netip.Addr
+	DestinationIP   netip.Addr
 	Protocol        string
 	SourcePort      uint16
 	DestinationPort uint16
@@ -72,8 +72,8 @@ type TCPState struct {
 }
 
 type PacketBuilder struct {
-	SrcIP       net.IP
-	DstIP       net.IP
+	SrcIP       netip.Addr
+	DstIP       netip.Addr
 	Protocol    fw.Protocol
 	SrcPort     uint16
 	DstPort     uint16
@@ -126,8 +126,8 @@ func (p *PacketBuilder) buildIPLayer() *layers.IPv4 {
 		Version:  4,
 		TTL:      64,
 		Protocol: layers.IPProtocol(getIPProtocolNumber(p.Protocol)),
-		SrcIP:    p.SrcIP,
-		DstIP:    p.DstIP,
+		SrcIP:    p.SrcIP.AsSlice(),
+		DstIP:    p.DstIP.AsSlice(),
 	}
 }
 
@@ -260,7 +260,7 @@ func (m *Manager) TracePacket(packetData []byte, direction fw.RuleDirection) *Pa
 	return m.traceInbound(packetData, trace, d, srcIP, dstIP)
 }
 
-func (m *Manager) traceInbound(packetData []byte, trace *PacketTrace, d *decoder, srcIP net.IP, dstIP net.IP) *PacketTrace {
+func (m *Manager) traceInbound(packetData []byte, trace *PacketTrace, d *decoder, srcIP netip.Addr, dstIP netip.Addr) *PacketTrace {
 	if m.stateful && m.handleConntrackState(trace, d, srcIP, dstIP) {
 		return trace
 	}
@@ -273,14 +273,14 @@ func (m *Manager) traceInbound(packetData []byte, trace *PacketTrace, d *decoder
 		return trace
 	}
 
-	if m.nativeRouter {
+	if m.nativeRouter.Load() {
 		return m.handleNativeRouter(trace)
 	}
 
 	return m.handleRouteACLs(trace, d, srcIP, dstIP)
 }
 
-func (m *Manager) handleConntrackState(trace *PacketTrace, d *decoder, srcIP, dstIP net.IP) bool {
+func (m *Manager) handleConntrackState(trace *PacketTrace, d *decoder, srcIP, dstIP netip.Addr) bool {
 	allowed := m.isValidTrackedConnection(d, srcIP, dstIP)
 	msg := "No existing connection found"
 	if allowed {
@@ -309,20 +309,26 @@ func (m *Manager) buildConntrackStateMessage(d *decoder) string {
 	return msg
 }
 
-func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP net.IP) bool {
+func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP netip.Addr) bool {
 	if !m.localForwarding {
 		trace.AddResult(StageRouting, "Local forwarding disabled", false)
 		trace.AddResult(StageCompleted, "Packet dropped - local forwarding disabled", false)
 		return true
 	}
-
 	trace.AddResult(StageRouting, "Packet destined for local delivery", true)
-	blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
 
-	msg := "Allowed by peer ACL rules"
-	if blocked {
-		msg = "Blocked by peer ACL rules"
+	ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+
+	strRuleId := "implicit"
+	if ruleId != nil {
+		strRuleId = string(ruleId)
 	}
+
+	msg := fmt.Sprintf("Allowed by peer ACL rules (%s)", strRuleId)
+	if blocked {
+		msg = fmt.Sprintf("Blocked by peer ACL rules (%s)", strRuleId)
+	}
+
 	trace.AddResult(StagePeerACL, msg, !blocked)
 
 	if m.netstack {
@@ -334,7 +340,7 @@ func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *
 }
 
 func (m *Manager) handleRouting(trace *PacketTrace) bool {
-	if !m.routingEnabled {
+	if !m.routingEnabled.Load() {
 		trace.AddResult(StageRouting, "Routing disabled", false)
 		trace.AddResult(StageCompleted, "Packet dropped - routing disabled", false)
 		return false
@@ -350,18 +356,23 @@ func (m *Manager) handleNativeRouter(trace *PacketTrace) *PacketTrace {
 	return trace
 }
 
-func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP net.IP) *PacketTrace {
-	proto := getProtocolFromPacket(d)
+func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP netip.Addr) *PacketTrace {
+	proto, _ := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
-	allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	id, allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
 
-	msg := "Allowed by route ACLs"
+	strId := string(id)
+	if id == nil {
+		strId = "implicit"
+	}
+
+	msg := fmt.Sprintf("Allowed by route ACLs (%s)", strId)
 	if !allowed {
-		msg = "Blocked by route ACLs"
+		msg = fmt.Sprintf("Blocked by route ACLs (%s)", strId)
 	}
 	trace.AddResult(StageRouteACL, msg, allowed)
 
-	if allowed && m.forwarder != nil {
+	if allowed && m.forwarder.Load() != nil {
 		m.addForwardingResult(trace, "proxy-remote", fmt.Sprintf("%s:%d", dstIP, dstPort), true)
 	}
 
