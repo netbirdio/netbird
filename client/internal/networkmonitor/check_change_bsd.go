@@ -16,7 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
-func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, callback func()) error {
+func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 	fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
 	if err != nil {
 		return fmt.Errorf("failed to open routing socket: %v", err)
@@ -28,18 +28,10 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 		}
 	}()
 
-	go func() {
-		<-ctx.Done()
-		err := unix.Close(fd)
-		if err != nil && !errors.Is(err, unix.EBADF) {
-			log.Debugf("Network monitor: closed routing socket: %v", err)
-		}
-	}()
-
 	for {
 		select {
 		case <-ctx.Done():
-			return ErrStopped
+			return ctx.Err()
 		default:
 			buf := make([]byte, 2048)
 			n, err := unix.Read(fd, buf)
@@ -76,11 +68,11 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 				switch msg.Type {
 				case unix.RTM_ADD:
 					log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
-					go callback()
+					return nil
 				case unix.RTM_DELETE:
 					if nexthopv4.Intf != nil && route.Gw.Compare(nexthopv4.IP) == 0 || nexthopv6.Intf != nil && route.Gw.Compare(nexthopv6.IP) == 0 {
 						log.Infof("Network monitor: default route removed: via %s, interface %s", route.Gw, intf)
-						go callback()
+						return nil
 					}
 				}
 			}

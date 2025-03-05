@@ -1575,16 +1575,19 @@ func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)
 }
 
+// restartEngine restarts the engine by cancelling the client context
 func (e *Engine) restartEngine() {
-	log.Info("restarting engine")
-	CtxGetState(e.ctx).Set(StatusConnecting)
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
 
-	if err := e.Stop(); err != nil {
-		log.Errorf("Failed to stop engine: %v", err)
+	if e.ctx.Err() != nil {
+		return
 	}
 
+	log.Info("restarting engine")
+	CtxGetState(e.ctx).Set(StatusConnecting)
 	_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-	log.Infof("cancelling client, engine will be recreated")
+	log.Infof("cancelling client context, engine will be recreated")
 	e.clientCancel()
 }
 
@@ -1596,34 +1599,17 @@ func (e *Engine) startNetworkMonitor() {
 
 	e.networkMonitor = networkmonitor.New()
 	go func() {
-		var mu sync.Mutex
-		var debounceTimer *time.Timer
-
-		// Start the network monitor with a callback, Start will block until the monitor is stopped,
-		// a network change is detected, or an error occurs on start up
-		err := e.networkMonitor.Start(e.ctx, func() {
-			// This function is called when a network change is detected
-			mu.Lock()
-			defer mu.Unlock()
-
-			if debounceTimer != nil {
-				log.Infof("Network monitor: detected network change, reset debounceTimer")
-				debounceTimer.Stop()
+		if err := e.networkMonitor.Listen(e.ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				log.Infof("network monitor stopped")
+				return
 			}
-
-			// Set a new timer to debounce rapid network changes
-			debounceTimer = time.AfterFunc(2*time.Second, func() {
-				// This function is called after the debounce period
-				mu.Lock()
-				defer mu.Unlock()
-
-				log.Infof("Network monitor: detected network change, restarting engine")
-				e.restartEngine()
-			})
-		})
-		if err != nil && !errors.Is(err, networkmonitor.ErrStopped) {
-			log.Errorf("Network monitor: %v", err)
+			log.Errorf("network monitor error: %v", err)
+			return
 		}
+
+		log.Infof("Network monitor: detected network change, restarting engine")
+		e.restartEngine()
 	}()
 }
 
