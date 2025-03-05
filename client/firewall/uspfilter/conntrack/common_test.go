@@ -2,7 +2,7 @@ package conntrack
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -21,11 +21,11 @@ func BenchmarkMemoryPressure(b *testing.B) {
 		defer tracker.Close()
 
 		// Generate different IPs
-		srcIPs := make([]net.IP, 100)
-		dstIPs := make([]net.IP, 100)
+		srcIPs := make([]netip.Addr, 100)
+		dstIPs := make([]netip.Addr, 100)
 		for i := 0; i < 100; i++ {
-			srcIPs[i] = net.IPv4(192, 168, byte(i/256), byte(i%256))
-			dstIPs[i] = net.IPv4(10, 0, byte(i/256), byte(i%256))
+			srcIPs[i] = netip.AddrFrom4([4]byte{192, 168, byte(i / 256), byte(i % 256)})
+			dstIPs[i] = netip.AddrFrom4([4]byte{10, 0, byte(i / 256), byte(i % 256)})
 		}
 
 		b.ResetTimer()
@@ -46,11 +46,11 @@ func BenchmarkMemoryPressure(b *testing.B) {
 		defer tracker.Close()
 
 		// Generate different IPs
-		srcIPs := make([]net.IP, 100)
-		dstIPs := make([]net.IP, 100)
+		srcIPs := make([]netip.Addr, 100)
+		dstIPs := make([]netip.Addr, 100)
 		for i := 0; i < 100; i++ {
-			srcIPs[i] = net.IPv4(192, 168, byte(i/256), byte(i%256))
-			dstIPs[i] = net.IPv4(10, 0, byte(i/256), byte(i%256))
+			srcIPs[i] = netip.AddrFrom4([4]byte{192, 168, byte(i / 256), byte(i % 256)})
+			dstIPs[i] = netip.AddrFrom4([4]byte{10, 0, byte(i / 256), byte(i % 256)})
 		}
 
 		b.ResetTimer()
