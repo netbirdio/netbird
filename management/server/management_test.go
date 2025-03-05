@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -178,6 +179,7 @@ func startServer(
 		t.Fatalf("failed creating metrics: %v", err)
 	}
 
+	permissionsManagerMock := permissions.NewManagerMock()
 	accountManager, err := server.BuildManager(
 		context.Background(),
 		str,
@@ -191,6 +193,7 @@ func startServer(
 		server.MocIntegratedValidator{},
 		metrics,
 		port_forwarding.NewControllerMock(),
+		permissionsManagerMock,
 	)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
