@@ -306,8 +306,8 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 	require.NoError(tb, manager.EnableRouting())
 	require.NoError(tb, err)
 	require.NotNil(tb, manager)
-	require.True(tb, manager.routingEnabled)
-	require.False(tb, manager.nativeRouter)
+	require.True(tb, manager.routingEnabled.Load())
+	require.False(tb, manager.nativeRouter.Load())
 
 	tb.Cleanup(func() {
 		require.NoError(tb, manager.Reset(nil))
@@ -818,8 +818,8 @@ func TestRouteACLFiltering(t *testing.T) {
 				require.NoError(t, manager.DeleteRouteRule(rule))
 			})
 
-			srcIP := net.ParseIP(tc.srcIP)
-			dstIP := net.ParseIP(tc.dstIP)
+			srcIP := netip.MustParseAddr(tc.srcIP)
+			dstIP := netip.MustParseAddr(tc.dstIP)
 
 			// testing routeACLsPass only and not DropIncoming, as routed packets are dropped after being passed
 			// to the forwarder
@@ -1006,8 +1006,8 @@ func TestRouteACLOrder(t *testing.T) {
 			})
 
 			for i, p := range tc.packets {
-				srcIP := net.ParseIP(p.srcIP)
-				dstIP := net.ParseIP(p.dstIP)
+				srcIP := netip.MustParseAddr(p.srcIP)
+				dstIP := netip.MustParseAddr(p.dstIP)
 
 				_, isAllowed := manager.routeACLsPass(srcIP, dstIP, p.proto, p.srcPort, p.dstPort)
 				require.Equal(t, p.shouldPass, isAllowed, "packet %d failed", i)

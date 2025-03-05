@@ -2,7 +2,6 @@ package conntrack
 
 import (
 	"fmt"
-	"net"
 	"net/netip"
 	"sync/atomic"
 	"time"
@@ -51,17 +50,4 @@ type ConnKey struct {
 
 func (c ConnKey) String() string {
 	return fmt.Sprintf("%s:%d -> %s:%d", c.SrcIP.Unmap(), c.SrcPort, c.DstIP.Unmap(), c.DstPort)
-}
-
-// makeConnKey creates a connection key
-func makeConnKey(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16) ConnKey {
-	srcAddr, _ := netip.AddrFromSlice(srcIP)
-	dstAddr, _ := netip.AddrFromSlice(dstIP)
-
-	return ConnKey{
-		SrcIP:   srcAddr,
-		DstIP:   dstAddr,
-		SrcPort: srcPort,
-		DstPort: dstPort,
-	}
 }

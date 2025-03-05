@@ -6,6 +6,7 @@ package mocks
 
 import (
 	net "net"
+	"net/netip"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -35,7 +36,7 @@ func (m *MockPacketFilter) EXPECT() *MockPacketFilterMockRecorder {
 }
 
 // AddUDPPacketHook mocks base method.
-func (m *MockPacketFilter) AddUDPPacketHook(arg0 bool, arg1 net.IP, arg2 uint16, arg3 func([]byte) bool) string {
+func (m *MockPacketFilter) AddUDPPacketHook(arg0 bool, arg1 netip.Addr, arg2 uint16, arg3 func([]byte) bool) string {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddUDPPacketHook", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(string)
