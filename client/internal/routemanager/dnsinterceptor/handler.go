@@ -160,6 +160,12 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
+	// set the AuthenticatedData flag and the EDNS0 buffer size to 4096 bytes to support larger dns records
+	if r.Extra == nil {
+		r.SetEdns0(4096, false)
+		r.MsgHdr.AuthenticatedData = true
+	}
+
 	client := &dns.Client{
 		Timeout: 5 * time.Second,
 		Net:     "udp",
