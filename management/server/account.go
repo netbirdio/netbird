@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -183,6 +184,8 @@ type DefaultAccountManager struct {
 	integratedPeerValidator integrated_validator.IntegratedValidator
 
 	metrics telemetry.AppMetrics
+
+	permissionsManager permissions.Manager
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -249,6 +252,7 @@ func BuildManager(
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
 	proxyController port_forwarding.Controller,
+	permissionsManager permissions.Manager,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -272,6 +276,7 @@ func BuildManager(
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 		proxyController:          proxyController,
+		permissionsManager:       permissionsManager,
 	}
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
@@ -597,9 +602,10 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return err
 	}
 
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
-	}
+	// @note not necessary, below it explicitly checks for Owner role
+	// if !user.HasAdminPower() {
+	// 	return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
+	// }
 
 	if user.Role != types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
@@ -1110,8 +1116,8 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
 	}
 
 	return am.Store.GetAccount(ctx, accountID)
@@ -1144,6 +1150,7 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return accountID, user.Id, nil
 	}
 
+	// @note, this can remain cause above we explicitly early return if auth id for a child account
 	if user.AccountID != accountID {
 		return "", "", status.Errorf(status.PermissionDenied, "user %s is not part of the account %s", userAuth.UserId, accountID)
 	}
@@ -1604,7 +1611,11 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 		return nil, err
 	}
 
-	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
+	}
+
+	if !user.HasAdminPower() && !user.IsServiceUser {
 		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
 	}
 

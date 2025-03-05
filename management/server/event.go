@@ -32,6 +32,11 @@ func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userI
 		return nil, err
 	}
 
+	// @todo account check was missing, added but double check if needed
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
+	}
+
 	if !(user.HasAdminPower() || user.IsServiceUser) {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view events")
 	}
