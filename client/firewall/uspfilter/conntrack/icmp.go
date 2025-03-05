@@ -94,17 +94,17 @@ func (t *ICMPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, id uint
 func (t *ICMPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq uint16, typecode layers.ICMPv4TypeCode) {
 	if _, exists := t.updateIfExists(dstIP, srcIP, id, seq); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
-		t.track(srcIP, dstIP, id, seq, typecode, nftypes.Egress)
+		t.track(srcIP, dstIP, id, seq, typecode, nftypes.Egress, nil)
 	}
 }
 
 // TrackInbound records an inbound ICMP Echo Request
-func (t *ICMPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq uint16, typecode layers.ICMPv4TypeCode) {
-	t.track(srcIP, dstIP, id, seq, typecode, nftypes.Ingress)
+func (t *ICMPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq uint16, typecode layers.ICMPv4TypeCode, ruleId []byte) {
+	t.track(srcIP, dstIP, id, seq, typecode, nftypes.Ingress, ruleId)
 }
 
 // track is the common implementation for tracking both inbound and outbound ICMP connections
-func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq uint16, typecode layers.ICMPv4TypeCode, direction nftypes.Direction) {
+func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq uint16, typecode layers.ICMPv4TypeCode, direction nftypes.Direction, ruleId []byte) {
 	// TODO: icmp doesn't need to extend the timeout
 	key, exists := t.updateIfExists(srcIP, dstIP, id, seq)
 	if exists {
@@ -116,7 +116,7 @@ func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq u
 	// non echo requests don't need tracking
 	if typ != uint8(layers.ICMPv4TypeEchoRequest) {
 		t.logger.Trace("New %s ICMP connection %s type %d code %d", direction, key, typ, code)
-		t.sendStartEvent(direction, srcIP, dstIP, typ, code)
+		t.sendStartEvent(direction, srcIP, dstIP, typ, code, ruleId)
 		return
 	}
 
@@ -137,7 +137,7 @@ func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq u
 	t.mutex.Unlock()
 
 	t.logger.Trace("New %s ICMP connection %s type %d code %d", direction, key, typ, code)
-	t.sendEvent(nftypes.TypeStart, conn)
+	t.sendEvent(nftypes.TypeStart, conn, ruleId)
 }
 
 // IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request
@@ -186,7 +186,7 @@ func (t *ICMPTracker) cleanup() {
 			delete(t.connections, key)
 
 			t.logger.Debug("Removed ICMP connection %s (timeout)", &key)
-			t.sendEvent(nftypes.TypeEnd, conn)
+			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
 	}
 }
@@ -201,10 +201,11 @@ func (t *ICMPTracker) Close() {
 	t.mutex.Unlock()
 }
 
-func (t *ICMPTracker) sendEvent(typ nftypes.Type, conn *ICMPConnTrack) {
+func (t *ICMPTracker) sendEvent(typ nftypes.Type, conn *ICMPConnTrack, ruleID []byte) {
 	t.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:    conn.FlowId,
 		Type:      typ,
+		RuleID:    ruleID,
 		Direction: conn.Direction,
 		Protocol:  nftypes.ICMP, // TODO: adjust for IPv6/icmpv6
 		SourceIP:  conn.SourceIP,
@@ -214,10 +215,11 @@ func (t *ICMPTracker) sendEvent(typ nftypes.Type, conn *ICMPConnTrack) {
 	})
 }
 
-func (t *ICMPTracker) sendStartEvent(direction nftypes.Direction, srcIP netip.Addr, dstIP netip.Addr, typ uint8, code uint8) {
+func (t *ICMPTracker) sendStartEvent(direction nftypes.Direction, srcIP netip.Addr, dstIP netip.Addr, typ uint8, code uint8, RuleID []byte) {
 	t.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:    uuid.New(),
 		Type:      nftypes.TypeStart,
+		RuleID:    RuleID,
 		Direction: direction,
 		Protocol:  nftypes.ICMP,
 		SourceIP:  srcIP,

@@ -606,16 +606,16 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr) {
 	}
 }
 
-func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr) {
+func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byte) {
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
+		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID)
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
+		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID)
 	case layers.LayerTypeICMPv4:
-		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq, d.icmp4.TypeCode)
+		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq, d.icmp4.TypeCode, ruleID)
 	}
 }
 
@@ -667,17 +667,18 @@ func (m *Manager) dropFilter(packetData []byte) bool {
 // handleLocalTraffic handles local traffic.
 // If it returns true, the packet should be dropped.
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte) bool {
-	if ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d); blocked {
+	ruleID, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+	if blocked {
 		_, pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
 
 		m.logger.Trace("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			ruleId, pnum, srcIP, srcPort, dstIP, dstPort)
+			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
-			RuleID:     ruleId,
+			RuleID:     ruleID,
 			Direction:  nftypes.Ingress,
 			Protocol:   pnum,
 			SourceIP:   srcIP,
@@ -695,7 +696,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 	}
 
 	// track inbound packets to get the correct direction and session id for flows
-	m.trackInbound(d, srcIP, dstIP)
+	m.trackInbound(d, srcIP, dstIP, ruleID)
 
 	return false
 }
@@ -737,14 +738,14 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	proto, pnum := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
 
-	if id, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort); !pass {
+	if ruleID, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort); !pass {
 		m.logger.Trace("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			id, pnum, srcIP, srcPort, dstIP, dstPort)
+			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
-			RuleID:     id,
+			RuleID:     ruleID,
 			Direction:  nftypes.Ingress,
 			Protocol:   pnum,
 			SourceIP:   srcIP,
