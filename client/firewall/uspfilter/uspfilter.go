@@ -542,14 +542,12 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 		return false
 	}
 
-	// Track all protocols if stateful mode is enabled
-	if m.stateful {
-		m.trackOutbound(d, srcIP, dstIP)
+	if d.decoded[1] == layers.LayerTypeUDP && m.udpHooksDrop(uint16(d.udp.DstPort), dstIP, packetData) {
+		return true
 	}
 
-	// Process UDP hooks even if stateful mode is disabled
-	if d.decoded[1] == layers.LayerTypeUDP {
-		return m.checkUDPHooks(d, dstIP, packetData)
+	if m.stateful {
+		m.trackOutbound(d, srcIP, dstIP)
 	}
 
 	return false
@@ -619,19 +617,38 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr) {
 	}
 }
 
-func (m *Manager) checkUDPHooks(d *decoder, dstIP netip.Addr, packetData []byte) bool {
+// udpHooksDrop checks if any UDP hooks should drop the packet
+func (m *Manager) udpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	for _, ipKey := range []netip.Addr{dstIP, netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
-		if rules, exists := m.outgoingRules[ipKey]; exists {
-			for _, rule := range rules {
-				if rule.udpHook != nil && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
-					return rule.udpHook(packetData)
-				}
+	// Check specific destination IP first
+	if rules, exists := m.outgoingRules[dstIP]; exists {
+		for _, rule := range rules {
+			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.udpHook(packetData)
 			}
 		}
 	}
+
+	// Check IPv4 unspecified address
+	if rules, exists := m.outgoingRules[netip.IPv4Unspecified()]; exists {
+		for _, rule := range rules {
+			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.udpHook(packetData)
+			}
+		}
+	}
+
+	// Check IPv6 unspecified address
+	if rules, exists := m.outgoingRules[netip.IPv6Unspecified()]; exists {
+		for _, rule := range rules {
+			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.udpHook(packetData)
+			}
+		}
+	}
+
 	return false
 }
 
