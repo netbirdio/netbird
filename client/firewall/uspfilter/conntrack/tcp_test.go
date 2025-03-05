@@ -1,7 +1,7 @@
 package conntrack
 
 import (
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -12,8 +12,8 @@ func TestTCPStateMachine(t *testing.T) {
 	tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 	defer tracker.Close()
 
-	srcIP := net.ParseIP("100.64.0.1")
-	dstIP := net.ParseIP("100.64.0.2")
+	srcIP := netip.MustParseAddr("100.64.0.1")
+	dstIP := netip.MustParseAddr("100.64.0.2")
 	srcPort := uint16(12345)
 	dstPort := uint16(80)
 
@@ -165,8 +165,8 @@ func TestRSTHandling(t *testing.T) {
 	tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 	defer tracker.Close()
 
-	srcIP := net.ParseIP("100.64.0.1")
-	dstIP := net.ParseIP("100.64.0.2")
+	srcIP := netip.MustParseAddr("100.64.0.1")
+	dstIP := netip.MustParseAddr("100.64.0.2")
 	srcPort := uint16(12345)
 	dstPort := uint16(80)
 
@@ -208,7 +208,12 @@ func TestRSTHandling(t *testing.T) {
 			tt.sendRST()
 
 			// Verify connection state is as expected
-			key := makeConnKey(srcIP, dstIP, srcPort, dstPort)
+			key := ConnKey{
+				SrcIP:   srcIP,
+				DstIP:   dstIP,
+				SrcPort: srcPort,
+				DstPort: dstPort,
+			}
 			conn := tracker.connections[key]
 			if tt.wantValid {
 				require.NotNil(t, conn)
@@ -220,7 +225,7 @@ func TestRSTHandling(t *testing.T) {
 }
 
 // Helper to establish a TCP connection
-func establishConnection(t *testing.T, tracker *TCPTracker, srcIP, dstIP net.IP, srcPort, dstPort uint16) {
+func establishConnection(t *testing.T, tracker *TCPTracker, srcIP, dstIP netip.Addr, srcPort, dstPort uint16) {
 	t.Helper()
 
 	tracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, TCPSyn)
@@ -236,8 +241,8 @@ func BenchmarkTCPTracker(b *testing.B) {
 		tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -249,8 +254,8 @@ func BenchmarkTCPTracker(b *testing.B) {
 		tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		// Pre-populate some connections
 		for i := 0; i < 1000; i++ {
@@ -267,8 +272,8 @@ func BenchmarkTCPTracker(b *testing.B) {
 		tracker := NewTCPTracker(DefaultTCPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		b.RunParallel(func(pb *testing.PB) {
 			i := 0
@@ -291,8 +296,8 @@ func BenchmarkCleanup(b *testing.B) {
 		defer tracker.Close()
 
 		// Pre-populate with expired connections
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 		for i := 0; i < 10000; i++ {
 			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 80, TCPSyn)
 		}
