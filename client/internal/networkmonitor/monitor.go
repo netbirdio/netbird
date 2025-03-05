@@ -44,6 +44,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 	}
 
 	ctx, nw.cancel = context.WithCancel(ctx)
+	defer nw.cancel()
 	nw.wg.Add(1)
 	nw.mu.Unlock()
 
@@ -109,7 +110,6 @@ func (nw *NetworkMonitor) Stop() {
 	defer nw.mu.Unlock()
 
 	if nw.cancel == nil {
-		log.Infof("cancel is nil")
 		return
 	}
 

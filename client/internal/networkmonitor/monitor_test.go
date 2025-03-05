@@ -49,10 +49,17 @@ func TestNetworkMonitor_Close(t *testing.T) {
 
 func TestNetworkMonitor_Event(t *testing.T) {
 	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
-		time.Sleep(3 * time.Second)
-		return nil
+		timeout, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout.Done():
+			return nil
+		}
 	}
 	nw := New()
+	defer nw.Stop()
 
 	var resErr error
 	done := make(chan struct{})
@@ -73,6 +80,7 @@ func TestNetworkMonitor_MultiEvent(t *testing.T) {
 	checkChangeFn = me.checkChange
 
 	nw := New()
+	defer nw.Stop()
 
 	done := make(chan struct{})
 	started := time.Now()
