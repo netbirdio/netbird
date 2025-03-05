@@ -529,8 +529,8 @@ github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944 h1:TDtJKmM6S
 github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944/go.mod h1:sHA6TRxjQ6RLbnI+3R4DZo2Eseg/iKiPRfNmcuNySVQ=
 github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e h1:PURA50S8u4mF6RrkYYCAvvPCixhqqEiEy3Ej6avh04c=
 github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e/go.mod h1:YMLU7qbKfVjmEv7EoZPIVEI+kNYxWCdPK3VS0BU+U4Q=
-github.com/netbirdio/management-integrations/integrations v0.0.0-20250307154727-58660ea9a141 h1:GZUkZd9ZMBGahNt+AbYYvZrSMpOnaBLjHiBbloOE7sc=
-github.com/netbirdio/management-integrations/integrations v0.0.0-20250307154727-58660ea9a141/go.mod h1:A5QUfEZb5J3tw8EUB9e3q7Bgd/JtC0WlFT1onf3HPCY=
+github.com/netbirdio/management-integrations/integrations v0.0.0-20250305182454-9c88d32b52e7 h1:/mq5xdQg0BCb69Yth2vNUGFswFQgeDEen4lSHgpyh1Y=
+github.com/netbirdio/management-integrations/integrations v0.0.0-20250305182454-9c88d32b52e7/go.mod h1:Vc0Wijd5bDwvWJbByiWncAK0BidDmNcs1SxvNHMUpTE=
 github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502 h1:3tHlFmhTdX9axERMVN63dqyFqnvuD+EMJHzM7mNGON8=
 github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502/go.mod h1:CIMRFEJVL+0DS1a3Nx06NaMn4Dz63Ng6O7dl0qH0zVM=
 github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20241010133937-e0df50df217d h1:bRq5TKgC7Iq20pDiuC54yXaWnAVeS5PdGpSokFTlR28=
