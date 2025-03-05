@@ -12,7 +12,7 @@ import (
 )
 
 func TestStore(t *testing.T) {
-	logger := logger.New(context.Background())
+	logger := logger.New(context.Background(), nil)
 	logger.Enable()
 
 	event := types.EventFields{

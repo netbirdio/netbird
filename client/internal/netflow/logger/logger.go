@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/netflow/store"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 type rcvChan chan *types.EventFields
@@ -21,15 +22,17 @@ type Logger struct {
 	enabled        atomic.Bool
 	rcvChan        atomic.Pointer[rcvChan]
 	cancelReceiver context.CancelFunc
+	statusRecorder *peer.Status
 	Store          types.Store
 }
 
-func New(ctx context.Context) *Logger {
+func New(ctx context.Context, statusRecorder *peer.Status) *Logger {
 	ctx, cancel := context.WithCancel(ctx)
 	return &Logger{
-		ctx:    ctx,
-		cancel: cancel,
-		Store:  store.NewMemoryStore(),
+		ctx:            ctx,
+		cancel:         cancel,
+		statusRecorder: statusRecorder,
+		Store:          store.NewMemoryStore(),
 	}
 }
 
@@ -79,6 +82,9 @@ func (l *Logger) startReceiver() {
 				EventFields: *eventFields,
 				Timestamp:   time.Now(),
 			}
+			srcResId, dstResId := l.statusRecorder.CheckRoutes(event.SourceIP, event.DestIP)
+			event.SourceResourceID = []byte(srcResId)
+			event.DestResourceID = []byte(dstResId)
 			l.Store.StoreEvent(&event)
 		}
 	}
