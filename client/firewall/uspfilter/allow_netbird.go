@@ -4,6 +4,7 @@ package uspfilter
 
 import (
 	"context"
+	"net/netip"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -17,8 +18,8 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	m.outgoingRules = make(map[string]RuleSet)
-	m.incomingRules = make(map[string]RuleSet)
+	m.outgoingRules = make(map[netip.Addr]RuleSet)
+	m.incomingRules = make(map[netip.Addr]RuleSet)
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
@@ -35,8 +36,8 @@ func (m *Manager) Reset(stateManager *statemanager.Manager) error {
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, m.flowLogger)
 	}
 
-	if m.forwarder != nil {
-		m.forwarder.Stop()
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.Stop()
 	}
 
 	if m.logger != nil {

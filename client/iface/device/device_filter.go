@@ -2,6 +2,7 @@ package device
 
 import (
 	"net"
+	"net/netip"
 	"sync"
 
 	"golang.zx2c4.com/wireguard/tun"
@@ -19,7 +20,7 @@ type PacketFilter interface {
 	//
 	// Hook function returns flag which indicates should be the matched package dropped or not.
 	// Hook function receives raw network packet data as argument.
-	AddUDPPacketHook(in bool, ip net.IP, dPort uint16, hook func(packet []byte) bool) string
+	AddUDPPacketHook(in bool, ip netip.Addr, dPort uint16, hook func(packet []byte) bool) string
 
 	// RemovePacketHook removes hook by ID
 	RemovePacketHook(hookID string) error

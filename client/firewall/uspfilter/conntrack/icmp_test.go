@@ -1,7 +1,7 @@
 package conntrack
 
 import (
-	"net"
+	"net/netip"
 	"testing"
 )
 
@@ -10,8 +10,8 @@ func BenchmarkICMPTracker(b *testing.B) {
 		tracker := NewICMPTracker(DefaultICMPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -23,8 +23,8 @@ func BenchmarkICMPTracker(b *testing.B) {
 		tracker := NewICMPTracker(DefaultICMPTimeout, logger, flowLogger)
 		defer tracker.Close()
 
-		srcIP := net.ParseIP("192.168.1.1")
-		dstIP := net.ParseIP("192.168.1.2")
+		srcIP := netip.MustParseAddr("192.168.1.1")
+		dstIP := netip.MustParseAddr("192.168.1.2")
 
 		// Pre-populate some connections
 		for i := 0; i < 1000; i++ {
