@@ -299,7 +299,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 		} else if flags&TCPRst != 0 {
 			conn.State = TCPStateClosed
 			conn.SetTombstone()
-			t.sendEvent(nftypes.TypeEnd, key, conn)
+			t.sendEvent(nftypes.TypeEnd, conn)
 		}
 
 	case TCPStateFinWait1:
@@ -313,7 +313,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 		case flags&TCPRst != 0:
 			conn.State = TCPStateClosed
 			conn.SetTombstone()
-			t.sendEvent(nftypes.TypeEnd, key, conn)
+			t.sendEvent(nftypes.TypeEnd, conn)
 		}
 
 	case TCPStateFinWait2:
