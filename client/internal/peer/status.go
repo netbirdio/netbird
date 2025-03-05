@@ -345,6 +345,56 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 	return nil
 }
 
+// CheckRoutes checks for both the source and destination IP addresses in the local peer routes first,
+// and then in the remote peers' routes. It returns the IP address of the matching peer (as a string)
+// for source and destination. If a match is found in local peer routes, the local peer IP is returned;
+// otherwise, the remote peer IP is returned. If no match is found, an empty string is returned for that IP.
+func (d *Status) CheckRoutes(src, dst netip.Addr) (srcMatchedPeerIP string, dstMatchedPeerIP string) {
+	// check local peer routes.
+	for route := range d.localPeer.Routes {
+		prefix, err := netip.ParsePrefix(route)
+		if err != nil {
+			log.Debugf("failed to parse route %s: %v", route, err)
+			continue
+		}
+		if srcMatchedPeerIP == "" && prefix.Contains(src) {
+			srcMatchedPeerIP = d.localPeer.IP
+		}
+		if dstMatchedPeerIP == "" && prefix.Contains(dst) {
+			dstMatchedPeerIP = d.localPeer.IP
+		}
+		// early return if both source and destination are matched.
+		if srcMatchedPeerIP != "" && dstMatchedPeerIP != "" {
+			return srcMatchedPeerIP, dstMatchedPeerIP
+		}
+	}
+
+	// if one or both addresses were not found in local routes, check remote peers.
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	for _, peer := range d.peers {
+		peerRoutes := peer.GetRoutes()
+		for route := range peerRoutes {
+			prefix, err := netip.ParsePrefix(route)
+			if err != nil {
+				log.Debugf("failed to parse route %s: %v", route, err)
+				continue
+			}
+			if srcMatchedPeerIP == "" && prefix.Contains(src) {
+				srcMatchedPeerIP = peer.IP
+			}
+			if dstMatchedPeerIP == "" && prefix.Contains(dst) {
+				dstMatchedPeerIP = peer.IP
+			}
+			// early return if both addresses are matched.
+			if srcMatchedPeerIP != "" && dstMatchedPeerIP != "" {
+				return srcMatchedPeerIP, dstMatchedPeerIP
+			}
+		}
+	}
+	return srcMatchedPeerIP, dstMatchedPeerIP
+}
+
 func (d *Status) UpdatePeerICEState(receivedState State) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()

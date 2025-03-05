@@ -67,21 +67,23 @@ type Event struct {
 }
 
 type EventFields struct {
-	FlowID     uuid.UUID
-	Type       Type
-	RuleID     []byte
-	Direction  Direction
-	Protocol   Protocol
-	SourceIP   netip.Addr
-	DestIP     netip.Addr
-	SourcePort uint16
-	DestPort   uint16
-	ICMPType   uint8
-	ICMPCode   uint8
-	RxPackets  uint64
-	TxPackets  uint64
-	RxBytes    uint64
-	TxBytes    uint64
+	FlowID           uuid.UUID
+	Type             Type
+	RuleID           []byte
+	Direction        Direction
+	Protocol         Protocol
+	SourceIP         netip.Addr
+	DestIP           netip.Addr
+	SourceResourceID []byte
+	DestResourceID   []byte
+	SourcePort       uint16
+	DestPort         uint16
+	ICMPType         uint8
+	ICMPCode         uint8
+	RxPackets        uint64
+	TxPackets        uint64
+	RxBytes          uint64
+	TxBytes          uint64
 }
 
 type FlowConfig struct {

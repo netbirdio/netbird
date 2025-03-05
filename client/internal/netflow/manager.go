@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/flow/client"
 	"github.com/netbirdio/netbird/flow/proto"
 )
@@ -29,8 +30,8 @@ type Manager struct {
 }
 
 // NewManager creates a new netflow manager
-func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte) *Manager {
-	flowLogger := logger.New(ctx)
+func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
+	flowLogger := logger.New(ctx, statusRecorder)
 
 	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
