@@ -13,7 +13,7 @@ service FlowService {
 
 message FlowEvent {
   // Unique client event identifier
-  string event_id = 1;
+  bytes event_id = 1;
 
   // When the event occurred
   google.protobuf.Timestamp timestamp = 2;
@@ -26,7 +26,7 @@ message FlowEvent {
 
 message FlowEventAck {
   // Unique client event identifier that has been ack'ed
-  string event_id = 1;
+  bytes event_id = 1;
 }
 
 message FlowFields {

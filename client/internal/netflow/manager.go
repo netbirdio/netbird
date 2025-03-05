@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -129,7 +130,7 @@ func (m *Manager) receiveACKs() {
 	}
 	err := m.receiverClient.Receive(m.ctx, func(ack *proto.FlowEventAck) error {
 		log.Infof("receive flow event ack: %s", ack.EventId)
-		m.logger.DeleteEvents([]string{ack.EventId})
+		m.logger.DeleteEvents([]uuid.UUID{uuid.UUID(ack.EventId)})
 		return nil
 	})
 	if err != nil {
@@ -146,7 +147,7 @@ func (m *Manager) send(event *nftypes.Event) error {
 
 func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 	protoEvent := &proto.FlowEvent{
-		EventId:   event.ID,
+		EventId:   event.ID[:],
 		Timestamp: timestamppb.New(event.Timestamp),
 		PublicKey: publicKey,
 		FlowFields: &proto.FlowFields{
