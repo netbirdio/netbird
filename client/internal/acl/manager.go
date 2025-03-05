@@ -240,7 +240,7 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 
 	dPorts := convertPortInfo(rule.PortInfo)
 
-	addedRule, err := d.firewall.AddRouteFiltering(rule.Id, sources, destination, protocol, nil, dPorts, action)
+	addedRule, err := d.firewall.AddRouteFiltering(rule.PolicyID, sources, destination, protocol, nil, dPorts, action)
 	if err != nil {
 		return "", fmt.Errorf("add route rule: %w", err)
 	}
@@ -289,11 +289,11 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	var rules []firewall.Rule
 	switch r.Direction {
 	case mgmProto.RuleDirection_IN:
-		rules, err = d.addInRules(r.Id, ip, protocol, port, action, ipsetName)
+		rules, err = d.addInRules(r.PolicyID, ip, protocol, port, action, ipsetName)
 	case mgmProto.RuleDirection_OUT:
 		// TODO: Remove this soon. Outbound rules are obsolete.
 		// We only maintain this for return traffic (inbound dir) which is now handled by the stateful firewall already
-		rules, err = d.addOutRules(r.Id, ip, protocol, port, action, ipsetName)
+		rules, err = d.addOutRules(r.PolicyID, ip, protocol, port, action, ipsetName)
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
 	}
