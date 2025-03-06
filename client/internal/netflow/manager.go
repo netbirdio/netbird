@@ -2,6 +2,7 @@ package netflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -172,7 +173,7 @@ func (m *Manager) receiveACKs(client *client.GRPCClient) {
 		return nil
 	})
 
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Errorf("failed to receive flow event ack: %s", err)
 	}
 }
