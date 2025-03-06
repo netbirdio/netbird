@@ -442,8 +442,8 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 
 	conn.log.Infof("created new wgProxy for relay connection: %s", wgProxy.EndpointAddr().String())
 
-	if conn.iceP2PIsActive() {
-		conn.log.Debugf("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
+	if conn.isICEActive() {
+		conn.log.Infof("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
 		conn.setRelayedProxy(wgProxy)
 		conn.statusRelay.Set(StatusConnected)
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
@@ -711,8 +711,8 @@ func (conn *Conn) isReadyToUpgrade() bool {
 	return conn.wgProxyRelay != nil && conn.currentConnPriority != connPriorityRelay
 }
 
-func (conn *Conn) iceP2PIsActive() bool {
-	return conn.currentConnPriority == connPriorityICEP2P && conn.statusICE.Get() == StatusConnected
+func (conn *Conn) isICEActive() bool {
+	return (conn.currentConnPriority == connPriorityICEP2P || conn.currentConnPriority == connPriorityICETurn) && conn.statusICE.Get() == StatusConnected
 }
 
 func (conn *Conn) removeWgPeer() error {
