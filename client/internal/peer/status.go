@@ -366,22 +366,27 @@ func (d *Status) RemovePeerStateRoute(peer string, route string, resourceId stri
 // for source and destination. If a match is found in local peer routes, the local peer IP is returned;
 // otherwise, the remote peer IP is returned. If no match is found, an empty string is returned for that IP.
 func (d *Status) CheckRoutes(src, dst netip.Addr) (srcMatchedPeerIP string, dstMatchedPeerIP string) {
+	if d == nil {
+		return
+	}
 	// check local peer routes.
-	for route := range d.localPeer.Routes {
-		prefix, err := netip.ParsePrefix(route)
-		if err != nil {
-			log.Debugf("failed to parse route %s: %v", route, err)
-			continue
-		}
-		if srcMatchedPeerIP == "" && prefix.Contains(src) {
-			srcMatchedPeerIP = d.localPeer.IP
-		}
-		if dstMatchedPeerIP == "" && prefix.Contains(dst) {
-			dstMatchedPeerIP = d.localPeer.IP
-		}
-		// early return if both source and destination are matched.
-		if srcMatchedPeerIP != "" && dstMatchedPeerIP != "" {
-			return srcMatchedPeerIP, dstMatchedPeerIP
+	if d.localPeer.Routes != nil {
+		for route := range d.localPeer.Routes {
+			prefix, err := netip.ParsePrefix(route)
+			if err != nil {
+				log.Debugf("failed to parse route %s: %v", route, err)
+				continue
+			}
+			if srcMatchedPeerIP == "" && prefix.Contains(src) {
+				srcMatchedPeerIP = d.localPeer.IP
+			}
+			if dstMatchedPeerIP == "" && prefix.Contains(dst) {
+				dstMatchedPeerIP = d.localPeer.IP
+			}
+			// early return if both source and destination are matched.
+			if srcMatchedPeerIP != "" && dstMatchedPeerIP != "" {
+				return srcMatchedPeerIP, dstMatchedPeerIP
+			}
 		}
 	}
 
