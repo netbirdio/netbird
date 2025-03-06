@@ -614,7 +614,7 @@ func seedFromStatus(a *anonymize.Anonymizer, status *peer.FullStatus) {
 	for _, peer := range status.Peers {
 		a.AnonymizeDomain(peer.FQDN)
 		for route := range peer.GetRoutes() {
-			a.AnonymizeRoute(route)
+			a.AnonymizeRoute(route.Route)
 		}
 	}
 

@@ -155,7 +155,7 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 	for n, p := range fullStatus.Peers {
 		var routes = RoutesDetails{}
 		for r := range p.GetRoutes() {
-			routeInfo := RoutesInfo{r}
+			routeInfo := RoutesInfo{r.Route}
 			routes.items = append(routes.items, routeInfo)
 		}
 		pi := PeerInfo{

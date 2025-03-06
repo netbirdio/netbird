@@ -34,6 +34,11 @@ type EventListener interface {
 	OnEvent(event *proto.SystemEvent)
 }
 
+type RouteWithResourceId struct {
+	Route      string
+	ResourceId string
+}
+
 // State contains the latest state of a peer
 type State struct {
 	Mux                        *sync.RWMutex
@@ -53,38 +58,49 @@ type State struct {
 	BytesRx                    int64
 	Latency                    time.Duration
 	RosenpassEnabled           bool
-	routes                     map[string]struct{}
+	routes                     map[RouteWithResourceId]struct{}
 }
 
 // AddRoute add a single route to routes map
-func (s *State) AddRoute(network string) {
+func (s *State) AddRoute(network, resourceId string) {
 	s.Mux.Lock()
 	defer s.Mux.Unlock()
 	if s.routes == nil {
-		s.routes = make(map[string]struct{})
+		s.routes = make(map[RouteWithResourceId]struct{})
 	}
-	s.routes[network] = struct{}{}
+	s.routes[RouteWithResourceId{network, resourceId}] = struct{}{}
 }
 
 // SetRoutes set state routes
-func (s *State) SetRoutes(routes map[string]struct{}) {
+func (s *State) SetRoutes(routes map[RouteWithResourceId]struct{}) {
 	s.Mux.Lock()
 	defer s.Mux.Unlock()
 	s.routes = routes
 }
 
 // DeleteRoute removes a route from the network amp
-func (s *State) DeleteRoute(network string) {
+func (s *State) DeleteRoute(network, resourceId string) {
 	s.Mux.Lock()
 	defer s.Mux.Unlock()
-	delete(s.routes, network)
+	delete(s.routes, RouteWithResourceId{network, resourceId})
 }
 
 // GetRoutes return routes map
-func (s *State) GetRoutes() map[string]struct{} {
+func (s *State) GetRoutes() map[RouteWithResourceId]struct{} {
 	s.Mux.RLock()
 	defer s.Mux.RUnlock()
 	return maps.Clone(s.routes)
+}
+
+// GetRoutes return routes map
+func (s *State) GetRoutesSlice() []string {
+	s.Mux.RLock()
+	defer s.Mux.RUnlock()
+	routes := make([]string, 0, len(s.routes))
+	for route := range s.routes {
+		routes = append(routes, route.Route)
+	}
+	return routes
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -311,7 +327,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	return nil
 }
 
-func (d *Status) AddPeerStateRoute(peer string, route string) error {
+func (d *Status) AddPeerStateRoute(peer string, route string, resourceId string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -320,7 +336,7 @@ func (d *Status) AddPeerStateRoute(peer string, route string) error {
 		return errors.New("peer doesn't exist")
 	}
 
-	peerState.AddRoute(route)
+	peerState.AddRoute(route, resourceId)
 	d.peers[peer] = peerState
 
 	// todo: consider to make sense of this notification or not
@@ -328,7 +344,7 @@ func (d *Status) AddPeerStateRoute(peer string, route string) error {
 	return nil
 }
 
-func (d *Status) RemovePeerStateRoute(peer string, route string) error {
+func (d *Status) RemovePeerStateRoute(peer string, route string, resourceId string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -337,7 +353,7 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 		return errors.New("peer doesn't exist")
 	}
 
-	peerState.DeleteRoute(route)
+	peerState.DeleteRoute(route, resourceId)
 	d.peers[peer] = peerState
 
 	// todo: consider to make sense of this notification or not
@@ -375,7 +391,7 @@ func (d *Status) CheckRoutes(src, dst netip.Addr) (srcMatchedPeerIP string, dstM
 	for _, peer := range d.peers {
 		peerRoutes := peer.GetRoutes()
 		for route := range peerRoutes {
-			prefix, err := netip.ParsePrefix(route)
+			prefix, err := netip.ParsePrefix(route.Route)
 			if err != nil {
 				log.Debugf("failed to parse route %s: %v", route, err)
 				continue
