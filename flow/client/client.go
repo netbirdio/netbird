@@ -23,8 +23,6 @@ import (
 	nbgrpc "github.com/netbirdio/netbird/util/grpc"
 )
 
-const defaultIdleTimeout = 10 * time.Minute
-
 type GRPCClient struct {
 	realClient proto.FlowServiceClient
 	clientConn *grpc.ClientConn
@@ -32,7 +30,7 @@ type GRPCClient struct {
 	streamMu   sync.Mutex
 }
 
-func NewClient(addr, payload, signature string) (*GRPCClient, error) {
+func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCClient, error) {
 	var opts []grpc.DialOption
 
 	if strings.Contains(addr, "443") {
@@ -51,7 +49,7 @@ func NewClient(addr, payload, signature string) (*GRPCClient, error) {
 
 	opts = append(opts,
 		nbgrpc.WithCustomDialer(),
-		grpc.WithIdleTimeout(defaultIdleTimeout),
+		grpc.WithIdleTimeout(interval*2),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,

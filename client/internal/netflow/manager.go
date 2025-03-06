@@ -66,7 +66,7 @@ func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 			}
 		}
 
-		flowClient, err := client.NewClient(m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature)
+		flowClient, err := client.NewClient(m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature, m.flowConfig.Interval)
 		if err != nil {
 			return fmt.Errorf("create client: %w", err)
 		}
