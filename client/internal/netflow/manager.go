@@ -64,13 +64,13 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 
 		m.logger.Enable()
 		if previous == nil || !previous.Enabled {
-			flowClient, err := client.NewClient(m.ctx, m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature)
+			flowClient, err := client.NewClient(m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature)
 			if err != nil {
 				return err
 			}
 			log.Infof("flow client connected to %s", m.flowConfig.URL)
 			m.receiverClient = flowClient
-			go m.receiveACKs()
+			go m.receiveACKs(update.Interval)
 			go m.startSender()
 		}
 		return nil
@@ -96,6 +96,9 @@ func (m *Manager) Close() {
 		m.conntrack.Close()
 	}
 	m.logger.Close()
+	if m.receiverClient != nil {
+		m.receiverClient.Close()
+	}
 }
 
 // GetLogger returns the flow logger
@@ -106,6 +109,7 @@ func (m *Manager) GetLogger() nftypes.FlowLogger {
 func (m *Manager) startSender() {
 	ticker := time.NewTicker(m.flowConfig.Interval)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -113,35 +117,46 @@ func (m *Manager) startSender() {
 		case <-ticker.C:
 			events := m.logger.GetEvents()
 			for _, event := range events {
-				log.Infof("send flow event to server: %s", event.ID)
-				err := m.send(event)
-				if err != nil {
-					log.Errorf("send flow event to server: %s", err)
+				if err := m.send(event); err != nil {
+					log.Errorf("failed to send flow event to server: %s", err)
+					continue
 				}
+				log.Tracef("sent flow event to server: %s", event.ID)
 			}
 		}
 	}
 }
 
-func (m *Manager) receiveACKs() {
-	if m.receiverClient == nil {
+func (m *Manager) receiveACKs(interval time.Duration) {
+	m.mux.Lock()
+	client := m.receiverClient
+	m.mux.Unlock()
+
+	if client == nil {
 		return
 	}
-	err := m.receiverClient.Receive(m.ctx, func(ack *proto.FlowEventAck) error {
-		log.Infof("receive flow event ack: %s", ack.EventId)
+
+	err := client.Receive(m.ctx, interval, func(ack *proto.FlowEventAck) error {
+		log.Tracef("received flow event ack: %s", ack.EventId)
 		m.logger.DeleteEvents([]string{ack.EventId})
 		return nil
 	})
+
 	if err != nil {
-		log.Errorf("receive flow event ack: %s", err)
+		log.Errorf("failed to receive flow event ack failed: %s", err)
 	}
 }
 
 func (m *Manager) send(event *nftypes.Event) error {
-	if m.receiverClient == nil {
+	m.mux.Lock()
+	client := m.receiverClient
+	m.mux.Unlock()
+
+	if client == nil {
 		return nil
 	}
-	return m.receiverClient.Send(m.ctx, toProtoEvent(m.publicKey, event))
+
+	return client.Send(toProtoEvent(m.publicKey, event))
 }
 
 func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
@@ -163,6 +178,7 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 			TxBytes:   event.TxBytes,
 		},
 	}
+
 	if event.Protocol == nftypes.ICMP {
 		protoEvent.FlowFields.ConnectionInfo = &proto.FlowFields_IcmpInfo{
 			IcmpInfo: &proto.ICMPInfo{
