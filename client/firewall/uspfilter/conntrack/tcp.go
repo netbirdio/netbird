@@ -88,6 +88,8 @@ const (
 // TCPConnTrack represents a TCP connection state
 type TCPConnTrack struct {
 	BaseConnTrack
+	SourcePort  uint16
+	DestPort    uint16
 	State       TCPState
 	established atomic.Bool
 	tombstone   atomic.Bool
@@ -144,7 +146,7 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 	return tracker
 }
 
-func (t *TCPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) (ConnKey, bool) {
+func (t *TCPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, direction nftypes.Direction, size int) (ConnKey, bool) {
 	key := ConnKey{
 		SrcIP:   srcIP,
 		DstIP:   dstIP,
@@ -161,6 +163,8 @@ func (t *TCPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 		t.updateState(key, conn, flags, conn.Direction == nftypes.Egress)
 		conn.Unlock()
 
+		conn.UpdateCounters(direction, size)
+
 		return key, true
 	}
 
@@ -168,34 +172,34 @@ func (t *TCPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 }
 
 // TrackOutbound records an outbound TCP connection
-func (t *TCPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) {
-	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags); !exists {
+func (t *TCPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, size int) {
+	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags, 0, 0); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
-		t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress)
+		t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress, size)
 	}
 }
 
 // TrackInbound processes an inbound TCP packet and updates connection state
-func (t *TCPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) {
-	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress)
+func (t *TCPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, size int) {
+	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress, size)
 }
 
 // track is the common implementation for tracking both inbound and outbound connections
-func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, direction nftypes.Direction) {
-	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags)
+func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, direction nftypes.Direction, size int) {
+	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags, direction, size)
 	if exists {
 		return
 	}
 
 	conn := &TCPConnTrack{
 		BaseConnTrack: BaseConnTrack{
-			FlowId:     uuid.New(),
-			Direction:  direction,
-			SourceIP:   srcIP,
-			DestIP:     dstIP,
-			SourcePort: srcPort,
-			DestPort:   dstPort,
+			FlowId:    uuid.New(),
+			Direction: direction,
+			SourceIP:  srcIP,
+			DestIP:    dstIP,
 		},
+		SourcePort: srcPort,
+		DestPort:   dstPort,
 	}
 
 	conn.established.Store(false)
@@ -212,7 +216,7 @@ func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 }
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection
-func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8) bool {
+func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, size int) bool {
 	key := ConnKey{
 		SrcIP:   dstIP,
 		DstIP:   srcIP,
@@ -239,6 +243,7 @@ func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 		conn.State = TCPStateClosed
 		conn.SetEstablished(false)
 		conn.Unlock()
+		conn.UpdateCounters(nftypes.Ingress, size)
 
 		t.logger.Trace("TCP connection reset: %s", key)
 		t.sendEvent(nftypes.TypeEnd, conn)
@@ -427,7 +432,7 @@ func (t *TCPTracker) cleanup() {
 			// Return IPs to pool
 			delete(t.connections, key)
 
-			t.logger.Trace("Cleaned up timed-out TCP connection %s", &key)
+			t.logger.Trace("Cleaned up timed-out TCP connection %s", key)
 
 			// event already handled by state change
 			if conn.State != TCPStateTimeWait {
@@ -472,5 +477,9 @@ func (t *TCPTracker) sendEvent(typ nftypes.Type, conn *TCPConnTrack) {
 		DestIP:     conn.DestIP,
 		SourcePort: conn.SourcePort,
 		DestPort:   conn.DestPort,
+		RxPackets:  conn.PacketsRx.Load(),
+		TxPackets:  conn.PacketsTx.Load(),
+		RxBytes:    conn.BytesRx.Load(),
+		TxBytes:    conn.BytesTx.Load(),
 	})
 }
