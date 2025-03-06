@@ -602,7 +602,7 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, size int) {
 		flags := getTCPFlags(&d.tcp)
 		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
 	case layers.LayerTypeICMPv4:
-		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq, d.icmp4.TypeCode, size)
+		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, size)
 	}
 }
 
@@ -615,7 +615,7 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, size int) {
 		flags := getTCPFlags(&d.tcp)
 		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
 	case layers.LayerTypeICMPv4:
-		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq, d.icmp4.TypeCode, size)
+		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, size)
 	}
 }
 
@@ -830,7 +830,6 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr, 
 			srcIP,
 			dstIP,
 			d.icmp4.Id,
-			d.icmp4.Seq,
 			d.icmp4.TypeCode.Type(),
 			size,
 		)
