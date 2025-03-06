@@ -353,18 +353,27 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 	conn.workerRelay.DisableWgWatcher()
 
 	if conn.wgProxyRelay != nil {
+		conn.log.Debugf("pause Relayed proxy")
 		conn.wgProxyRelay.Pause()
 	}
 
 	if wgProxy != nil {
+		conn.log.Debugf("run ICE proxy")
 		wgProxy.Work()
 	}
 
+	conn.log.Infof("configure WireGuard endpoint to: %s", ep.String())
 	if err = conn.configureWGEndpoint(ep); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
 	wgConfigWorkaround()
+
+	if conn.wgProxyRelay != nil {
+		conn.log.Debugf("redirect packages from relayed conn to WireGuard")
+		conn.wgProxyRelay.RedirectAs(ep)
+	}
+
 	conn.currentConnPriority = priority
 	conn.statusICE.Set(StatusConnected)
 	conn.updateIceState(iceConnInfo)
@@ -390,11 +399,12 @@ func (conn *Conn) onICEStateDisconnected() {
 	// switch back to relay connection
 	if conn.isReadyToUpgrade() {
 		conn.log.Infof("ICE disconnected, set Relay to active connection")
-		conn.wgProxyRelay.Work()
 
 		if err := conn.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr()); err != nil {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
+
+		conn.wgProxyRelay.Work()
 		conn.workerRelay.EnableWgWatcher(conn.ctx)
 		conn.currentConnPriority = connPriorityRelay
 	} else {
