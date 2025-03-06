@@ -90,7 +90,7 @@ func (t *ICMPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, id uint
 }
 
 // TrackOutbound records an outbound ICMP connection
-func (t *ICMPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, seq uint16, typecode layers.ICMPv4TypeCode, size int) {
+func (t *ICMPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, typecode layers.ICMPv4TypeCode, size int) {
 	if _, exists := t.updateIfExists(dstIP, srcIP, id, nftypes.Egress, size); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
 		t.track(srcIP, dstIP, id, typecode, nftypes.Egress, size)
