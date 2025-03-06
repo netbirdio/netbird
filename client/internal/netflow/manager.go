@@ -46,45 +46,79 @@ func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte
 }
 
 // Update applies new flow configuration settings
+// needsNewClient checks if a new client needs to be created
+func (m *Manager) needsNewClient(previous *nftypes.FlowConfig) bool {
+	current := m.flowConfig
+	return previous == nil ||
+		!previous.Enabled ||
+		previous.TokenPayload != current.TokenPayload ||
+		previous.TokenSignature != current.TokenSignature ||
+		previous.URL != current.URL
+}
+
+// enableFlow starts components for flow tracking
+func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
+	// first make sender ready so events don't pile up
+	if m.needsNewClient(previous) {
+		if m.receiverClient != nil {
+			if err := m.receiverClient.Close(); err != nil {
+				log.Warnf("error closing previous flow client: %s", err)
+			}
+		}
+
+		flowClient, err := client.NewClient(m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature)
+		if err != nil {
+			return fmt.Errorf("create client: %w", err)
+		}
+		log.Infof("flow client configured to connect to %s", m.flowConfig.URL)
+
+		m.receiverClient = flowClient
+		go m.receiveACKs(flowClient)
+		go m.startSender()
+	}
+
+	m.logger.Enable()
+
+	if m.conntrack != nil {
+		if err := m.conntrack.Start(m.flowConfig.Counters); err != nil {
+			return fmt.Errorf("start conntrack: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// disableFlow stops components for flow tracking
+func (m *Manager) disableFlow() error {
+	if m.conntrack != nil {
+		m.conntrack.Stop()
+	}
+
+	m.logger.Disable()
+
+	if m.receiverClient != nil {
+		return m.receiverClient.Close()
+	}
+	return nil
+}
+
+// Update applies new flow configuration settings
 func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	if update == nil {
 		return nil
 	}
+
 	m.mux.Lock()
 	defer m.mux.Unlock()
+
 	previous := m.flowConfig
 	m.flowConfig = update
 
 	if update.Enabled {
-		if m.conntrack != nil {
-			if err := m.conntrack.Start(update.Counters); err != nil {
-				return fmt.Errorf("start conntrack: %w", err)
-			}
-		}
-
-		m.logger.Enable()
-		if previous == nil || !previous.Enabled {
-			flowClient, err := client.NewClient(m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature)
-			if err != nil {
-				return err
-			}
-			log.Infof("flow client connected to %s", m.flowConfig.URL)
-			m.receiverClient = flowClient
-			go m.receiveACKs(update.Interval)
-			go m.startSender()
-		}
-		return nil
+		return m.enableFlow(previous)
 	}
 
-	if m.conntrack != nil {
-		m.conntrack.Stop()
-	}
-	m.logger.Disable()
-	if previous != nil && previous.Enabled {
-		return m.receiverClient.Close()
-	}
-
-	return nil
+	return m.disableFlow()
 }
 
 // Close cleans up all resources
@@ -95,10 +129,14 @@ func (m *Manager) Close() {
 	if m.conntrack != nil {
 		m.conntrack.Close()
 	}
-	m.logger.Close()
+
 	if m.receiverClient != nil {
-		m.receiverClient.Close()
+		if err := m.receiverClient.Close(); err != nil {
+			log.Warnf("failed to close receiver client: %s", err)
+		}
 	}
+
+	m.logger.Close()
 }
 
 // GetLogger returns the flow logger
@@ -121,29 +159,21 @@ func (m *Manager) startSender() {
 					log.Errorf("failed to send flow event to server: %s", err)
 					continue
 				}
-				log.Tracef("sent flow event to server: %s", event.ID)
+				log.Tracef("sent flow event: %s", event.ID)
 			}
 		}
 	}
 }
 
-func (m *Manager) receiveACKs(interval time.Duration) {
-	m.mux.Lock()
-	client := m.receiverClient
-	m.mux.Unlock()
-
-	if client == nil {
-		return
-	}
-
-	err := client.Receive(m.ctx, interval, func(ack *proto.FlowEventAck) error {
+func (m *Manager) receiveACKs(client *client.GRPCClient) {
+	err := client.Receive(m.ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
 		log.Tracef("received flow event ack: %s", ack.EventId)
 		m.logger.DeleteEvents([]string{ack.EventId})
 		return nil
 	})
 
 	if err != nil {
-		log.Errorf("failed to receive flow event ack failed: %s", err)
+		log.Errorf("failed to receive flow event ack: %s", err)
 	}
 }
 
