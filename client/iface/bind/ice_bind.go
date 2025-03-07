@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/pion/stun/v2"
@@ -108,35 +107,17 @@ func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 	return s.udpMux, nil
 }
 
-func (b *ICEBind) SetEndpoint(peerAddress *net.UDPAddr, conn net.Conn) (*net.UDPAddr, error) {
-	fakeUDPAddr, err := fakeAddress(peerAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	// force IPv4
-	fakeAddr, ok := netip.AddrFromSlice(fakeUDPAddr.IP.To4())
-	if !ok {
-		return nil, fmt.Errorf("failed to convert IP to netip.Addr")
-	}
-
+func (b *ICEBind) SetEndpoint(fakeIP netip.Addr, conn net.Conn) {
 	b.endpointsMu.Lock()
-	b.endpoints[fakeAddr] = conn
+	b.endpoints[fakeIP] = conn
 	b.endpointsMu.Unlock()
-
-	return fakeUDPAddr, nil
 }
 
-func (b *ICEBind) RemoveEndpoint(fakeUDPAddr *net.UDPAddr) {
-	fakeAddr, ok := netip.AddrFromSlice(fakeUDPAddr.IP.To4())
-	if !ok {
-		log.Warnf("failed to convert IP to netip.Addr")
-		return
-	}
-
+func (b *ICEBind) RemoveEndpoint(fakeIP netip.Addr) {
 	b.endpointsMu.Lock()
 	defer b.endpointsMu.Unlock()
-	delete(b.endpoints, fakeAddr)
+
+	delete(b.endpoints, fakeIP)
 }
 
 func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
@@ -273,21 +254,6 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 		eps[0] = wgConn.Endpoint(msg.Endpoint)
 		return 1, nil
 	}
-}
-
-// fakeAddress returns a fake address that is used to as an identifier for the peer.
-// The fake address is in the format of 127.1.x.x where x.x is the last two octets of the peer address.
-func fakeAddress(peerAddress *net.UDPAddr) (*net.UDPAddr, error) {
-	octets := strings.Split(peerAddress.IP.String(), ".")
-	if len(octets) != 4 {
-		return nil, fmt.Errorf("invalid IP format")
-	}
-
-	newAddr := &net.UDPAddr{
-		IP:   net.ParseIP(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3])),
-		Port: peerAddress.Port,
-	}
-	return newAddr, nil
 }
 
 func getMessages(msgsPool *sync.Pool) *[]ipv6.Message {
