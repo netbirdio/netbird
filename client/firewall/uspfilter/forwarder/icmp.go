@@ -117,8 +117,8 @@ func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.T
 		Direction: nftypes.Ingress,
 		Protocol:  nftypes.ICMP,
 		// TODO: handle ipv6
-		SourceIP: netip.AddrFrom4(id.LocalAddress.As4()),
-		DestIP:   netip.AddrFrom4(id.RemoteAddress.As4()),
+		SourceIP: netip.AddrFrom4(id.RemoteAddress.As4()),
+		DestIP:   netip.AddrFrom4(id.LocalAddress.As4()),
 		ICMPType: icmpType,
 		ICMPCode: icmpCode,
 
