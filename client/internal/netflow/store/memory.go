@@ -3,6 +3,8 @@ package store
 import (
 	"sync"
 
+	"golang.org/x/exp/maps"
+
 	"github.com/google/uuid"
 
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
@@ -28,7 +30,7 @@ func (m *Memory) StoreEvent(event *types.Event) {
 func (m *Memory) Close() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.events = make(map[uuid.UUID]*types.Event)
+	maps.Clear(m.events)
 }
 
 func (m *Memory) GetEvents() []*types.Event {

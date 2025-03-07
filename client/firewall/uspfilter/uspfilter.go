@@ -510,13 +510,13 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 }
 
 // DropOutgoing filter outgoing packets
-func (m *Manager) DropOutgoing(packetData []byte) bool {
-	return m.processOutgoingHooks(packetData)
+func (m *Manager) DropOutgoing(packetData []byte, size int) bool {
+	return m.processOutgoingHooks(packetData, size)
 }
 
 // DropIncoming filter incoming packets
-func (m *Manager) DropIncoming(packetData []byte) bool {
-	return m.dropFilter(packetData)
+func (m *Manager) DropIncoming(packetData []byte, size int) bool {
+	return m.dropFilter(packetData, size)
 }
 
 // UpdateLocalIPs updates the list of local IPs
@@ -524,7 +524,7 @@ func (m *Manager) UpdateLocalIPs() error {
 	return m.localipmanager.UpdateLocalIPs(m.wgIface)
 }
 
-func (m *Manager) processOutgoingHooks(packetData []byte) bool {
+func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
@@ -542,14 +542,12 @@ func (m *Manager) processOutgoingHooks(packetData []byte) bool {
 		return false
 	}
 
-	// Track all protocols if stateful mode is enabled
-	if m.stateful {
-		m.trackOutbound(d, srcIP, dstIP)
+	if d.decoded[1] == layers.LayerTypeUDP && m.udpHooksDrop(uint16(d.udp.DstPort), dstIP, packetData) {
+		return true
 	}
 
-	// Process UDP hooks even if stateful mode is disabled
-	if d.decoded[1] == layers.LayerTypeUDP {
-		return m.checkUDPHooks(d, dstIP, packetData)
+	if m.stateful {
+		m.trackOutbound(d, srcIP, dstIP, size)
 	}
 
 	return false
@@ -593,51 +591,70 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 	return flags
 }
 
-func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr) {
+func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, size int) {
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
+		m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size)
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
+		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
 	case layers.LayerTypeICMPv4:
-		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq, d.icmp4.TypeCode)
+		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, size)
 	}
 }
 
-func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr) {
+func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byte, size int) {
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort))
+		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size)
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags)
+		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size)
 	case layers.LayerTypeICMPv4:
-		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.Seq, d.icmp4.TypeCode)
+		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, ruleID, size)
 	}
 }
 
-func (m *Manager) checkUDPHooks(d *decoder, dstIP netip.Addr, packetData []byte) bool {
+// udpHooksDrop checks if any UDP hooks should drop the packet
+func (m *Manager) udpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	for _, ipKey := range []netip.Addr{dstIP, netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
-		if rules, exists := m.outgoingRules[ipKey]; exists {
-			for _, rule := range rules {
-				if rule.udpHook != nil && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
-					return rule.udpHook(packetData)
-				}
+	// Check specific destination IP first
+	if rules, exists := m.outgoingRules[dstIP]; exists {
+		for _, rule := range rules {
+			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.udpHook(packetData)
 			}
 		}
 	}
+
+	// Check IPv4 unspecified address
+	if rules, exists := m.outgoingRules[netip.IPv4Unspecified()]; exists {
+		for _, rule := range rules {
+			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.udpHook(packetData)
+			}
+		}
+	}
+
+	// Check IPv6 unspecified address
+	if rules, exists := m.outgoingRules[netip.IPv6Unspecified()]; exists {
+		for _, rule := range rules {
+			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.udpHook(packetData)
+			}
+		}
+	}
+
 	return false
 }
 
 // dropFilter implements filtering logic for incoming packets.
 // If it returns true, the packet should be dropped.
-func (m *Manager) dropFilter(packetData []byte) bool {
+func (m *Manager) dropFilter(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
@@ -653,12 +670,12 @@ func (m *Manager) dropFilter(packetData []byte) bool {
 
 	// For all inbound traffic, first check if it matches a tracked connection.
 	// This must happen before any other filtering because the packets are statefully tracked.
-	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP) {
+	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
 		return false
 	}
 
 	if m.localipmanager.IsLocalIP(dstIP) {
-		return m.handleLocalTraffic(d, srcIP, dstIP, packetData)
+		return m.handleLocalTraffic(d, srcIP, dstIP, packetData, size)
 	}
 
 	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData)
@@ -666,18 +683,19 @@ func (m *Manager) dropFilter(packetData []byte) bool {
 
 // handleLocalTraffic handles local traffic.
 // If it returns true, the packet should be dropped.
-func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte) bool {
-	if ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d); blocked {
+func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
+	ruleID, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+	if blocked {
 		_, pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
 
 		m.logger.Trace("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			ruleId, pnum, srcIP, srcPort, dstIP, dstPort)
+			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
-			RuleID:     ruleId,
+			RuleID:     ruleID,
 			Direction:  nftypes.Ingress,
 			Protocol:   pnum,
 			SourceIP:   srcIP,
@@ -685,6 +703,8 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 			// TODO: icmp type/code
+			RxPackets: 1,
+			RxBytes:   uint64(size),
 		})
 		return true
 	}
@@ -695,7 +715,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 	}
 
 	// track inbound packets to get the correct direction and session id for flows
-	m.trackInbound(d, srcIP, dstIP)
+	m.trackInbound(d, srcIP, dstIP, ruleID, size)
 
 	return false
 }
@@ -737,14 +757,14 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	proto, pnum := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
 
-	if id, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort); !pass {
+	if ruleID, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort); !pass {
 		m.logger.Trace("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			id, pnum, srcIP, srcPort, dstIP, dstPort)
+			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
-			RuleID:     id,
+			RuleID:     ruleID,
 			Direction:  nftypes.Ingress,
 			Protocol:   pnum,
 			SourceIP:   srcIP,
@@ -802,7 +822,7 @@ func (m *Manager) isValidPacket(d *decoder, packetData []byte) bool {
 	return true
 }
 
-func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr) bool {
+func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr, size int) bool {
 	switch d.decoded[1] {
 	case layers.LayerTypeTCP:
 		return m.tcpTracker.IsValidInbound(
@@ -811,6 +831,7 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr) 
 			uint16(d.tcp.SrcPort),
 			uint16(d.tcp.DstPort),
 			getTCPFlags(&d.tcp),
+			size,
 		)
 
 	case layers.LayerTypeUDP:
@@ -819,6 +840,7 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr) 
 			dstIP,
 			uint16(d.udp.SrcPort),
 			uint16(d.udp.DstPort),
+			size,
 		)
 
 	case layers.LayerTypeICMPv4:
@@ -826,8 +848,8 @@ func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr) 
 			srcIP,
 			dstIP,
 			d.icmp4.Id,
-			d.icmp4.Seq,
 			d.icmp4.TypeCode.Type(),
+			size,
 		)
 
 		// TODO: ICMPv6

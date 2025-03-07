@@ -58,13 +58,14 @@ func (l *Logger) startReceiver() {
 	if l.enabled.Load() {
 		return
 	}
+
 	l.mux.Lock()
 	ctx, cancel := context.WithCancel(l.ctx)
 	l.cancelReceiver = cancel
 	l.mux.Unlock()
 
 	c := make(rcvChan, 100)
-	l.rcvChan.Swap(&c)
+	l.rcvChan.Store(&c)
 	l.enabled.Store(true)
 
 	for {
@@ -100,6 +101,7 @@ func (l *Logger) stop() {
 		l.cancelReceiver()
 		l.cancelReceiver = nil
 	}
+	l.rcvChan.Store(nil)
 	l.mux.Unlock()
 }
 
