@@ -22,7 +22,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-var _ account.AccountManager = (*MockAccountManager)(nil)
+var _ account.Manager = (*MockAccountManager)(nil)
 
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc func(ctx context.Context, userId, domain string) (*types.Account, error)

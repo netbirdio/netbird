@@ -22,8 +22,7 @@ import (
 
 type ExternalCacheManager cache.CacheInterface[*idp.UserData]
 
-// nolint
-type AccountManager interface {
+type Manager interface {
 	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*types.Account, error)
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration,
@@ -115,7 +114,7 @@ type AccountManager interface {
 	GetStore() store.Store
 }
 
-// PeerSync used as a data object between the gRPC API and AccountManager on Sync request.
+// PeerSync used as a data object between the gRPC API and Manager on Sync request.
 type PeerSync struct {
 	// WireGuardPubKey is a peers WireGuard public key
 	WireGuardPubKey string
@@ -126,7 +125,7 @@ type PeerSync struct {
 	UpdateAccountPeers bool
 }
 
-// PeerLogin used as a data object between the gRPC API and AccountManager on Login request.
+// PeerLogin used as a data object between the gRPC API and Manager on Login request.
 type PeerLogin struct {
 	// WireGuardPubKey is a peers WireGuard public key
 	WireGuardPubKey string

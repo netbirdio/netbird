@@ -35,7 +35,7 @@ import (
 
 // GRPCServer an instance of a Management gRPC API server
 type GRPCServer struct {
-	accountManager  account.AccountManager
+	accountManager  account.Manager
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
@@ -52,7 +52,7 @@ type GRPCServer struct {
 func NewServer(
 	ctx context.Context,
 	config *Config,
-	accountManager account.AccountManager,
+	accountManager account.Manager,
 	settingsManager settings.Manager,
 	peersUpdateManager *PeersUpdateManager,
 	secretsManager SecretsManager,
