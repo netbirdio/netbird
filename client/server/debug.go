@@ -619,7 +619,7 @@ func seedFromStatus(a *anonymize.Anonymizer, status *peer.FullStatus) {
 	}
 
 	for route := range status.LocalPeerState.Routes {
-		a.AnonymizeRoute(route)
+		a.AnonymizeRoute(route.Route)
 	}
 
 	for _, nsGroup := range status.NSGroupStates {

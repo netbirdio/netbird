@@ -109,7 +109,7 @@ type LocalPeerState struct {
 	PubKey          string
 	KernelInterface bool
 	FQDN            string
-	Routes          map[string]struct{}
+	Routes          map[RouteWithResourceId]struct{}
 }
 
 // Clone returns a copy of the LocalPeerState
@@ -372,7 +372,7 @@ func (d *Status) CheckRoutes(src, dst netip.Addr) (srcMatchedPeerIP string, dstM
 	// check local peer routes.
 	if d.localPeer.Routes != nil {
 		for route := range d.localPeer.Routes {
-			prefix, err := netip.ParsePrefix(route)
+			prefix, err := netip.ParsePrefix(route.Route)
 			if err != nil {
 				log.Debugf("failed to parse route %s: %v", route, err)
 				continue
