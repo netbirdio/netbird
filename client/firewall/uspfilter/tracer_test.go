@@ -281,7 +281,7 @@ func TestTracePacket(t *testing.T) {
 				srcPort := uint16(12345)
 				dstPort := uint16(80)
 
-				m.tcpTracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, conntrack.TCPSyn)
+				m.tcpTracker.TrackOutbound(srcIP, dstIP, srcPort, dstPort, conntrack.TCPSyn, 0)
 			},
 			packetBuilder: func() *PacketBuilder {
 				pb := createPacketBuilder("1.1.1.1", "100.10.0.100", "tcp", 80, 12345, fw.RuleDirectionIN)
