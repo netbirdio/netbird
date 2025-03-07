@@ -25,4 +25,5 @@ func TestLogcatMessageFormat(t *testing.T) {
 	if parsedString != expectedString && parsedString != expectedStringVariant {
 		t.Errorf("The log messages don't match. Expected: '%s', got: '%s'", expectedString, parsedString)
 	}
+
 }
