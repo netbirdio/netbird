@@ -65,6 +65,7 @@ require (
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203
 	github.com/pion/logging v0.2.2
 	github.com/pion/randutil v0.1.0
 	github.com/pion/stun/v2 v2.0.0
@@ -200,7 +201,6 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
-	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203 // indirect
 	github.com/pion/dtls/v2 v2.2.10 // indirect
 	github.com/pion/mdns v0.0.12 // indirect
 	github.com/pion/transport/v2 v2.2.4 // indirect
