@@ -18,10 +18,10 @@ import (
 
 // handler is a handler that returns a list of setup keys of the account
 type handler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	keysHandler := newHandler(accountManager)
 	router.HandleFunc("/setup-keys", keysHandler.getAllSetupKeys).Methods("GET", "OPTIONS")
 	router.HandleFunc("/setup-keys", keysHandler.createSetupKey).Methods("POST", "OPTIONS")
@@ -31,7 +31,7 @@ func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
 }
 
 // newHandler creates a new setup key handler
-func newHandler(accountManager account.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}

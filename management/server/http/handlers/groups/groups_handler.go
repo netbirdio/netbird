@@ -19,10 +19,10 @@ import (
 
 // handler is a handler that returns groups of the account
 type handler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	groupsHandler := newHandler(accountManager)
 	router.HandleFunc("/groups", groupsHandler.getAllGroups).Methods("GET", "OPTIONS")
 	router.HandleFunc("/groups", groupsHandler.createGroup).Methods("POST", "OPTIONS")
@@ -32,7 +32,7 @@ func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
 }
 
 // newHandler creates a new groups handler
-func newHandler(accountManager account.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}

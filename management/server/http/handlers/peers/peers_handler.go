@@ -21,10 +21,10 @@ import (
 
 // Handler is a handler that returns peers of the account
 type Handler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	peersHandler := NewHandler(accountManager)
 	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
@@ -33,7 +33,7 @@ func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager account.AccountManager) *Handler {
+func NewHandler(accountManager account.Manager) *Handler {
 	return &Handler{
 		accountManager: accountManager,
 	}

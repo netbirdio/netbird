@@ -16,22 +16,22 @@ import (
 
 // dnsSettingsHandler is a handler that returns the DNS settings of the account
 type dnsSettingsHandler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	addDNSSettingEndpoint(accountManager, router)
 	addDNSNameserversEndpoint(accountManager, router)
 }
 
-func addDNSSettingEndpoint(accountManager account.AccountManager, router *mux.Router) {
+func addDNSSettingEndpoint(accountManager account.Manager, router *mux.Router) {
 	dnsSettingsHandler := newDNSSettingsHandler(accountManager)
 	router.HandleFunc("/dns/settings", dnsSettingsHandler.getDNSSettings).Methods("GET", "OPTIONS")
 	router.HandleFunc("/dns/settings", dnsSettingsHandler.updateDNSSettings).Methods("PUT", "OPTIONS")
 }
 
 // newDNSSettingsHandler returns a new instance of dnsSettingsHandler handler
-func newDNSSettingsHandler(accountManager account.AccountManager) *dnsSettingsHandler {
+func newDNSSettingsHandler(accountManager account.Manager) *dnsSettingsHandler {
 	return &dnsSettingsHandler{accountManager: accountManager}
 }
 

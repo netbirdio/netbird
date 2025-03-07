@@ -17,11 +17,11 @@ import (
 
 // postureChecksHandler is a handler that returns posture checks of the account.
 type postureChecksHandler struct {
-	accountManager     account.AccountManager
+	accountManager     account.Manager
 	geolocationManager geolocation.Geolocation
 }
 
-func addPostureCheckEndpoint(accountManager account.AccountManager, locationManager geolocation.Geolocation, router *mux.Router) {
+func addPostureCheckEndpoint(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
 	postureCheckHandler := newPostureChecksHandler(accountManager, locationManager)
 	router.HandleFunc("/posture-checks", postureCheckHandler.getAllPostureChecks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/posture-checks", postureCheckHandler.createPostureCheck).Methods("POST", "OPTIONS")
@@ -32,7 +32,7 @@ func addPostureCheckEndpoint(accountManager account.AccountManager, locationMana
 }
 
 // newPostureChecksHandler creates a new PostureChecks handler
-func newPostureChecksHandler(accountManager account.AccountManager, geolocationManager geolocation.Geolocation) *postureChecksHandler {
+func newPostureChecksHandler(accountManager account.Manager, geolocationManager geolocation.Geolocation) *postureChecksHandler {
 	return &postureChecksHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,

@@ -28,12 +28,12 @@ type handler struct {
 	networksManager networks.Manager
 	resourceManager resources.Manager
 	routerManager   routers.Manager
-	accountManager  account.AccountManager
+	accountManager  account.Manager
 
 	groupsManager groups.Manager
 }
 
-func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager account.AccountManager, router *mux.Router) {
+func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager account.Manager, router *mux.Router) {
 	addRouterEndpoints(routerManager, router)
 	addResourceEndpoints(resourceManager, groupsManager, router)
 
@@ -45,7 +45,7 @@ func AddEndpoints(networksManager networks.Manager, resourceManager resources.Ma
 	router.HandleFunc("/networks/{networkId}", networksHandler.deleteNetwork).Methods("DELETE", "OPTIONS")
 }
 
-func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager account.AccountManager) *handler {
+func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager account.Manager) *handler {
 	return &handler{
 		networksManager: networksManager,
 		resourceManager: resourceManager,

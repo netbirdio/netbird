@@ -43,7 +43,7 @@ const apiPrefix = "/api"
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func NewAPIHandler(
 	ctx context.Context,
-	accountManager account.AccountManager,
+	accountManager account.Manager,
 	networksManager nbnetworks.Manager,
 	resourceManager resources.Manager,
 	routerManager routers.Manager,

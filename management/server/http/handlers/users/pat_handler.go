@@ -16,10 +16,10 @@ import (
 
 // patHandler is the nameserver group handler of the account
 type patHandler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func addUsersTokensEndpoint(accountManager account.AccountManager, router *mux.Router) {
+func addUsersTokensEndpoint(accountManager account.Manager, router *mux.Router) {
 	tokenHandler := newPATsHandler(accountManager)
 	router.HandleFunc("/users/{userId}/tokens", tokenHandler.getAllTokens).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}/tokens", tokenHandler.createToken).Methods("POST", "OPTIONS")
@@ -28,7 +28,7 @@ func addUsersTokensEndpoint(accountManager account.AccountManager, router *mux.R
 }
 
 // newPATsHandler creates a new patHandler HTTP handler
-func newPATsHandler(accountManager account.AccountManager) *patHandler {
+func newPATsHandler(accountManager account.Manager) *patHandler {
 	return &patHandler{
 		accountManager: accountManager,
 	}

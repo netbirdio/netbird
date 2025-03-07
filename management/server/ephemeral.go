@@ -35,7 +35,7 @@ type ephemeralPeer struct {
 // automatically. Inactivity means the peer disconnected from the Management server.
 type EphemeralManager struct {
 	store          store.Store
-	accountManager nbAccount.AccountManager
+	accountManager nbAccount.Manager
 
 	headPeer  *ephemeralPeer
 	tailPeer  *ephemeralPeer
@@ -44,7 +44,7 @@ type EphemeralManager struct {
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
-func NewEphemeralManager(store store.Store, accountManager nbAccount.AccountManager) *EphemeralManager {
+func NewEphemeralManager(store store.Store, accountManager nbAccount.Manager) *EphemeralManager {
 	return &EphemeralManager{
 		store:          store,
 		accountManager: accountManager,

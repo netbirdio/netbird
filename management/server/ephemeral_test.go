@@ -28,7 +28,7 @@ func (s *MockStore) GetAllEphemeralPeers(_ context.Context, _ store.LockingStren
 }
 
 type MocAccountManager struct {
-	nbAccount.AccountManager
+	nbAccount.Manager
 	store *MockStore
 }
 

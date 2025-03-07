@@ -20,18 +20,18 @@ var (
 
 // geolocationsHandler is a handler that returns locations.
 type geolocationsHandler struct {
-	accountManager     account.AccountManager
+	accountManager     account.Manager
 	geolocationManager geolocation.Geolocation
 }
 
-func addLocationsEndpoint(accountManager account.AccountManager, locationManager geolocation.Geolocation, router *mux.Router) {
+func addLocationsEndpoint(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
 	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager)
 	router.HandleFunc("/locations/countries", locationHandler.getAllCountries).Methods("GET", "OPTIONS")
 	router.HandleFunc("/locations/countries/{country}/cities", locationHandler.getCitiesByCountry).Methods("GET", "OPTIONS")
 }
 
 // newGeolocationsHandlerHandler creates a new Geolocations handler
-func newGeolocationsHandlerHandler(accountManager account.AccountManager, geolocationManager geolocation.Geolocation) *geolocationsHandler {
+func newGeolocationsHandlerHandler(accountManager account.Manager, geolocationManager geolocation.Geolocation) *geolocationsHandler {
 	return &geolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,

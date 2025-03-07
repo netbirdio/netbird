@@ -21,10 +21,10 @@ const failedToConvertRoute = "failed to convert route to response: %v"
 
 // handler is the routes handler of the account
 type handler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	routesHandler := newHandler(accountManager)
 	router.HandleFunc("/routes", routesHandler.getAllRoutes).Methods("GET", "OPTIONS")
 	router.HandleFunc("/routes", routesHandler.createRoute).Methods("POST", "OPTIONS")
@@ -34,7 +34,7 @@ func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
 }
 
 // newHandler returns a new instance of routes handler
-func newHandler(accountManager account.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}
