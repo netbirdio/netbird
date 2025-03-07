@@ -61,13 +61,14 @@ func (l *Logger) startReceiver() {
 	if l.enabled.Load() {
 		return
 	}
+
 	l.mux.Lock()
 	ctx, cancel := context.WithCancel(l.ctx)
 	l.cancelReceiver = cancel
 	l.mux.Unlock()
 
 	c := make(rcvChan, 100)
-	l.rcvChan.Swap(&c)
+	l.rcvChan.Store(&c)
 	l.enabled.Store(true)
 
 	for {
@@ -76,7 +77,7 @@ func (l *Logger) startReceiver() {
 			log.Info("flow Memory store receiver stopped")
 			return
 		case eventFields := <-c:
-			id := uuid.NewString()
+			id := uuid.New()
 			event := types.Event{
 				ID:          id,
 				EventFields: *eventFields,
@@ -106,6 +107,7 @@ func (l *Logger) stop() {
 		l.cancelReceiver()
 		l.cancelReceiver = nil
 	}
+	l.rcvChan.Store(nil)
 	l.mux.Unlock()
 }
 
@@ -113,7 +115,7 @@ func (l *Logger) GetEvents() []*types.Event {
 	return l.Store.GetEvents()
 }
 
-func (l *Logger) DeleteEvents(ids []string) {
+func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 	l.Store.DeleteEvents(ids)
 }
 

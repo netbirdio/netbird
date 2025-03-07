@@ -2,6 +2,7 @@ package types
 
 import (
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,8 +28,10 @@ func (p Protocol) String() string {
 		return "TCP"
 	case 17:
 		return "UDP"
+	case 132:
+		return "SCTP"
 	default:
-		return "unknown"
+		return strconv.FormatUint(uint64(p), 10)
 	}
 }
 
@@ -61,7 +64,7 @@ const (
 )
 
 type Event struct {
-	ID        string
+	ID        uuid.UUID
 	Timestamp time.Time
 	EventFields
 }
@@ -110,7 +113,7 @@ type FlowLogger interface {
 	// GetEvents returns all stored events
 	GetEvents() []*Event
 	// DeleteEvents deletes events from the store
-	DeleteEvents([]string)
+	DeleteEvents([]uuid.UUID)
 	// Close closes the logger
 	Close()
 	// Enable enables the flow logger receiver
@@ -125,7 +128,7 @@ type Store interface {
 	// GetEvents returns all stored events
 	GetEvents() []*Event
 	// DeleteEvents deletes events from the store
-	DeleteEvents([]string)
+	DeleteEvents([]uuid.UUID)
 	// Close closes the store
 	Close()
 }

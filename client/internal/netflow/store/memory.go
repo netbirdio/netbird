@@ -3,18 +3,22 @@ package store
 import (
 	"sync"
 
+	"golang.org/x/exp/maps"
+
+	"github.com/google/uuid"
+
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 func NewMemoryStore() *Memory {
 	return &Memory{
-		events: make(map[string]*types.Event),
+		events: make(map[uuid.UUID]*types.Event),
 	}
 }
 
 type Memory struct {
 	mux    sync.Mutex
-	events map[string]*types.Event
+	events map[uuid.UUID]*types.Event
 }
 
 func (m *Memory) StoreEvent(event *types.Event) {
@@ -26,7 +30,7 @@ func (m *Memory) StoreEvent(event *types.Event) {
 func (m *Memory) Close() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.events = make(map[string]*types.Event)
+	maps.Clear(m.events)
 }
 
 func (m *Memory) GetEvents() []*types.Event {
@@ -39,7 +43,7 @@ func (m *Memory) GetEvents() []*types.Event {
 	return events
 }
 
-func (m *Memory) DeleteEvents(ids []string) {
+func (m *Memory) DeleteEvents(ids []uuid.UUID) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	for _, id := range ids {
