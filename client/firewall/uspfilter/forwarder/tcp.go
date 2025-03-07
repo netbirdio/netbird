@@ -113,10 +113,10 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		Direction: nftypes.Ingress,
 		Protocol:  nftypes.TCP,
 		// TODO: handle ipv6
-		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),
-		DestIP:     netip.AddrFrom4(id.RemoteAddress.As4()),
-		SourcePort: id.LocalPort,
-		DestPort:   id.RemotePort,
+		SourceIP:   netip.AddrFrom4(id.RemoteAddress.As4()),
+		DestIP:     netip.AddrFrom4(id.LocalAddress.As4()),
+		SourcePort: id.RemotePort,
+		DestPort:   id.LocalPort,
 	}
 
 	if ep != nil {
