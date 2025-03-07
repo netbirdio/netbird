@@ -1,6 +1,5 @@
-version: "3"
 services:
-  #UI dashboard
+  # UI dashboard
   dashboard:
     image: netbirdio/dashboard:$NETBIRD_DASHBOARD_TAG
     restart: unless-stopped
@@ -32,6 +31,11 @@ services:
     - traefik.enable=true
     - traefik.http.routers.netbird-dashboard.rule=Host(`$NETBIRD_DOMAIN`)
     - traefik.http.services.netbird-dashboard.loadbalancer.server.port=80
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
   # Signal
   signal:
@@ -40,15 +44,20 @@ services:
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
     #ports:
-    #  - 10000:80
+    #  - $NETBIRD_SIGNAL_PORT:80
   #      # port and command for Let's Encrypt validation
   #      - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
     labels:
     - traefik.enable=true
     - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange.SignalExchange/`)
-    - traefik.http.services.netbird-signal.loadbalancer.server.port=80
+    - traefik.http.services.netbird-signal.loadbalancer.server.port=10000
     - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
   # Relay
   relay:
@@ -60,8 +69,12 @@ services:
     - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_DOMAIN:$NETBIRD_RELAY_PORT
     # todo: change to a secure secret
     - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
-    ports:
-      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+    # ports:
+    #   - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.netbird-relay.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/relay`)
+    - traefik.http.services.netbird-relay.loadbalancer.server.port=33080
     logging:
       driver: "json-file"
       options:
@@ -87,8 +100,9 @@ services:
   #    # command for Let's Encrypt validation without dashboard container
   #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
     command: [
-      "--port", "443",
+      "--port", "33073",
       "--log-file", "console",
+      "--log-level", "info",
       "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS",
       "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
       "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
@@ -97,12 +111,17 @@ services:
     - traefik.enable=true
     - traefik.http.routers.netbird-api.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/api`)
     - traefik.http.routers.netbird-api.service=netbird-api
-    - traefik.http.services.netbird-api.loadbalancer.server.port=443
+    - traefik.http.services.netbird-api.loadbalancer.server.port=33073
 
     - traefik.http.routers.netbird-management.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/management.ManagementService/`)
     - traefik.http.routers.netbird-management.service=netbird-management
-    - traefik.http.services.netbird-management.loadbalancer.server.port=443
+    - traefik.http.services.netbird-management.loadbalancer.server.port=33073
     - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
       - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
@@ -119,6 +138,11 @@ services:
     network_mode: host
     command:
       - -c /etc/turnserver.conf
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
 volumes:
   $MGMT_VOLUMENAME:
