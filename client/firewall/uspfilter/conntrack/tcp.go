@@ -175,17 +175,17 @@ func (t *TCPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 func (t *TCPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, size int) {
 	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags, 0, 0); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
-		t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress, size)
+		t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress, nil, size)
 	}
 }
 
 // TrackInbound processes an inbound TCP packet and updates connection state
-func (t *TCPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, size int) {
-	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress, size)
+func (t *TCPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, ruleID []byte, size int) {
+	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress, ruleID, size)
 }
 
 // track is the common implementation for tracking both inbound and outbound connections
-func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, direction nftypes.Direction, size int) {
+func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, direction nftypes.Direction, ruleID []byte, size int) {
 	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags, direction, size)
 	if exists {
 		return
@@ -212,7 +212,7 @@ func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	t.sendEvent(nftypes.TypeStart, conn)
+	t.sendEvent(nftypes.TypeStart, conn, ruleID)
 }
 
 // IsValidInbound checks if an inbound TCP packet matches a tracked connection
@@ -246,7 +246,7 @@ func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 		conn.UpdateCounters(nftypes.Ingress, size)
 
 		t.logger.Trace("TCP connection reset: %s", key)
-		t.sendEvent(nftypes.TypeEnd, conn)
+		t.sendEvent(nftypes.TypeEnd, conn, nil)
 		return true
 	}
 
@@ -304,7 +304,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 		} else if flags&TCPRst != 0 {
 			conn.State = TCPStateClosed
 			conn.SetTombstone()
-			t.sendEvent(nftypes.TypeEnd, conn)
+			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
 
 	case TCPStateFinWait1:
@@ -318,7 +318,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 		case flags&TCPRst != 0:
 			conn.State = TCPStateClosed
 			conn.SetTombstone()
-			t.sendEvent(nftypes.TypeEnd, conn)
+			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
 
 	case TCPStateFinWait2:
@@ -326,7 +326,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 			conn.State = TCPStateTimeWait
 
 			t.logger.Trace("TCP connection %s completed", key)
-			t.sendEvent(nftypes.TypeEnd, conn)
+			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
 
 	case TCPStateClosing:
@@ -335,7 +335,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 			// Keep established = false from previous state
 
 			t.logger.Trace("TCP connection %s closed (simultaneous)", key)
-			t.sendEvent(nftypes.TypeEnd, conn)
+			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
 
 	case TCPStateCloseWait:
@@ -349,7 +349,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 			conn.SetTombstone()
 
 			// Send close event for gracefully closed connections
-			t.sendEvent(nftypes.TypeEnd, conn)
+			t.sendEvent(nftypes.TypeEnd, conn, nil)
 			t.logger.Trace("TCP connection %s closed gracefully", key)
 		}
 	}
@@ -436,7 +436,7 @@ func (t *TCPTracker) cleanup() {
 
 			// event already handled by state change
 			if conn.State != TCPStateTimeWait {
-				t.sendEvent(nftypes.TypeEnd, conn)
+				t.sendEvent(nftypes.TypeEnd, conn, nil)
 			}
 		}
 	}
@@ -467,10 +467,11 @@ func isValidFlagCombination(flags uint8) bool {
 	return true
 }
 
-func (t *TCPTracker) sendEvent(typ nftypes.Type, conn *TCPConnTrack) {
+func (t *TCPTracker) sendEvent(typ nftypes.Type, conn *TCPConnTrack, ruleID []byte) {
 	t.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:     conn.FlowId,
 		Type:       typ,
+		RuleID:     ruleID,
 		Direction:  conn.Direction,
 		Protocol:   nftypes.TCP,
 		SourceIP:   conn.SourceIP,
