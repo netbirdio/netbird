@@ -118,6 +118,10 @@ func (m *ManagerMock) SetGetSettingsFunc(f func(ctx context.Context, accountID, 
 }
 
 func (m *ManagerMock) GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error) {
+	if m.GetExtraSettingsFunc != nil {
+		return m.GetExtraSettingsFunc(ctx, accountID)
+	}
+
 	return &types.ExtraSettings{}, nil
 }
 
