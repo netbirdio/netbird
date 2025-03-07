@@ -265,8 +265,10 @@ func (m *Manager) traceInbound(packetData []byte, trace *PacketTrace, d *decoder
 		return trace
 	}
 
-	if m.handleLocalDelivery(trace, packetData, d, srcIP, dstIP) {
-		return trace
+	if m.localipmanager.IsLocalIP(dstIP) {
+		if m.handleLocalDelivery(trace, packetData, d, srcIP, dstIP) {
+			return trace
+		}
 	}
 
 	if !m.handleRouting(trace) {
@@ -310,32 +312,40 @@ func (m *Manager) buildConntrackStateMessage(d *decoder) string {
 }
 
 func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP netip.Addr) bool {
-	if !m.localForwarding {
-		trace.AddResult(StageRouting, "Local forwarding disabled", false)
-		trace.AddResult(StageCompleted, "Packet dropped - local forwarding disabled", false)
-		return true
-	}
 	trace.AddResult(StageRouting, "Packet destined for local delivery", true)
 
 	ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
 
-	strRuleId := "implicit"
+	strRuleId := "<no id>"
 	if ruleId != nil {
 		strRuleId = string(ruleId)
 	}
-
 	msg := fmt.Sprintf("Allowed by peer ACL rules (%s)", strRuleId)
 	if blocked {
 		msg = fmt.Sprintf("Blocked by peer ACL rules (%s)", strRuleId)
+		trace.AddResult(StagePeerACL, msg, false)
+		trace.AddResult(StageCompleted, "Packet dropped - ACL denied", false)
+		return true
 	}
 
-	trace.AddResult(StagePeerACL, msg, !blocked)
+	trace.AddResult(StagePeerACL, msg, true)
 
+	// Handle netstack mode
 	if m.netstack {
-		m.addForwardingResult(trace, "proxy-local", "127.0.0.1", !blocked)
+		switch {
+		case !m.localForwarding:
+			trace.AddResult(StageCompleted, "Packet sent to virtual stack", true)
+		case m.forwarder.Load() != nil:
+			m.addForwardingResult(trace, "proxy-local", "127.0.0.1", true)
+			trace.AddResult(StageCompleted, msgProcessingCompleted, true)
+		default:
+			trace.AddResult(StageCompleted, "Packet dropped - forwarder not initialized", false)
+		}
+		return true
 	}
 
-	trace.AddResult(StageCompleted, msgProcessingCompleted, !blocked)
+	// In normal mode, packets are allowed through for local delivery
+	trace.AddResult(StageCompleted, msgProcessingCompleted, true)
 	return true
 }
 
@@ -363,7 +373,7 @@ func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP n
 
 	strId := string(id)
 	if id == nil {
-		strId = "implicit"
+		strId = "<no id>"
 	}
 
 	msg := fmt.Sprintf("Allowed by route ACLs (%s)", strId)
