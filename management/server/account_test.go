@@ -3026,7 +3026,7 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := manager.LoginPeer(context.Background(), nbAccount.PeerLogin{
+				_, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
 					WireGuardPubKey: account.Peers["peer-1"].Key,
 					SSHKey:          "someKey",
 					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
@@ -3101,7 +3101,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := manager.LoginPeer(context.Background(), nbAccount.PeerLogin{
+				_, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
 					WireGuardPubKey: "some-new-key" + strconv.Itoa(i),
 					SSHKey:          "someKey",
 					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},

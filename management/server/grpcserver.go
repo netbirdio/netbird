@@ -460,7 +460,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, account.PeerLogin{
+	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
 		Meta:            extractPeerMeta(ctx, loginReq.GetMeta()),

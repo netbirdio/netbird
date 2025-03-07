@@ -90,8 +90,8 @@ type MockAccountManager struct {
 	SaveDNSSettingsFunc                 func(ctx context.Context, accountID, userID string, dnsSettingsToSave *types.DNSSettings) error
 	GetPeerFunc                         func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error)
-	LoginPeerFunc                       func(ctx context.Context, login account.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
-	SyncPeerFunc                        func(ctx context.Context, sync account.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	LoginPeerFunc                       func(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	SyncPeerFunc                        func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	InviteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc            func() (map[string]struct{}, error)
 	HasConnectedChannelFunc             func(peerID string) bool
@@ -663,7 +663,7 @@ func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, account
 }
 
 // LoginPeer mocks LoginPeer of the AccountManager interface
-func (am *MockAccountManager) LoginPeer(ctx context.Context, login account.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if am.LoginPeerFunc != nil {
 		return am.LoginPeerFunc(ctx, login)
 	}
@@ -671,7 +671,7 @@ func (am *MockAccountManager) LoginPeer(ctx context.Context, login account.PeerL
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
-func (am *MockAccountManager) SyncPeer(ctx context.Context, sync account.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if am.SyncPeerFunc != nil {
 		return am.SyncPeerFunc(ctx, sync, accountID)
 	}

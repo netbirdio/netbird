@@ -88,8 +88,8 @@ type Manager interface {
 	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *types.DNSSettings) error
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error)
-	LoginPeer(ctx context.Context, login PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
-	SyncPeer(ctx context.Context, sync PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) // used by peer gRPC API
+	LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
+	SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
@@ -112,34 +112,4 @@ type Manager interface {
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
 	GetStore() store.Store
-}
-
-// PeerSync used as a data object between the gRPC API and Manager on Sync request.
-type PeerSync struct {
-	// WireGuardPubKey is a peers WireGuard public key
-	WireGuardPubKey string
-	// Meta is the system information passed by peer, must be always present
-	Meta nbpeer.PeerSystemMeta
-	// UpdateAccountPeers indicate updating account peers,
-	// which occurs when the peer's metadata is updated
-	UpdateAccountPeers bool
-}
-
-// PeerLogin used as a data object between the gRPC API and Manager on Login request.
-type PeerLogin struct {
-	// WireGuardPubKey is a peers WireGuard public key
-	WireGuardPubKey string
-	// SSHKey is a peer's ssh key. Can be empty (e.g., old version do not provide it, or this feature is disabled)
-	SSHKey string
-	// Meta is the system information passed by peer, must be always present.
-	Meta nbpeer.PeerSystemMeta
-	// UserID indicates that JWT was used to log in, and it was valid. Can be empty when SetupKey is used or auth is not required.
-	UserID string
-	// SetupKey references to a server.SetupKey to log in. Can be empty when UserID is used or auth is not required.
-	SetupKey string
-	// ConnectionIP is the real IP of the peer
-	ConnectionIP net.IP
-
-	// ExtraDNSLabels is a list of extra DNS labels that the peer wants to use
-	ExtraDNSLabels []string
 }
