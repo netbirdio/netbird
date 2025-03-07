@@ -1,4 +1,4 @@
-package main
+package process
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-func isAnotherProcessRunning() (bool, error) {
+func IsAnotherProcessRunning() (bool, error) {
 	processes, err := process.Processes()
 	if err != nil {
 		return false, err
