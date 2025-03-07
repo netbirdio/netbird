@@ -26,7 +26,8 @@ type managerImpl struct {
 }
 
 type ManagerMock struct {
-	GetSettingsFunc func(ctx context.Context, accountID, userID string) (*types.Settings, error)
+	GetSettingsFunc      func(ctx context.Context, accountID, userID string) (*types.Settings, error)
+	GetExtraSettingsFunc func(ctx context.Context, accountID string) (*types.ExtraSettings, error)
 }
 
 func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager) Manager {
