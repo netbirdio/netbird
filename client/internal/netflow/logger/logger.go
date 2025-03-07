@@ -51,13 +51,14 @@ func (l *Logger) StoreEvent(flowEvent types.EventFields) {
 }
 
 func (l *Logger) Enable() {
-	if l.enabled.Load() {
-		return
-	}
 	go l.startReceiver()
 }
 
 func (l *Logger) startReceiver() {
+	if l.enabled.Load() {
+		return
+	}
+
 	l.mux.Lock()
 	ctx, cancel := context.WithCancel(l.ctx)
 	l.cancelReceiver = cancel
