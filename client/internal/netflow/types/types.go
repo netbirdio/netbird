@@ -64,7 +64,7 @@ const (
 )
 
 type Event struct {
-	ID        string
+	ID        uuid.UUID
 	Timestamp time.Time
 	EventFields
 }
@@ -111,7 +111,7 @@ type FlowLogger interface {
 	// GetEvents returns all stored events
 	GetEvents() []*Event
 	// DeleteEvents deletes events from the store
-	DeleteEvents([]string)
+	DeleteEvents([]uuid.UUID)
 	// Close closes the logger
 	Close()
 	// Enable enables the flow logger receiver
@@ -126,7 +126,7 @@ type Store interface {
 	// GetEvents returns all stored events
 	GetEvents() []*Event
 	// DeleteEvents deletes events from the store
-	DeleteEvents([]string)
+	DeleteEvents([]uuid.UUID)
 	// Close closes the store
 	Close()
 }

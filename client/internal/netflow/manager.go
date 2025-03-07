@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -169,7 +170,7 @@ func (m *Manager) startSender() {
 func (m *Manager) receiveACKs(client *client.GRPCClient) {
 	err := client.Receive(m.ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
 		log.Tracef("received flow event ack: %s", ack.EventId)
-		m.logger.DeleteEvents([]string{ack.EventId})
+		m.logger.DeleteEvents([]uuid.UUID{uuid.UUID(ack.EventId)})
 		return nil
 	})
 
@@ -192,7 +193,7 @@ func (m *Manager) send(event *nftypes.Event) error {
 
 func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 	protoEvent := &proto.FlowEvent{
-		EventId:   event.ID,
+		EventId:   event.ID[:],
 		Timestamp: timestamppb.New(event.Timestamp),
 		PublicKey: publicKey,
 		FlowFields: &proto.FlowFields{

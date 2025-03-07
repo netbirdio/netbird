@@ -74,7 +74,7 @@ func (l *Logger) startReceiver() {
 			log.Info("flow Memory store receiver stopped")
 			return
 		case eventFields := <-c:
-			id := uuid.NewString()
+			id := uuid.New()
 			event := types.Event{
 				ID:          id,
 				EventFields: *eventFields,
@@ -109,7 +109,7 @@ func (l *Logger) GetEvents() []*types.Event {
 	return l.Store.GetEvents()
 }
 
-func (l *Logger) DeleteEvents(ids []string) {
+func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 	l.Store.DeleteEvents(ids)
 }
 
