@@ -370,6 +370,10 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 // CheckRoutes checks if the source and destination addresses are within the same route
 // and returns the resource ID of the route that contains the addresses
 func (d *Status) CheckRoutes(src, dst netip.Addr, direction nftypes.Direction) (srcResId string, dstResId string) {
+	if d == nil {
+		return
+	}
+
 	d.mux.Lock()
 	d.resIdMux.Lock()
 	defer d.resIdMux.Unlock()
