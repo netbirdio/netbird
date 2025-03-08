@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	log "github.com/sirupsen/logrus"
@@ -802,19 +803,13 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		pbFullStatus.SignalState.Error = err.Error()
 	}
 
-	localState := fullStatus.LocalPeerState.Clone()
-	var routesSlice []string
-	for route := range localState.Routes {
-		routesSlice = append(routesSlice, route.Route)
-	}
-
 	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
 	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
 	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
 	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
-	pbFullStatus.LocalPeerState.Networks = routesSlice
+	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
 	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
 
 	for _, peerState := range fullStatus.Peers {
@@ -834,7 +829,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			BytesRx:                    peerState.BytesRx,
 			BytesTx:                    peerState.BytesTx,
 			RosenpassEnabled:           peerState.RosenpassEnabled,
-			Networks:                   peerState.GetRoutesSlice(),
+			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)

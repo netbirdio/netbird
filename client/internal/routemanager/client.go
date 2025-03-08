@@ -255,7 +255,7 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 }
 
 func (c *clientNetwork) removeRouteFromWireGuardPeer() error {
-	if err := c.statusRecorder.RemovePeerStateRoute(c.currentChosen.Peer, c.handler.String(), c.currentChosen.GetResourceID()); err != nil {
+	if err := c.statusRecorder.RemovePeerStateRoute(c.currentChosen.Peer, c.handler.String()); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 

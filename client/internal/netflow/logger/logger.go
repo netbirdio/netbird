@@ -83,7 +83,7 @@ func (l *Logger) startReceiver() {
 				EventFields: *eventFields,
 				Timestamp:   time.Now(),
 			}
-			srcResId, dstResId := l.statusRecorder.CheckRoutes(event.SourceIP, event.DestIP)
+			srcResId, dstResId := l.statusRecorder.CheckRoutes(event.SourceIP, event.DestIP, event.Direction)
 			event.SourceResourceID = []byte(srcResId)
 			event.DestResourceID = []byte(dstResId)
 			l.Store.StoreEvent(&event)

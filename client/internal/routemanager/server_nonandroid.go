@@ -104,10 +104,7 @@ func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
 	delete(m.routes, route.ID)
 
 	state := m.statusRecorder.GetLocalPeerState()
-	delete(state.Routes, peer.RouteWithResourceId{
-		Route:      route.Network.String(),
-		ResourceId: route.GetResourceID(),
-	})
+	delete(state.Routes, route.Network.String())
 	m.statusRecorder.UpdateLocalPeerState(state)
 
 	return nil
@@ -136,17 +133,14 @@ func (m *serverRouter) addToServerNetwork(route *route.Route) error {
 
 	state := m.statusRecorder.GetLocalPeerState()
 	if state.Routes == nil {
-		state.Routes = map[peer.RouteWithResourceId]struct{}{}
+		state.Routes = map[string]struct{}{}
 	}
 
 	routeStr := route.Network.String()
 	if route.IsDynamic() {
 		routeStr = route.Domains.SafeString()
 	}
-	state.Routes[peer.RouteWithResourceId{
-		Route:      routeStr,
-		ResourceId: route.GetResourceID(),
-	}] = struct{}{}
+	state.Routes[routeStr] = struct{}{}
 
 	m.statusRecorder.UpdateLocalPeerState(state)
 
