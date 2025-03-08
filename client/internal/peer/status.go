@@ -367,10 +367,8 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 	return nil
 }
 
-// CheckRoutes checks for both the source and destination IP addresses in the local peer routes first,
-// and then in the remote peers' routes. It returns the IP address of the matching peer (as a string)
-// for source and destination. If a match is found in local peer routes, the local peer IP is returned;
-// otherwise, the remote peer IP is returned. If no match is found, an empty string is returned for that IP.
+// CheckRoutes checks if the source and destination addresses are within the same route
+// and returns the resource ID of the route that contains the addresses
 func (d *Status) CheckRoutes(src, dst netip.Addr, direction nftypes.Direction) (srcResId string, dstResId string) {
 	d.mux.Lock()
 	d.resIdMux.Lock()
@@ -382,6 +380,10 @@ func (d *Status) CheckRoutes(src, dst netip.Addr, direction nftypes.Direction) (
 			srcResId = resId
 		} else if route.Contains(dst) {
 			dstResId = resId
+		}
+
+		if srcResId != "" && dstResId != "" {
+			break
 		}
 	}
 
