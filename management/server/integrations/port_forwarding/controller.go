@@ -9,6 +9,7 @@ import (
 type Controller interface {
 	SendUpdate(ctx context.Context, accountID string, affectedProxyID string, affectedPeerIDs []string)
 	GetProxyNetworkMaps(ctx context.Context, accountID string) (map[string]*nbtypes.NetworkMap, error)
+	IsPeerInIngressPorts(ctx context.Context, accountID, peerID string) (bool, error)
 }
 
 type ControllerMock struct {
@@ -24,4 +25,8 @@ func (c *ControllerMock) SendUpdate(ctx context.Context, accountID string, affec
 
 func (c *ControllerMock) GetProxyNetworkMaps(ctx context.Context, accountID string) (map[string]*nbtypes.NetworkMap, error) {
 	return make(map[string]*nbtypes.NetworkMap), nil
+}
+
+func (c *ControllerMock) IsPeerInIngressPorts(ctx context.Context, accountID, peerID string) (bool, error) {
+	return false, nil
 }
