@@ -17,6 +17,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/management/domain"
@@ -176,6 +177,9 @@ type Status struct {
 	eventQueue   *EventQueue
 
 	ingressGwMgr *ingressgw.Manager
+
+	resIdMux sync.Mutex
+	resIdMap map[netip.Prefix]string
 }
 
 // NewRecorder returns a new Status instance
@@ -311,7 +315,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	return nil
 }
 
-func (d *Status) AddPeerStateRoute(peer string, route string) error {
+func (d *Status) AddPeerStateRoute(peer string, route string, resourceId string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -322,6 +326,15 @@ func (d *Status) AddPeerStateRoute(peer string, route string) error {
 
 	peerState.AddRoute(route)
 	d.peers[peer] = peerState
+
+	pref, err := netip.ParsePrefix(route)
+	if err != nil {
+		log.Errorf("failed to parse prefix %s: %v", route, err)
+	} else {
+		d.resIdMux.Lock()
+		d.resIdMap[pref] = resourceId
+		d.resIdMux.Unlock()
+	}
 
 	// todo: consider to make sense of this notification or not
 	d.notifyPeerListChanged()
@@ -340,9 +353,45 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 	peerState.DeleteRoute(route)
 	d.peers[peer] = peerState
 
+	pref, err := netip.ParsePrefix(route)
+	if err != nil {
+		log.Errorf("failed to parse prefix %s: %v", route, err)
+	} else {
+		d.resIdMux.Lock()
+		delete(d.resIdMap, pref)
+		d.resIdMux.Unlock()
+	}
+
 	// todo: consider to make sense of this notification or not
 	d.notifyPeerListChanged()
 	return nil
+}
+
+// CheckRoutes checks if the source and destination addresses are within the same route
+// and returns the resource ID of the route that contains the addresses
+func (d *Status) CheckRoutes(src, dst netip.Addr, direction nftypes.Direction) (srcResId string, dstResId string) {
+	if d == nil {
+		return
+	}
+
+	d.mux.Lock()
+	d.resIdMux.Lock()
+	defer d.resIdMux.Unlock()
+	defer d.mux.Unlock()
+
+	for route, resId := range d.resIdMap {
+		if route.Contains(src) {
+			srcResId = resId
+		} else if route.Contains(dst) {
+			dstResId = resId
+		}
+
+		if srcResId != "" && dstResId != "" {
+			break
+		}
+	}
+
+	return
 }
 
 func (d *Status) UpdatePeerICEState(receivedState State) error {
@@ -641,7 +690,7 @@ func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
 	d.nsGroupStates = dnsStates
 }
 
-func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resolvedDomain domain.Domain, prefixes []netip.Prefix) {
+func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resolvedDomain domain.Domain, prefixes []netip.Prefix, resourceId string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -650,6 +699,12 @@ func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resol
 		Prefixes:     prefixes,
 		ParentDomain: originalDomain,
 	}
+
+	d.resIdMux.Lock()
+	for _, prefix := range prefixes {
+		d.resIdMap[prefix] = resourceId
+	}
+	d.resIdMux.Unlock()
 }
 
 func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
@@ -660,6 +715,12 @@ func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
 	for k, v := range d.resolvedDomainsStates {
 		if v.ParentDomain == domain {
 			delete(d.resolvedDomainsStates, k)
+
+			d.resIdMux.Lock()
+			for _, prefix := range v.Prefixes {
+				delete(d.resIdMap, prefix)
+			}
+			d.resIdMux.Unlock()
 		}
 	}
 }
