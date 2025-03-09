@@ -66,7 +66,7 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return nil, fmt.Errorf("unknown group name")
 			},
-			GetPeersFunc: func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return maps.Values(TestPeers), nil
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {

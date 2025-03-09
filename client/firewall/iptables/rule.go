@@ -12,6 +12,6 @@ type Rule struct {
 }
 
 // GetRuleID returns the rule id
-func (r *Rule) GetRuleID() string {
+func (r *Rule) ID() string {
 	return r.ruleID
 }

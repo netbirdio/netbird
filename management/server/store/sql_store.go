@@ -1262,10 +1262,18 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 }
 
 // GetAccountPeers retrieves peers for an account.
-func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&peers, accountIDCondition, accountID)
-	if err := result.Error; err != nil {
+	query := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Where(accountIDCondition, accountID)
+
+	if nameFilter != "" {
+		query = query.Where("name LIKE ?", "%"+nameFilter+"%")
+	}
+	if ipFilter != "" {
+		query = query.Where("ip LIKE ?", "%"+ipFilter+"%")
+	}
+
+	if err := query.Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peers from store")
 	}

@@ -274,6 +274,8 @@ message NetworkMap {
 
   // RoutesFirewallRulesIsEmpty indicates whether RouteFirewallRule array is empty or not to bypass protobuf null and empty array equality.
   bool routesFirewallRulesIsEmpty = 11;
+
+  repeated ForwardingRule forwardingRules = 12;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -483,3 +485,17 @@ message RouteFirewallRule {
   uint32 customProtocol = 8;
 }
 
+message ForwardingRule {
+  // Protocol of the forwarding rule
+  RuleProtocol protocol = 1;
+
+  // portInfo is the ingress destination port information, where the traffic arrives in the gateway node
+  PortInfo destinationPort = 2;
+
+  // IP address of the translated address (remote peer) to send traffic to
+  // todo type pending
+  bytes translatedAddress = 3;
+
+  // Translated port information, where the traffic should be forwarded to
+  PortInfo translatedPort = 4;
+}
