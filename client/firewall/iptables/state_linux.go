@@ -4,21 +4,20 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type InterfaceState struct {
-	NameStr       string          `json:"name"`
-	WGAddress     iface.WGAddress `json:"wg_address"`
-	UserspaceBind bool            `json:"userspace_bind"`
+	NameStr       string         `json:"name"`
+	WGAddress     wgaddr.Address `json:"wg_address"`
+	UserspaceBind bool           `json:"userspace_bind"`
 }
 
 func (i *InterfaceState) Name() string {
 	return i.NameStr
 }
 
-func (i *InterfaceState) Address() device.WGAddress {
+func (i *InterfaceState) Address() wgaddr.Address {
 	return i.WGAddress
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
@@ -20,7 +21,7 @@ type wgIfaceBase interface {
 	CreateOnAndroid(routeRange []string, ip string, domains []string) error
 	IsUserspaceBind() bool
 	Name() string
-	Address() device.WGAddress
+	Address() wgaddr.Address
 	ToInterface() *net.Interface
 	Up() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddr(newAddr string) error
