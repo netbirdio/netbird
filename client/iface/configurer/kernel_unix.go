@@ -201,14 +201,30 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 func (c *KernelConfigurer) Close() {
 }
 
-func (c *KernelConfigurer) GetStats(peerKey string) (WGStats, error) {
-	peer, err := c.getPeer(c.deviceName, peerKey)
+func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
+	stats := make(map[string]WGStats)
+	wg, err := wgctrl.New()
 	if err != nil {
-		return WGStats{}, fmt.Errorf("get wireguard stats: %w", err)
+		return nil, fmt.Errorf("wgctl: %w", err)
 	}
-	return WGStats{
-		LastHandshake: peer.LastHandshakeTime,
-		TxBytes:       peer.TransmitBytes,
-		RxBytes:       peer.ReceiveBytes,
-	}, nil
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("Got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(c.deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
+	}
+
+	for _, peer := range wgDevice.Peers {
+		stats[peer.PublicKey.String()] = WGStats{
+			LastHandshake: peer.LastHandshakeTime,
+			TxBytes:       peer.TransmitBytes,
+			RxBytes:       peer.ReceiveBytes,
+		}
+	}
+	return stats, nil
 }
