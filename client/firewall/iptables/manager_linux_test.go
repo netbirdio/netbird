@@ -62,7 +62,7 @@ func TestIptablesManager(t *testing.T) {
 	time.Sleep(time.Second)
 
 	defer func() {
-		err := manager.Reset(nil)
+		err := manager.Close(nil)
 		require.NoError(t, err, "clear the manager state")
 
 		time.Sleep(time.Second)
@@ -100,14 +100,14 @@ func TestIptablesManager(t *testing.T) {
 		_, err = manager.AddPeerFiltering(nil, ip, "udp", nil, port, fw.ActionAccept, "")
 		require.NoError(t, err, "failed to add rule")
 
-		err = manager.Reset(nil)
+		err = manager.Close(nil)
 		require.NoError(t, err, "failed to reset")
 
 		ok, err := ipv4Client.ChainExists("filter", chainNameInputRules)
 		require.NoError(t, err, "failed check chain exists")
 
 		if ok {
-			require.NoErrorf(t, err, "chain '%v' still exists after Reset", chainNameInputRules)
+			require.NoErrorf(t, err, "chain '%v' still exists after Close", chainNameInputRules)
 		}
 	})
 }
@@ -136,7 +136,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	time.Sleep(time.Second)
 
 	defer func() {
-		err := manager.Reset(nil)
+		err := manager.Close(nil)
 		require.NoError(t, err, "clear the manager state")
 
 		time.Sleep(time.Second)
@@ -166,7 +166,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	})
 
 	t.Run("reset check", func(t *testing.T) {
-		err = manager.Reset(nil)
+		err = manager.Close(nil)
 		require.NoError(t, err, "failed to reset")
 	})
 }
@@ -204,7 +204,7 @@ func TestIptablesCreatePerformance(t *testing.T) {
 			time.Sleep(time.Second)
 
 			defer func() {
-				err := manager.Reset(nil)
+				err := manager.Close(nil)
 				require.NoError(t, err, "clear the manager state")
 
 				time.Sleep(time.Second)

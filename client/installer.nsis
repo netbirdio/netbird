@@ -6,8 +6,8 @@
 !define DESCRIPTION "A WireGuard®-based mesh network that connects your devices into a single private network"
 !define INSTALLER_NAME "netbird-installer.exe"
 !define MAIN_APP_EXE "Netbird"
-!define ICON "ui\\netbird.ico"
-!define BANNER "ui\\banner.bmp"
+!define ICON "ui\\assets\\netbird.ico"
+!define BANNER "ui\\build\\banner.bmp"
 !define LICENSE_DATA "..\\LICENSE"
 
 !define INSTALL_DIR "$PROGRAMFILES64\${APP_NAME}"

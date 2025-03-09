@@ -102,8 +102,8 @@ type Manager interface {
 	// SetLegacyManagement sets the legacy management mode
 	SetLegacyManagement(legacy bool) error
 
-	// Reset firewall to the default state
-	Reset(stateManager *statemanager.Manager) error
+	// Close closes the firewall manager
+	Close(stateManager *statemanager.Manager) error
 
 	// Flush the changes to firewall controller
 	Flush() error

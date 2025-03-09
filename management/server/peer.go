@@ -346,6 +346,10 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
+		if err = am.validatePeerDelete(ctx, accountID, peerID); err != nil {
+			return err
+		}
+
 		updateAccountPeers, err = isPeerInActiveGroup(ctx, transaction, accountID, peerID)
 		if err != nil {
 			return err
@@ -371,6 +375,9 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		return err
 	})
+	if err != nil {
+		return err
+	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
@@ -1504,4 +1511,18 @@ func ConvertSliceToMap(existingLabels []string) map[string]struct{} {
 		labelMap[label] = struct{}{}
 	}
 	return labelMap
+}
+
+// validatePeerDelete checks if the peer can be deleted.
+func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, accountId, peerId string) error {
+	linkedInIngressPorts, err := am.proxyController.IsPeerInIngressPorts(ctx, accountId, peerId)
+	if err != nil {
+		return err
+	}
+
+	if linkedInIngressPorts {
+		return status.Errorf(status.PreconditionFailed, "peer is linked to ingress ports: %s", peerId)
+	}
+
+	return nil
 }

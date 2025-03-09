@@ -1,4 +1,4 @@
-package formatter
+package hook
 
 import (
 	"fmt"
@@ -41,7 +41,8 @@ func (hook ContextHook) Levels() []logrus.Level {
 // Fire extend with the source information the entry.Data
 func (hook ContextHook) Fire(entry *logrus.Entry) error {
 	src := hook.parseSrc(entry.Caller.File)
-	entry.Data["source"] = fmt.Sprintf("%s:%v", src, entry.Caller.Line)
+	entry.Data[EntryKeySource] = fmt.Sprintf("%s:%v", src, entry.Caller.Line)
+	additionalEntries(entry)
 
 	if entry.Context == nil {
 		return nil

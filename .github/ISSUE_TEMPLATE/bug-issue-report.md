@@ -31,14 +31,22 @@ Please specify whether you use NetBird Cloud or self-host NetBird's control plan
 
 `netbird version`
 
-**NetBird status -dA output:**
+**Is any other VPN software installed?**
 
-If applicable, add the `netbird status -dA' command output.
+If yes, which one?
 
-**Do you face any (non-mobile) client issues?**
+**Debug output**
 
-Please provide the file created by `netbird debug for 1m -AS`.
-We advise reviewing the anonymized files for any remaining PII.
+To help us resolve the problem, please attach the following debug output
+
+  netbird status -dA
+
+As well as the file created by
+
+  netbird debug for 1m -AS
+
+  
+We advise reviewing the anonymized output for any remaining personal information.
 
 **Screenshots**
 
@@ -47,3 +55,10 @@ If applicable, add screenshots to help explain your problem.
 **Additional context**
 
 Add any other context about the problem here.
+
+**Have you tried these troubleshooting steps?**
+- [ ] Checked for newer NetBird versions
+- [ ] Searched for similar issues on GitHub (including closed ones)
+- [ ] Restarted the NetBird client
+- [ ] Disabled other VPN software
+- [ ] Checked firewall settings

@@ -171,7 +171,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 					SetFilterFunc: func(device.PacketFilter) error { return nil },
 				}, false, flowLogger)
 				defer b.Cleanup(func() {
-					require.NoError(b, manager.Reset(nil))
+					require.NoError(b, manager.Close(nil))
 				})
 
 				manager.wgNetwork = &net.IPNet{
@@ -216,7 +216,7 @@ func BenchmarkStateScaling(b *testing.B) {
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}, false, flowLogger)
 			b.Cleanup(func() {
-				require.NoError(b, manager.Reset(nil))
+				require.NoError(b, manager.Close(nil))
 			})
 
 			manager.wgNetwork = &net.IPNet{
@@ -264,7 +264,7 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}, false, flowLogger)
 			b.Cleanup(func() {
-				require.NoError(b, manager.Reset(nil))
+				require.NoError(b, manager.Close(nil))
 			})
 
 			manager.wgNetwork = &net.IPNet{
@@ -463,7 +463,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}, false, flowLogger)
 			b.Cleanup(func() {
-				require.NoError(b, manager.Reset(nil))
+				require.NoError(b, manager.Close(nil))
 			})
 
 			// Setup scenario
@@ -590,7 +590,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}, false, flowLogger)
 			defer b.Cleanup(func() {
-				require.NoError(b, manager.Reset(nil))
+				require.NoError(b, manager.Close(nil))
 			})
 
 			manager.SetNetwork(&net.IPNet{
@@ -678,7 +678,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}, false, flowLogger)
 			defer b.Cleanup(func() {
-				require.NoError(b, manager.Reset(nil))
+				require.NoError(b, manager.Close(nil))
 			})
 
 			manager.SetNetwork(&net.IPNet{
@@ -794,7 +794,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}, false, flowLogger)
 			defer b.Cleanup(func() {
-				require.NoError(b, manager.Reset(nil))
+				require.NoError(b, manager.Close(nil))
 			})
 
 			manager.SetNetwork(&net.IPNet{
@@ -879,7 +879,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}, false, flowLogger)
 			defer b.Cleanup(func() {
-				require.NoError(b, manager.Reset(nil))
+				require.NoError(b, manager.Close(nil))
 			})
 
 			manager.SetNetwork(&net.IPNet{

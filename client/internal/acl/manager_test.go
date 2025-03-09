@@ -62,7 +62,7 @@ func TestDefaultManager(t *testing.T) {
 		return
 	}
 	defer func(fw manager.Manager) {
-		_ = fw.Reset(nil)
+		_ = fw.Close(nil)
 	}(fw)
 	acl := NewDefaultManager(fw)
 
@@ -356,7 +356,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 		return
 	}
 	defer func(fw manager.Manager) {
-		_ = fw.Reset(nil)
+		_ = fw.Close(nil)
 	}(fw)
 	acl := NewDefaultManager(fw)
 
