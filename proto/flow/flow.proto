@@ -1,10 +1,10 @@
 syntax = "proto3";
 
+package flow;
+
 import "google/protobuf/timestamp.proto";
 
-option go_package = "/proto";
-
-package flow;
+option go_package = "flow/proto";
 
 service FlowService {
   // Client to receiver streams of events and acknowledgements
