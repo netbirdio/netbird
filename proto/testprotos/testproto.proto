@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-option go_package = "/testprotos";
-
 package testprotos;
+
+option go_package = "encryption/testprotos";
 
 message TestMessage {
   string body = 1;

@@ -1,10 +1,10 @@
 syntax = "proto3";
 
+package signalexchange;
+
 import "google/protobuf/descriptor.proto";
 
-option go_package = "/proto";
-
-package signalexchange;
+option go_package = "signal/proto";
 
 service SignalExchange {
   // Synchronously connect to the Signal Exchange service offering connection candidates and waiting for connection candidates from the other party (remote peer)
@@ -16,7 +16,6 @@ service SignalExchange {
 // Used for sending through signal.
 // The body of this message is the Body message encrypted with the Wireguard private key and the remote Peer key
 message EncryptedMessage {
-
   // Wireguard public key
   string key = 2;
 
