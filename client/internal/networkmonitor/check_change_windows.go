@@ -10,7 +10,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
-func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, callback func()) error {
+func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 	routeMonitor, err := systemops.NewRouteMonitor(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create route monitor: %w", err)
@@ -24,20 +24,20 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 	for {
 		select {
 		case <-ctx.Done():
-			return ErrStopped
+			return ctx.Err()
 		case route := <-routeMonitor.RouteUpdates():
 			if route.Destination.Bits() != 0 {
 				continue
 			}
 
-			if routeChanged(route, nexthopv4, nexthopv6, callback) {
-				break
+			if routeChanged(route, nexthopv4, nexthopv6) {
+				return nil
 			}
 		}
 	}
 }
 
-func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Nexthop, callback func()) bool {
+func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Nexthop) bool {
 	intf := "<nil>"
 	if route.Interface != nil {
 		intf = route.Interface.Name
@@ -51,18 +51,15 @@ func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Ne
 	case systemops.RouteModified:
 		// TODO: get routing table to figure out if our route is affected for modified routes
 		log.Infof("Network monitor: default route changed: via %s, interface %s", route.NextHop, intf)
-		go callback()
 		return true
 	case systemops.RouteAdded:
 		if route.NextHop.Is4() && route.NextHop != nexthopv4.IP || route.NextHop.Is6() && route.NextHop != nexthopv6.IP {
 			log.Infof("Network monitor: default route added: via %s, interface %s", route.NextHop, intf)
-			go callback()
 			return true
 		}
 	case systemops.RouteDeleted:
 		if nexthopv4.Intf != nil && route.NextHop == nexthopv4.IP || nexthopv6.Intf != nil && route.NextHop == nexthopv6.IP {
 			log.Infof("Network monitor: default route removed: via %s, interface %s", route.NextHop, intf)
-			go callback()
 			return true
 		}
 	}
