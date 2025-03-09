@@ -75,6 +75,7 @@ func (m *aclManager) init(stateManager *statemanager.Manager) error {
 }
 
 func (m *aclManager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
 	protocol firewall.Protocol,
 	sPort *firewall.Port,

@@ -13,12 +13,13 @@ import (
 	"testing"
 	"time"
 
-	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/server/settings"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -1107,7 +1108,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, true)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, true, nil)
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1211,7 +1212,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settings.NewManagerMock())
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1275,7 +1276,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settings.NewManagerMock())
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1342,7 +1343,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	assert.NoError(t, err)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settings.NewManagerMock())
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1531,7 +1532,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	})
 
 	t.Run("validator requires update", func(t *testing.T) {
-		requireUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *nbAccount.ExtraSettings) (*nbpeer.Peer, bool, error) {
+		requireUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, true, nil
 		}
 
@@ -1553,7 +1554,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	})
 
 	t.Run("validator requires no update", func(t *testing.T) {
-		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *nbAccount.ExtraSettings) (*nbpeer.Peer, bool, error) {
+		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, false, nil
 		}
 

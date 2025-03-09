@@ -3,6 +3,7 @@ package uspfilter
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -31,13 +32,9 @@ func (m *localIPManager) setBitmapBit(ip net.IP) {
 	m.ipv4Bitmap[high] |= 1 << (low % 32)
 }
 
-func (m *localIPManager) checkBitmapBit(ip net.IP) bool {
-	ipv4 := ip.To4()
-	if ipv4 == nil {
-		return false
-	}
-	high := (uint16(ipv4[0]) << 8) | uint16(ipv4[1])
-	low := (uint16(ipv4[2]) << 8) | uint16(ipv4[3])
+func (m *localIPManager) checkBitmapBit(ip []byte) bool {
+	high := (uint16(ip[0]) << 8) | uint16(ip[1])
+	low := (uint16(ip[2]) << 8) | uint16(ip[3])
 	return (m.ipv4Bitmap[high] & (1 << (low % 32))) != 0
 }
 
@@ -122,12 +119,12 @@ func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
 	return nil
 }
 
-func (m *localIPManager) IsLocalIP(ip net.IP) bool {
+func (m *localIPManager) IsLocalIP(ip netip.Addr) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if ipv4 := ip.To4(); ipv4 != nil {
-		return m.checkBitmapBit(ipv4)
+	if ip.Is4() {
+		return m.checkBitmapBit(ip.AsSlice())
 	}
 
 	return false

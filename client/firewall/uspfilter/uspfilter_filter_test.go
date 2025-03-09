@@ -34,7 +34,7 @@ func TestPeerACLFiltering(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false)
+	manager, err := Create(ifaceMock, false, flowLogger)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -192,20 +192,20 @@ func TestPeerACLFiltering(t *testing.T) {
 
 	t.Run("Implicit DROP (no rules)", func(t *testing.T) {
 		packet := createTestPacket(t, "100.10.0.1", "100.10.0.100", fw.ProtocolTCP, 12345, 443)
-		isDropped := manager.DropIncoming(packet)
+		isDropped := manager.DropIncoming(packet, 0)
 		require.True(t, isDropped, "Packet should be dropped when no rules exist")
 	})
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			rules, err := manager.AddPeerFiltering(
+				nil,
 				net.ParseIP(tc.ruleIP),
 				tc.ruleProto,
 				tc.ruleSrcPort,
 				tc.ruleDstPort,
 				tc.ruleAction,
 				"",
-				tc.name,
 			)
 			require.NoError(t, err)
 			require.NotEmpty(t, rules)
@@ -217,7 +217,7 @@ func TestPeerACLFiltering(t *testing.T) {
 			})
 
 			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
-			isDropped := manager.DropIncoming(packet)
+			isDropped := manager.DropIncoming(packet, 0)
 			require.Equal(t, tc.shouldBeBlocked, isDropped)
 		})
 	}
@@ -302,12 +302,12 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false)
+	manager, err := Create(ifaceMock, false, flowLogger)
 	require.NoError(tb, manager.EnableRouting())
 	require.NoError(tb, err)
 	require.NotNil(tb, manager)
-	require.True(tb, manager.routingEnabled)
-	require.False(tb, manager.nativeRouter)
+	require.True(tb, manager.routingEnabled.Load())
+	require.False(tb, manager.nativeRouter.Load())
 
 	tb.Cleanup(func() {
 		require.NoError(tb, manager.Close(nil))
@@ -803,6 +803,7 @@ func TestRouteACLFiltering(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			rule, err := manager.AddRouteFiltering(
+				nil,
 				tc.rule.sources,
 				tc.rule.dest,
 				tc.rule.proto,
@@ -817,12 +818,12 @@ func TestRouteACLFiltering(t *testing.T) {
 				require.NoError(t, manager.DeleteRouteRule(rule))
 			})
 
-			srcIP := net.ParseIP(tc.srcIP)
-			dstIP := net.ParseIP(tc.dstIP)
+			srcIP := netip.MustParseAddr(tc.srcIP)
+			dstIP := netip.MustParseAddr(tc.dstIP)
 
 			// testing routeACLsPass only and not DropIncoming, as routed packets are dropped after being passed
 			// to the forwarder
-			isAllowed := manager.routeACLsPass(srcIP, dstIP, tc.proto, tc.srcPort, tc.dstPort)
+			_, isAllowed := manager.routeACLsPass(srcIP, dstIP, tc.proto, tc.srcPort, tc.dstPort)
 			require.Equal(t, tc.shouldPass, isAllowed)
 		})
 	}
@@ -985,6 +986,7 @@ func TestRouteACLOrder(t *testing.T) {
 			var rules []fw.Rule
 			for _, r := range tc.rules {
 				rule, err := manager.AddRouteFiltering(
+					nil,
 					r.sources,
 					r.dest,
 					r.proto,
@@ -1004,10 +1006,10 @@ func TestRouteACLOrder(t *testing.T) {
 			})
 
 			for i, p := range tc.packets {
-				srcIP := net.ParseIP(p.srcIP)
-				dstIP := net.ParseIP(p.dstIP)
+				srcIP := netip.MustParseAddr(p.srcIP)
+				dstIP := netip.MustParseAddr(p.dstIP)
 
-				isAllowed := manager.routeACLsPass(srcIP, dstIP, p.proto, p.srcPort, p.dstPort)
+				_, isAllowed := manager.routeACLsPass(srcIP, dstIP, p.proto, p.srcPort, p.dstPort)
 				require.Equal(t, p.shouldPass, isAllowed, "packet %d failed", i)
 			}
 		})
