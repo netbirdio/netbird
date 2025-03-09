@@ -30,10 +30,8 @@ type entry struct {
 }
 
 type aclManager struct {
-	iptablesClient     *iptables.IPTables
-	wgIface            iFaceMapper
-	routingFwChainName string
-
+	iptablesClient  *iptables.IPTables
+	wgIface         iFaceMapper
 	entries         aclEntries
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
@@ -41,12 +39,10 @@ type aclManager struct {
 	stateManager *statemanager.Manager
 }
 
-func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routingFwChainName string) (*aclManager, error) {
+func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*aclManager, error) {
 	m := &aclManager{
-		iptablesClient:     iptablesClient,
-		wgIface:            wgIface,
-		routingFwChainName: routingFwChainName,
-
+		iptablesClient:  iptablesClient,
+		wgIface:         wgIface,
 		entries:         make(map[string][][]string),
 		optionalEntries: make(map[string][]entry),
 		ipsetStore:      newIpsetStore(),
@@ -314,9 +310,12 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
 	m.appendToEntries("INPUT", append([]string{"-i", m.wgIface.Name()}, established...))
 
+	// Inbound is handled by our ACLs, the rest is dropped.
+	// For outbound we respect the FORWARD policy. However, we need to allow established/related traffic for inbound rules.
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
-	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName})
-	m.appendToEntries("FORWARD", append([]string{"-o", m.wgIface.Name()}, established...))
+
+	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", chainRTFWDOUT})
+	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainRTFWDIN})
 }
 
 func (m *aclManager) seedInitialOptionalEntries() {

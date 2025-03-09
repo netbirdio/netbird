@@ -19,3 +19,34 @@ func Difference(a, b []string) []string {
 func ToPtr[T any](value T) *T {
 	return &value
 }
+
+type comparableObject[T any] interface {
+	Equal(other T) bool
+}
+
+func MergeUnique[T comparableObject[T]](arr1, arr2 []T) []T {
+	var result []T
+
+	for _, item := range arr1 {
+		if !contains(result, item) {
+			result = append(result, item)
+		}
+	}
+
+	for _, item := range arr2 {
+		if !contains(result, item) {
+			result = append(result, item)
+		}
+	}
+
+	return result
+}
+
+func contains[T comparableObject[T]](slice []T, element T) bool {
+	for _, item := range slice {
+		if item.Equal(element) {
+			return true
+		}
+	}
+	return false
+}

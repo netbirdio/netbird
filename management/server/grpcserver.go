@@ -645,6 +645,14 @@ func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turn
 	response.NetworkMap.RoutesFirewallRules = routesFirewallRules
 	response.NetworkMap.RoutesFirewallRulesIsEmpty = len(routesFirewallRules) == 0
 
+	if networkMap.ForwardingRules != nil {
+		forwardingRules := make([]*proto.ForwardingRule, 0, len(networkMap.ForwardingRules))
+		for _, rule := range networkMap.ForwardingRules {
+			forwardingRules = append(forwardingRules, rule.ToProto())
+		}
+		response.NetworkMap.ForwardingRules = forwardingRules
+	}
+
 	return response
 }
 

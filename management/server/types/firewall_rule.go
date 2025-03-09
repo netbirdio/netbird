@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -33,15 +34,14 @@ type FirewallRule struct {
 
 	// Port of the traffic
 	Port string
+
+	// PortRange represents the range of ports for a firewall rule
+	PortRange RulePortRange
 }
 
-// IsEqual checks if two firewall rules are equal.
-func (r *FirewallRule) IsEqual(other *FirewallRule) bool {
-	return r.PeerIP == other.PeerIP &&
-		r.Direction == other.Direction &&
-		r.Action == other.Action &&
-		r.Protocol == other.Protocol &&
-		r.Port == other.Port
+// Equal checks if two firewall rules are equal.
+func (r *FirewallRule) Equal(other *FirewallRule) bool {
+	return reflect.DeepEqual(r, other)
 }
 
 // generateRouteFirewallRules generates a list of firewall rules for a given route.

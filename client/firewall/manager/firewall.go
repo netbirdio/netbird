@@ -26,8 +26,8 @@ const (
 // Each firewall type for different OS can use different type
 // of the properties to hold data of the created rule
 type Rule interface {
-	// GetRuleID returns the rule id
-	GetRuleID() string
+	// ID returns the rule id
+	ID() string
 }
 
 // RuleDirection is the traffic direction which a rule is applied
@@ -105,6 +105,12 @@ type Manager interface {
 	EnableRouting() error
 
 	DisableRouting() error
+
+	// AddDNATRule adds a DNAT rule
+	AddDNATRule(ForwardRule) (Rule, error)
+
+	// DeleteDNATRule deletes a DNAT rule
+	DeleteDNATRule(Rule) error
 }
 
 func GenKey(format string, pair RouterPair) string {
