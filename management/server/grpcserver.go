@@ -12,7 +12,7 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
-	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/management-integrations/integrations"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -605,7 +605,7 @@ func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, 
 		Relay: relayCfg,
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(nbConfig, extraSettings)
+	integrations.ExtendNetBirdConfig(nbConfig, extraSettings)
 
 	return nbConfig
 }

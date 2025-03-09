@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/management-integrations/integrations"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
@@ -217,7 +217,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		}
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, nil)
+	integrations.ExtendNetBirdConfig(update.NetbirdConfig, nil)
 
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
@@ -241,7 +241,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, pe
 		},
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, nil)
+	integrations.ExtendNetBirdConfig(update.NetbirdConfig, nil)
 
 	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
