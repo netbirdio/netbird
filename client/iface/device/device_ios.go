@@ -14,11 +14,12 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type TunDevice struct {
 	name    string
-	address WGAddress
+	address wgaddr.Address
 	port    int
 	key     string
 	iceBind *bind.ICEBind
@@ -30,7 +31,7 @@ type TunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, iceBind *bind.ICEBind, tunFd int) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, iceBind *bind.ICEBind, tunFd int) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
@@ -120,11 +121,11 @@ func (t *TunDevice) Close() error {
 	return nil
 }
 
-func (t *TunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 
-func (t *TunDevice) UpdateAddr(addr WGAddress) error {
+func (t *TunDevice) UpdateAddr(_ wgaddr.Address) error {
 	// todo implement
 	return nil
 }

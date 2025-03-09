@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -29,7 +29,7 @@ const (
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string
-	Address() iface.WGAddress
+	Address() wgaddr.Address
 	IsUserspaceBind() bool
 }
 

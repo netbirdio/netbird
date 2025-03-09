@@ -13,12 +13,13 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type TunNetstackDevice struct {
 	name          string
-	address       WGAddress
+	address       wgaddr.Address
 	port          int
 	key           string
 	mtu           int
@@ -34,7 +35,7 @@ type TunNetstackDevice struct {
 	net *netstack.Net
 }
 
-func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
+func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu int, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
 	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -97,7 +98,7 @@ func (t *TunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *TunNetstackDevice) UpdateAddr(WGAddress) error {
+func (t *TunNetstackDevice) UpdateAddr(wgaddr.Address) error {
 	return nil
 }
 
@@ -116,7 +117,7 @@ func (t *TunNetstackDevice) Close() error {
 	return nil
 }
 
-func (t *TunNetstackDevice) WgAddress() WGAddress {
+func (t *TunNetstackDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 

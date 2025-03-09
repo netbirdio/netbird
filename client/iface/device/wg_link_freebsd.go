@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/freebsd"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type wgLink struct {
@@ -56,7 +57,7 @@ func (l *wgLink) up() error {
 	return nil
 }
 
-func (l *wgLink) assignAddr(address WGAddress) error {
+func (l *wgLink) assignAddr(address wgaddr.Address) error {
 	link, err := freebsd.LinkByName(l.name)
 	if err != nil {
 		return fmt.Errorf("link by name: %w", err)

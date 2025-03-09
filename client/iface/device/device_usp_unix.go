@@ -12,11 +12,12 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type USPDevice struct {
 	name    string
-	address WGAddress
+	address wgaddr.Address
 	port    int
 	key     string
 	mtu     int
@@ -28,7 +29,7 @@ type USPDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewUSPDevice(name string, address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind) *USPDevice {
+func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind) *USPDevice {
 	log.Infof("using userspace bind mode")
 
 	return &USPDevice{
@@ -93,7 +94,7 @@ func (t *USPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *USPDevice) UpdateAddr(address WGAddress) error {
+func (t *USPDevice) UpdateAddr(address wgaddr.Address) error {
 	t.address = address
 	return t.assignAddr()
 }
@@ -113,7 +114,7 @@ func (t *USPDevice) Close() error {
 	return nil
 }
 
-func (t *USPDevice) WgAddress() WGAddress {
+func (t *USPDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 

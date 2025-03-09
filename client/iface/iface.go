@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
@@ -27,8 +28,6 @@ const (
 	DefaultWgPort      = 51820
 	WgInterfaceDefault = configurer.WgInterfaceDefault
 )
-
-type WGAddress = device.WGAddress
 
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
@@ -72,7 +71,7 @@ func (w *WGIface) Name() string {
 }
 
 // Address returns the interface address
-func (w *WGIface) Address() device.WGAddress {
+func (w *WGIface) Address() wgaddr.Address {
 	return w.tun.WgAddress()
 }
 
@@ -103,7 +102,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	addr, err := device.ParseWGAddress(newAddr)
+	addr, err := wgaddr.ParseWGAddress(newAddr)
 	if err != nil {
 		return err
 	}

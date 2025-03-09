@@ -358,6 +358,12 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 }
 
 func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
+	addr, err := netip.ParseAddr(candidate.Address())
+	if err != nil {
+		log.Errorf("Failed to parse IP address %s: %v", candidate.Address(), err)
+		return false
+	}
+
 	var routePrefixes []netip.Prefix
 	for _, routes := range clientRoutes {
 		if len(routes) > 0 && routes[0] != nil {
@@ -365,14 +371,8 @@ func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool 
 		}
 	}
 
-	addr, err := netip.ParseAddr(candidate.Address())
-	if err != nil {
-		log.Errorf("Failed to parse IP address %s: %v", candidate.Address(), err)
-		return false
-	}
-
 	for _, prefix := range routePrefixes {
-		// default route is
+		// default route is handled by route exclusion / ip rules
 		if prefix.Bits() == 0 {
 			continue
 		}

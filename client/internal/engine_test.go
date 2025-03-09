@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -75,7 +76,7 @@ type MockWGIface struct {
 	CreateOnAndroidFunc        func(routeRange []string, ip string, domains []string) error
 	IsUserspaceBindFunc        func() bool
 	NameFunc                   func() string
-	AddressFunc                func() device.WGAddress
+	AddressFunc                func() wgaddr.Address
 	ToInterfaceFunc            func() *net.Interface
 	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddrFunc             func(newAddr string) error
@@ -114,7 +115,7 @@ func (m *MockWGIface) Name() string {
 	return m.NameFunc()
 }
 
-func (m *MockWGIface) Address() device.WGAddress {
+func (m *MockWGIface) Address() wgaddr.Address {
 	return m.AddressFunc()
 }
 
@@ -364,8 +365,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("10.20.0.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("10.20.0.0"),
