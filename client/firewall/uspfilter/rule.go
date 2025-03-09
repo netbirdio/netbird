@@ -24,8 +24,8 @@ type PeerRule struct {
 	udpHook func([]byte) bool
 }
 
-// GetRuleID returns the rule id
-func (r *PeerRule) GetRuleID() string {
+// ID returns the rule id
+func (r *PeerRule) ID() string {
 	return r.id
 }
 
@@ -39,7 +39,7 @@ type RouteRule struct {
 	action      firewall.Action
 }
 
-// GetRuleID returns the rule id
-func (r *RouteRule) GetRuleID() string {
+// ID returns the rule id
+func (r *RouteRule) ID() string {
 	return r.id
 }
