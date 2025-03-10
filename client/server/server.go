@@ -628,7 +628,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	timeoutCtx, cancel := context.WithTimeout(callerCtx, 10*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
 	runningChan := make(chan struct{}, 1) // buffered channel to do not lose the signal
