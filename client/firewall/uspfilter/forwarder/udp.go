@@ -89,21 +89,6 @@ func (f *udpForwarder) Stop() {
 	}
 }
 
-// sendUDPEvent stores flow events for UDP connections
-func (f *udpForwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
-	f.flowLogger.StoreEvent(nftypes.EventFields{
-		FlowID:    flowID,
-		Type:      typ,
-		Direction: nftypes.Ingress,
-		Protocol:  17,
-		// TODO: handle ipv6
-		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),
-		DestIP:     netip.AddrFrom4(id.RemoteAddress.As4()),
-		SourcePort: id.LocalPort,
-		DestPort:   id.RemotePort,
-	})
-}
-
 // cleanup periodically removes idle UDP connections
 func (f *udpForwarder) cleanup() {
 	ticker := time.NewTicker(time.Minute)
@@ -140,8 +125,6 @@ func (f *udpForwarder) cleanup() {
 				f.Unlock()
 
 				f.logger.Trace("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
-
-				f.sendUDPEvent(nftypes.TypeEnd, idle.conn.flowID, idle.id)
 			}
 		}
 	}
@@ -270,18 +253,18 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	}
 }
 
-// sendUDPEvent stores flow events for UDP connections, mirrors the TCP version
+// sendUDPEvent stores flow events for UDP connections
 func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint) {
 	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
 		Direction: nftypes.Ingress,
-		Protocol:  17, // UDP protocol number
+		Protocol:  nftypes.UDP,
 		// TODO: handle ipv6
-		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),
-		DestIP:     netip.AddrFrom4(id.RemoteAddress.As4()),
-		SourcePort: id.LocalPort,
-		DestPort:   id.RemotePort,
+		SourceIP:   netip.AddrFrom4(id.RemoteAddress.As4()),
+		DestIP:     netip.AddrFrom4(id.LocalAddress.As4()),
+		SourcePort: id.RemotePort,
+		DestPort:   id.LocalPort,
 	}
 
 	if ep != nil {
