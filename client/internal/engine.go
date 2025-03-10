@@ -1428,7 +1428,7 @@ func (e *Engine) close() {
 	}
 
 	if e.firewall != nil {
-		err := e.firewall.Reset(e.stateManager)
+		err := e.firewall.Close(e.stateManager)
 		if err != nil {
 			log.Warnf("failed to reset firewall: %s", err)
 		}
