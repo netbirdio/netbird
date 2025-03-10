@@ -9,7 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
@@ -49,7 +49,7 @@ func TestDefaultManager(t *testing.T) {
 	}
 
 	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
-	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
+	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
 		IP:      ip,
 		Network: network,
 	}).AnyTimes()
@@ -343,7 +343,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	}
 
 	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
-	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
+	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
 		IP:      ip,
 		Network: network,
 	}).AnyTimes()

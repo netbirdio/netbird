@@ -1,6 +1,7 @@
 package conntrack
 
 import (
+	"context"
 	"net/netip"
 	"sync"
 	"time"
@@ -31,8 +32,8 @@ type UDPTracker struct {
 	connections   map[ConnKey]*UDPConnTrack
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
+	tickerCancel  context.CancelFunc
 	mutex         sync.RWMutex
-	done          chan struct{}
 	flowLogger    nftypes.FlowLogger
 }
 
@@ -42,16 +43,18 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 		timeout = DefaultUDPTimeout
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	tracker := &UDPTracker{
 		logger:        logger,
 		connections:   make(map[ConnKey]*UDPConnTrack),
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(UDPCleanupInterval),
-		done:          make(chan struct{}),
+		tickerCancel:  cancel,
 		flowLogger:    flowLogger,
 	}
 
-	go tracker.cleanupRoutine()
+	go tracker.cleanupRoutine(ctx)
 	return tracker
 }
 
@@ -140,12 +143,14 @@ func (t *UDPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 }
 
 // cleanupRoutine periodically removes stale connections
-func (t *UDPTracker) cleanupRoutine() {
+func (t *UDPTracker) cleanupRoutine(ctx context.Context) {
+	defer t.cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-t.cleanupTicker.C:
 			t.cleanup()
-		case <-t.done:
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -168,8 +173,7 @@ func (t *UDPTracker) cleanup() {
 
 // Close stops the cleanup routine and releases resources
 func (t *UDPTracker) Close() {
-	t.cleanupTicker.Stop()
-	close(t.done)
+	t.tickerCancel()
 
 	t.mutex.Lock()
 	t.connections = nil

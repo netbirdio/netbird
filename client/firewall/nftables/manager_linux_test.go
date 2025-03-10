@@ -16,15 +16,15 @@ import (
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 var ifaceMock = &iFaceMock{
 	NameFunc: func() string {
 		return "lo"
 	},
-	AddressFunc: func() iface.WGAddress {
-		return iface.WGAddress{
+	AddressFunc: func() wgaddr.Address {
+		return wgaddr.Address{
 			IP: net.ParseIP("100.96.0.1"),
 			Network: &net.IPNet{
 				IP:   net.ParseIP("100.96.0.0"),
@@ -37,7 +37,7 @@ var ifaceMock = &iFaceMock{
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMock struct {
 	NameFunc    func() string
-	AddressFunc func() iface.WGAddress
+	AddressFunc func() wgaddr.Address
 }
 
 func (i *iFaceMock) Name() string {
@@ -47,7 +47,7 @@ func (i *iFaceMock) Name() string {
 	panic("NameFunc is not set")
 }
 
-func (i *iFaceMock) Address() iface.WGAddress {
+func (i *iFaceMock) Address() wgaddr.Address {
 	if i.AddressFunc != nil {
 		return i.AddressFunc()
 	}
@@ -171,8 +171,8 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 		NameFunc: func() string {
 			return "lo"
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("100.96.0.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("100.96.0.0"),

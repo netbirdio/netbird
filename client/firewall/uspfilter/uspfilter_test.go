@@ -18,8 +18,8 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 )
 
@@ -28,7 +28,7 @@ var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}).GetLogg
 
 type IFaceMock struct {
 	SetFilterFunc   func(device.PacketFilter) error
-	AddressFunc     func() iface.WGAddress
+	AddressFunc     func() wgaddr.Address
 	GetWGDeviceFunc func() *wgdevice.Device
 	GetDeviceFunc   func() *device.FilteredDevice
 }
@@ -54,9 +54,9 @@ func (i *IFaceMock) SetFilter(iface device.PacketFilter) error {
 	return i.SetFilterFunc(iface)
 }
 
-func (i *IFaceMock) Address() iface.WGAddress {
+func (i *IFaceMock) Address() wgaddr.Address {
 	if i.AddressFunc == nil {
-		return iface.WGAddress{}
+		return wgaddr.Address{}
 	}
 	return i.AddressFunc()
 }
@@ -269,8 +269,8 @@ func TestManagerReset(t *testing.T) {
 func TestNotMatchByIP(t *testing.T) {
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("100.10.0.100"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("100.10.0.0"),
