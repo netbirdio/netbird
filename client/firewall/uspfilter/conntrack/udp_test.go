@@ -1,6 +1,7 @@
 package conntrack
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestNewUDPTracker(t *testing.T) {
 			assert.Equal(t, tt.wantTimeout, tracker.timeout)
 			assert.NotNil(t, tracker.connections)
 			assert.NotNil(t, tracker.cleanupTicker)
-			assert.NotNil(t, tracker.done)
+			assert.NotNil(t, tracker.tickerCancel)
 		})
 	}
 }
@@ -154,18 +155,21 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 	timeout := 50 * time.Millisecond
 	cleanupInterval := 25 * time.Millisecond
 
+	ctx, tickerCancel := context.WithCancel(context.Background())
+	defer tickerCancel()
+
 	// Create tracker with custom cleanup interval
 	tracker := &UDPTracker{
 		connections:   make(map[ConnKey]*UDPConnTrack),
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(cleanupInterval),
-		done:          make(chan struct{}),
+		tickerCancel:  tickerCancel,
 		ipPool:        NewPreallocatedIPs(),
 		logger:        logger,
 	}
 
 	// Start cleanup routine
-	go tracker.cleanupRoutine()
+	go tracker.cleanupRoutine(ctx)
 
 	// Add some connections
 	connections := []struct {
