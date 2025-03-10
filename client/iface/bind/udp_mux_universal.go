@@ -17,6 +17,8 @@ import (
 	"github.com/pion/logging"
 	"github.com/pion/stun/v2"
 	"github.com/pion/transport/v3"
+
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 // FilterFn is a function that filters out candidates based on the address.
@@ -41,6 +43,7 @@ type UniversalUDPMuxParams struct {
 	XORMappedAddrCacheTTL time.Duration
 	Net                   transport.Net
 	FilterFn              FilterFn
+	WGAddress             wgaddr.Address
 }
 
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux
@@ -64,6 +67,7 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 		mux:        m,
 		logger:     params.Logger,
 		filterFn:   params.FilterFn,
+		address:    params.WGAddress,
 	}
 
 	// embed UDPMux
@@ -118,6 +122,7 @@ type udpConn struct {
 	filterFn FilterFn
 	// TODO: reset cache on route changes
 	addrCache sync.Map
+	address   wgaddr.Address
 }
 
 func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
@@ -157,6 +162,11 @@ func (u *udpConn) performFilterCheck(addr net.Addr) error {
 	if err != nil {
 		log.Errorf("Failed to parse address %s: %v", addr, err)
 		return nil
+	}
+
+	if u.address.Network.Contains(a.AsSlice()) {
+		log.Warnf("Address %s is part of the NetBird network %s, refusing to write", addr, u.address)
+		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}
 
 	if isRouted, prefix, err := u.filterFn(a); err != nil {
