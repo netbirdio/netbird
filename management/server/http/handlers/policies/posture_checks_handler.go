@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -17,11 +17,11 @@ import (
 
 // postureChecksHandler is a handler that returns posture checks of the account.
 type postureChecksHandler struct {
-	accountManager     server.AccountManager
+	accountManager     account.Manager
 	geolocationManager geolocation.Geolocation
 }
 
-func addPostureCheckEndpoint(accountManager server.AccountManager, locationManager geolocation.Geolocation, router *mux.Router) {
+func addPostureCheckEndpoint(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
 	postureCheckHandler := newPostureChecksHandler(accountManager, locationManager)
 	router.HandleFunc("/posture-checks", postureCheckHandler.getAllPostureChecks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/posture-checks", postureCheckHandler.createPostureCheck).Methods("POST", "OPTIONS")
@@ -32,7 +32,7 @@ func addPostureCheckEndpoint(accountManager server.AccountManager, locationManag
 }
 
 // newPostureChecksHandler creates a new PostureChecks handler
-func newPostureChecksHandler(accountManager server.AccountManager, geolocationManager geolocation.Geolocation) *postureChecksHandler {
+func newPostureChecksHandler(accountManager account.Manager, geolocationManager geolocation.Geolocation) *postureChecksHandler {
 	return &postureChecksHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,

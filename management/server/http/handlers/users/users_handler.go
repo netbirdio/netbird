@@ -8,21 +8,21 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 
-	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
 
 // handler is a handler that returns users of the account
 type handler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	userHandler := newHandler(accountManager)
 	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.updateUser).Methods("PUT", "OPTIONS")
@@ -33,7 +33,7 @@ func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
 }
 
 // newHandler creates a new UsersHandler HTTP handler
-func newHandler(accountManager server.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}

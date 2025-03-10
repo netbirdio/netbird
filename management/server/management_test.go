@@ -191,6 +191,7 @@ func startServer(
 		server.MocIntegratedValidator{},
 		metrics,
 		port_forwarding.NewControllerMock(),
+		settings.NewManagerMock(),
 	)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
@@ -201,7 +202,7 @@ func startServer(
 		context.Background(),
 		config,
 		accountManager,
-		settings.NewManager(str),
+		settings.NewManagerMock(),
 		peersUpdateManager,
 		secretsManager,
 		nil,

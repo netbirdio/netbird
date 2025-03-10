@@ -84,13 +84,13 @@ func (m *AclManager) init(workTable *nftables.Table) error {
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
 func (m *AclManager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
-	comment string,
 ) ([]firewall.Rule, error) {
 	var ipset *nftables.Set
 	if ipsetName != "" {
@@ -102,7 +102,7 @@ func (m *AclManager) AddPeerFiltering(
 	}
 
 	newRules := make([]firewall.Rule, 0, 2)
-	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, action, ipset, comment)
+	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, action, ipset)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,6 @@ func (m *AclManager) addIOFiltering(
 	dPort *firewall.Port,
 	action firewall.Action,
 	ipset *nftables.Set,
-	comment string,
 ) (*Rule, error) {
 	ruleId := generatePeerRuleId(ip, sPort, dPort, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
@@ -338,7 +337,7 @@ func (m *AclManager) addIOFiltering(
 		mainExpressions = append(mainExpressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
-	userData := []byte(strings.Join([]string{ruleId, comment}, " "))
+	userData := []byte(ruleId)
 
 	chain := m.chainInputRules
 	nftRule := m.rConn.AddRule(&nftables.Rule{

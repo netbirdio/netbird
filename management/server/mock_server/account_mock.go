@@ -11,17 +11,18 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
 
-var _ server.AccountManager = (*MockAccountManager)(nil)
+var _ account.Manager = (*MockAccountManager)(nil)
 
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc func(ctx context.Context, userId, domain string) (*types.Account, error)
@@ -89,12 +90,12 @@ type MockAccountManager struct {
 	SaveDNSSettingsFunc                 func(ctx context.Context, accountID, userID string, dnsSettingsToSave *types.DNSSettings) error
 	GetPeerFunc                         func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error)
-	LoginPeerFunc                       func(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
-	SyncPeerFunc                        func(ctx context.Context, sync server.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	LoginPeerFunc                       func(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	SyncPeerFunc                        func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	InviteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc            func() (map[string]struct{}, error)
 	HasConnectedChannelFunc             func(peerID string) bool
-	GetExternalCacheManagerFunc         func() server.ExternalCacheManager
+	GetExternalCacheManagerFunc         func() account.ExternalCacheManager
 	GetPostureChecksFunc                func(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
 	SavePostureChecksFunc               func(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error)
 	DeletePostureChecksFunc             func(ctx context.Context, accountID, postureChecksID, userID string) error
@@ -110,6 +111,7 @@ type MockAccountManager struct {
 	GetAccountSettingsFunc              func(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
 	BuildUserInfosForAccountFunc        func(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
+	GetStoreFunc                        func() store.Store
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -661,7 +663,7 @@ func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, account
 }
 
 // LoginPeer mocks LoginPeer of the AccountManager interface
-func (am *MockAccountManager) LoginPeer(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if am.LoginPeerFunc != nil {
 		return am.LoginPeerFunc(ctx, login)
 	}
@@ -669,7 +671,7 @@ func (am *MockAccountManager) LoginPeer(ctx context.Context, login server.PeerLo
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
-func (am *MockAccountManager) SyncPeer(ctx context.Context, sync server.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if am.SyncPeerFunc != nil {
 		return am.SyncPeerFunc(ctx, sync, accountID)
 	}
@@ -700,7 +702,7 @@ func (am *MockAccountManager) StoreEvent(ctx context.Context, initiatorID, targe
 }
 
 // GetExternalCacheManager mocks GetExternalCacheManager of the AccountManager interface
-func (am *MockAccountManager) GetExternalCacheManager() server.ExternalCacheManager {
+func (am *MockAccountManager) GetExternalCacheManager() account.ExternalCacheManager {
 	if am.GetExternalCacheManagerFunc() != nil {
 		return am.GetExternalCacheManagerFunc()
 	}
@@ -837,4 +839,11 @@ func (am *MockAccountManager) BuildUserInfosForAccount(ctx context.Context, acco
 
 func (am *MockAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error {
 	return status.Errorf(codes.Unimplemented, "method SyncUserJWTGroups is not implemented")
+}
+
+func (am *MockAccountManager) GetStore() store.Store {
+	if am.GetStoreFunc != nil {
+		return am.GetStoreFunc()
+	}
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
@@ -41,9 +42,19 @@ func (s *Server) TracePacket(_ context.Context, req *proto.TracePacketRequest) (
 		srcIP = engine.GetWgAddr()
 	}
 
+	srcAddr, ok := netip.AddrFromSlice(srcIP)
+	if !ok {
+		return nil, fmt.Errorf("invalid source IP address")
+	}
+
 	dstIP := net.ParseIP(req.GetDestinationIp())
 	if req.GetDestinationIp() == "self" {
 		dstIP = engine.GetWgAddr()
+	}
+
+	dstAddr, ok := netip.AddrFromSlice(dstIP)
+	if !ok {
+		return nil, fmt.Errorf("invalid source IP address")
 	}
 
 	if srcIP == nil || dstIP == nil {
@@ -85,8 +96,8 @@ func (s *Server) TracePacket(_ context.Context, req *proto.TracePacketRequest) (
 	}
 
 	builder := &uspfilter.PacketBuilder{
-		SrcIP:     srcIP,
-		DstIP:     dstIP,
+		SrcIP:     srcAddr,
+		DstIP:     dstAddr,
 		Protocol:  protocol,
 		SrcPort:   uint16(req.GetSourcePort()),
 		DstPort:   uint16(req.GetDestinationPort()),

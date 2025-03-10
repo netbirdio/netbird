@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -20,18 +20,18 @@ var (
 
 // geolocationsHandler is a handler that returns locations.
 type geolocationsHandler struct {
-	accountManager     server.AccountManager
+	accountManager     account.Manager
 	geolocationManager geolocation.Geolocation
 }
 
-func addLocationsEndpoint(accountManager server.AccountManager, locationManager geolocation.Geolocation, router *mux.Router) {
+func addLocationsEndpoint(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
 	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager)
 	router.HandleFunc("/locations/countries", locationHandler.getAllCountries).Methods("GET", "OPTIONS")
 	router.HandleFunc("/locations/countries/{country}/cities", locationHandler.getCitiesByCountry).Methods("GET", "OPTIONS")
 }
 
 // newGeolocationsHandlerHandler creates a new Geolocations handler
-func newGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager geolocation.Geolocation) *geolocationsHandler {
+func newGeolocationsHandlerHandler(accountManager account.Manager, geolocationManager geolocation.Geolocation) *geolocationsHandler {
 	return &geolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,
