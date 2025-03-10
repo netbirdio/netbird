@@ -161,6 +161,7 @@ func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events [
 		}
 
 		if event.InitiatorID == activity.SystemInitiator ||
+			event.InitiatorID == accountId ||
 			event.Activity == activity.PeerAddedWithSetupKey {
 			// @todo other events to be excluded if never initiated by a user
 			continue
