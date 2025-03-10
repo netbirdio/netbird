@@ -107,6 +107,8 @@ func (t *UDPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, srcPort uint16, 
 
 // cleanupRoutine periodically removes stale connections
 func (t *UDPTracker) cleanupRoutine(ctx context.Context) {
+	defer t.cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-t.cleanupTicker.C:
@@ -134,7 +136,6 @@ func (t *UDPTracker) cleanup() {
 
 // Close stops the cleanup routine and releases resources
 func (t *UDPTracker) Close() {
-	t.cleanupTicker.Stop()
 	t.tickerCancel()
 
 	t.mutex.Lock()
