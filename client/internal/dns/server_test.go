@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	pfmock "github.com/netbirdio/netbird/client/iface/mocks"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -37,9 +38,9 @@ func (w *mocWGIface) Name() string {
 	panic("implement me")
 }
 
-func (w *mocWGIface) Address() iface.WGAddress {
+func (w *mocWGIface) Address() wgaddr.Address {
 	ip, network, _ := net.ParseCIDR("100.66.100.0/24")
-	return iface.WGAddress{
+	return wgaddr.Address{
 		IP:      ip,
 		Network: network,
 	}
