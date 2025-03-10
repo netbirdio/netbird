@@ -89,7 +89,7 @@ func (h *resourceHandler) getAllResourcesInAccount(w http.ResponseWriter, r *htt
 
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
 
-	var resourcesResponse []*api.NetworkResource
+	resourcesResponse := make([]*api.NetworkResource, 0, len(resources))
 	for _, resource := range resources {
 		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse(grpsInfoMap[resource.ID]))
 	}
