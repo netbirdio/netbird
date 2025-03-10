@@ -24,8 +24,8 @@ var (
 
 const (
 	dnsPolicyConfigMatchPath    = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\NetBird-Match`
-	gpoDnsPolicyRoot            = `SOFTWARE\Policies\Microsoft\Windows NT\DNSClient`
-	gpoDnsPolicyConfigMatchPath = gpoDnsPolicyRoot + `\DnsPolicyConfig\NetBird-Match`
+	gpoDnsPolicyRoot            = `SOFTWARE\Policies\Microsoft\Windows NT\DNSClient\DnsPolicyConfig`
+	gpoDnsPolicyConfigMatchPath = gpoDnsPolicyRoot + `\NetBird-Match`
 
 	dnsPolicyConfigVersionKey           = "Version"
 	dnsPolicyConfigVersionValue         = 2
@@ -134,10 +134,6 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) er
 	if r.gpo {
 		if err := r.configureDNSPolicy(gpoDnsPolicyConfigMatchPath, domains, ip); err != nil {
 			return fmt.Errorf("configure GPO DNS policy: %w", err)
-		}
-
-		if err := r.configureDNSPolicy(dnsPolicyConfigMatchPath, domains, ip); err != nil {
-			return fmt.Errorf("configure local DNS policy: %w", err)
 		}
 
 		if err := refreshGroupPolicy(); err != nil {
