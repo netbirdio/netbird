@@ -4,7 +4,6 @@ import (
 	"net"
 
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 )
 
@@ -18,5 +17,4 @@ type wgIfaceBase interface {
 	IsUserspaceBind() bool
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
-	GetStats(peerKey string) (configurer.WGStats, error)
 }
