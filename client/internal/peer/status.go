@@ -178,8 +178,7 @@ type Status struct {
 
 	ingressGwMgr *ingressgw.Manager
 
-	resIdMux sync.Mutex
-	resIdMap map[netip.Prefix]string
+	routeIDLookup routeIDLookup
 }
 
 // NewRecorder returns a new Status instance
@@ -331,9 +330,8 @@ func (d *Status) AddPeerStateRoute(peer string, route string, resourceId string)
 	if err != nil {
 		log.Errorf("failed to parse prefix %s: %v", route, err)
 	} else {
-		d.resIdMux.Lock()
-		d.resIdMap[pref] = resourceId
-		d.resIdMux.Unlock()
+
+		d.routeIDLookup.AddRemoteRouteID(resourceId, pref)
 	}
 
 	// todo: consider to make sense of this notification or not
@@ -357,9 +355,7 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 	if err != nil {
 		log.Errorf("failed to parse prefix %s: %v", route, err)
 	} else {
-		d.resIdMux.Lock()
-		delete(d.resIdMap, pref)
-		d.resIdMux.Unlock()
+		d.routeIDLookup.RemoveRemoteRouteID(pref)
 	}
 
 	// todo: consider to make sense of this notification or not
@@ -374,24 +370,7 @@ func (d *Status) CheckRoutes(src, dst netip.Addr, direction nftypes.Direction) (
 		return
 	}
 
-	d.mux.Lock()
-	d.resIdMux.Lock()
-	defer d.resIdMux.Unlock()
-	defer d.mux.Unlock()
-
-	for route, resId := range d.resIdMap {
-		if route.Contains(src) {
-			srcResId = resId
-		} else if route.Contains(dst) {
-			dstResId = resId
-		}
-
-		if srcResId != "" && dstResId != "" {
-			break
-		}
-	}
-
-	return
+	return d.routeIDLookup.Lookup(src, dst, direction)
 }
 
 func (d *Status) UpdatePeerICEState(receivedState State) error {
@@ -607,6 +586,50 @@ func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 	d.notifyAddressChanged()
 }
 
+// AddLocalPeerStateRoute adds a route to the local peer state
+func (d *Status) AddLocalPeerStateRoute(route, resourceId string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	pref, err := netip.ParsePrefix(route)
+	if err != nil {
+		log.Errorf("failed to parse prefix %s: %v", route, err)
+		return
+	}
+
+	if d.localPeer.Routes == nil {
+		d.localPeer.Routes = map[string]struct{}{}
+	}
+
+	d.localPeer.Routes[route] = struct{}{}
+
+	d.routeIDLookup.AddLocalRouteID(resourceId, pref)
+}
+
+// RemoveLocalPeerStateRoute removes a route from the local peer state
+func (d *Status) RemoveLocalPeerStateRoute(route, resourceId string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	pref, err := netip.ParsePrefix(route)
+	if err != nil {
+		log.Errorf("failed to parse prefix %s: %v", route, err)
+		return
+	}
+
+	delete(d.localPeer.Routes, route)
+
+	d.routeIDLookup.RemoveLocalRouteID(pref)
+}
+
+// CleanLocalPeerStateRoutes cleans all routes from the local peer state
+func (d *Status) CleanLocalPeerStateRoutes() {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	d.localPeer.Routes = map[string]struct{}{}
+}
+
 // CleanLocalPeerState cleans local peer status
 func (d *Status) CleanLocalPeerState() {
 	d.mux.Lock()
@@ -700,11 +723,9 @@ func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resol
 		ParentDomain: originalDomain,
 	}
 
-	d.resIdMux.Lock()
 	for _, prefix := range prefixes {
-		d.resIdMap[prefix] = resourceId
+		d.routeIDLookup.AddResolvedIP(resourceId, prefix)
 	}
-	d.resIdMux.Unlock()
 }
 
 func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
@@ -716,11 +737,9 @@ func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
 		if v.ParentDomain == domain {
 			delete(d.resolvedDomainsStates, k)
 
-			d.resIdMux.Lock()
 			for _, prefix := range v.Prefixes {
-				delete(d.resIdMap, prefix)
+				d.routeIDLookup.RemoveResolvedIP(prefix)
 			}
-			d.resIdMux.Unlock()
 		}
 	}
 }
