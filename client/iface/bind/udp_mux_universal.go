@@ -165,8 +165,8 @@ func (u *udpConn) performFilterCheck(addr net.Addr) error {
 	}
 
 	if u.address.Network.Contains(a.AsSlice()) {
-		log.Warnf("Address %s is part of the wireguard network %s, refusing to write", addr, u.address)
-		return fmt.Errorf("address %s is part of the wireguard network %s, refusing to write", addr, u.address)
+		log.Warnf("Address %s is part of the NetBird network %s, refusing to write", addr, u.address)
+		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}
 
 	if isRouted, prefix, err := u.filterFn(a); err != nil {
