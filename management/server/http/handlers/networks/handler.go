@@ -289,7 +289,7 @@ func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, ne
 }
 
 func (h *handler) generateNetworkResponse(networks []*types.Network, routers map[string][]*routerTypes.NetworkRouter, resourceIDs map[string][]string, groups map[string]*nbtypes.Group, account *nbtypes.Account) []*api.Network {
-	networkResponse := make([]*api.Network, len(networks))
+	networkResponse := make([]*api.Network, 0, len(networks))
 	for _, network := range networks {
 		routerIDs, peerCounter := getRouterIDs(network, routers, groups)
 		policyIDs := account.GetPoliciesAppliedInNetwork(network.ID)
