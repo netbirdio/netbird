@@ -19,10 +19,10 @@ import (
 
 // handler is a handler that returns users of the account
 type handler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	userHandler := newHandler(accountManager)
 	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.updateUser).Methods("PUT", "OPTIONS")
@@ -33,7 +33,7 @@ func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
 }
 
 // newHandler creates a new UsersHandler HTTP handler
-func newHandler(accountManager account.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}

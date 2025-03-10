@@ -12,13 +12,13 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
-	"github.com/netbirdio/management-integrations/integrations"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -35,7 +35,7 @@ import (
 
 // GRPCServer an instance of a Management gRPC API server
 type GRPCServer struct {
-	accountManager  account.AccountManager
+	accountManager  account.Manager
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
@@ -52,7 +52,7 @@ type GRPCServer struct {
 func NewServer(
 	ctx context.Context,
 	config *Config,
-	accountManager account.AccountManager,
+	accountManager account.Manager,
 	settingsManager settings.Manager,
 	peersUpdateManager *PeersUpdateManager,
 	secretsManager SecretsManager,
@@ -460,7 +460,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, account.PeerLogin{
+	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
 		Meta:            extractPeerMeta(ctx, loginReq.GetMeta()),
@@ -605,7 +605,7 @@ func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, 
 		Relay: relayCfg,
 	}
 
-	integrations.ExtendNetBirdConfig(nbConfig, extraSettings)
+	integrationsConfig.ExtendNetBirdConfig(nbConfig, extraSettings)
 
 	return nbConfig
 }

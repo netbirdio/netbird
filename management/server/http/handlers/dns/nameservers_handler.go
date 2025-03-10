@@ -18,10 +18,10 @@ import (
 
 // nameserversHandler is the nameserver group handler of the account
 type nameserversHandler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func addDNSNameserversEndpoint(accountManager account.AccountManager, router *mux.Router) {
+func addDNSNameserversEndpoint(accountManager account.Manager, router *mux.Router) {
 	nameserversHandler := newNameserversHandler(accountManager)
 	router.HandleFunc("/dns/nameservers", nameserversHandler.getAllNameservers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/dns/nameservers", nameserversHandler.createNameserverGroup).Methods("POST", "OPTIONS")
@@ -31,7 +31,7 @@ func addDNSNameserversEndpoint(accountManager account.AccountManager, router *mu
 }
 
 // newNameserversHandler returns a new instance of nameserversHandler handler
-func newNameserversHandler(accountManager account.AccountManager) *nameserversHandler {
+func newNameserversHandler(accountManager account.Manager) *nameserversHandler {
 	return &nameserversHandler{accountManager: accountManager}
 }
 
