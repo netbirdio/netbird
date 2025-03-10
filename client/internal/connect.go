@@ -61,7 +61,7 @@ func NewConnectClient(
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run(runningChan chan error) error {
+func (c *ConnectClient) Run(runningChan chan struct{}) error {
 	return c.run(MobileDependency{}, runningChan)
 }
 
@@ -102,7 +102,7 @@ func (c *ConnectClient) RunOniOS(
 	return c.run(mobileDependency, nil)
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan error) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -159,7 +159,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	}
 
 	defer c.statusRecorder.ClientStop()
-	runningChanOpen := true
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		if c.isContextCancelled() {
@@ -282,10 +281,11 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
-		if runningChan != nil && runningChanOpen {
-			runningChan <- nil
-			close(runningChan)
-			runningChanOpen = false
+		if runningChan != nil {
+			select {
+			case runningChan <- struct{}{}:
+			default:
+			}
 		}
 
 		<-engineCtx.Done()
