@@ -147,6 +147,7 @@ type AccountManager interface {
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
 	CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error)
+	UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error)
 }
 
 type DefaultAccountManager struct {
@@ -1695,6 +1696,9 @@ func separateGroups(autoGroups []string, allGroups []*types.Group) ([]string, ma
 // Creates account by private domain.
 // Expects domain value to be a valid and a private dns domain.
 func (am *DefaultAccountManager) CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error) {
+	cancel := am.Store.AcquireGlobalLock(ctx)
+	defer cancel()
+
 	domain = strings.ToLower(domain)
 
 	count, err := am.Store.CountAccountsByPrivateDomain(ctx, domain)
@@ -1767,4 +1771,34 @@ func (am *DefaultAccountManager) CreateAccountByPrivateDomain(ctx context.Contex
 	}
 
 	return nil, status.Errorf(status.Internal, "failed to create new account by private domain")
+}
+
+func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
+	account, err := am.Store.GetAccount(ctx, accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	if account.IsDomainPrimaryAccount {
+		return account, nil
+	}
+
+	// additional check to ensure there is only one account for this domain at the time of update
+	count, err := am.Store.CountAccountsByPrivateDomain(ctx, account.Domain)
+	if err != nil {
+		return nil, err
+	}
+
+	if count > 1 {
+		return nil, status.Errorf(status.Internal, "more than one account exists with the same private domain")
+	}
+
+	account.IsDomainPrimaryAccount = true
+
+	if err := am.Store.SaveAccount(ctx, account); err != nil {
+		log.WithContext(ctx).Errorf("failed to update primary account %s by private domain: %v", account.Id, err)
+		return nil, err
+	}
+
+	return account, nil
 }

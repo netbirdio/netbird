@@ -111,6 +111,7 @@ type MockAccountManager struct {
 	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
 	BuildUserInfosForAccountFunc        func(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
+	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -845,4 +846,11 @@ func (am *MockAccountManager) CreateAccountByPrivateDomain(ctx context.Context, 
 		return am.CreateAccountByPrivateDomainFunc(ctx, initiatorId, domain)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateAccountByPrivateDomain is not implemented")
+}
+
+func (am *MockAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
+	if am.UpdateToPrimaryAccountFunc != nil {
+		return am.UpdateToPrimaryAccountFunc(ctx, accountId)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateToPrimaryAccount is not implemented")
 }

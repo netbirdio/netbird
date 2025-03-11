@@ -3161,3 +3161,24 @@ func Test_CreateAccountByPrivateDomain(t *testing.T) {
 	_, err = manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
 	assert.Error(t, err)
 }
+
+func Test_UpdateToPrimaryAccount(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx := context.Background()
+	initiatorId := "test-user"
+	domain := "example.com"
+
+	account, err := manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.NoError(t, err)
+	assert.False(t, account.IsDomainPrimaryAccount)
+
+	// retry should fail
+	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	assert.NoError(t, err)
+	assert.True(t, account.IsDomainPrimaryAccount)
+}
