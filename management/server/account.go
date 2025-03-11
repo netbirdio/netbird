@@ -513,11 +513,6 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return err
 	}
 
-	// @note not necessary, below it explicitly checks for Owner role
-	// if !user.HasAdminPower() {
-	// 	return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
-	// }
-
 	if user.Role != types.UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
@@ -1067,9 +1062,8 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return accountID, user.Id, nil
 	}
 
-	// @note, this can remain cause above we explicitly early return if auth id for a child account
-	if user.AccountID != accountID {
-		return "", "", status.Errorf(status.PermissionDenied, "user %s is not part of the account %s", userAuth.UserId, accountID)
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return "", "", err
 	}
 
 	if !user.IsServiceUser && userAuth.Invited {
