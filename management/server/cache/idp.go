@@ -3,13 +3,13 @@ package cache
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/marshaler"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 )
@@ -102,11 +102,22 @@ func (i *IDPCacheLoadable) Get(ctx context.Context, key string) ([]*idp.UserData
 	if err != nil {
 		return nil, err
 	}
-	if reflect.TypeOf(v) == reflect.TypeOf([]*idp.UserData{}) {
-		return v.([]*idp.UserData), nil
+
+	switch v := v.(type) {
+	case []*idp.UserData:
+		return v, nil
+	case *[]*idp.UserData:
+		return *v, nil
+	case []byte:
+		returnObj := &[]*idp.UserData{}
+		err = msgpack.Unmarshal(v, returnObj)
+		if err != nil {
+			return nil, err
+		}
+		return *returnObj, nil
 	}
-	data := v.(*[]*idp.UserData)
-	return *data, nil
+
+	return nil, fmt.Errorf("unexpected type: %T", v)
 }
 
 func (i *IDPCacheLoadable) Set(ctx context.Context, key string, value []*idp.UserData, expiration time.Duration) error {

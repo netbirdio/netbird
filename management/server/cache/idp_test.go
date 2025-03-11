@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
 	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -49,7 +50,7 @@ func TestNewIDPCacheManagers(t *testing.T) {
 				t.Fatalf("couldn't create cache store: %s", err)
 			}
 
-			//simple, loadable := cache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](loader, cacheStore)
+			// simple, loadable := cache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](loader, cacheStore)
 
 			simple := cache.NewIDPCache(cacheStore)
 			loadable := cache.NewIDPLoadableCache(loader, cacheStore)
@@ -57,7 +58,7 @@ func TestNewIDPCacheManagers(t *testing.T) {
 			ctx := context.Background()
 			value := &idp.UserData{ID: "v", Name: "vv"}
 			err = simple.Set(ctx, "key1", value, time.Minute)
-			//err = simple.Set(ctx, "key1", value, store.WithExpiration(time.Minute))
+			// err = simple.Set(ctx, "key1", value, store.WithExpiration(time.Minute))
 			if err != nil {
 				t.Errorf("couldn't set testing data: %s", err)
 			}
@@ -92,7 +93,7 @@ func TestNewIDPCacheManagers(t *testing.T) {
 				{ID: "v4", Name: "v4v4"},
 			}
 			err = loadable.Set(ctx, "key2", values, time.Minute)
-			//err = loadable.Set(ctx, "key2", values, store.WithExpiration(time.Minute))
+			// err = loadable.Set(ctx, "key2", values, store.WithExpiration(time.Minute))
 
 			if err != nil {
 				t.Errorf("couldn't set testing data: %s", err)
@@ -149,7 +150,11 @@ var loadData = []*idp.UserData{
 }
 
 func loader(ctx context.Context, key any) (any, []store.Option, error) {
-	return loadData, nil, nil
+	bytes, err := msgpack.Marshal(loadData)
+	if err != nil {
+		return nil, nil, err
+	}
+	return bytes, nil, nil
 }
 
 func loader2(ctx context.Context, key any) (any, []store.Option, error) {
