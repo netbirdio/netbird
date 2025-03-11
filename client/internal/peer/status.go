@@ -607,7 +607,7 @@ func (d *Status) AddLocalPeerStateRoute(route, resourceId string) {
 }
 
 // RemoveLocalPeerStateRoute removes a route from the local peer state
-func (d *Status) RemoveLocalPeerStateRoute(route, resourceId string) {
+func (d *Status) RemoveLocalPeerStateRoute(route string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
