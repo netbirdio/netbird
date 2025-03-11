@@ -38,25 +38,35 @@ func (r *routeIDLookup) RemoveRemoteRouteID(route netip.Prefix) {
 }
 
 func (r *routeIDLookup) AddResolvedIP(resourceID string, route netip.Prefix) {
-	r.resolvedIPs.Store(route, resourceID)
+
+	r.resolvedIPs.Store(route.Addr(), resourceID)
 }
 
 func (r *routeIDLookup) RemoveResolvedIP(route netip.Prefix) {
-	r.resolvedIPs.Delete(route)
+	r.resolvedIPs.Delete(route.Addr())
 }
 
 func (r *routeIDLookup) Lookup(src, dst netip.Addr, direction nftypes.Direction) (srcResourceID, dstResourceID string) {
 
-	// TODO: check resolved ip's first
+	// check resolved ip's first
+	resId, ok := r.resolvedIPs.Load(src)
+	if ok {
+		srcResourceID = resId.(string)
+	} else {
+		resId, ok := r.resolvedIPs.Load(dst)
+		if ok {
+			dstResourceID = resId.(string)
+		}
+	}
 
 	switch direction {
 	case nftypes.Ingress:
 		if srcResourceID == "" || dstResourceID == "" {
-			r.remoteMap.Range(func(key, value interface{}) bool {
-				if key.(netip.Prefix).Contains(src) {
+			r.localMap.Range(func(key, value interface{}) bool {
+				if srcResourceID == "" && key.(netip.Prefix).Contains(src) {
 					srcResourceID = value.(string)
 
-				} else if key.(netip.Prefix).Contains(dst) {
+				} else if dstResourceID == "" && key.(netip.Prefix).Contains(dst) {
 					dstResourceID = value.(string)
 				}
 
@@ -69,11 +79,11 @@ func (r *routeIDLookup) Lookup(src, dst netip.Addr, direction nftypes.Direction)
 		}
 	case nftypes.Egress:
 		if srcResourceID == "" || dstResourceID == "" {
-			r.localMap.Range(func(key, value interface{}) bool {
-				if key.(netip.Prefix).Contains(src) {
+			r.remoteMap.Range(func(key, value interface{}) bool {
+				if srcResourceID == "" && key.(netip.Prefix).Contains(src) {
 					srcResourceID = value.(string)
 
-				} else if key.(netip.Prefix).Contains(dst) {
+				} else if dstResourceID == "" && key.(netip.Prefix).Contains(dst) {
 					dstResourceID = value.(string)
 				}
 
