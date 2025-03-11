@@ -84,11 +84,14 @@ func (l *Logger) startReceiver() {
 				Timestamp:   time.Now(),
 			}
 			resId := l.statusRecorder.CheckRoutes(event.SourceIP, event.DestIP, event.Direction)
-			if event.Direction == types.Ingress {
-				event.SourceResourceID = []byte(resId)
-			} else {
-				event.DestResourceID = []byte(resId)
+			if resId != "" {
+				if event.Direction == types.Ingress {
+					event.SourceResourceID = []byte(resId)
+				} else {
+					event.DestResourceID = []byte(resId)
+				}
 			}
+
 			l.Store.StoreEvent(&event)
 		}
 	}
