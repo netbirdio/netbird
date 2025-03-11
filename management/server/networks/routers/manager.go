@@ -29,13 +29,13 @@ type Manager interface {
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
-	accountManager     account.AccountManager
+	accountManager     account.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager account.AccountManager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,

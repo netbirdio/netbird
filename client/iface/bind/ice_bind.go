@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/pion/stun/v2"
@@ -14,6 +13,8 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	wgConn "golang.zx2c4.com/wireguard/conn"
+
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type RecvMessage struct {
@@ -52,9 +53,10 @@ type ICEBind struct {
 
 	muUDPMux sync.Mutex
 	udpMux   *UniversalUDPMuxDefault
+	address  wgaddr.Address
 }
 
-func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
+func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:   b,
@@ -64,6 +66,7 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
 		endpoints:    make(map[netip.Addr]net.Conn),
 		closedChan:   make(chan struct{}),
 		closed:       true,
+		address:      address,
 	}
 
 	rc := receiverCreator{
@@ -108,35 +111,17 @@ func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 	return s.udpMux, nil
 }
 
-func (b *ICEBind) SetEndpoint(peerAddress *net.UDPAddr, conn net.Conn) (*net.UDPAddr, error) {
-	fakeUDPAddr, err := fakeAddress(peerAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	// force IPv4
-	fakeAddr, ok := netip.AddrFromSlice(fakeUDPAddr.IP.To4())
-	if !ok {
-		return nil, fmt.Errorf("failed to convert IP to netip.Addr")
-	}
-
+func (b *ICEBind) SetEndpoint(fakeIP netip.Addr, conn net.Conn) {
 	b.endpointsMu.Lock()
-	b.endpoints[fakeAddr] = conn
+	b.endpoints[fakeIP] = conn
 	b.endpointsMu.Unlock()
-
-	return fakeUDPAddr, nil
 }
 
-func (b *ICEBind) RemoveEndpoint(fakeUDPAddr *net.UDPAddr) {
-	fakeAddr, ok := netip.AddrFromSlice(fakeUDPAddr.IP.To4())
-	if !ok {
-		log.Warnf("failed to convert IP to netip.Addr")
-		return
-	}
-
+func (b *ICEBind) RemoveEndpoint(fakeIP netip.Addr) {
 	b.endpointsMu.Lock()
 	defer b.endpointsMu.Unlock()
-	delete(b.endpoints, fakeAddr)
+
+	delete(b.endpoints, fakeIP)
 }
 
 func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
@@ -161,9 +146,10 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 
 	s.udpMux = NewUniversalUDPMuxDefault(
 		UniversalUDPMuxParams{
-			UDPConn:  conn,
-			Net:      s.transportNet,
-			FilterFn: s.filterFn,
+			UDPConn:   conn,
+			Net:       s.transportNet,
+			FilterFn:  s.filterFn,
+			WGAddress: s.address,
 		},
 	)
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
@@ -273,21 +259,6 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 		eps[0] = wgConn.Endpoint(msg.Endpoint)
 		return 1, nil
 	}
-}
-
-// fakeAddress returns a fake address that is used to as an identifier for the peer.
-// The fake address is in the format of 127.1.x.x where x.x is the last two octets of the peer address.
-func fakeAddress(peerAddress *net.UDPAddr) (*net.UDPAddr, error) {
-	octets := strings.Split(peerAddress.IP.String(), ".")
-	if len(octets) != 4 {
-		return nil, fmt.Errorf("invalid IP format")
-	}
-
-	newAddr := &net.UDPAddr{
-		IP:   net.ParseIP(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3])),
-		Port: peerAddress.Port,
-	}
-	return newAddr, nil
 }
 
 func getMessages(msgsPool *sync.Pool) *[]ipv6.Message {

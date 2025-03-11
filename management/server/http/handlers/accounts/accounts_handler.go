@@ -18,11 +18,11 @@ import (
 
 // handler is a handler that handles the server.Account HTTP endpoints
 type handler struct {
-	accountManager  account.AccountManager
+	accountManager  account.Manager
 	settingsManager settings.Manager
 }
 
-func AddEndpoints(accountManager account.AccountManager, settingsManager settings.Manager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
 	accountsHandler := newHandler(accountManager, settingsManager)
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
@@ -30,7 +30,7 @@ func AddEndpoints(accountManager account.AccountManager, settingsManager setting
 }
 
 // newHandler creates a new handler HTTP handler
-func newHandler(accountManager account.AccountManager, settingsManager settings.Manager) *handler {
+func newHandler(accountManager account.Manager, settingsManager settings.Manager) *handler {
 	return &handler{
 		accountManager:  accountManager,
 		settingsManager: settingsManager,

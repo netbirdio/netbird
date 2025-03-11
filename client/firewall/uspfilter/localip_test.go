@@ -7,19 +7,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 func TestLocalIPManager(t *testing.T) {
 	tests := []struct {
 		name      string
-		setupAddr iface.WGAddress
+		setupAddr wgaddr.Address
 		testIP    netip.Addr
 		expected  bool
 	}{
 		{
 			name: "Localhost range",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
@@ -31,7 +31,7 @@ func TestLocalIPManager(t *testing.T) {
 		},
 		{
 			name: "Localhost standard address",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
@@ -43,7 +43,7 @@ func TestLocalIPManager(t *testing.T) {
 		},
 		{
 			name: "Localhost range edge",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
@@ -55,7 +55,7 @@ func TestLocalIPManager(t *testing.T) {
 		},
 		{
 			name: "Local IP matches",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
@@ -67,7 +67,7 @@ func TestLocalIPManager(t *testing.T) {
 		},
 		{
 			name: "Local IP doesn't match",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
@@ -79,7 +79,7 @@ func TestLocalIPManager(t *testing.T) {
 		},
 		{
 			name: "IPv6 address",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("fe80::1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("fe80::"),
@@ -96,7 +96,7 @@ func TestLocalIPManager(t *testing.T) {
 			manager := newLocalIPManager()
 
 			mock := &IFaceMock{
-				AddressFunc: func() iface.WGAddress {
+				AddressFunc: func() wgaddr.Address {
 					return tt.setupAddr
 				},
 			}

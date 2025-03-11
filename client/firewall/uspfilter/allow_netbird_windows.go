@@ -23,7 +23,7 @@ const (
 )
 
 // Reset firewall to the default state
-func (m *Manager) Reset(*statemanager.Manager) error {
+func (m *Manager) Close(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

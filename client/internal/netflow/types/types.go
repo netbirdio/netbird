@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type Protocol uint8
@@ -147,5 +147,5 @@ type ConnTracker interface {
 type IFaceMapper interface {
 	IsUserspaceBind() bool
 	Name() string
-	Address() device.WGAddress
+	Address() wgaddr.Address
 }

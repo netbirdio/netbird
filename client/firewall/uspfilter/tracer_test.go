@@ -10,8 +10,8 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 func verifyTraceStages(t *testing.T, trace *PacketTrace, expectedStages []PacketStage) {
@@ -36,8 +36,8 @@ func TestTracePacket(t *testing.T) {
 	setupTracerTest := func(statefulMode bool) *Manager {
 		ifaceMock := &IFaceMock{
 			SetFilterFunc: func(device.PacketFilter) error { return nil },
-			AddressFunc: func() iface.WGAddress {
-				return iface.WGAddress{
+			AddressFunc: func() wgaddr.Address {
+				return wgaddr.Address{
 					IP: net.ParseIP("100.10.0.100"),
 					Network: &net.IPNet{
 						IP:   net.ParseIP("100.10.0.0"),

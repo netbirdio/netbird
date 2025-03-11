@@ -3,6 +3,7 @@ package conntrack
 // TODO: Send RST packets for invalid/timed-out connections
 
 import (
+	"context"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -122,7 +123,7 @@ type TCPTracker struct {
 	connections   map[ConnKey]*TCPConnTrack
 	mutex         sync.RWMutex
 	cleanupTicker *time.Ticker
-	done          chan struct{}
+	tickerCancel  context.CancelFunc
 	timeout       time.Duration
 	flowLogger    nftypes.FlowLogger
 }
@@ -133,16 +134,18 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 		timeout = DefaultTCPTimeout
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	tracker := &TCPTracker{
 		logger:        logger,
 		connections:   make(map[ConnKey]*TCPConnTrack),
 		cleanupTicker: time.NewTicker(TCPCleanupInterval),
-		done:          make(chan struct{}),
+		tickerCancel:  cancel,
 		timeout:       timeout,
 		flowLogger:    flowLogger,
 	}
 
-	go tracker.cleanupRoutine()
+	go tracker.cleanupRoutine(ctx)
 	return tracker
 }
 
@@ -396,12 +399,14 @@ func (t *TCPTracker) isValidStateForFlags(state TCPState, flags uint8) bool {
 	return false
 }
 
-func (t *TCPTracker) cleanupRoutine() {
+func (t *TCPTracker) cleanupRoutine(ctx context.Context) {
+	defer t.cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-t.cleanupTicker.C:
 			t.cleanup()
-		case <-t.done:
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -444,8 +449,7 @@ func (t *TCPTracker) cleanup() {
 
 // Close stops the cleanup routine and releases resources
 func (t *TCPTracker) Close() {
-	t.cleanupTicker.Stop()
-	close(t.done)
+	t.tickerCancel()
 
 	// Clean up all remaining IPs
 	t.mutex.Lock()
