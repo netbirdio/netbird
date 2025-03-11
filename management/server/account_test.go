@@ -3134,3 +3134,30 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 		})
 	}
 }
+
+func Test_CreateAccountByPrivateDomain(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx := context.Background()
+	initiatorId := "test-user"
+	domain := "example.com"
+
+	account, err := manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.NoError(t, err)
+
+	assert.False(t, account.IsDomainPrimaryAccount)
+	assert.Equal(t, domain, account.Domain)
+	assert.Equal(t, types.PrivateCategory, account.DomainCategory)
+	assert.Equal(t, initiatorId, account.CreatedBy)
+	assert.Equal(t, 1, len(account.Groups))
+	assert.Equal(t, 0, len(account.Users))
+	assert.Equal(t, 0, len(account.SetupKeys))
+
+	// retry should fail
+	_, err = manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.Error(t, err)
+}

@@ -110,6 +110,7 @@ type MockAccountManager struct {
 	GetAccountSettingsFunc              func(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
 	BuildUserInfosForAccountFunc        func(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
+	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -837,4 +838,11 @@ func (am *MockAccountManager) BuildUserInfosForAccount(ctx context.Context, acco
 
 func (am *MockAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error {
 	return status.Errorf(codes.Unimplemented, "method SyncUserJWTGroups is not implemented")
+}
+
+func (am *MockAccountManager) CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error) {
+	if am.CreateAccountByPrivateDomainFunc != nil {
+		return am.CreateAccountByPrivateDomainFunc(ctx, initiatorId, domain)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method CreateAccountByPrivateDomain is not implemented")
 }
