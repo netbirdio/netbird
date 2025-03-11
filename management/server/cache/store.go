@@ -30,6 +30,9 @@ func getRedisStore(redisEnvAddr string) (store.StoreInterface, error) {
 		return nil, fmt.Errorf("parsing redis cache url: %s", err)
 	}
 
+	options.MaxIdleConns = 6
+	options.MinIdleConns = 3
+	options.MaxActiveConns = 100
 	redisClient := redis.NewClient(options)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
