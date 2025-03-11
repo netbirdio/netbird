@@ -347,7 +347,6 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, err
 	}
 
-	// @todo how to handle this case, PAT can only be created own user?
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return nil, status.NewAdminPermissionError()
 	}
@@ -381,7 +380,6 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 		return err
 	}
 
-	// @todo how to handle this case, PAT can only be deleted by own user?
 	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
 		return status.NewAdminPermissionError()
 	}
@@ -417,7 +415,6 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, err
 	}
 
-	// @todo how to handle this case, PAT can only be got by own user?
 	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
 		return nil, status.NewAdminPermissionError()
 	}
@@ -971,7 +968,9 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		return err
 	}
 
-	// @todo maybe add ValidateAccountPermission?
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return err
+	}
 
 	if !initiatorUser.HasAdminPower() {
 		return status.NewAdminPermissionError()
