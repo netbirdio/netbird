@@ -2186,7 +2186,8 @@ func (s *SqlStore) CountAccountsByPrivateDomain(ctx context.Context, domain stri
 			strings.ToLower(domain), types.PrivateCategory,
 		).Count(&count)
 	if result.Error != nil {
-		return 0, fmt.Errorf("failed to count accounts by private domain: %w", result.Error)
+		log.WithContext(ctx).Errorf("failed to count accounts by private domain %s: %s", domain, result.Error)
+		return 0, status.Errorf(status.Internal, "failed to count accounts by private domain")
 	}
 
 	return count, nil

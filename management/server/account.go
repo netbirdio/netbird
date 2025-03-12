@@ -1797,7 +1797,7 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 
 	if err := am.Store.SaveAccount(ctx, account); err != nil {
 		log.WithContext(ctx).Errorf("failed to update primary account %s by private domain: %v", account.Id, err)
-		return nil, err
+		return nil, status.Errorf(status.Internal, "failed to update primary account %s by private domain", account.Id)
 	}
 
 	return account, nil
