@@ -3,6 +3,7 @@ package iface
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
@@ -26,8 +28,6 @@ const (
 	DefaultWgPort      = 51820
 	WgInterfaceDefault = configurer.WgInterfaceDefault
 )
-
-type WGAddress = device.WGAddress
 
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
@@ -71,7 +71,7 @@ func (w *WGIface) Name() string {
 }
 
 // Address returns the interface address
-func (w *WGIface) Address() device.WGAddress {
+func (w *WGIface) Address() wgaddr.Address {
 	return w.tun.WgAddress()
 }
 
@@ -102,7 +102,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	addr, err := device.ParseWGAddress(newAddr)
+	addr, err := wgaddr.ParseWGAddress(newAddr)
 	if err != nil {
 		return err
 	}
@@ -112,12 +112,13 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
-func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	netIPNets := prefixesToIPNets(allowedIps)
 	log.Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
-	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+	return w.configurer.UpdatePeer(peerKey, netIPNets, keepAlive, endpoint, preSharedKey)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface
@@ -249,4 +250,15 @@ func (w *WGIface) GetNet() *netstack.Net {
 	defer w.mu.Unlock()
 
 	return w.tun.GetNet()
+}
+
+func prefixesToIPNets(prefixes []netip.Prefix) []net.IPNet {
+	ipNets := make([]net.IPNet, len(prefixes))
+	for i, prefix := range prefixes {
+		ipNets[i] = net.IPNet{
+			IP:   net.IP(prefix.Addr().AsSlice()),                     // Convert netip.Addr to net.IP
+			Mask: net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen()), // Create subnet mask
+		}
+	}
+	return ipNets
 }

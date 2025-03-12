@@ -38,7 +38,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 			// need fw manager to init both acl mgr and router for all chains to be present
 			manager, err := Create(ifaceMock)
 			t.Cleanup(func() {
-				require.NoError(t, manager.Reset(nil))
+				require.NoError(t, manager.Close(nil))
 			})
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
@@ -127,7 +127,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			manager, err := Create(ifaceMock)
 			t.Cleanup(func() {
-				require.NoError(t, manager.Reset(nil))
+				require.NoError(t, manager.Close(nil))
 			})
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
@@ -319,7 +319,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			})
 
 			// Check if the rule is in the internal map
-			rule, ok := r.rules[ruleKey.GetRuleID()]
+			rule, ok := r.rules[ruleKey.ID()]
 			assert.True(t, ok, "Rule not found in internal map")
 
 			t.Log("Internal rule expressions:")
@@ -336,7 +336,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 			var nftRule *nftables.Rule
 			for _, rule := range rules {
-				if string(rule.UserData) == ruleKey.GetRuleID() {
+				if string(rule.UserData) == ruleKey.ID() {
 					nftRule = rule
 					break
 				}
@@ -595,16 +595,20 @@ func containsPort(exprs []expr.Any, port *firewall.Port, isSource bool) bool {
 			if ex.Base == expr.PayloadBaseTransportHeader && ex.Offset == offset && ex.Len == 2 {
 				payloadFound = true
 			}
-		case *expr.Cmp:
-			if port.IsRange {
-				if ex.Op == expr.CmpOpGte || ex.Op == expr.CmpOpLte {
+		case *expr.Range:
+			if port.IsRange && len(port.Values) == 2 {
+				fromPort := binary.BigEndian.Uint16(ex.FromData)
+				toPort := binary.BigEndian.Uint16(ex.ToData)
+				if fromPort == port.Values[0] && toPort == port.Values[1] {
 					portMatchFound = true
 				}
-			} else {
+			}
+		case *expr.Cmp:
+			if !port.IsRange {
 				if ex.Op == expr.CmpOpEq && len(ex.Data) == 2 {
 					portValue := binary.BigEndian.Uint16(ex.Data)
 					for _, p := range port.Values {
-						if uint16(p) == portValue {
+						if p == portValue {
 							portMatchFound = true
 							break
 						}

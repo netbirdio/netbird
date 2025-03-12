@@ -8,6 +8,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type wgLink struct {
@@ -90,7 +92,7 @@ func (l *wgLink) up() error {
 	return nil
 }
 
-func (l *wgLink) assignAddr(address WGAddress) error {
+func (l *wgLink) assignAddr(address wgaddr.Address) error {
 	//delete existing addresses
 	list, err := netlink.AddrList(l, 0)
 	if err != nil {

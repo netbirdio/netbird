@@ -13,7 +13,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -31,7 +31,7 @@ type Manager struct {
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string
-	Address() iface.WGAddress
+	Address() wgaddr.Address
 	IsUserspaceBind() bool
 }
 
@@ -52,7 +52,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		return nil, fmt.Errorf("create router: %w", err)
 	}
 
-	m.aclMgr, err = newAclManager(iptablesClient, wgIface, chainRTFWD)
+	m.aclMgr, err = newAclManager(iptablesClient, wgIface)
 	if err != nil {
 		return nil, fmt.Errorf("create acl manager: %w", err)
 	}
@@ -166,7 +166,7 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 }
 
 // Reset firewall to the default state
-func (m *Manager) Reset(stateManager *statemanager.Manager) error {
+func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -224,6 +224,22 @@ func (m *Manager) EnableRouting() error {
 
 func (m *Manager) DisableRouting() error {
 	return nil
+}
+
+// AddDNATRule adds a DNAT rule
+func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddDNATRule(rule)
+}
+
+// DeleteDNATRule deletes a DNAT rule
+func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.DeleteDNATRule(rule)
 }
 
 func getConntrackEstablished() []string {

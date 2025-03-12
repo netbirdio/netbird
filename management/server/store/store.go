@@ -120,7 +120,7 @@ type Store interface {
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, lockStrength LockingStrength, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
@@ -355,12 +355,23 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
-	err = addAllGroupToAccount(ctx, store)
+  	err = addAllGroupToAccount(ctx, store)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
-	return getSqlStoreEngine(ctx, store, kind)
+  
+	maxRetries := 2
+	for i := 0; i < maxRetries; i++ {
+		sqlStore, cleanUp, err := getSqlStoreEngine(ctx, store, kind)
+		if err == nil {
+			return sqlStore, cleanUp, nil
+		}
+		if i < maxRetries-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
 }
 
 func addAllGroupToAccount(ctx context.Context, store Store) error {

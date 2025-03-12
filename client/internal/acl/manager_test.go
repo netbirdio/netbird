@@ -8,7 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
@@ -45,7 +45,7 @@ func TestDefaultManager(t *testing.T) {
 	}
 
 	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
-	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
+	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
 		IP:      ip,
 		Network: network,
 	}).AnyTimes()
@@ -58,7 +58,7 @@ func TestDefaultManager(t *testing.T) {
 		return
 	}
 	defer func(fw manager.Manager) {
-		_ = fw.Reset(nil)
+		_ = fw.Close(nil)
 	}(fw)
 	acl := NewDefaultManager(fw)
 
@@ -74,7 +74,7 @@ func TestDefaultManager(t *testing.T) {
 	t.Run("add extra rules", func(t *testing.T) {
 		existedPairs := map[string]struct{}{}
 		for id := range acl.peerRulesPairs {
-			existedPairs[id.GetRuleID()] = struct{}{}
+			existedPairs[id.ID()] = struct{}{}
 		}
 
 		// remove first rule
@@ -100,7 +100,7 @@ func TestDefaultManager(t *testing.T) {
 		// check that old rule was removed
 		previousCount := 0
 		for id := range acl.peerRulesPairs {
-			if _, ok := existedPairs[id.GetRuleID()]; ok {
+			if _, ok := existedPairs[id.ID()]; ok {
 				previousCount++
 			}
 		}
@@ -339,7 +339,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	}
 
 	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
-	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
+	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
 		IP:      ip,
 		Network: network,
 	}).AnyTimes()
@@ -352,7 +352,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 		return
 	}
 	defer func(fw manager.Manager) {
-		_ = fw.Reset(nil)
+		_ = fw.Close(nil)
 	}(fw)
 	acl := NewDefaultManager(fw)
 

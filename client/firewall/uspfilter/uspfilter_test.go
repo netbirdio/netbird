@@ -16,15 +16,15 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
 
 type IFaceMock struct {
 	SetFilterFunc   func(device.PacketFilter) error
-	AddressFunc     func() iface.WGAddress
+	AddressFunc     func() wgaddr.Address
 	GetWGDeviceFunc func() *wgdevice.Device
 	GetDeviceFunc   func() *device.FilteredDevice
 }
@@ -50,9 +50,9 @@ func (i *IFaceMock) SetFilter(iface device.PacketFilter) error {
 	return i.SetFilterFunc(iface)
 }
 
-func (i *IFaceMock) Address() iface.WGAddress {
+func (i *IFaceMock) Address() wgaddr.Address {
 	if i.AddressFunc == nil {
-		return iface.WGAddress{}
+		return wgaddr.Address{}
 	}
 	return i.AddressFunc()
 }
@@ -135,7 +135,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip.String()][r.GetRuleID()]; !ok {
+		if _, ok := m.incomingRules[ip.String()][r.ID()]; !ok {
 			t.Errorf("rule2 is not in the incomingRules")
 		}
 	}
@@ -149,7 +149,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip.String()][r.GetRuleID()]; ok {
+		if _, ok := m.incomingRules[ip.String()][r.ID()]; ok {
 			t.Errorf("rule2 is not in the incomingRules")
 		}
 	}
@@ -254,7 +254,7 @@ func TestManagerReset(t *testing.T) {
 		return
 	}
 
-	err = m.Reset(nil)
+	err = m.Close(nil)
 	if err != nil {
 		t.Errorf("failed to reset Manager: %v", err)
 		return
@@ -268,8 +268,8 @@ func TestManagerReset(t *testing.T) {
 func TestNotMatchByIP(t *testing.T) {
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("100.10.0.100"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("100.10.0.0"),
@@ -333,7 +333,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if err = m.Reset(nil); err != nil {
+	if err = m.Close(nil); err != nil {
 		t.Errorf("failed to reset Manager: %v", err)
 		return
 	}
@@ -352,7 +352,7 @@ func TestRemovePacketHook(t *testing.T) {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
 	defer func() {
-		require.NoError(t, manager.Reset(nil))
+		require.NoError(t, manager.Close(nil))
 	}()
 
 	// Add a UDP packet hook
@@ -403,7 +403,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	manager.udpTracker.Close()
 	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger)
 	defer func() {
-		require.NoError(t, manager.Reset(nil))
+		require.NoError(t, manager.Close(nil))
 	}()
 
 	manager.decoders = sync.Pool{
@@ -484,7 +484,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			time.Sleep(time.Second)
 
 			defer func() {
-				if err := manager.Reset(nil); err != nil {
+				if err := manager.Close(nil); err != nil {
 					t.Errorf("clear the manager state: %v", err)
 				}
 				time.Sleep(time.Second)
@@ -530,7 +530,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 		},
 	}
 	defer func() {
-		require.NoError(t, manager.Reset(nil))
+		require.NoError(t, manager.Close(nil))
 	}()
 
 	// Set up packet parameters

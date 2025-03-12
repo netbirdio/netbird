@@ -33,7 +33,7 @@ type MockAccountManager struct {
 	GetAccountIDByUserIdFunc            func(ctx context.Context, userId, domain string) (string, error)
 	GetUserFromUserAuthFunc             func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeersFunc                        func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
+	GetPeersFunc                        func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc               func(ctx context.Context, peerKey string, connected bool, realIP net.IP) error
 	SyncAndMarkPeerFunc                 func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	DeletePeerFunc                      func(ctx context.Context, accountID, peerKey, userID string) error
@@ -605,9 +605,9 @@ func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, user
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface
-func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	if am.GetPeersFunc != nil {
-		return am.GetPeersFunc(ctx, accountID, userID)
+		return am.GetPeersFunc(ctx, accountID, userID, nameFilter, ipFilter)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
 }

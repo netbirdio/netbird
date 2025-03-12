@@ -20,9 +20,10 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/formatter/hook"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -424,13 +425,13 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 
-	ctx := context.WithValue(context.Background(), formatter.ExecutionContextKey, formatter.SystemSource) //nolint:staticcheck
+	ctx := context.WithValue(context.Background(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
 	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MocIntegratedValidator{}, metrics)
+		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
 
 	if err != nil {
 		cleanup()

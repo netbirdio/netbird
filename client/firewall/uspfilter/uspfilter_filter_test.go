@@ -12,9 +12,9 @@ import (
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/mocks"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 func TestPeerACLFiltering(t *testing.T) {
@@ -26,8 +26,8 @@ func TestPeerACLFiltering(t *testing.T) {
 
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP:      localIP,
 				Network: wgNet,
 			}
@@ -39,7 +39,7 @@ func TestPeerACLFiltering(t *testing.T) {
 	require.NotNil(t, manager)
 
 	t.Cleanup(func() {
-		require.NoError(t, manager.Reset(nil))
+		require.NoError(t, manager.Close(nil))
 	})
 
 	manager.wgNetwork = wgNet
@@ -288,8 +288,8 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP:      localIP,
 				Network: wgNet,
 			}
@@ -310,7 +310,7 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 	require.False(tb, manager.nativeRouter)
 
 	tb.Cleanup(func() {
-		require.NoError(tb, manager.Reset(nil))
+		require.NoError(tb, manager.Close(nil))
 	})
 
 	return manager

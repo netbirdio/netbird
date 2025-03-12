@@ -1,7 +1,7 @@
 package peerstore
 
 import (
-	"net"
+	"net/netip"
 	"sync"
 
 	"golang.org/x/exp/maps"
@@ -46,24 +46,24 @@ func (s *Store) Remove(pubKey string) (*peer.Conn, bool) {
 	return p, true
 }
 
-func (s *Store) AllowedIPs(pubKey string) (string, bool) {
-	s.peerConnsMu.RLock()
-	defer s.peerConnsMu.RUnlock()
-
-	p, ok := s.peerConns[pubKey]
-	if !ok {
-		return "", false
-	}
-	return p.WgConfig().AllowedIps, true
-}
-
-func (s *Store) AllowedIP(pubKey string) (net.IP, bool) {
+func (s *Store) AllowedIPs(pubKey string) ([]netip.Prefix, bool) {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
 
 	p, ok := s.peerConns[pubKey]
 	if !ok {
 		return nil, false
+	}
+	return p.WgConfig().AllowedIps, true
+}
+
+func (s *Store) AllowedIP(pubKey string) (netip.Addr, bool) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return netip.Addr{}, false
 	}
 	return p.AllowedIP(), true
 }

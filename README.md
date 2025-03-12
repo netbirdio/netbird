@@ -1,7 +1,4 @@
 <div align="center">
-  <a href="https://netbird.io/webinars/achieve-zero-trust-access-to-k8s?utm_source=github&utm_campaign=2502%20-%20webinar%20-%20How%20to%20Achieve%20Zero%20Trust%20Access%20to%20Kubernetes%20-%20Effortlessly&utm_medium=github">
-    Webinar: How to Achieve Zero Trust Access to Kubernetes — Effortlessly
-  </a> 
 <br/>
   <br/>
 <p align="center">
@@ -15,7 +12,7 @@
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
      </a> 
     <br>
-    <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-2utg2ncdz-W7LEB6toRBLE1Jca37dYpg">
+    <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-31rofwmxc-27akKd0Le0vyRpBcwXkP0g">
         <img src="https://img.shields.io/badge/slack-@netbird-red.svg?logo=slack"/>
      </a>  
      <br>
@@ -32,10 +29,14 @@
   <br/>
   See <a href="https://netbird.io/docs/">Documentation</a>
   <br/>
-   Join our <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-2utg2ncdz-W7LEB6toRBLE1Jca37dYpg">Slack channel</a>
+   Join our <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-31rofwmxc-27akKd0Le0vyRpBcwXkP0g">Slack channel</a>
   <br/>
  
 </strong>
+<br>
+<a href="https://netbird.io/webinars/achieve-zero-trust-access-to-k8s?utm_source=github&utm_campaign=2502%20-%20webinar%20-%20How%20to%20Achieve%20Zero%20Trust%20Access%20to%20Kubernetes%20-%20Effortlessly&utm_medium=github">
+    Webinar: Securely Access Kubernetes without Port Forwarding and Jump Hosts
+  </a> 
 </p>
 
 <br>

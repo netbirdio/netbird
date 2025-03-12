@@ -8,10 +8,13 @@ import (
 
 	"github.com/c-robinson/iplib"
 	"github.com/rs/xid"
+	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/proto"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -33,6 +36,73 @@ type NetworkMap struct {
 	OfflinePeers        []*nbpeer.Peer
 	FirewallRules       []*FirewallRule
 	RoutesFirewallRules []*RouteFirewallRule
+	ForwardingRules     []*ForwardingRule
+}
+
+func (nm *NetworkMap) Merge(other *NetworkMap) {
+	nm.Peers = mergeUniquePeersByID(nm.Peers, other.Peers)
+	nm.Routes = util.MergeUnique(nm.Routes, other.Routes)
+	nm.OfflinePeers = mergeUniquePeersByID(nm.OfflinePeers, other.OfflinePeers)
+	nm.FirewallRules = util.MergeUnique(nm.FirewallRules, other.FirewallRules)
+	nm.RoutesFirewallRules = util.MergeUnique(nm.RoutesFirewallRules, other.RoutesFirewallRules)
+	nm.ForwardingRules = util.MergeUnique(nm.ForwardingRules, other.ForwardingRules)
+}
+
+func mergeUniquePeersByID(peers1, peers2 []*nbpeer.Peer) []*nbpeer.Peer {
+	result := make(map[string]*nbpeer.Peer)
+	for _, peer := range peers1 {
+		result[peer.ID] = peer
+	}
+	for _, peer := range peers2 {
+		if _, ok := result[peer.ID]; !ok {
+			result[peer.ID] = peer
+		}
+	}
+
+	return maps.Values(result)
+}
+
+type ForwardingRule struct {
+	RuleProtocol      string
+	DestinationPorts  RulePortRange
+	TranslatedAddress net.IP
+	TranslatedPorts   RulePortRange
+}
+
+func (f *ForwardingRule) ToProto() *proto.ForwardingRule {
+	var protocol proto.RuleProtocol
+	switch f.RuleProtocol {
+	case "icmp":
+		protocol = proto.RuleProtocol_ICMP
+	case "tcp":
+		protocol = proto.RuleProtocol_TCP
+	case "udp":
+		protocol = proto.RuleProtocol_UDP
+	case "all":
+		protocol = proto.RuleProtocol_ALL
+	default:
+		protocol = proto.RuleProtocol_UNKNOWN
+	}
+	return &proto.ForwardingRule{
+		Protocol:          protocol,
+		DestinationPort:   f.DestinationPorts.ToProto(),
+		TranslatedAddress: ipToBytes(f.TranslatedAddress),
+		TranslatedPort:    f.TranslatedPorts.ToProto(),
+	}
+}
+
+func (f *ForwardingRule) Equal(other *ForwardingRule) bool {
+	return f.RuleProtocol == other.RuleProtocol &&
+		f.DestinationPorts.Equal(&other.DestinationPorts) &&
+		f.TranslatedAddress.Equal(other.TranslatedAddress) &&
+		f.TranslatedPorts.Equal(&other.TranslatedPorts)
+}
+
+func ipToBytes(ip net.IP) []byte {
+	if ip4 := ip.To4(); ip4 != nil {
+		return ip4
+	}
+	return ip.To16()
 }
 
 type Network struct {

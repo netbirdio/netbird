@@ -3,7 +3,6 @@ package dnsinterceptor
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"strings"
 	"sync"
@@ -161,18 +160,24 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
+	// set the AuthenticatedData flag and the EDNS0 buffer size to 4096 bytes to support larger dns records
+	if r.Extra == nil {
+		r.SetEdns0(4096, false)
+		r.MsgHdr.AuthenticatedData = true
+	}
+
 	client := &dns.Client{
 		Timeout: 5 * time.Second,
 		Net:     "udp",
 	}
-	upstream := fmt.Sprintf("%s:%d", upstreamIP, dnsfwd.ListenPort)
+	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
 	reply, _, err := client.ExchangeContext(context.Background(), r, upstream)
 
 	var answer []dns.RR
 	if reply != nil {
 		answer = reply.Answer
 	}
-	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP, peerKey, r.Question[0].Name, answer)
+	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
 
 	if err != nil {
 		log.Errorf("failed to exchange DNS request with %s: %v", upstream, err)
@@ -201,10 +206,10 @@ func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg,
 	}
 }
 
-func (d *DnsInterceptor) getUpstreamIP(peerKey string) (net.IP, error) {
+func (d *DnsInterceptor) getUpstreamIP(peerKey string) (netip.Addr, error) {
 	peerAllowedIP, exists := d.peerStore.AllowedIP(peerKey)
 	if !exists {
-		return nil, fmt.Errorf("peer connection not found for key: %s", peerKey)
+		return netip.Addr{}, fmt.Errorf("peer connection not found for key: %s", peerKey)
 	}
 	return peerAllowedIP, nil
 }

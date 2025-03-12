@@ -61,7 +61,7 @@ type PeerLogin struct {
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
-func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return []*nbpeer.Peer{}, nil
 	}
 
-	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID)
+	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, nameFilter, ipFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -375,6 +375,10 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
+		if err = am.validatePeerDelete(ctx, accountID, peerID); err != nil {
+			return err
+		}
+
 		updateAccountPeers, err = isPeerInActiveGroup(ctx, transaction, accountID, peerID)
 		if err != nil {
 			return err
@@ -400,6 +404,9 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		return err
 	})
+	if err != nil {
+		return err
+	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
@@ -434,7 +441,21 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		return nil, err
 	}
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil), nil
+
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return nil, err
+	}
+
+	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+
+	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	if ok {
+		networkMap.Merge(proxyNetworkMap)
+	}
+
+	return networkMap, nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -1031,7 +1052,21 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics()), postureChecks, nil
+
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return nil, nil, nil, err
+	}
+
+	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
+
+	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	if ok {
+		networkMap.Merge(proxyNetworkMap)
+	}
+
+	return peer, networkMap, postureChecks, nil
 }
 
 func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transaction store.Store, user *types.User, peer *nbpeer.Peer) error {
@@ -1171,6 +1206,12 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return
+	}
+
 	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -1190,10 +1231,18 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			}
 
 			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+
+			proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
+			if ok {
+				remotePeerNetworkMap.Merge(proxyNetworkMap)
+			}
+
 			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 		}(peer)
 	}
+
+	//
 
 	wg.Wait()
 	if am.metrics != nil {
@@ -1238,7 +1287,19 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountId)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return
+	}
+
 	remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+
+	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	if ok {
+		remotePeerNetworkMap.Merge(proxyNetworkMap)
+	}
+
 	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled)
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
@@ -1467,4 +1528,18 @@ func ConvertSliceToMap(existingLabels []string) map[string]struct{} {
 		labelMap[label] = struct{}{}
 	}
 	return labelMap
+}
+
+// validatePeerDelete checks if the peer can be deleted.
+func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, accountId, peerId string) error {
+	linkedInIngressPorts, err := am.proxyController.IsPeerInIngressPorts(ctx, accountId, peerId)
+	if err != nil {
+		return err
+	}
+
+	if linkedInIngressPorts {
+		return status.Errorf(status.PreconditionFailed, "peer is linked to ingress ports: %s", peerId)
+	}
+
+	return nil
 }

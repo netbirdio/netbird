@@ -10,15 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 var ifaceMock = &iFaceMock{
 	NameFunc: func() string {
 		return "lo"
 	},
-	AddressFunc: func() iface.WGAddress {
-		return iface.WGAddress{
+	AddressFunc: func() wgaddr.Address {
+		return wgaddr.Address{
 			IP: net.ParseIP("10.20.0.1"),
 			Network: &net.IPNet{
 				IP:   net.ParseIP("10.20.0.0"),
@@ -31,7 +31,7 @@ var ifaceMock = &iFaceMock{
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMock struct {
 	NameFunc    func() string
-	AddressFunc func() iface.WGAddress
+	AddressFunc func() wgaddr.Address
 }
 
 func (i *iFaceMock) Name() string {
@@ -41,7 +41,7 @@ func (i *iFaceMock) Name() string {
 	panic("NameFunc is not set")
 }
 
-func (i *iFaceMock) Address() iface.WGAddress {
+func (i *iFaceMock) Address() wgaddr.Address {
 	if i.AddressFunc != nil {
 		return i.AddressFunc()
 	}
@@ -62,7 +62,7 @@ func TestIptablesManager(t *testing.T) {
 	time.Sleep(time.Second)
 
 	defer func() {
-		err := manager.Reset(nil)
+		err := manager.Close(nil)
 		require.NoError(t, err, "clear the manager state")
 
 		time.Sleep(time.Second)
@@ -100,14 +100,14 @@ func TestIptablesManager(t *testing.T) {
 		_, err = manager.AddPeerFiltering(ip, "udp", nil, port, fw.ActionAccept, "", "accept Fake DNS traffic")
 		require.NoError(t, err, "failed to add rule")
 
-		err = manager.Reset(nil)
+		err = manager.Close(nil)
 		require.NoError(t, err, "failed to reset")
 
 		ok, err := ipv4Client.ChainExists("filter", chainNameInputRules)
 		require.NoError(t, err, "failed check chain exists")
 
 		if ok {
-			require.NoErrorf(t, err, "chain '%v' still exists after Reset", chainNameInputRules)
+			require.NoErrorf(t, err, "chain '%v' still exists after Close", chainNameInputRules)
 		}
 	})
 }
@@ -117,8 +117,8 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		NameFunc: func() string {
 			return "lo"
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("10.20.0.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("10.20.0.0"),
@@ -136,7 +136,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	time.Sleep(time.Second)
 
 	defer func() {
-		err := manager.Reset(nil)
+		err := manager.Close(nil)
 		require.NoError(t, err, "clear the manager state")
 
 		time.Sleep(time.Second)
@@ -166,7 +166,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	})
 
 	t.Run("reset check", func(t *testing.T) {
-		err = manager.Reset(nil)
+		err = manager.Close(nil)
 		require.NoError(t, err, "failed to reset")
 	})
 }
@@ -184,8 +184,8 @@ func TestIptablesCreatePerformance(t *testing.T) {
 		NameFunc: func() string {
 			return "lo"
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("10.20.0.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("10.20.0.0"),
@@ -204,7 +204,7 @@ func TestIptablesCreatePerformance(t *testing.T) {
 			time.Sleep(time.Second)
 
 			defer func() {
-				err := manager.Reset(nil)
+				err := manager.Close(nil)
 				require.NoError(t, err, "clear the manager state")
 
 				time.Sleep(time.Second)
