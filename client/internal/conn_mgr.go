@@ -24,19 +24,19 @@ const (
 // - Maintaining a list of excluded peers that should always have permanent connections
 // - Handling connection establishment based on peer signaling
 type ConnMgr struct {
-	lazyConnMgr *lazyConnManager.Manager
 	peerStore   *peerstore.Store
+	lazyConnMgr *lazyConnManager.Manager
 
-	excludes map[string]struct{}
+	connStateListener *peer.ConnectionListener
 
 	wg        sync.WaitGroup
 	ctxCancel context.CancelFunc
 }
 
-func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
+func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *peer.ConnectionDispatcher) *ConnMgr {
 	var lazyConnMgr *lazyConnManager.Manager
 	if os.Getenv(envDisableLazyConn) != "true" {
-		lazyConnMgr = lazyConnManager.NewManager(iface)
+		lazyConnMgr = lazyConnManager.NewManager(iface, dispatcher)
 	}
 
 	e := &ConnMgr{
@@ -56,14 +56,11 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 	e.ctxCancel = cancel
 
 	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
-		e.receiveLazyConnEvents(ctx)
-	}()
+	go e.receiveLazyEvents(ctx)
 }
 
 func (e *ConnMgr) AddExcludeFromLazyConnection(peerID string) {
-	e.excludes[peerID] = struct{}{}
+	e.lazyConnMgr.ExcludePeer(peerID)
 }
 
 func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
@@ -76,21 +73,24 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 		return
 	}
 
-	_, exists = e.excludes[peerKey]
-	if exists {
-		conn.Open()
-		return
-	}
-
 	lazyPeerCfg := lazyconn.PeerConfig{
 		PublicKey:  peerKey,
 		AllowedIPs: conn.WgConfig().AllowedIps,
 		PeerConnID: conn.ConnID(),
 	}
-	if err := e.lazyConnMgr.AddPeer(lazyPeerCfg); err != nil {
-		log.Errorf("failed to add peer to lazyconn manager: %v", err)
+	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
+	if err != nil {
+		conn.Log.Errorf("failed to add peer to lazyconn manager: %v", err)
 		conn.Open()
+		return
 	}
+
+	if excluded {
+		conn.Log.Infof("peer is on lazy conn manager exclude list, opening connection")
+		conn.Open()
+		return
+	}
+
 	conn.Log.Infof("peer added to lazy conn manager")
 	return
 }
@@ -138,14 +138,17 @@ func (e *ConnMgr) Close() {
 	e.lazyConnMgr = nil
 }
 
-func (e *ConnMgr) receiveLazyConnEvents(ctx context.Context) {
+func (e *ConnMgr) receiveLazyEvents(ctx context.Context) {
+	defer e.wg.Done()
 	for {
-		peerID, err := e.lazyConnMgr.NextEvent(ctx)
-		if err != nil {
-			log.Infof("lazy connection manager closed: %v", err)
+		select {
+		case <-ctx.Done():
 			return
+		case peerID := <-e.lazyConnMgr.OnDemand:
+			e.peerStore.PeerConnOpen(peerID)
+		case peerID := <-e.lazyConnMgr.Idle:
+			e.peerStore.PeerConnClose(peerID)
 		}
-		e.peerStore.PeerConnOpen(peerID)
 	}
 }
 

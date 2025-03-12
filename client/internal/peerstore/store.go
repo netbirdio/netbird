@@ -91,6 +91,17 @@ func (s *Store) PeerConnOpen(pubKey string) {
 	p.Open()
 }
 
+func (s *Store) PeerConnClose(pubKey string) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	p.Close()
+}
+
 func (s *Store) PeersPubKey() []string {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
