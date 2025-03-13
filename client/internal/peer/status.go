@@ -216,7 +216,7 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string) error {
 	d.peers[peerPubKey] = State{
 		PubKey:     peerPubKey,
 		IP:         ip,
-		ConnStatus: StatusDisconnected,
+		ConnStatus: StatusIdle,
 		FQDN:       fqdn,
 		Mux:        new(sync.RWMutex),
 	}
@@ -466,9 +466,9 @@ func shouldSkipNotify(receivedConnStatus ConnStatus, curr State) bool {
 	switch {
 	case receivedConnStatus == StatusConnecting:
 		return true
-	case receivedConnStatus == StatusDisconnected && curr.ConnStatus == StatusConnecting:
+	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusConnecting:
 		return true
-	case receivedConnStatus == StatusDisconnected && curr.ConnStatus == StatusDisconnected:
+	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusIdle:
 		return curr.IP != ""
 	default:
 		return false

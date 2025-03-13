@@ -8,7 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
-	lazyConnManager "github.com/netbirdio/netbird/client/internal/lazyconn/manager"
+	"github.com/netbirdio/netbird/client/internal/lazyconn/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 )
@@ -25,7 +25,7 @@ const (
 // - Handling connection establishment based on peer signaling
 type ConnMgr struct {
 	peerStore   *peerstore.Store
-	lazyConnMgr *lazyConnManager.Manager
+	lazyConnMgr *manager.Manager
 
 	connStateListener *peer.ConnectionListener
 
@@ -34,9 +34,9 @@ type ConnMgr struct {
 }
 
 func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *peer.ConnectionDispatcher) *ConnMgr {
-	var lazyConnMgr *lazyConnManager.Manager
+	var lazyConnMgr *manager.Manager
 	if os.Getenv(envDisableLazyConn) != "true" {
-		lazyConnMgr = lazyConnManager.NewManager(iface, dispatcher)
+		lazyConnMgr = manager.NewManager(iface, dispatcher)
 	}
 
 	e := &ConnMgr{
@@ -57,6 +57,12 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 
 	e.wg.Add(1)
 	go e.receiveLazyEvents(ctx)
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		e.lazyConnMgr.Start(ctx)
+	}()
 }
 
 func (e *ConnMgr) AddExcludeFromLazyConnection(peerID string) {
@@ -68,7 +74,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 		return true
 	}
 
-	if !e.isStarted() {
+	if !e.isStartedWithLazyMgr() {
 		conn.Open()
 		return
 	}
@@ -77,6 +83,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 		PublicKey:  peerKey,
 		AllowedIPs: conn.WgConfig().AllowedIps,
 		PeerConnID: conn.ConnID(),
+		Log:        conn.Log,
 	}
 	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
 	if err != nil {
@@ -101,12 +108,11 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 		return nil, false
 	}
 
-	if !e.isStarted() {
+	if !e.isStartedWithLazyMgr() {
 		return conn, true
 	}
 
-	if ok := e.lazyConnMgr.RemovePeer(peerKey); ok {
-		conn.Log.Infof("removed peer from lazy conn manager")
+	if found := e.lazyConnMgr.RunIdleWatch(peerKey); found {
 		conn.Open()
 	}
 	return conn, true
@@ -119,7 +125,7 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	}
 	defer conn.Close()
 
-	if !e.isStarted() {
+	if !e.isStartedWithLazyMgr() {
 		return
 	}
 
@@ -128,7 +134,7 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 }
 
 func (e *ConnMgr) Close() {
-	if !e.isStarted() {
+	if !e.isStartedWithLazyMgr() {
 		return
 	}
 
@@ -147,11 +153,13 @@ func (e *ConnMgr) receiveLazyEvents(ctx context.Context) {
 		case peerID := <-e.lazyConnMgr.OnDemand:
 			e.peerStore.PeerConnOpen(peerID)
 		case peerID := <-e.lazyConnMgr.Idle:
+			// todo consider to use engine lock
 			e.peerStore.PeerConnClose(peerID)
+			e.lazyConnMgr.RunOnDemandListener(peerID)
 		}
 	}
 }
 
-func (e *ConnMgr) isStarted() bool {
+func (e *ConnMgr) isStartedWithLazyMgr() bool {
 	return e.lazyConnMgr != nil && e.ctxCancel != nil
 }

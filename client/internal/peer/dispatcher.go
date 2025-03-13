@@ -4,15 +4,6 @@ import (
 	"sync"
 )
 
-/*
-	handler := peer.ConnectionListener{
-		OnConnected:    m.onPeerConnected,
-		OnDisconnected: m.onPeerDisconnected,
-	}
-
-	dispatcher.AddListener(handler)
-*/
-
 type ConnectionListener struct {
 	OnConnected    func(peer *Conn)
 	OnDisconnected func(peer *Conn)

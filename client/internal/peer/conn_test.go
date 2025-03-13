@@ -138,11 +138,11 @@ func TestConn_Status(t *testing.T) {
 		want        ConnStatus
 	}{
 		{"StatusConnected", StatusConnected, StatusConnected, StatusConnected},
-		{"StatusDisconnected", StatusDisconnected, StatusDisconnected, StatusDisconnected},
+		{"StatusIdle", StatusIdle, StatusIdle, StatusIdle},
 		{"StatusConnecting", StatusConnecting, StatusConnecting, StatusConnecting},
-		{"StatusConnectingIce", StatusConnecting, StatusDisconnected, StatusConnecting},
+		{"StatusConnectingIce", StatusConnecting, StatusIdle, StatusConnecting},
 		{"StatusConnectingIceAlternative", StatusConnecting, StatusConnected, StatusConnected},
-		{"StatusConnectingRelay", StatusDisconnected, StatusConnecting, StatusConnecting},
+		{"StatusConnectingRelay", StatusIdle, StatusConnecting, StatusConnecting},
 		{"StatusConnectingRelayAlternative", StatusConnected, StatusConnecting, StatusConnected},
 	}
 
