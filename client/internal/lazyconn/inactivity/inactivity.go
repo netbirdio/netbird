@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 const (
@@ -12,21 +12,21 @@ const (
 )
 
 type InactivityMonitor struct {
-	peerID string
+	id     peer.ConnID
 	timer  *time.Timer
 	cancel context.CancelFunc
 }
 
-func NewInactivityMonitor(peerID string) *InactivityMonitor {
+func NewInactivityMonitor(peerID peer.ConnID) *InactivityMonitor {
 	i := &InactivityMonitor{
-		peerID: peerID,
-		timer:  time.NewTimer(0),
+		id:    peerID,
+		timer: time.NewTimer(0),
 	}
 	i.timer.Stop()
 	return i
 }
 
-func (i *InactivityMonitor) Start(ctx context.Context, timeoutChan chan string) {
+func (i *InactivityMonitor) Start(ctx context.Context, timeoutChan chan peer.ConnID) {
 	i.timer.Reset(inactivityThreshold)
 	defer i.timer.Stop()
 
@@ -36,7 +36,7 @@ func (i *InactivityMonitor) Start(ctx context.Context, timeoutChan chan string) 
 	select {
 	case <-i.timer.C:
 		select {
-		case timeoutChan <- i.peerID:
+		case timeoutChan <- i.id:
 		case <-ctx.Done():
 			return
 		}
@@ -46,7 +46,6 @@ func (i *InactivityMonitor) Start(ctx context.Context, timeoutChan chan string) 
 }
 
 func (i *InactivityMonitor) Stop() {
-	log.Info("--- cancel idle timer")
 	i.cancel()
 }
 
