@@ -31,7 +31,7 @@ type PeersUpdateManager struct {
 // NewPeersUpdateManager returns a new instance of PeersUpdateManager
 func NewPeersUpdateManager(metrics telemetry.AppMetrics) *PeersUpdateManager {
 	return &PeersUpdateManager{
-		peerChannels: make(map[string]chan *UpdateMessage, 2),
+		peerChannels: make(map[string]chan *UpdateMessage),
 		channelsMux:  &sync.RWMutex{},
 		metrics:      metrics,
 	}
@@ -90,7 +90,7 @@ func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) c
 		close(channel)
 	}
 	// mbragin: todo shouldn't it be more? or configurable?
-	channel := make(chan *UpdateMessage, channelBufferSize)
+	channel := make(chan *UpdateMessage, 2)
 	p.peerChannels[peerID] = channel
 
 	log.WithContext(ctx).Debugf("opened updates channel for a peer %s", peerID)
