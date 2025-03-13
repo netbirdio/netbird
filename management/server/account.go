@@ -67,7 +67,8 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  geolocation.Geolocation
 
-	requestBuffer *AccountRequestBuffer
+	accountUpdateLocks sync.Map
+	requestBuffer      *AccountRequestBuffer
 
 	proxyController port_forwarding.Controller
 	settingsManager settings.Manager
@@ -1223,7 +1224,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-			am.UpdateAccountPeers(ctx, userAuth.AccountId)
+			am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
 		}
 	}
 
@@ -1462,7 +1463,7 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	am.UpdateAccountPeers(ctx, accountID)
+	am.BufferUpdateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
