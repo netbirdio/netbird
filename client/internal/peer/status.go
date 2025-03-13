@@ -17,7 +17,6 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
-	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/management/domain"
@@ -365,18 +364,11 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 
 // CheckRoutes checks if the source and destination addresses are within the same route
 // and returns the resource ID of the route that contains the addresses
-func (d *Status) CheckRoutes(src, dst netip.Addr, direction nftypes.Direction) (resId string) {
+func (d *Status) CheckRoutes(ip netip.Addr) (resId string) {
 	if d == nil {
 		return
 	}
-
-	if direction == nftypes.Ingress {
-		return d.routeIDLookup.Lookup(src)
-	} else if direction == nftypes.Egress {
-		return d.routeIDLookup.Lookup(dst)
-	}
-
-	return ""
+	return d.routeIDLookup.Lookup(ip)
 }
 
 func (d *Status) UpdatePeerICEState(receivedState State) error {

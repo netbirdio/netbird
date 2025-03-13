@@ -33,7 +33,7 @@ type Manager struct {
 
 // NewManager creates a new netflow manager
 func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
-	flowLogger := logger.New(ctx, statusRecorder)
+	flowLogger := logger.New(ctx, statusRecorder, iface.Address())
 
 	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {

@@ -7,12 +7,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 func TestStore(t *testing.T) {
-	logger := logger.New(context.Background(), nil)
+	logger := logger.New(context.Background(), nil, wgaddr.Address{})
 	logger.Enable()
 
 	event := types.EventFields{

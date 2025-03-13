@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/netflow/store"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -23,15 +25,22 @@ type Logger struct {
 	rcvChan        atomic.Pointer[rcvChan]
 	cancelReceiver context.CancelFunc
 	statusRecorder *peer.Status
+	wgIfaceIP      netip.Addr
 	Store          types.Store
 }
 
-func New(ctx context.Context, statusRecorder *peer.Status) *Logger {
+func New(ctx context.Context, statusRecorder *peer.Status, wgIfaceIP wgaddr.Address) *Logger {
+	addr, err := netip.ParseAddr(wgIfaceIP.String())
+	if err != nil {
+		log.Errorf("failed to parse wg iface address: %s: %v", wgIfaceIP.String(), err)
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	return &Logger{
 		ctx:            ctx,
 		cancel:         cancel,
 		statusRecorder: statusRecorder,
+		wgIfaceIP:      addr,
 		Store:          store.NewMemoryStore(),
 	}
 }
@@ -83,12 +92,14 @@ func (l *Logger) startReceiver() {
 				EventFields: *eventFields,
 				Timestamp:   time.Now(),
 			}
-			resId := l.statusRecorder.CheckRoutes(event.SourceIP, event.DestIP, event.Direction)
-			if resId != "" {
-				if event.Direction == types.Ingress {
-					event.SourceResourceID = []byte(resId)
-				} else {
-					event.DestResourceID = []byte(resId)
+
+			if event.Direction == types.Ingress {
+				if l.wgIfaceIP != event.SourceIP {
+					event.SourceResourceID = []byte(l.statusRecorder.CheckRoutes(event.SourceIP))
+				}
+			} else if event.Direction == types.Egress {
+				if l.wgIfaceIP != event.DestIP {
+					event.DestResourceID = []byte(l.statusRecorder.CheckRoutes(event.DestIP))
 				}
 			}
 
