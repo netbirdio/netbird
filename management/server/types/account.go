@@ -1012,6 +1012,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 				}
 
 				fr := FirewallRule{
+					PolicyID:  rule.ID,
 					PeerIP:    peer.IP.String(),
 					Direction: direction,
 					Action:    string(rule.Action),
