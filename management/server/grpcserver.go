@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -635,14 +636,13 @@ func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turn
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
-	allPeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	allPeers = appendRemotePeerConfig(allPeers, networkMap.Peers, dnsName)
+	allPeers := appendRemotePeerConfig(networkMap.Peers, dnsName)
 	response.RemotePeers = allPeers
 	response.NetworkMap.RemotePeers = allPeers
 	response.RemotePeersIsEmpty = len(allPeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(networkMap.OfflinePeers, dnsName)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 	response.NetworkMap.FirewallRules = firewallRules
@@ -663,15 +663,18 @@ func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turn
 	return response
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
-	for _, rPeer := range peers {
-		dst = append(dst, &proto.RemotePeerConfig{
+func appendRemotePeerConfig(peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+	dst := make([]*proto.RemotePeerConfig, len(peers))
+
+	for i, rPeer := range peers {
+		dst[i] = &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
 			AllowedIps: []string{rPeer.IP.String() + "/32"},
 			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:       rPeer.FQDN(dnsName),
-		})
+		}
 	}
+
 	return dst
 }
 

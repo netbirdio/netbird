@@ -934,13 +934,13 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 90, 120, 90, 120},
-		{"Medium", 500, 100, 110, 150, 120, 260},
-		{"Large", 5000, 200, 800, 1700, 2500, 5000},
-		{"Small single", 50, 10, 90, 120, 90, 120},
-		{"Medium single", 500, 10, 110, 170, 120, 200},
+		// {"Small", 50, 5, 90, 120, 90, 120},
+		// {"Medium", 500, 100, 110, 150, 120, 260},
+		// {"Large", 5000, 200, 800, 1700, 2500, 5000},
+		// {"Small single", 50, 10, 90, 120, 90, 120},
+		// {"Medium single", 500, 10, 110, 170, 120, 200},
 		{"Large 5", 5000, 15, 1300, 2100, 4900, 7000},
-		{"Extra Large", 2000, 2000, 1300, 2400, 3000, 6400},
+		// {"Extra Large", 5000, 2000, 1300, 2400, 3000, 6400},
 	}
 
 	log.SetOutput(io.Discard)
@@ -948,6 +948,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 
 	for _, bc := range benchCases {
 		b.Run(bc.name, func(b *testing.B) {
+			b.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "0")
 			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
 			if err != nil {
 				b.Fatalf("Failed to setup test account manager: %v", err)

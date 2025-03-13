@@ -225,6 +225,8 @@ func (a *Account) GetPeerNetworkMap(
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
+	peersGroups map[string][]string,
+	groupsPolicies map[string]map[string]*Policy,
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
@@ -242,7 +244,7 @@ func (a *Account) GetPeerNetworkMap(
 		}
 	}
 
-	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peerID, validatedPeersMap)
+	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peerID, validatedPeersMap, peersGroups, groupsPolicies)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -945,36 +947,53 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) map
 // GetPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) GetPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) GetPeerConnectionResources(
+	ctx context.Context,
+	peerID string,
+	validatedPeersMap map[string]struct{},
+	peersGroups map[string][]string,
+	groupsPolicies map[string]map[string]*Policy,
+) ([]*nbpeer.Peer, []*FirewallRule) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx)
-	for _, policy := range a.Policies {
-		if !policy.Enabled {
+	groups, ok := peersGroups[peerID]
+	if !ok {
+		return nil, nil
+	}
+
+	for _, group := range groups {
+		policiesPerGroup, ok := groupsPolicies[group]
+		if !ok {
 			continue
 		}
-
-		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+		for _, policy := range policiesPerGroup {
+			if !policy.Enabled {
 				continue
 			}
 
-			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
-			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap)
+			for _, rule := range policy.Rules {
+				if !rule.Enabled {
+					continue
+				}
 
-			if rule.Bidirectional {
+				sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+				destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap)
+
+				if rule.Bidirectional {
+					if peerInSources {
+						generateResources(rule, destinationPeers, FirewallRuleDirectionIN)
+					}
+					if peerInDestinations {
+						generateResources(rule, sourcePeers, FirewallRuleDirectionOUT)
+					}
+				}
+
 				if peerInSources {
-					generateResources(rule, destinationPeers, FirewallRuleDirectionIN)
+					generateResources(rule, destinationPeers, FirewallRuleDirectionOUT)
 				}
+
 				if peerInDestinations {
-					generateResources(rule, sourcePeers, FirewallRuleDirectionOUT)
+					generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 				}
-			}
-
-			if peerInSources {
-				generateResources(rule, destinationPeers, FirewallRuleDirectionOUT)
-			}
-
-			if peerInDestinations {
-				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 			}
 		}
 	}
@@ -987,7 +1006,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peerID string,
 // The generator function is used to generate the list of peers and firewall rules that are applicable to a given peer.
 // It safe to call the generator function multiple times for same peer and different rules no duplicates will be
 // generated. The accumulator function returns the result of all the generator calls.
-func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
+func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule, map[string]*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
 	rulesExists := make(map[string]struct{})
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
@@ -999,7 +1018,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 		all = &Group{}
 	}
 
-	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
+	return func(rule *PolicyRule, groupPeers map[string]*nbpeer.Peer, direction int) {
 			isAll := (len(all.Peers) - 1) == len(groupPeers)
 			for _, peer := range groupPeers {
 				if peer == nil {
@@ -1052,32 +1071,38 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 //
 // Important: Posture checks are applicable only to source group peers,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
-func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) (map[string]*nbpeer.Peer, bool) {
 	peerInGroups := false
-	uniquePeerIDs := a.getUniquePeerIDsFromGroupsIDs(ctx, groups)
-	filteredPeers := make([]*nbpeer.Peer, 0, len(uniquePeerIDs))
-	for _, p := range uniquePeerIDs {
-		peer, ok := a.Peers[p]
-		if !ok || peer == nil {
-			continue
-		}
+	filteredPeers := make(map[string]*nbpeer.Peer)
+	for _, groupID := range groups {
+		group := a.GetGroup(groupID)
+		for _, p := range group.Peers {
+			peer, ok := a.Peers[p]
+			if !ok || peer == nil {
+				continue
+			}
 
-		// validate the peer based on policy posture checks applied
-		isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
-		if !isValid {
-			continue
-		}
+			if _, ok := filteredPeers[p]; ok {
+				continue
+			}
 
-		if _, ok := validatedPeersMap[peer.ID]; !ok {
-			continue
-		}
+			// validate the peer based on policy posture checks applied
+			isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
+			if !isValid {
+				continue
+			}
 
-		if peer.ID == peerID {
-			peerInGroups = true
-			continue
-		}
+			if _, ok := validatedPeersMap[peer.ID]; !ok {
+				continue
+			}
 
-		filteredPeers = append(filteredPeers, peer)
+			if peer.ID == peerID {
+				peerInGroups = true
+				continue
+			}
+
+			filteredPeers[p] = peer
+		}
 	}
 
 	return filteredPeers, peerInGroups
@@ -1318,7 +1343,7 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route, map[string]struct{}) {
 	var isRoutingPeer bool
 	var routes []*route.Route
-	allSourcePeers := make(map[string]struct{}, len(a.Peers))
+	allSourcePeers := make(map[string]struct{})
 
 	for _, resource := range a.NetworkResources {
 		if !resource.Enabled {
@@ -1342,7 +1367,7 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 				for _, pID := range a.getPostureValidPeers(peers, policy.SourcePostureChecks) {
 					allSourcePeers[pID] = struct{}{}
 				}
-			} else if slices.Contains(peers, peerID) && a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
+			} else if _, ok := peers[peerID]; ok && a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
 				// add routes for the resource if the peer is in the distribution group
 				for peerId, router := range networkRoutingPeers {
 					routes = append(routes, a.getNetworkResourcesRoutes(resource, peerId, router, resourcePolicies)...)
@@ -1358,9 +1383,9 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 	return isRoutingPeer, routes, allSourcePeers
 }
 
-func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []string) []string {
+func (a *Account) getPostureValidPeers(inputPeers map[string]struct{}, postureChecksIDs []string) []string {
 	var dest []string
-	for _, peerID := range inputPeers {
+	for peerID := range inputPeers {
 		if a.validatePostureChecksOnPeer(context.Background(), postureChecksIDs, peerID) {
 			dest = append(dest, peerID)
 		}
@@ -1368,7 +1393,7 @@ func (a *Account) getPostureValidPeers(inputPeers []string, postureChecksIDs []s
 	return dest
 }
 
-func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) []string {
+func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) map[string]struct{} {
 	peerIDs := make(map[string]struct{}, len(groups)) // we expect at least one peer per group as initial capacity
 	for _, groupID := range groups {
 		group := a.GetGroup(groupID)
@@ -1377,21 +1402,21 @@ func (a *Account) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []st
 			continue
 		}
 
-		if group.IsGroupAll() || len(groups) == 1 {
-			return group.Peers
-		}
+		// if group.IsGroupAll() || len(groups) == 1 {
+		// 	return group.Peers
+		// }
 
 		for _, peerID := range group.Peers {
 			peerIDs[peerID] = struct{}{}
 		}
 	}
 
-	ids := make([]string, 0, len(peerIDs))
-	for peerID := range peerIDs {
-		ids = append(ids, peerID)
-	}
+	// ids := make([]string, 0, len(peerIDs))
+	// for peerID := range peerIDs {
+	// 	ids = append(ids, peerID)
+	// }
 
-	return ids
+	return peerIDs
 }
 
 // getNetworkResources filters and returns a list of network resources associated with the given network ID.
@@ -1565,4 +1590,36 @@ func (a *Account) AddAllGroup() error {
 		a.Policies = []*Policy{defaultPolicy}
 	}
 	return nil
+}
+
+func (a *Account) GetPeersGroupsMap() map[string][]string {
+	groups := make(map[string][]string, len(a.Groups))
+	for _, group := range a.Groups {
+		for _, peerID := range group.Peers {
+			groups[peerID] = append(groups[peerID], group.ID)
+		}
+	}
+	return groups
+}
+
+func (a *Account) GetGroupsPolicyMap() map[string]map[string]*Policy {
+	policies := make(map[string]map[string]*Policy, len(a.Groups))
+	for _, policy := range a.Policies {
+		for _, rules := range policy.Rules {
+			for _, src := range rules.Sources {
+				if policies[src] == nil {
+					policies[src] = make(map[string]*Policy)
+				}
+				policies[src][policy.ID] = policy
+			}
+			for _, dest := range rules.Destinations {
+				if policies[dest] == nil {
+					policies[dest] = make(map[string]*Policy)
+				}
+				policies[dest][policy.ID] = policy
+			}
+		}
+	}
+
+	return policies
 }
