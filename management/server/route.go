@@ -388,7 +388,7 @@ func toProtocolRoutesFirewallRules(rules []*types.RouteFirewallRule) []*proto.Ro
 			Protocol:     getProtoProtocol(rule.Protocol),
 			PortInfo:     getProtoPortInfo(rule),
 			IsDynamic:    rule.IsDynamic,
-			Id:           []byte(rule.PolicyID),
+			PolicyID:     []byte(rule.PolicyID),
 		}
 	}
 

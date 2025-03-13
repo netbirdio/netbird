@@ -256,7 +256,7 @@ func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule 
 		rule := rules[i]
 
 		result[i] = &proto.FirewallRule{
-			Id:        []byte(rule.PolicyID),
+			PolicyID:  []byte(rule.PolicyID),
 			PeerIP:    rule.PeerIP,
 			Direction: getProtoDirection(rule.Direction),
 			Action:    getProtoAction(rule.Action),
