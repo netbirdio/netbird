@@ -6,7 +6,9 @@ import (
 	b64 "encoding/base64"
 	"fmt"
 	"net"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1235,8 +1237,12 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 	}
 
 	go func() {
-
-		time.Sleep(1 * time.Second)
+		intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
+		interval, err := strconv.Atoi(intervalStr)
+		if err != nil {
+			interval = 10000
+		}
+		time.Sleep(time.Duration(interval) * time.Millisecond)
 		am.UpdateAccountPeers(ctx, accountID)
 
 		am.accountUpdateLocks.Delete(accountID)

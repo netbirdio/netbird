@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"net/netip"
 	"net/url"
 	"os"
@@ -34,6 +35,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/server/peers"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -90,6 +92,11 @@ var (
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 
+			go func() {
+				log.Infof("Starting pprof on :6060")
+				http.ListenAndServe("localhost:6060", nil)
+			}()
+
 			//nolint
 			ctx := context.WithValue(cmd.Context(), hook.ExecutionContextKey, hook.SystemSource)
 
@@ -132,6 +139,7 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+
 			flag.Parse()
 
 			ctx, cancel := context.WithCancel(cmd.Context())
