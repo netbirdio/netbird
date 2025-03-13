@@ -34,8 +34,8 @@
  
 </strong>
 <br>
-<a href="https://netbird.io/webinars/achieve-zero-trust-access-to-k8s?utm_source=github&utm_campaign=2502%20-%20webinar%20-%20How%20to%20Achieve%20Zero%20Trust%20Access%20to%20Kubernetes%20-%20Effortlessly&utm_medium=github">
-    Webinar: Securely Access Kubernetes without Port Forwarding and Jump Hosts
+<a href="https://github.com/netbirdio/kubernetes-operator">
+    New: NetBird Kubernetes Operator
   </a> 
 </p>
 
