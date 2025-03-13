@@ -135,7 +135,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	if expired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
-		am.UpdateAccountPeers(ctx, accountID)
+		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -302,7 +302,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	if peerLabelChanged || requiresPeerUpdates {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.BufferUpdateAccountPeers(ctx, accountID)
 	} else if sshChanged {
 		am.UpdateAccountPeer(ctx, accountID, peer.ID)
 	}
@@ -383,7 +383,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -653,7 +653,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	unlock = nil
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
 	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
@@ -748,7 +748,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
 	return am.getValidatedPeerWithMap(ctx, peerNotValid, accountID, peer)
@@ -893,7 +893,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	unlockPeer = nil
 
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)
@@ -1224,6 +1224,24 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	if am.metrics != nil {
 		am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
 	}
+}
+
+func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+	mu, _ := am.accountUpdateLocks.LoadOrStore(accountID, &sync.Mutex{})
+	lock := mu.(*sync.Mutex)
+
+	if !lock.TryLock() {
+		return
+	}
+
+	go func() {
+
+		time.Sleep(1 * time.Second)
+		am.UpdateAccountPeers(ctx, accountID)
+
+		am.accountUpdateLocks.Delete(accountID)
+		lock.Unlock()
+	}()
 }
 
 // UpdateAccountPeer updates a single peer that belongs to an account.
