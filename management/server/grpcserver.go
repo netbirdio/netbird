@@ -10,13 +10,12 @@ import (
 	"time"
 
 	pb "github.com/golang/protobuf/proto" // nolint
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	"github.com/netbirdio/netbird/encryption"
@@ -38,6 +37,7 @@ type GRPCServer struct {
 	accountManager  account.Manager
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
+	wgPubKeySting   string
 	proto.UnimplementedManagementServiceServer
 	peersUpdateManager *PeersUpdateManager
 	config             *Config
@@ -76,7 +76,8 @@ func NewServer(
 	}
 
 	return &GRPCServer{
-		wgKey: key,
+		wgKey:         key,
+		wgPubKeySting: key.PublicKey().String(),
 		// peerKey -> event channel
 		peersUpdateManager: peersUpdateManager,
 		accountManager:     accountManager,
@@ -90,30 +91,16 @@ func NewServer(
 }
 
 func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
-	ip := ""
-	p, ok := peer.FromContext(ctx)
-	if ok {
-		ip = p.Addr.String()
-	}
-
-	log.WithContext(ctx).Tracef("GetServerKey request from %s", ip)
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Tracef("GetServerKey from %s took %v", ip, time.Since(start))
-	}()
-
 	// todo introduce something more meaningful with the key expiration/rotation
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountGetKeyRequest()
 	}
-	now := time.Now().Add(24 * time.Hour)
-	secs := int64(now.Second())
-	nanos := int32(now.Nanosecond())
-	expiresAt := &timestamp.Timestamp{Seconds: secs, Nanos: nanos}
+
+	expiresAt := time.Now().Add(24 * time.Hour)
 
 	return &proto.ServerKeyResponse{
-		Key:       s.wgKey.PublicKey().String(),
-		ExpiresAt: expiresAt,
+		Key:       s.wgPubKeySting,
+		ExpiresAt: timestamppb.New(expiresAt),
 	}, nil
 }
 
@@ -242,7 +229,7 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey w
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = srv.SendMsg(&proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: s.wgPubKeySting,
 		Body:     encryptedResp,
 	})
 	if err != nil {
@@ -500,7 +487,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: s.wgPubKeySting,
 		Body:     encryptedResp,
 	}, nil
 }
@@ -713,7 +700,7 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 	}
 
 	err = srv.Send(&proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: s.wgPubKeySting,
 		Body:     encryptedResp,
 	})
 
@@ -778,7 +765,7 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: s.wgPubKeySting,
 		Body:     encryptedResp,
 	}, nil
 }
@@ -830,7 +817,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: s.wgPubKeySting,
 		Body:     encryptedResp,
 	}, nil
 }

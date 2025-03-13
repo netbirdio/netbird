@@ -272,7 +272,7 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
-	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	mgmCtx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
