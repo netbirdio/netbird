@@ -30,9 +30,14 @@ type Logger struct {
 }
 
 func New(ctx context.Context, statusRecorder *peer.Status, wgIfaceIP wgaddr.Address) *Logger {
-	addr, err := netip.ParseAddr(wgIfaceIP.String())
-	if err != nil {
-		log.Errorf("failed to parse wg iface address: %s: %v", wgIfaceIP.String(), err)
+
+	var addr netip.Addr
+	if wgIfaceIP.IP != nil {
+		var err error
+		addr, err = netip.ParseAddr(wgIfaceIP.IP.String())
+		if err != nil {
+			log.Errorf("failed to parse wg iface address: %s: %v", wgIfaceIP.String(), err)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
