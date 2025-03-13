@@ -43,13 +43,13 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 	defer m.mu.Unlock()
 
 	if _, ok := m.peers[peerCfg.PublicKey]; ok {
-		log.Warnf("on-demand listener already exists for: %s", peerCfg.PublicKey)
+		log.Warnf("activity listener already exists for: %s", peerCfg.PublicKey)
 		return nil
 	}
 
 	conn, addr, err := m.portGenerator.newConn()
 	if err != nil {
-		return fmt.Errorf("failed to bind lazy connection: %v", err)
+		return fmt.Errorf("failed to bind activity listener: %v", err)
 	}
 
 	listener, err := NewListener(m.wgIface, peerCfg, conn, addr)
@@ -58,10 +58,9 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 	}
 	m.peers[peerCfg.PublicKey] = listener
 
-	log.Infof("created on-demand listener: %s, for peer: %s", addr.String(), peerCfg.PublicKey)
 	go m.waitForTraffic(listener, peerCfg.PublicKey, peerCfg.PeerConnID)
 
-	log.Debugf("created lazy connection listener for: %s", peerCfg.PublicKey)
+	peerCfg.Log.Infof("created activity listener: %s", addr.String())
 	return nil
 }
 
@@ -104,7 +103,7 @@ func (m *Manager) waitForTraffic(listener *Listener, peerID string, peerConnID p
 }
 
 func (m *Manager) notify(event OnAcitvityEvent) {
-	log.Debugf("peer started to send traffic: %s", event.PeerID)
+	log.Debugf("peer activity detected: %s", event.PeerID)
 	select {
 	case <-m.done:
 	case m.OnActivityChan <- event:

@@ -37,7 +37,6 @@ func (i *InactivityMonitor) Start(ctx context.Context, timeoutChan chan string) 
 	case <-i.timer.C:
 		select {
 		case timeoutChan <- i.peerID:
-			log.Infof("--- idle timeout for peer: %s", i.peerID)
 		case <-ctx.Done():
 			return
 		}
@@ -52,11 +51,9 @@ func (i *InactivityMonitor) Stop() {
 }
 
 func (i *InactivityMonitor) PauseTimer() {
-	log.Info("--- hangup idle timer")
 	i.timer.Stop()
 }
 
 func (i *InactivityMonitor) ResetTimer() {
-	log.Info("--- resetting idle timer")
 	i.timer.Reset(inactivityThreshold)
 }

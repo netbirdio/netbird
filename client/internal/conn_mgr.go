@@ -112,7 +112,7 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 		return conn, true
 	}
 
-	if found := e.lazyConnMgr.RunIdleWatch(peerKey); found {
+	if found := e.lazyConnMgr.RunInactivityMonitor(peerKey); found {
 		conn.Open()
 	}
 	return conn, true
@@ -150,12 +150,12 @@ func (e *ConnMgr) receiveLazyEvents(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case peerID := <-e.lazyConnMgr.OnDemand:
+		case peerID := <-e.lazyConnMgr.OnActive:
 			e.peerStore.PeerConnOpen(peerID)
 		case peerID := <-e.lazyConnMgr.Idle:
 			// todo consider to use engine lock
 			e.peerStore.PeerConnClose(peerID)
-			e.lazyConnMgr.RunOnDemandListener(peerID)
+			e.lazyConnMgr.RunActivityMonitor(peerID)
 		}
 	}
 }
