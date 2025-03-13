@@ -31,7 +31,7 @@ type PeersUpdateManager struct {
 // NewPeersUpdateManager returns a new instance of PeersUpdateManager
 func NewPeersUpdateManager(metrics telemetry.AppMetrics) *PeersUpdateManager {
 	return &PeersUpdateManager{
-		peerChannels: make(map[string]chan *UpdateMessage),
+		peerChannels: make(map[string]chan *UpdateMessage, 2),
 		channelsMux:  &sync.RWMutex{},
 		metrics:      metrics,
 	}
@@ -57,8 +57,13 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 		case channel <- update:
 			log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
 		default:
-			dropped = true
-			log.WithContext(ctx).Warnf("channel for peer %s is %d full or closed", peerID, len(channel))
+			select {
+			case <-channel:
+				log.WithContext(ctx).Trace("dropped oldest message from channel for peer %s", peerID)
+			default:
+				channel <- update
+				log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
+			}
 		}
 	} else {
 		log.WithContext(ctx).Debugf("peer %s has no channel", peerID)
