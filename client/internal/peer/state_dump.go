@@ -15,7 +15,13 @@ type stateDump struct {
 	remoteOffer     int
 	remoteAnswer    int
 	remoteCandidate int
-	mu              sync.Mutex
+	p2pConnected    int
+	switchToRelay   int
+	wgCheckSuccess  int
+	relayConnected  int
+	localProxies    int
+
+	mu sync.Mutex
 }
 
 func newStateDump(log *log.Entry) *stateDump {
@@ -57,11 +63,50 @@ func (s *stateDump) SendOffer() {
 }
 
 func (s *stateDump) dumpState() {
-	s.log.Infof("State dump: sentOffer=%d, remoteOffer=%d, remoteAnswer=%d, remoteCandidate=%d", s.sentOffer, s.remoteOffer, s.remoteAnswer, s.remoteCandidate)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.log.Infof("Dump stat: SentOffer: %d, RemoteOffer: %d, RemoteAnswer: %d, RemoteCandidate: %d, P2PConnected: %d, SwitchToRelay: %d, WGCheckSuccess: %d, RelayConnected: %d, LocalProxies: %d",
+		s.sentOffer, s.remoteOffer, s.remoteAnswer, s.remoteCandidate, s.p2pConnected, s.switchToRelay, s.wgCheckSuccess, s.relayConnected, s.localProxies)
 }
 
 func (s *stateDump) RemoteAnswer() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.remoteAnswer++
+}
+
+func (s *stateDump) P2PConnected() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.p2pConnected++
+}
+
+func (s *stateDump) SwitchToRelay() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.switchToRelay++
+}
+
+func (s *stateDump) WGcheckSuccess() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.wgCheckSuccess++
+}
+
+func (s *stateDump) RelayConnected() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.relayConnected++
+}
+
+func (s *stateDump) NewLocalProxy() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.localProxies++
 }

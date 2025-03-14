@@ -143,7 +143,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	}
 
 	ctrl := isController(config)
-	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, conn, relayManager)
+	conn.workerRelay = NewWorkerRelay(connLog, ctrl, config, conn, relayManager, conn.dumpState)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	workerICE, err := NewWorkerICE(ctx, connLog, config, conn, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally)
@@ -331,6 +331,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 	}
 
 	conn.log.Infof("set ICE to active connection")
+	conn.dumpState.P2PConnected()
 
 	var (
 		ep      *net.UDPAddr
@@ -338,6 +339,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 		err     error
 	)
 	if iceConnInfo.RelayedOnLocal {
+		conn.dumpState.NewLocalProxy()
 		wgProxy, err = conn.newProxy(iceConnInfo.RemoteConn)
 		if err != nil {
 			conn.log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
@@ -399,6 +401,7 @@ func (conn *Conn) onICEStateDisconnected() {
 	// switch back to relay connection
 	if conn.isReadyToUpgrade() {
 		conn.log.Infof("ICE disconnected, set Relay to active connection")
+		conn.dumpState.SwitchToRelay()
 		conn.wgProxyRelay.Work()
 
 		if err := conn.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr()); err != nil {
@@ -441,6 +444,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 
+	conn.dumpState.RelayConnected()
 	conn.log.Debugf("Relay connection has been established, setup the WireGuard")
 
 	wgProxy, err := conn.newProxy(rci.relayedConn)
@@ -448,6 +452,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 		return
 	}
+	conn.dumpState.NewLocalProxy()
 
 	conn.log.Infof("created new wgProxy for relay connection: %s", wgProxy.EndpointAddr().String())
 
