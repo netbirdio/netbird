@@ -30,6 +30,7 @@ type ConnMgr struct {
 	connStateListener *peer.ConnectionListener
 
 	wg        sync.WaitGroup
+	ctx       context.Context
 	ctxCancel context.CancelFunc
 }
 
@@ -53,6 +54,7 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 	}
 
 	ctx, cancel := context.WithCancel(parentCtx)
+	e.ctx = ctx
 	e.ctxCancel = cancel
 
 	e.wg.Add(1)
@@ -75,7 +77,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	}
 
 	if !e.isStartedWithLazyMgr() {
-		conn.Open()
+		conn.Open(e.ctx)
 		return
 	}
 
@@ -88,13 +90,13 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
 	if err != nil {
 		conn.Log.Errorf("failed to add peer to lazyconn manager: %v", err)
-		conn.Open()
+		conn.Open(e.ctx)
 		return
 	}
 
 	if excluded {
 		conn.Log.Infof("peer is on lazy conn manager exclude list, opening connection")
-		conn.Open()
+		conn.Open(e.ctx)
 		return
 	}
 
@@ -113,7 +115,7 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 	}
 
 	if found := e.lazyConnMgr.RunInactivityMonitor(peerKey); found {
-		conn.Open()
+		conn.Open(e.ctx)
 	}
 	return conn, true
 }
@@ -151,7 +153,7 @@ func (e *ConnMgr) receiveLazyEvents(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case peerID := <-e.lazyConnMgr.OnActive:
-			e.peerStore.PeerConnOpen(peerID)
+			e.peerStore.PeerConnOpen(e.ctx, peerID)
 		case peerID := <-e.lazyConnMgr.Idle:
 			// todo consider to use engine lock
 			e.peerStore.PeerConnClose(peerID)
