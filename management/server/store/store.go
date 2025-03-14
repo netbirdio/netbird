@@ -70,6 +70,7 @@ type Store interface {
 	DeleteAccount(ctx context.Context, account *types.Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
+	CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error)
 
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
@@ -353,12 +354,11 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
-  	err = addAllGroupToAccount(ctx, store)
+	err = addAllGroupToAccount(ctx, store)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
-  
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
 		sqlStore, cleanUp, err := getSqlStoreEngine(ctx, store, kind)
