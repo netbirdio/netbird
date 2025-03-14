@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"runtime"
 	"sync"
 	"time"
@@ -33,7 +34,11 @@ type Manager struct {
 
 // NewManager creates a new netflow manager
 func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
-	flowLogger := logger.New(ctx, statusRecorder)
+	var ipNet net.IPNet
+	if iface != nil {
+		ipNet = *iface.Address().Network
+	}
+	flowLogger := logger.New(ctx, statusRecorder, ipNet)
 
 	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {

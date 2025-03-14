@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,15 +24,18 @@ type Logger struct {
 	rcvChan        atomic.Pointer[rcvChan]
 	cancelReceiver context.CancelFunc
 	statusRecorder *peer.Status
+	wgIfaceIPNet   net.IPNet
 	Store          types.Store
 }
 
-func New(ctx context.Context, statusRecorder *peer.Status) *Logger {
+func New(ctx context.Context, statusRecorder *peer.Status, wgIfaceIPNet net.IPNet) *Logger {
+
 	ctx, cancel := context.WithCancel(ctx)
 	return &Logger{
 		ctx:            ctx,
 		cancel:         cancel,
 		statusRecorder: statusRecorder,
+		wgIfaceIPNet:   wgIfaceIPNet,
 		Store:          store.NewMemoryStore(),
 	}
 }
@@ -83,9 +87,17 @@ func (l *Logger) startReceiver() {
 				EventFields: *eventFields,
 				Timestamp:   time.Now(),
 			}
-			srcResId, dstResId := l.statusRecorder.CheckRoutes(event.SourceIP, event.DestIP, event.Direction)
-			event.SourceResourceID = []byte(srcResId)
-			event.DestResourceID = []byte(dstResId)
+
+			if event.Direction == types.Ingress {
+				if !l.wgIfaceIPNet.Contains(net.IP(event.SourceIP.AsSlice())) {
+					event.SourceResourceID = []byte(l.statusRecorder.CheckRoutes(event.SourceIP))
+				}
+			} else if event.Direction == types.Egress {
+				if !l.wgIfaceIPNet.Contains(net.IP(event.DestIP.AsSlice())) {
+					event.DestResourceID = []byte(l.statusRecorder.CheckRoutes(event.DestIP))
+				}
+			}
+
 			l.Store.StoreEvent(&event)
 		}
 	}

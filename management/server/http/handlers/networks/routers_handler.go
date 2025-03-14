@@ -48,7 +48,7 @@ func (h *routersHandler) getAllRouters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var routersResponse []*api.NetworkRouter
+	routersResponse := make([]*api.NetworkRouter, 0, len(routers))
 	for _, router := range routers {
 		routersResponse = append(routersResponse, router.ToAPIResponse())
 	}
