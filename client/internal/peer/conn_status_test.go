@@ -14,7 +14,7 @@ func TestConnStatus_String(t *testing.T) {
 		want   string
 	}{
 		{"StatusConnected", StatusConnected, "Connected"},
-		{"StatusDisconnected", StatusDisconnected, "Disconnected"},
+		{"StatusIdle", StatusIdle, "Disconnected"},
 		{"StatusConnecting", StatusConnecting, "Connecting"},
 	}
 

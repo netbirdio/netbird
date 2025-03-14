@@ -132,6 +132,8 @@ type Engine struct {
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerStore *peerstore.Store
 
+	connMgr *ConnMgr
+
 	beforePeerHook nbnet.AddHookFunc
 	afterPeerHook  nbnet.RemoveHookFunc
 
@@ -168,7 +170,8 @@ type Engine struct {
 	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
 	sshServer     nbssh.Server
 
-	statusRecorder *peer.Status
+	statusRecorder     *peer.Status
+	peerConnDispatcher *peer.ConnectionDispatcher
 
 	firewall          firewallManager.Manager
 	routeManager      routemanager.Manager
@@ -259,6 +262,8 @@ func (e *Engine) Stop() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
+	e.connMgr.Close()
+
 	// stopping network monitor first to avoid starting the engine again
 	if e.networkMonitor != nil {
 		e.networkMonitor.Stop()
@@ -294,8 +299,7 @@ func (e *Engine) Stop() error {
 	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
 	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
 
-	err := e.removeAllPeers()
-	if err != nil {
+	if err := e.removeAllPeers(); err != nil {
 		return fmt.Errorf("failed to remove all peers: %s", err)
 	}
 
@@ -428,6 +432,11 @@ func (e *Engine) Start() error {
 		UDPMuxSrflx:          e.udpMux,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
+
+	e.peerConnDispatcher = peer.NewConnectionDispatcher()
+
+	e.connMgr = NewConnMgr(e.peerStore, wgIface, e.peerConnDispatcher)
+	e.connMgr.Start(e.ctx)
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
 	e.srWatcher.Start()
@@ -607,16 +616,11 @@ func (e *Engine) removePeer(peerKey string) error {
 		e.sshServer.RemoveAuthorizedKey(peerKey)
 	}
 
-	defer func() {
-		err := e.statusRecorder.RemovePeer(peerKey)
-		if err != nil {
-			log.Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)
-		}
-	}()
+	e.connMgr.RemovePeerConn(peerKey)
 
-	conn, exists := e.peerStore.Remove(peerKey)
-	if exists {
-		conn.Close()
+	err := e.statusRecorder.RemovePeer(peerKey)
+	if err != nil {
+		log.Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)
 	}
 	return nil
 }
@@ -1098,7 +1102,7 @@ func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
 			IP:               strings.Join(offlinePeer.GetAllowedIps(), ","),
 			PubKey:           offlinePeer.GetWgPubKey(),
 			FQDN:             offlinePeer.GetFqdn(),
-			ConnStatus:       peer.StatusDisconnected,
+			ConnStatus:       peer.StatusIdle,
 			ConnStatusUpdate: time.Now(),
 			Mux:              new(sync.RWMutex),
 		}
@@ -1139,7 +1143,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("create peer connection: %w", err)
 	}
 
-	if ok := e.peerStore.AddPeerConn(peerKey, conn); !ok {
+	if exists := e.connMgr.AddPeerConn(peerKey, conn); exists {
 		conn.Close()
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
@@ -1149,12 +1153,11 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		conn.AddAfterRemovePeerHook(e.afterPeerHook)
 	}
 
-	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
+	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String())
 	if err != nil {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
 
-	conn.Open()
 	return nil
 }
 
@@ -1209,7 +1212,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix) (*peer
 		},
 	}
 
-	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher, e.connSemaphore)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher, e.connSemaphore, e.peerConnDispatcher)
 	if err != nil {
 		return nil, err
 	}
@@ -1230,7 +1233,7 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn, ok := e.peerStore.PeerConn(msg.Key)
+			conn, ok := e.connMgr.OnSignalMsg(msg.Key)
 			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
@@ -1556,13 +1559,17 @@ func (e *Engine) RunHealthProbes() bool {
 	}
 	log.Debugf("relay health check: healthy=%t", relayHealthy)
 
+	stats, err := e.wgInterface.GetStats()
+	if err != nil {
+		log.Warnf("failed to get wireguard stats: %v", err)
+		return false
+	}
 	for _, key := range e.peerStore.PeersPubKey() {
-		wgStats, err := e.wgInterface.GetStats(key)
-		if err != nil {
-			log.Debugf("failed to get wg stats for peer %s: %s", key, err)
+		// wgStats could be zero value, in which case we just reset the stats
+		wgStats, ok := stats[key]
+		if !ok {
 			continue
 		}
-		// wgStats could be zero value, in which case we just reset the stats
 		if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
 			log.Debugf("failed to update wg stats for peer %s: %s", key, err)
 		}

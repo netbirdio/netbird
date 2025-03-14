@@ -10,22 +10,24 @@ import (
 
 func TestAddPeer(t *testing.T) {
 	key := "abc"
+	ip := "100.108.254.1"
 	status := NewRecorder("https://mgm")
-	err := status.AddPeer(key, "abc.netbird")
+	err := status.AddPeer(key, "abc.netbird", ip)
 	assert.NoError(t, err, "shouldn't return error")
 
 	_, exists := status.peers[key]
 	assert.True(t, exists, "value was found")
 
-	err = status.AddPeer(key, "abc.netbird")
+	err = status.AddPeer(key, "abc.netbird", ip)
 
 	assert.Error(t, err, "should return error on duplicate")
 }
 
 func TestGetPeer(t *testing.T) {
 	key := "abc"
+	ip := "100.108.254.1"
 	status := NewRecorder("https://mgm")
-	err := status.AddPeer(key, "abc.netbird")
+	err := status.AddPeer(key, "abc.netbird", ip)
 	assert.NoError(t, err, "shouldn't return error")
 
 	peerStatus, err := status.GetPeer(key)

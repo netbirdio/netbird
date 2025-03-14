@@ -7,12 +7,12 @@ import (
 )
 
 const (
-	// StatusConnected indicate the peer is in connected state
-	StatusConnected ConnStatus = iota
+	// StatusIdle indicate the peer is in disconnected state
+	StatusIdle ConnStatus = iota
 	// StatusConnecting indicate the peer is in connecting state
 	StatusConnecting
-	// StatusDisconnected indicate the peer is in disconnected state
-	StatusDisconnected
+	// StatusConnected indicate the peer is in connected state
+	StatusConnected
 )
 
 // ConnStatus describe the status of a peer's connection
@@ -26,7 +26,7 @@ type AtomicConnStatus struct {
 // NewAtomicConnStatus creates a new AtomicConnStatus with the given initial status
 func NewAtomicConnStatus() *AtomicConnStatus {
 	acs := &AtomicConnStatus{}
-	acs.Set(StatusDisconnected)
+	acs.Set(StatusIdle)
 	return acs
 }
 
@@ -51,8 +51,8 @@ func (s ConnStatus) String() string {
 		return "Connecting"
 	case StatusConnected:
 		return "Connected"
-	case StatusDisconnected:
-		return "Disconnected"
+	case StatusIdle:
+		return "Idle"
 	default:
 		log.Errorf("unknown status: %d", s)
 		return "INVALID_PEER_CONNECTION_STATUS"

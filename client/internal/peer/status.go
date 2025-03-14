@@ -216,7 +216,7 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 }
 
 // AddPeer adds peer to Daemon status map
-func (d *Status) AddPeer(peerPubKey string, fqdn string) error {
+func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -226,7 +226,8 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string) error {
 	}
 	d.peers[peerPubKey] = State{
 		PubKey:     peerPubKey,
-		ConnStatus: StatusDisconnected,
+		IP:         ip,
+		ConnStatus: StatusIdle,
 		FQDN:       fqdn,
 		Mux:        new(sync.RWMutex),
 	}
@@ -488,9 +489,9 @@ func shouldSkipNotify(receivedConnStatus ConnStatus, curr State) bool {
 	switch {
 	case receivedConnStatus == StatusConnecting:
 		return true
-	case receivedConnStatus == StatusDisconnected && curr.ConnStatus == StatusConnecting:
+	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusConnecting:
 		return true
-	case receivedConnStatus == StatusDisconnected && curr.ConnStatus == StatusDisconnected:
+	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusIdle:
 		return curr.IP != ""
 	default:
 		return false

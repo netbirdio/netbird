@@ -89,7 +89,7 @@ type MockWGIface struct {
 	GetFilterFunc              func() device.PacketFilter
 	GetDeviceFunc              func() *device.FilteredDevice
 	GetWGDeviceFunc            func() *wgdevice.Device
-	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
+	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
@@ -167,8 +167,8 @@ func (m *MockWGIface) GetWGDevice() *wgdevice.Device {
 	return m.GetWGDeviceFunc()
 }
 
-func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
-	return m.GetStatsFunc(peerKey)
+func (m *MockWGIface) GetStats() (map[string]configurer.WGStats, error) {
+	return m.GetStatsFunc()
 }
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
@@ -396,6 +396,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
+	engine.connMgr = NewConnMgr(engine.peerStore, wgIface)
 
 	type testCase struct {
 		name       string
@@ -766,6 +767,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 
 			engine.routeManager = mockRouteManager
 			engine.dnsServer = &dns.MockServer{}
+			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -962,6 +964,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 
 			engine.dnsServer = mockDNSServer
+			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -983,6 +986,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 
 func TestEngine_MultiplePeers(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
+	t.Setenv(envDisableLazyConn, "true")
 
 	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()

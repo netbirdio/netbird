@@ -1,6 +1,7 @@
 package peerstore
 
 import (
+	"context"
 	"net/netip"
 	"sync"
 
@@ -77,6 +78,29 @@ func (s *Store) PeerConn(pubKey string) (*peer.Conn, bool) {
 		return nil, false
 	}
 	return p, true
+}
+
+func (s *Store) PeerConnOpen(ctx context.Context, pubKey string) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	// this can be blocked because of the connect open limiter semaphore
+	p.Open(ctx)
+}
+
+func (s *Store) PeerConnClose(pubKey string) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	p.Close()
 }
 
 func (s *Store) PeersPubKey() []string {

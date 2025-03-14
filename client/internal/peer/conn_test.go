@@ -17,6 +17,8 @@ import (
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
+var dispatcher = NewConnectionDispatcher()
+
 var connConf = ConnConfig{
 	Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
 	LocalKey:    "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
@@ -47,7 +49,7 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 
 func TestConn_GetKey(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, nil, nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	conn, err := NewConn(context.Background(), connConf, nil, nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1), dispatcher)
 	if err != nil {
 		return
 	}
@@ -59,7 +61,7 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1), dispatcher)
 	if err != nil {
 		return
 	}
@@ -93,7 +95,7 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1), dispatcher)
 	if err != nil {
 		return
 	}
@@ -126,7 +128,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 }
 func TestConn_Status(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1), dispatcher)
 	if err != nil {
 		return
 	}
@@ -138,11 +140,11 @@ func TestConn_Status(t *testing.T) {
 		want        ConnStatus
 	}{
 		{"StatusConnected", StatusConnected, StatusConnected, StatusConnected},
-		{"StatusDisconnected", StatusDisconnected, StatusDisconnected, StatusDisconnected},
+		{"StatusIdle", StatusIdle, StatusIdle, StatusIdle},
 		{"StatusConnecting", StatusConnecting, StatusConnecting, StatusConnecting},
-		{"StatusConnectingIce", StatusConnecting, StatusDisconnected, StatusConnecting},
+		{"StatusConnectingIce", StatusConnecting, StatusIdle, StatusConnecting},
 		{"StatusConnectingIceAlternative", StatusConnecting, StatusConnected, StatusConnected},
-		{"StatusConnectingRelay", StatusDisconnected, StatusConnecting, StatusConnecting},
+		{"StatusConnectingRelay", StatusIdle, StatusConnecting, StatusConnecting},
 		{"StatusConnectingRelayAlternative", StatusConnected, StatusConnecting, StatusConnected},
 	}
 

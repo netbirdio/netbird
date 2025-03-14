@@ -2,10 +2,8 @@ package configurer
 
 import (
 	"encoding/hex"
-	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -34,58 +32,35 @@ errno=0
 
 `
 
-func Test_findPeerInfo(t *testing.T) {
+func Test_parseTransfers(t *testing.T) {
 	tests := []struct {
-		name       string
-		peerKey    string
-		searchKeys []string
-		want       map[string]string
-		wantErr    bool
+		name    string
+		peerKey string
+		want    WGStats
 	}{
 		{
-			name:       "single",
-			peerKey:    "58402e695ba1772b1cc9309755f043251ea77fdcf10fbe63989ceb7e19321376",
-			searchKeys: []string{"tx_bytes"},
-			want: map[string]string{
-				"tx_bytes": "38333",
+			name:    "single",
+			peerKey: "b85996fecc9c7f1fc6d2572a76eda11d59bcd20be8e543b15ce4bd85a8e75a33",
+			want: WGStats{
+				TxBytes: 0,
+				RxBytes: 0,
 			},
-			wantErr: false,
 		},
 		{
-			name:       "multiple",
-			peerKey:    "58402e695ba1772b1cc9309755f043251ea77fdcf10fbe63989ceb7e19321376",
-			searchKeys: []string{"tx_bytes", "rx_bytes"},
-			want: map[string]string{
-				"tx_bytes": "38333",
-				"rx_bytes": "2224",
+			name:    "multiple",
+			peerKey: "58402e695ba1772b1cc9309755f043251ea77fdcf10fbe63989ceb7e19321376",
+			want: WGStats{
+				TxBytes: 38333,
+				RxBytes: 2224,
 			},
-			wantErr: false,
 		},
 		{
-			name:       "lastpeer",
-			peerKey:    "662e14fd594556f522604703340351258903b64f35553763f19426ab2a515c58",
-			searchKeys: []string{"tx_bytes", "rx_bytes"},
-			want: map[string]string{
-				"tx_bytes": "1212111",
-				"rx_bytes": "1929999999",
+			name:    "lastpeer",
+			peerKey: "662e14fd594556f522604703340351258903b64f35553763f19426ab2a515c58",
+			want: WGStats{
+				TxBytes: 1212111,
+				RxBytes: 1929999999,
 			},
-			wantErr: false,
-		},
-		{
-			name:       "peer not found",
-			peerKey:    "1111111111111111111111111111111111111111111111111111111111111111",
-			searchKeys: nil,
-			want:       nil,
-			wantErr:    true,
-		},
-		{
-			name:       "key not found",
-			peerKey:    "662e14fd594556f522604703340351258903b64f35553763f19426ab2a515c58",
-			searchKeys: []string{"tx_bytes", "unknown_key"},
-			want: map[string]string{
-				"tx_bytes": "1212111",
-			},
-			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -96,9 +71,19 @@ func Test_findPeerInfo(t *testing.T) {
 			key, err := wgtypes.NewKey(res)
 			require.NoError(t, err)
 
-			got, err := findPeerInfo(ipcFixture, key.String(), tt.searchKeys)
-			assert.Equalf(t, tt.wantErr, err != nil, fmt.Sprintf("findPeerInfo(%v, %v, %v)", ipcFixture, key.String(), tt.searchKeys))
-			assert.Equalf(t, tt.want, got, "findPeerInfo(%v, %v, %v)", ipcFixture, key.String(), tt.searchKeys)
+			stats, err := parseTransfers(ipcFixture)
+			if err != nil {
+				require.NoError(t, err)
+				return
+			}
+
+			stat, ok := stats[key.String()]
+			if !ok {
+				require.True(t, ok)
+				return
+			}
+
+			require.Equal(t, tt.want, stat)
 		})
 	}
 }
