@@ -88,7 +88,7 @@ func (h *Handshaker) Listen() {
 			continue
 		}
 
-		h.log.Info("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
+		h.log.Infof("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
 		for _, listener := range h.onNewOfferListeners {
 			go listener(remoteOfferAnswer)
 		}
