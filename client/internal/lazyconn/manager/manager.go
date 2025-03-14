@@ -15,9 +15,6 @@ import (
 // Manager manages lazy connections
 // This is not a thread safe implementation, do not call exported functions concurrently
 type Manager struct {
-	OnActive chan string
-	Idle     chan string
-
 	connStateDispatcher *peer.ConnectionDispatcher
 	connStateListener   *peer.ConnectionListener
 
@@ -35,9 +32,6 @@ type Manager struct {
 
 func NewManager(wgIface lazyconn.WGIface, connStateDispatcher *peer.ConnectionDispatcher) *Manager {
 	m := &Manager{
-		OnActive: make(chan string, 1),
-		Idle:     make(chan string, 1),
-
 		connStateDispatcher:  connStateDispatcher,
 		managedPeers:         make(map[string]*lazyconn.PeerConfig),
 		managedPeersByConnID: make(map[peer.ConnID]*lazyconn.PeerConfig),
@@ -55,6 +49,22 @@ func NewManager(wgIface lazyconn.WGIface, connStateDispatcher *peer.ConnectionDi
 	connStateDispatcher.AddListener(m.connStateListener)
 
 	return m
+}
+
+func (m *Manager) Start(ctx context.Context, activeFn func(peerID string), inactiveFn func(peerID string)) {
+	defer m.close()
+
+	ctx, m.cancel = context.WithCancel(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-m.activityManager.OnActivityChan:
+			m.onPeerActivity(ctx, e, activeFn)
+		case peerConnID := <-m.onInactive:
+			m.onPeerInactivityTimedOut(peerConnID, inactiveFn)
+		}
+	}
 }
 
 func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
@@ -127,26 +137,6 @@ func (m *Manager) RunInactivityMonitor(peerID string) (found bool) {
 	return true
 }
 
-func (m *Manager) RunActivityMonitor(peerID string) {
-	m.managedPeersMu.Lock()
-	defer m.managedPeersMu.Unlock()
-
-	cfg, ok := m.managedPeers[peerID]
-	if !ok {
-		return
-	}
-
-	cfg.Log.Infof("start activity monitor")
-
-	// just in case free up
-	m.inactivityMonitors[cfg.PeerConnID].PauseTimer()
-
-	if err := m.activityManager.MonitorPeerActivity(*cfg); err != nil {
-		cfg.Log.Errorf("failed to create activity monitor: %v", err)
-		return
-	}
-}
-
 func (m *Manager) ExcludePeer(peerID string) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
@@ -154,9 +144,7 @@ func (m *Manager) ExcludePeer(peerID string) {
 	m.excludes[peerID] = struct{}{}
 }
 
-// Close the manager and all the listeners
-// block until all routine are done and cleanup the exported Channels
-func (m *Manager) Close() {
+func (m *Manager) close() {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -172,21 +160,7 @@ func (m *Manager) Close() {
 	log.Infof("lazy connection manager closed")
 }
 
-func (m *Manager) Start(ctx context.Context) {
-	ctx, m.cancel = context.WithCancel(ctx)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case e := <-m.activityManager.OnActivityChan:
-			m.onPeerActivity(ctx, e)
-		case peerConnID := <-m.onInactive:
-			m.onPeerInactivityTimedOut(ctx, peerConnID)
-		}
-	}
-}
-
-func (m *Manager) onPeerActivity(ctx context.Context, e activity.OnAcitvityEvent) {
+func (m *Manager) onPeerActivity(ctx context.Context, e activity.OnAcitvityEvent, onActiveListenerFn func(peerID string)) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -200,14 +174,10 @@ func (m *Manager) onPeerActivity(ctx context.Context, e activity.OnAcitvityEvent
 	pcfg.Log.Infof("starting inactivity monitor")
 	go m.inactivityMonitors[e.PeerConnId].Start(ctx, m.onInactive)
 
-	select {
-	case m.OnActive <- e.PeerID:
-	case <-ctx.Done():
-		return
-	}
+	onActiveListenerFn(e.PeerID)
 }
 
-func (m *Manager) onPeerInactivityTimedOut(ctx context.Context, peerConnID peer.ConnID) {
+func (m *Manager) onPeerInactivityTimedOut(peerConnID peer.ConnID, onInactiveListenerFn func(peerID string)) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -222,12 +192,18 @@ func (m *Manager) onPeerInactivityTimedOut(ctx context.Context, peerConnID peer.
 		return
 	}
 
-	select {
-	case m.Idle <- pcfg.PublicKey:
-	case <-ctx.Done():
+	onInactiveListenerFn(pcfg.PublicKey)
+
+	pcfg.Log.Infof("start activity monitor")
+
+	// just in case free up
+	m.inactivityMonitors[pcfg.PeerConnID].PauseTimer()
+	if err := m.activityManager.MonitorPeerActivity(*pcfg); err != nil {
+		pcfg.Log.Errorf("failed to create activity monitor: %v", err)
 		return
 	}
 }
+
 func (m *Manager) onPeerConnected(conn *peer.Conn) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()

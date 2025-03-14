@@ -29,6 +29,7 @@ type ConnMgr struct {
 
 	connStateListener *peer.ConnectionListener
 
+	mu        sync.Mutex
 	wg        sync.WaitGroup
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -58,12 +59,9 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 	e.ctxCancel = cancel
 
 	e.wg.Add(1)
-	go e.receiveLazyEvents(ctx)
-
-	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		e.lazyConnMgr.Start(ctx)
+		e.lazyConnMgr.Start(ctx, e.onActive, e.onInactive)
 	}()
 }
 
@@ -72,12 +70,17 @@ func (e *ConnMgr) AddExcludeFromLazyConnection(peerID string) {
 }
 
 func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	if success := e.peerStore.AddPeerConn(peerKey, conn); !success {
 		return true
 	}
 
 	if !e.isStartedWithLazyMgr() {
-		conn.Open(e.ctx)
+		if err := conn.Open(e.ctx); err != nil {
+			conn.Log.Errorf("failed to open connection: %v", err)
+		}
 		return
 	}
 
@@ -90,13 +93,17 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
 	if err != nil {
 		conn.Log.Errorf("failed to add peer to lazyconn manager: %v", err)
-		conn.Open(e.ctx)
+		if err := conn.Open(e.ctx); err != nil {
+			conn.Log.Errorf("failed to open connection: %v", err)
+		}
 		return
 	}
 
 	if excluded {
 		conn.Log.Infof("peer is on lazy conn manager exclude list, opening connection")
-		conn.Open(e.ctx)
+		if err := conn.Open(e.ctx); err != nil {
+			conn.Log.Errorf("failed to open connection: %v", err)
+		}
 		return
 	}
 
@@ -105,6 +112,9 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 }
 
 func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	conn, ok := e.peerStore.PeerConn(peerKey)
 	if !ok {
 		return nil, false
@@ -115,12 +125,17 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 	}
 
 	if found := e.lazyConnMgr.RunInactivityMonitor(peerKey); found {
-		conn.Open(e.ctx)
+		if err := conn.Open(e.ctx); err != nil {
+			conn.Log.Errorf("failed to open connection: %v", err)
+		}
 	}
 	return conn, true
 }
 
 func (e *ConnMgr) RemovePeerConn(peerKey string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	conn, ok := e.peerStore.Remove(peerKey)
 	if !ok {
 		return
@@ -141,25 +156,22 @@ func (e *ConnMgr) Close() {
 	}
 
 	e.ctxCancel()
-	e.lazyConnMgr.Close()
 	e.wg.Wait()
 	e.lazyConnMgr = nil
 }
 
-func (e *ConnMgr) receiveLazyEvents(ctx context.Context) {
-	defer e.wg.Done()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case peerID := <-e.lazyConnMgr.OnActive:
-			e.peerStore.PeerConnOpen(e.ctx, peerID)
-		case peerID := <-e.lazyConnMgr.Idle:
-			// todo consider to use engine lock
-			e.peerStore.PeerConnClose(peerID)
-			e.lazyConnMgr.RunActivityMonitor(peerID)
-		}
-	}
+func (e *ConnMgr) onActive(peerID string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.peerStore.PeerConnOpen(e.ctx, peerID)
+}
+
+func (e *ConnMgr) onInactive(peerID string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.peerStore.PeerConnClose(peerID)
 }
 
 func (e *ConnMgr) isStartedWithLazyMgr() bool {

@@ -267,6 +267,7 @@ func (conn *Conn) Close() {
 	conn.setStatusToDisconnected()
 	conn.opened = false
 	conn.wg.Wait()
+	conn.Log.Infof("peer connection closed")
 }
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
