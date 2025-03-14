@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"runtime"
 	"sync"
 	"time"
@@ -12,7 +13,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
@@ -34,11 +34,11 @@ type Manager struct {
 
 // NewManager creates a new netflow manager
 func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
-	var addr wgaddr.Address
+	var ipNet net.IPNet
 	if iface != nil {
-		addr = iface.Address()
+		ipNet = *iface.Address().Network
 	}
-	flowLogger := logger.New(ctx, statusRecorder, addr)
+	flowLogger := logger.New(ctx, statusRecorder, ipNet)
 
 	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
