@@ -26,7 +26,7 @@ type Anonymizer struct {
 }
 
 func DefaultAddresses() (netip.Addr, netip.Addr) {
-	// 192.51.100.0, 100::
+	// 198.51.100.0, 100::
 	return netip.AddrFrom4([4]byte{198, 51, 100, 0}), netip.AddrFrom16([16]byte{0x01})
 }
 
