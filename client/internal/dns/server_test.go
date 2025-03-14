@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	pfmock "github.com/netbirdio/netbird/client/iface/mocks"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -30,7 +31,7 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 )
 
-var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}).GetLogger()
+var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
 
 type mocWGIface struct {
 	filter device.PacketFilter
@@ -40,9 +41,9 @@ func (w *mocWGIface) Name() string {
 	panic("implement me")
 }
 
-func (w *mocWGIface) Address() iface.WGAddress {
+func (w *mocWGIface) Address() wgaddr.Address {
 	ip, network, _ := net.ParseCIDR("100.66.100.0/24")
-	return iface.WGAddress{
+	return wgaddr.Address{
 		IP:      ip,
 		Network: network,
 	}
@@ -458,7 +459,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	}
 
 	packetfilter := pfmock.NewMockPacketFilter(ctrl)
-	packetfilter.EXPECT().DropOutgoing(gomock.Any()).AnyTimes()
+	packetfilter.EXPECT().DropOutgoing(gomock.Any(), gomock.Any()).AnyTimes()
 	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 	packetfilter.EXPECT().RemovePacketHook(gomock.Any())
 	packetfilter.EXPECT().SetNetwork(ipNet)
@@ -1018,7 +1019,7 @@ func TestHandlerChain_DomainPriorities(t *testing.T) {
 				mh.AssertExpectations(t)
 			}
 
-			// Reset mocks
+			// Close mocks
 			if mh, ok := tc.expectedHandler.(*MockHandler); ok {
 				mh.ExpectedCalls = nil
 				mh.Calls = nil

@@ -6,8 +6,8 @@
 !define DESCRIPTION "A WireGuard®-based mesh network that connects your devices into a single private network"
 !define INSTALLER_NAME "netbird-installer.exe"
 !define MAIN_APP_EXE "Netbird"
-!define ICON "ui\\netbird.ico"
-!define BANNER "ui\\banner.bmp"
+!define ICON "ui\\assets\\netbird.ico"
+!define BANNER "ui\\build\\banner.bmp"
 !define LICENSE_DATA "..\\LICENSE"
 
 !define INSTALL_DIR "$PROGRAMFILES64\${APP_NAME}"
@@ -21,6 +21,8 @@
 
 !define UI_REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${UI_APP_EXE}"
 !define UI_UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UI_APP_NAME}"
+
+!define AUTOSTART_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
 Unicode True
 
@@ -68,6 +70,9 @@ ShowInstDetails Show
 
 !insertmacro MUI_PAGE_DIRECTORY
 
+; Custom page for autostart checkbox
+Page custom AutostartPage AutostartPageLeave
+
 !insertmacro MUI_PAGE_INSTFILES
 
 !insertmacro MUI_PAGE_FINISH
@@ -80,7 +85,35 @@ ShowInstDetails Show
 
 !insertmacro MUI_LANGUAGE "English"
 
+; Variables for autostart option
+Var AutostartCheckbox
+Var AutostartEnabled
+
 ######################################################################
+
+; Function to create the autostart options page
+Function AutostartPage
+  !insertmacro MUI_HEADER_TEXT "Startup Options" "Configure how ${APP_NAME} launches with Windows."
+
+  nsDialogs::Create 1018
+  Pop $0
+
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 0 20u 100% 10u "Start ${APP_NAME} UI automatically when Windows starts"
+  Pop $AutostartCheckbox
+  ${NSD_Check} $AutostartCheckbox ; Default to checked
+  StrCpy $AutostartEnabled "1" ; Default to enabled
+
+  nsDialogs::Show
+FunctionEnd
+
+; Function to handle leaving the autostart page
+Function AutostartPageLeave
+  ${NSD_GetState} $AutostartCheckbox $AutostartEnabled
+FunctionEnd
 
 Function GetAppFromCommand
 Exch $1
@@ -163,6 +196,16 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 
+; Create autostart registry entry based on checkbox
+DetailPrint "Autostart enabled: $AutostartEnabled"
+${If} $AutostartEnabled == "1"
+    WriteRegStr HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}" "$INSTDIR\${UI_APP_EXE}.exe"
+    DetailPrint "Added autostart registry entry: $INSTDIR\${UI_APP_EXE}.exe"
+${Else}
+    DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+    DetailPrint "Autostart not enabled by user"
+${EndIf}
+
 EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
 
@@ -186,7 +229,10 @@ ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
 ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 
 # kill ui client
-ExecWait `taskkill /im ${UI_APP_EXE}.exe`
+ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
+
+; Remove autostart registry entry
+DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
 # wait the service uninstall take unblock the executable
 Sleep 3000

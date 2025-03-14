@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -16,13 +17,13 @@ import (
 type ProxyBind struct {
 	Bind *bind.ICEBind
 
-	wgAddr     *net.UDPAddr
-	wgEndpoint *bind.Endpoint
-	remoteConn net.Conn
-	ctx        context.Context
-	cancel     context.CancelFunc
-	closeMu    sync.Mutex
-	closed     bool
+	fakeNetIP      *netip.AddrPort
+	wgBindEndpoint *bind.Endpoint
+	remoteConn     net.Conn
+	ctx            context.Context
+	cancel         context.CancelFunc
+	closeMu        sync.Mutex
+	closed         bool
 
 	pausedMu  sync.Mutex
 	paused    bool
@@ -33,26 +34,32 @@ type ProxyBind struct {
 // endpoint is the NetBird address of the remote peer. The SetEndpoint return with the address what will be used in the
 // WireGuard configuration.
 func (p *ProxyBind) AddTurnConn(ctx context.Context, nbAddr *net.UDPAddr, remoteConn net.Conn) error {
-	addr, err := p.Bind.SetEndpoint(nbAddr, remoteConn)
+	fakeNetIP, err := fakeAddress(nbAddr)
 	if err != nil {
 		return err
 	}
 
-	p.wgAddr = addr
-	p.wgEndpoint = addrToEndpoint(addr)
+	p.fakeNetIP = fakeNetIP
+	p.wgBindEndpoint = &bind.Endpoint{AddrPort: *fakeNetIP}
 	p.remoteConn = remoteConn
 	p.ctx, p.cancel = context.WithCancel(ctx)
-	return err
+	return nil
 
 }
 func (p *ProxyBind) EndpointAddr() *net.UDPAddr {
-	return p.wgAddr
+	return &net.UDPAddr{
+		IP:   p.fakeNetIP.Addr().AsSlice(),
+		Port: int(p.fakeNetIP.Port()),
+		Zone: p.fakeNetIP.Addr().Zone(),
+	}
 }
 
 func (p *ProxyBind) Work() {
 	if p.remoteConn == nil {
 		return
 	}
+
+	p.Bind.SetEndpoint(p.fakeNetIP.Addr(), p.remoteConn)
 
 	p.pausedMu.Lock()
 	p.paused = false
@@ -93,7 +100,7 @@ func (p *ProxyBind) close() error {
 
 	p.cancel()
 
-	p.Bind.RemoveEndpoint(p.wgAddr)
+	p.Bind.RemoveEndpoint(p.fakeNetIP.Addr())
 
 	if rErr := p.remoteConn.Close(); rErr != nil && !errors.Is(rErr, net.ErrClosed) {
 		return rErr
@@ -126,7 +133,7 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 		}
 
 		msg := bind.RecvMessage{
-			Endpoint: p.wgEndpoint,
+			Endpoint: p.wgBindEndpoint,
 			Buffer:   buf[:n],
 		}
 		p.Bind.RecvChan <- msg
@@ -134,8 +141,19 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 	}
 }
 
-func addrToEndpoint(addr *net.UDPAddr) *bind.Endpoint {
-	ip, _ := netip.AddrFromSlice(addr.IP.To4())
-	addrPort := netip.AddrPortFrom(ip, uint16(addr.Port))
-	return &bind.Endpoint{AddrPort: addrPort}
+// fakeAddress returns a fake address that is used to as an identifier for the peer.
+// The fake address is in the format of 127.1.x.x where x.x is the last two octets of the peer address.
+func fakeAddress(peerAddress *net.UDPAddr) (*netip.AddrPort, error) {
+	octets := strings.Split(peerAddress.IP.String(), ".")
+	if len(octets) != 4 {
+		return nil, fmt.Errorf("invalid IP format")
+	}
+
+	fakeIP, err := netip.ParseAddr(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3]))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse new IP: %w", err)
+	}
+
+	netipAddr := netip.AddrPortFrom(fakeIP, uint16(peerAddress.Port))
+	return &netipAddr, nil
 }

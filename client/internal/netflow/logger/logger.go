@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/netflow/store"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 type rcvChan chan *types.EventFields
@@ -21,15 +23,20 @@ type Logger struct {
 	enabled        atomic.Bool
 	rcvChan        atomic.Pointer[rcvChan]
 	cancelReceiver context.CancelFunc
+	statusRecorder *peer.Status
+	wgIfaceIPNet   net.IPNet
 	Store          types.Store
 }
 
-func New(ctx context.Context) *Logger {
+func New(ctx context.Context, statusRecorder *peer.Status, wgIfaceIPNet net.IPNet) *Logger {
+
 	ctx, cancel := context.WithCancel(ctx)
 	return &Logger{
-		ctx:    ctx,
-		cancel: cancel,
-		Store:  store.NewMemoryStore(),
+		ctx:            ctx,
+		cancel:         cancel,
+		statusRecorder: statusRecorder,
+		wgIfaceIPNet:   wgIfaceIPNet,
+		Store:          store.NewMemoryStore(),
 	}
 }
 
@@ -58,13 +65,14 @@ func (l *Logger) startReceiver() {
 	if l.enabled.Load() {
 		return
 	}
+
 	l.mux.Lock()
 	ctx, cancel := context.WithCancel(l.ctx)
 	l.cancelReceiver = cancel
 	l.mux.Unlock()
 
 	c := make(rcvChan, 100)
-	l.rcvChan.Swap(&c)
+	l.rcvChan.Store(&c)
 	l.enabled.Store(true)
 
 	for {
@@ -73,12 +81,23 @@ func (l *Logger) startReceiver() {
 			log.Info("flow Memory store receiver stopped")
 			return
 		case eventFields := <-c:
-			id := uuid.NewString()
+			id := uuid.New()
 			event := types.Event{
 				ID:          id,
 				EventFields: *eventFields,
 				Timestamp:   time.Now(),
 			}
+
+			if event.Direction == types.Ingress {
+				if !l.wgIfaceIPNet.Contains(net.IP(event.SourceIP.AsSlice())) {
+					event.SourceResourceID = []byte(l.statusRecorder.CheckRoutes(event.SourceIP))
+				}
+			} else if event.Direction == types.Egress {
+				if !l.wgIfaceIPNet.Contains(net.IP(event.DestIP.AsSlice())) {
+					event.DestResourceID = []byte(l.statusRecorder.CheckRoutes(event.DestIP))
+				}
+			}
+
 			l.Store.StoreEvent(&event)
 		}
 	}
@@ -100,6 +119,7 @@ func (l *Logger) stop() {
 		l.cancelReceiver()
 		l.cancelReceiver = nil
 	}
+	l.rcvChan.Store(nil)
 	l.mux.Unlock()
 }
 
@@ -107,7 +127,7 @@ func (l *Logger) GetEvents() []*types.Event {
 	return l.Store.GetEvents()
 }
 
-func (l *Logger) DeleteEvents(ids []string) {
+func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 	l.Store.DeleteEvents(ids)
 }
 

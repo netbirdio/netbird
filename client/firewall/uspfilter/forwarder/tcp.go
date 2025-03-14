@@ -22,7 +22,14 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	id := r.ID()
 
 	flowID := uuid.New()
-	f.sendTCPEvent(nftypes.TypeStart, flowID, id)
+
+	f.sendTCPEvent(nftypes.TypeStart, flowID, id, nil)
+	var success bool
+	defer func() {
+		if !success {
+			f.sendTCPEvent(nftypes.TypeEnd, flowID, id, nil)
+		}
+	}()
 
 	dialAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 
@@ -51,6 +58,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 
 	inConn := gonet.NewTCPConn(&wq, ep)
 
+	success = true
 	f.logger.Trace("forwarder: established TCP connection %v", epID(id))
 
 	go f.proxyTCP(id, inConn, outConn, ep, flowID)
@@ -66,7 +74,7 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 		}
 		ep.Close()
 
-		f.sendTCPEvent(nftypes.TypeEnd, flowID, id)
+		f.sendTCPEvent(nftypes.TypeEnd, flowID, id, ep)
 	}()
 
 	// Create context for managing the proxy goroutines
@@ -98,17 +106,27 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	}
 }
 
-func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID) {
-
-	f.flowLogger.StoreEvent(nftypes.EventFields{
+func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint) {
+	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
 		Direction: nftypes.Ingress,
-		Protocol:  6,
+		Protocol:  nftypes.TCP,
 		// TODO: handle ipv6
-		SourceIP:   netip.AddrFrom4(id.LocalAddress.As4()),
-		DestIP:     netip.AddrFrom4(id.RemoteAddress.As4()),
-		SourcePort: id.LocalPort,
-		DestPort:   id.RemotePort,
-	})
+		SourceIP:   netip.AddrFrom4(id.RemoteAddress.As4()),
+		DestIP:     netip.AddrFrom4(id.LocalAddress.As4()),
+		SourcePort: id.RemotePort,
+		DestPort:   id.LocalPort,
+	}
+
+	if ep != nil {
+		if tcpStats, ok := ep.Stats().(*tcp.Stats); ok {
+			// fields are flipped since this is the in conn
+			// TODO: get bytes
+			fields.RxPackets = tcpStats.SegmentsSent.Value()
+			fields.TxPackets = tcpStats.SegmentsReceived.Value()
+		}
+	}
+
+	f.flowLogger.StoreEvent(fields)
 }

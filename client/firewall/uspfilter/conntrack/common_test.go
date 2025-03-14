@@ -2,7 +2,7 @@ package conntrack
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -12,7 +12,7 @@ import (
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
-var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}).GetLogger()
+var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
 
 // Memory pressure tests
 func BenchmarkMemoryPressure(b *testing.B) {
@@ -21,22 +21,22 @@ func BenchmarkMemoryPressure(b *testing.B) {
 		defer tracker.Close()
 
 		// Generate different IPs
-		srcIPs := make([]net.IP, 100)
-		dstIPs := make([]net.IP, 100)
+		srcIPs := make([]netip.Addr, 100)
+		dstIPs := make([]netip.Addr, 100)
 		for i := 0; i < 100; i++ {
-			srcIPs[i] = net.IPv4(192, 168, byte(i/256), byte(i%256))
-			dstIPs[i] = net.IPv4(10, 0, byte(i/256), byte(i%256))
+			srcIPs[i] = netip.AddrFrom4([4]byte{192, 168, byte(i / 256), byte(i % 256)})
+			dstIPs[i] = netip.AddrFrom4([4]byte{10, 0, byte(i / 256), byte(i % 256)})
 		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			srcIdx := i % len(srcIPs)
 			dstIdx := (i + 1) % len(dstIPs)
-			tracker.TrackOutbound(srcIPs[srcIdx], dstIPs[dstIdx], uint16(i%65535), 80, TCPSyn)
+			tracker.TrackOutbound(srcIPs[srcIdx], dstIPs[dstIdx], uint16(i%65535), 80, TCPSyn, 0)
 
 			// Simulate some valid inbound packets
 			if i%3 == 0 {
-				tracker.IsValidInbound(dstIPs[dstIdx], srcIPs[srcIdx], 80, uint16(i%65535), TCPAck)
+				tracker.IsValidInbound(dstIPs[dstIdx], srcIPs[srcIdx], 80, uint16(i%65535), TCPAck, 0)
 			}
 		}
 	})
@@ -46,22 +46,22 @@ func BenchmarkMemoryPressure(b *testing.B) {
 		defer tracker.Close()
 
 		// Generate different IPs
-		srcIPs := make([]net.IP, 100)
-		dstIPs := make([]net.IP, 100)
+		srcIPs := make([]netip.Addr, 100)
+		dstIPs := make([]netip.Addr, 100)
 		for i := 0; i < 100; i++ {
-			srcIPs[i] = net.IPv4(192, 168, byte(i/256), byte(i%256))
-			dstIPs[i] = net.IPv4(10, 0, byte(i/256), byte(i%256))
+			srcIPs[i] = netip.AddrFrom4([4]byte{192, 168, byte(i / 256), byte(i % 256)})
+			dstIPs[i] = netip.AddrFrom4([4]byte{10, 0, byte(i / 256), byte(i % 256)})
 		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			srcIdx := i % len(srcIPs)
 			dstIdx := (i + 1) % len(dstIPs)
-			tracker.TrackOutbound(srcIPs[srcIdx], dstIPs[dstIdx], uint16(i%65535), 80)
+			tracker.TrackOutbound(srcIPs[srcIdx], dstIPs[dstIdx], uint16(i%65535), 80, 0)
 
 			// Simulate some valid inbound packets
 			if i%3 == 0 {
-				tracker.IsValidInbound(dstIPs[dstIdx], srcIPs[srcIdx], 80, uint16(i%65535))
+				tracker.IsValidInbound(dstIPs[dstIdx], srcIPs[srcIdx], 80, uint16(i%65535), 0)
 			}
 		}
 	})

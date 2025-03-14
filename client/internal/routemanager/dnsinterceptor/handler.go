@@ -160,6 +160,12 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
+	// set the AuthenticatedData flag and the EDNS0 buffer size to 4096 bytes to support larger dns records
+	if r.Extra == nil {
+		r.SetEdns0(4096, false)
+		r.MsgHdr.AuthenticatedData = true
+	}
+
 	client := &dns.Client{
 		Timeout: 5 * time.Second,
 		Net:     "udp",
@@ -315,7 +321,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 	if len(toAdd) > 0 || len(toRemove) > 0 {
 		d.interceptedDomains[resolvedDomain] = newPrefixes
 		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
-		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes)
+		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes, d.route.GetResourceID())
 
 		if len(toAdd) > 0 {
 			log.Debugf("added dynamic route(s) for domain=%s (pattern: domain=%s): %s",

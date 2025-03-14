@@ -134,10 +134,11 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
 	// TODO: make after-startup backoff err available
-	run := make(chan error, 1)
+	run := make(chan struct{}, 1)
+	clientErr := make(chan error, 1)
 	go func() {
 		if err := client.Run(run); err != nil {
-			run <- err
+			clientErr <- err
 		}
 	}()
 
@@ -147,13 +148,9 @@ func (c *Client) Start(startCtx context.Context) error {
 			return fmt.Errorf("stop error after context done. Stop error: %w. Context done: %w", stopErr, startCtx.Err())
 		}
 		return startCtx.Err()
-	case err := <-run:
-		if err != nil {
-			if stopErr := client.Stop(); stopErr != nil {
-				return fmt.Errorf("stop error after failed to startup. Stop error: %w. Start error: %w", stopErr, err)
-			}
-			return fmt.Errorf("startup: %w", err)
-		}
+	case err := <-clientErr:
+		return fmt.Errorf("startup: %w", err)
+	case <-run:
 	}
 
 	c.connect = client

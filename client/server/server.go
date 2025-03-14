@@ -160,7 +160,7 @@ func (s *Server) Start() error {
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
 func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
-	runningChan chan error,
+	runningChan chan struct{},
 ) {
 	backOff := getConnectWithBackoff(ctx)
 	retryStarted := false
@@ -628,20 +628,21 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	runningChan := make(chan error)
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan)
+	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
+	defer cancel()
 
+	runningChan := make(chan struct{}, 1) // buffered channel to do not lose the signal
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan)
 	for {
 		select {
-		case err := <-runningChan:
-			if err != nil {
-				log.Debugf("waiting for engine to become ready failed: %s", err)
-			} else {
-				return &proto.UpResponse{}, nil
-			}
+		case <-runningChan:
+			return &proto.UpResponse{}, nil
 		case <-callerCtx.Done():
 			log.Debug("context done, stopping the wait for engine to become ready")
 			return nil, callerCtx.Err()
+		case <-timeoutCtx.Done():
+			log.Debug("up is timed out, stopping the wait for engine to become ready")
+			return nil, timeoutCtx.Err()
 		}
 	}
 }

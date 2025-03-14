@@ -1,7 +1,6 @@
 package uspfilter
 
 import (
-	"net"
 	"net/netip"
 
 	"github.com/google/gopacket"
@@ -13,7 +12,7 @@ import (
 type PeerRule struct {
 	id         string
 	mgmtId     []byte
-	ip         net.IP
+	ip         netip.Addr
 	ipLayer    gopacket.LayerType
 	matchByIP  bool
 	protoLayer gopacket.LayerType
