@@ -316,7 +316,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	err = am.settingsManager.UpdateExtraSettings(ctx, accountID, newSettings.Extra)
+	err = am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
 	if err != nil {
 		return nil, err
 	}

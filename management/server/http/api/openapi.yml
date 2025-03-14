@@ -110,6 +110,14 @@ components:
           description: Enables or disables network traffic logs. If enabled, all network traffic logs from peers will be stored.
           type: boolean
           example: true
+        network_traffic_packet_counter_enabled:
+          description: Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
+          type: boolean
+          example: true
+      required:
+        - peer_approval_enabled
+        - network_traffic_logs_enabled
+        - network_traffic_packet_counter_enabled
     AccountRequest:
       type: object
       properties:
