@@ -46,11 +46,11 @@ func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, 
 	}
 }
 
-func (g *Guard) Start(ctx context.Context) {
+func (g *Guard) Start(ctx context.Context, eventCallback func()) {
 	if g.isController {
-		g.reconnectLoopWithRetry(ctx)
+		g.reconnectLoopWithRetry(ctx, eventCallback)
 	} else {
-		g.listenForDisconnectEvents(ctx)
+		g.listenForDisconnectEvents(ctx, eventCallback)
 	}
 }
 
@@ -70,7 +70,7 @@ func (g *Guard) SetICEConnDisconnected() {
 
 // reconnectLoopWithRetry periodically check (max 30 min) the connection status.
 // Try to send offer while the P2P is not established or while the Relay is not connected if is it supported
-func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
+func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	waitForInitialConnectionTry(ctx)
 
 	srReconnectedChan := g.srWatcher.NewListener()
@@ -93,7 +93,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 			}
 
 			if !g.isConnectedOnAllWay() {
-				g.triggerOfferSending()
+				callback()
 			}
 
 		case <-g.relayedConnDisconnected:
@@ -125,7 +125,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 // when the connection is lost. It will try to establish a connection only once time if before the connection was established
 // It track separately the ice and relay connection status. Just because a lower priority connection reestablished it does not
 // mean that to switch to it. We always force to use the higher priority connection.
-func (g *Guard) listenForDisconnectEvents(ctx context.Context) {
+func (g *Guard) listenForDisconnectEvents(ctx context.Context, callback func()) {
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
@@ -134,12 +134,12 @@ func (g *Guard) listenForDisconnectEvents(ctx context.Context) {
 		select {
 		case <-g.relayedConnDisconnected:
 			g.log.Debugf("Relay connection changed, triggering reconnect")
-			g.triggerOfferSending()
+			callback()
 		case <-g.iCEConnDisconnected:
 			g.log.Debugf("ICE state changed, try to send new offer")
-			g.triggerOfferSending()
+			callback()
 		case <-srReconnectedChan:
-			g.triggerOfferSending()
+			callback()
 		case <-ctx.Done():
 			g.log.Debugf("context is done, stop reconnect loop")
 			return
@@ -162,13 +162,6 @@ func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
 	return ticker
-}
-
-func (g *Guard) triggerOfferSending() {
-	select {
-	case g.Reconnect <- struct{}{}:
-	default:
-	}
 }
 
 // Give chance to the peer to establish the initial connection.

@@ -1,4 +1,4 @@
-package listener
+package activity
 
 import (
 	"fmt"
@@ -10,13 +10,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
-type OnDemandEvent struct {
+type OnAcitvityEvent struct {
 	PeerID     string
 	PeerConnId peer.ConnID
 }
 
 type Manager struct {
-	TrafficStartChan chan OnDemandEvent
+	OnActivityChan chan OnAcitvityEvent
 
 	wgIface lazyconn.WGIface
 
@@ -29,26 +29,27 @@ type Manager struct {
 
 func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
-		TrafficStartChan: make(chan OnDemandEvent, 1),
-		wgIface:          wgIface,
-		portGenerator:    newPortAllocator(),
-		peers:            make(map[string]*Listener),
-		done:             make(chan struct{}),
+		OnActivityChan: make(chan OnAcitvityEvent, 1),
+		wgIface:        wgIface,
+		portGenerator:  newPortAllocator(),
+		peers:          make(map[string]*Listener),
+		done:           make(chan struct{}),
 	}
 	return m
 }
 
-func (m *Manager) CreatePeerListener(peerCfg lazyconn.PeerConfig) error {
+func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, ok := m.peers[peerCfg.PublicKey]; ok {
+		log.Warnf("activity listener already exists for: %s", peerCfg.PublicKey)
 		return nil
 	}
 
 	conn, addr, err := m.portGenerator.newConn()
 	if err != nil {
-		return fmt.Errorf("failed to bind lazy connection: %v", err)
+		return fmt.Errorf("failed to bind activity listener: %v", err)
 	}
 
 	listener, err := NewListener(m.wgIface, peerCfg, conn, addr)
@@ -57,23 +58,23 @@ func (m *Manager) CreatePeerListener(peerCfg lazyconn.PeerConfig) error {
 	}
 	m.peers[peerCfg.PublicKey] = listener
 
-	log.Infof("created on-demand listener: %s, for peer: %s", addr.String(), peerCfg.PublicKey)
 	go m.waitForTraffic(listener, peerCfg.PublicKey, peerCfg.PeerConnID)
 
-	log.Debugf("created lazy connection listener for: %s", peerCfg.PublicKey)
+	peerCfg.Log.Infof("created activity listener: %s", addr.String())
 	return nil
 }
 
-func (m *Manager) RemovePeer(peerID string) {
+func (m *Manager) RemovePeer(peerID string) bool {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	listener, ok := m.peers[peerID]
 	if !ok {
-		m.mu.Unlock()
-		return
+		return false
 	}
 	delete(m.peers, peerID)
 	listener.Close()
-	m.mu.Unlock()
+	return true
 }
 
 func (m *Manager) Close() {
@@ -85,7 +86,6 @@ func (m *Manager) Close() {
 		listener.Close()
 		delete(m.peers, peerID)
 	}
-	// todo drain TrafficStartChan
 }
 
 func (m *Manager) waitForTraffic(listener *Listener, peerID string, peerConnID peer.ConnID) {
@@ -99,13 +99,13 @@ func (m *Manager) waitForTraffic(listener *Listener, peerID string, peerConnID p
 	delete(m.peers, peerID)
 	m.mu.Unlock()
 
-	m.notify(OnDemandEvent{PeerID: peerID, PeerConnId: peerConnID})
+	m.notify(OnAcitvityEvent{PeerID: peerID, PeerConnId: peerConnID})
 }
 
-func (m *Manager) notify(event OnDemandEvent) {
-	log.Debugf("peer started to send traffic: %s", event.PeerID)
+func (m *Manager) notify(event OnAcitvityEvent) {
+	log.Debugf("peer activity detected: %s", event.PeerID)
 	select {
 	case <-m.done:
-	case m.TrafficStartChan <- event:
+	case m.OnActivityChan <- event:
 	}
 }
