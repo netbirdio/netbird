@@ -204,18 +204,18 @@ func (m *Manager) onPeerInactivityTimedOut(peerConnID peer.ConnID, onInactiveLis
 	}
 }
 
-func (m *Manager) onPeerConnected(conn *peer.Conn) {
+func (m *Manager) onPeerConnected(peerID string) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	peerCfg, ok := m.managedPeers[conn.GetKey()]
+	peerCfg, ok := m.managedPeers[peerID]
 	if !ok {
 		return
 	}
 
-	iw, ok := m.inactivityMonitors[conn.ConnID()]
+	iw, ok := m.inactivityMonitors[peerCfg.PeerConnID]
 	if !ok {
-		conn.Log.Errorf("inactivity monitor not found for peer")
+		peerCfg.Log.Errorf("inactivity monitor not found for peer")
 		return
 	}
 
@@ -223,16 +223,16 @@ func (m *Manager) onPeerConnected(conn *peer.Conn) {
 	iw.PauseTimer()
 }
 
-func (m *Manager) onPeerDisconnected(conn *peer.Conn) {
+func (m *Manager) onPeerDisconnected(peerID string) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	peerCfg, ok := m.managedPeers[conn.GetKey()]
+	peerCfg, ok := m.managedPeers[peerID]
 	if !ok {
 		return
 	}
 
-	iw, ok := m.inactivityMonitors[conn.ConnID()]
+	iw, ok := m.inactivityMonitors[peerCfg.PeerConnID]
 	if !ok {
 		return
 	}

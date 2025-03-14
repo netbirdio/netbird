@@ -395,7 +395,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 
 	if oldState == connPriorityNone {
-		conn.peerConnDispatcher.NotifyConnected(conn)
+		conn.peerConnDispatcher.NotifyConnected(conn.config.Key)
 	}
 }
 
@@ -424,7 +424,7 @@ func (conn *Conn) onICEStateDisconnected() {
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", connPriorityNone.String())
 		conn.currentConnPriority = connPriorityNone
-		conn.peerConnDispatcher.NotifyDisconnected(conn)
+		conn.peerConnDispatcher.NotifyDisconnected(conn.config.Key)
 	}
 
 	changed := conn.statusICE.Get() != StatusIdle
@@ -489,7 +489,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr)
-	conn.peerConnDispatcher.NotifyConnected(conn)
+	conn.peerConnDispatcher.NotifyConnected(conn.config.Key)
 }
 
 func (conn *Conn) onRelayDisconnected() {
@@ -504,7 +504,7 @@ func (conn *Conn) onRelayDisconnected() {
 			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 		}
 		conn.currentConnPriority = connPriorityNone
-		conn.peerConnDispatcher.NotifyDisconnected(conn)
+		conn.peerConnDispatcher.NotifyDisconnected(conn.config.Key)
 	}
 
 	if conn.wgProxyRelay != nil {

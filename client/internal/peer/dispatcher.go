@@ -5,8 +5,8 @@ import (
 )
 
 type ConnectionListener struct {
-	OnConnected    func(peer *Conn)
-	OnDisconnected func(peer *Conn)
+	OnConnected    func(peerID string)
+	OnDisconnected func(peerID string)
 }
 
 type ConnectionDispatcher struct {
@@ -33,18 +33,18 @@ func (e *ConnectionDispatcher) RemoveListener(listener *ConnectionListener) {
 	delete(e.listeners, listener)
 }
 
-func (e *ConnectionDispatcher) NotifyConnected(peer *Conn) {
+func (e *ConnectionDispatcher) NotifyConnected(peerID string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for listener, _ := range e.listeners {
-		listener.OnConnected(peer)
+		listener.OnConnected(peerID)
 	}
 }
 
-func (e *ConnectionDispatcher) NotifyDisconnected(peer *Conn) {
+func (e *ConnectionDispatcher) NotifyDisconnected(peerID string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for listener, _ := range e.listeners {
-		listener.OnDisconnected(peer)
+		listener.OnDisconnected(peerID)
 	}
 }
