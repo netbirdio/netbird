@@ -8,17 +8,17 @@ import (
 )
 
 const (
-	inactivityThreshold = 30 * time.Second // idle after 1 hour inactivity
+	inactivityThreshold = 60 * time.Second // idle after 1 hour inactivity
 )
 
-type InactivityMonitor struct {
+type Monitor struct {
 	id     peer.ConnID
 	timer  *time.Timer
 	cancel context.CancelFunc
 }
 
-func NewInactivityMonitor(peerID peer.ConnID) *InactivityMonitor {
-	i := &InactivityMonitor{
+func NewInactivityMonitor(peerID peer.ConnID) *Monitor {
+	i := &Monitor{
 		id:    peerID,
 		timer: time.NewTimer(0),
 	}
@@ -26,7 +26,7 @@ func NewInactivityMonitor(peerID peer.ConnID) *InactivityMonitor {
 	return i
 }
 
-func (i *InactivityMonitor) Start(ctx context.Context, timeoutChan chan peer.ConnID) {
+func (i *Monitor) Start(ctx context.Context, timeoutChan chan peer.ConnID) {
 	i.timer.Reset(inactivityThreshold)
 	defer i.timer.Stop()
 
@@ -45,17 +45,17 @@ func (i *InactivityMonitor) Start(ctx context.Context, timeoutChan chan peer.Con
 	}
 }
 
-func (i *InactivityMonitor) Stop() {
+func (i *Monitor) Stop() {
 	if i.cancel == nil {
 		return
 	}
 	i.cancel()
 }
 
-func (i *InactivityMonitor) PauseTimer() {
+func (i *Monitor) PauseTimer() {
 	i.timer.Stop()
 }
 
-func (i *InactivityMonitor) ResetTimer() {
+func (i *Monitor) ResetTimer() {
 	i.timer.Reset(inactivityThreshold)
 }

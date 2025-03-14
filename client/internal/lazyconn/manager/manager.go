@@ -24,7 +24,7 @@ type Manager struct {
 	managedPeersMu       sync.Mutex
 
 	activityManager    *activity.Manager
-	inactivityMonitors map[peer.ConnID]*inactivity.InactivityMonitor
+	inactivityMonitors map[peer.ConnID]*inactivity.Monitor
 
 	cancel     context.CancelFunc
 	onInactive chan peer.ConnID
@@ -37,7 +37,7 @@ func NewManager(wgIface lazyconn.WGIface, connStateDispatcher *peer.ConnectionDi
 		managedPeersByConnID: make(map[peer.ConnID]*lazyconn.PeerConfig),
 		excludes:             make(map[string]struct{}),
 		activityManager:      activity.NewManager(wgIface),
-		inactivityMonitors:   make(map[peer.ConnID]*inactivity.InactivityMonitor),
+		inactivityMonitors:   make(map[peer.ConnID]*inactivity.Monitor),
 		onInactive:           make(chan peer.ConnID),
 	}
 
@@ -155,7 +155,7 @@ func (m *Manager) close() {
 	for _, iw := range m.inactivityMonitors {
 		iw.Stop()
 	}
-	m.inactivityMonitors = make(map[peer.ConnID]*inactivity.InactivityMonitor)
+	m.inactivityMonitors = make(map[peer.ConnID]*inactivity.Monitor)
 	m.managedPeers = make(map[string]*lazyconn.PeerConfig)
 	log.Infof("lazy connection manager closed")
 }
