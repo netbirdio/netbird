@@ -43,7 +43,7 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 
 	mlog := log.WithField("peer", "tet")
 	mocWgIface := &MocWgIface{}
-	watcher := NewWGWatcher(mlog, mocWgIface, "")
+	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump(mlog))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -72,7 +72,7 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 
 	mlog := log.WithField("peer", "tet")
 	mocWgIface := &MocWgIface{}
-	watcher := NewWGWatcher(mlog, mocWgIface, "")
+	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump(mlog))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
