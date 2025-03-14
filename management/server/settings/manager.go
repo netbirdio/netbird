@@ -16,7 +16,7 @@ type Manager interface {
 	GetExtraSettingsManager() extra_settings.Manager
 	GetSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error)
-	UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) error
+	UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error)
 }
 
 type managerImpl struct {
@@ -96,7 +96,7 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 	return settings.Extra, nil
 }
 
-func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) error {
+func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error) {
 	return m.extraSettingsManager.UpdateExtraSettings(ctx, accountID, userID, extraSettings)
 }
 
