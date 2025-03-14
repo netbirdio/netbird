@@ -272,9 +272,9 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
-	mgmCtx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
-	defer cancel()
-	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
+	// mgmCtx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	// defer cancel()
+	resp, err := c.realClient.GetServerKey(c.ctx, &proto.Empty{})
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, fmt.Errorf("failed while getting Management Service public key")
@@ -327,11 +327,9 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 
 	var resp *proto.EncryptedMessage
 	operation := func() error {
-		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
-		defer cancel()
 
 		var err error
-		resp, err = c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
+		resp, err = c.realClient.Login(context.Background(), &proto.EncryptedMessage{
 			WgPubKey: c.key.PublicKey().String(),
 			Body:     loginReq,
 		})

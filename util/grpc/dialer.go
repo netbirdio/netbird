@@ -71,18 +71,15 @@ func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 		}))
 	}
 
-	connCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	conn, err := grpc.DialContext(
-		connCtx,
+		context.Background(),
 		addr,
 		transportOption,
 		WithCustomDialer(),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    30 * time.Second,
-			Timeout: 10 * time.Second,
+			Time:    10 * time.Minute,
+			Timeout: 5 * time.Minute,
 		}),
 	)
 	if err != nil {
