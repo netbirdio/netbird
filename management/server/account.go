@@ -27,7 +27,8 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -78,7 +79,7 @@ type AccountManager interface {
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	GetUserFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeers(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
+	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
@@ -161,6 +162,8 @@ type DefaultAccountManager struct {
 	geo                  geolocation.Geolocation
 
 	requestBuffer *AccountRequestBuffer
+
+	proxyController port_forwarding.Controller
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -245,6 +248,7 @@ func BuildManager(
 	userDeleteFromIDPEnabled bool,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	metrics telemetry.AppMetrics,
+	proxyController port_forwarding.Controller,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -267,6 +271,7 @@ func BuildManager(
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
+		proxyController:          proxyController,
 	}
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {

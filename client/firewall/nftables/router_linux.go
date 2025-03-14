@@ -14,23 +14,31 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/google/nftables/xt"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
+	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
-	chainNameRoutingFw  = "netbird-rt-fwd"
-	chainNameRoutingNat = "netbird-rt-postrouting"
-	chainNameForward    = "FORWARD"
+	tableNat               = "nat"
+	chainNameNatPrerouting = "PREROUTING"
+	chainNameRoutingFw     = "netbird-rt-fwd"
+	chainNameRoutingNat    = "netbird-rt-postrouting"
+	chainNameRoutingRdr    = "netbird-rt-redirect"
+	chainNameForward       = "FORWARD"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
 	userDataAcceptForwardRuleOif = "frwacceptoif"
+
+	dnatSuffix = "_dnat"
+	snatSuffix = "_snat"
 )
 
 const refreshRulesMapError = "refresh rules map: %w"
@@ -49,16 +57,18 @@ type router struct {
 	ipsetCounter *refcounter.Counter[string, []netip.Prefix, *nftables.Set]
 
 	wgIface          iFaceMapper
+	ipFwdState       *ipfwdstate.IPForwardingState
 	legacyManagement bool
 }
 
 func newRouter(workTable *nftables.Table, wgIface iFaceMapper) (*router, error) {
 	r := &router{
-		conn:      &nftables.Conn{},
-		workTable: workTable,
-		chains:    make(map[string]*nftables.Chain),
-		rules:     make(map[string]*nftables.Rule),
-		wgIface:   wgIface,
+		conn:       &nftables.Conn{},
+		workTable:  workTable,
+		chains:     make(map[string]*nftables.Chain),
+		rules:      make(map[string]*nftables.Rule),
+		wgIface:    wgIface,
+		ipFwdState: ipfwdstate.NewIPForwardingState(),
 	}
 
 	r.ipsetCounter = refcounter.New(
@@ -98,7 +108,52 @@ func (r *router) Reset() error {
 	// clear without deleting the ipsets, the nf table will be deleted by the caller
 	r.ipsetCounter.Clear()
 
-	return r.removeAcceptForwardRules()
+	var merr *multierror.Error
+
+	if err := r.removeAcceptForwardRules(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove accept forward rules: %w", err))
+	}
+
+	if err := r.removeNatPreroutingRules(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove filter prerouting rules: %w", err))
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *router) removeNatPreroutingRules() error {
+	table := &nftables.Table{
+		Name:   tableNat,
+		Family: nftables.TableFamilyIPv4,
+	}
+	chain := &nftables.Chain{
+		Name:     chainNameNatPrerouting,
+		Table:    table,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityNATDest,
+		Type:     nftables.ChainTypeNAT,
+	}
+	rules, err := r.conn.GetRules(table, chain)
+	if err != nil {
+		return fmt.Errorf("get rules from nat table: %w", err)
+	}
+
+	var merr *multierror.Error
+
+	// Delete rules that have our UserData suffix
+	for _, rule := range rules {
+		if len(rule.UserData) == 0 || !strings.HasSuffix(string(rule.UserData), dnatSuffix) {
+			continue
+		}
+		if err := r.conn.DelRule(rule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete rule %s: %w", rule.UserData, err))
+		}
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
+	}
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *router) loadFilterTable() (*nftables.Table, error) {
@@ -133,14 +188,22 @@ func (r *router) createContainers() error {
 		Type:     nftables.ChainTypeNAT,
 	})
 
+	r.chains[chainNameRoutingRdr] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameRoutingRdr,
+		Table:    r.workTable,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityNATDest,
+		Type:     nftables.ChainTypeNAT,
+	})
+
 	// Chain is created by acl manager
 	// TODO: move creation to a common place
 	r.chains[chainNamePrerouting] = &nftables.Chain{
 		Name:     chainNamePrerouting,
 		Table:    r.workTable,
-		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookPrerouting,
 		Priority: nftables.ChainPriorityMangle,
+		Type:     nftables.ChainTypeFilter,
 	}
 
 	// Add the single NAT rule that matches on mark
@@ -281,7 +344,7 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
-	ruleKey := rule.GetRuleID()
+	ruleKey := rule.ID()
 	nftRule, exists := r.rules[ruleKey]
 	if !exists {
 		log.Debugf("route rule %s not found", ruleKey)
@@ -410,6 +473,10 @@ func (r *router) deleteNftRule(rule *nftables.Rule, ruleKey string) error {
 
 // AddNatRule appends a nftables rule pair to the nat chain
 func (r *router) AddNatRule(pair firewall.RouterPair) error {
+	if err := r.ipFwdState.RequestForwarding(); err != nil {
+		return err
+	}
+
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
@@ -836,6 +903,10 @@ func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error 
 
 // RemoveNatRule removes the prerouting mark rule
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
+	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+		log.Errorf("%v", err)
+	}
+
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
@@ -894,6 +965,269 @@ func (r *router) refreshRulesMap() error {
 		}
 	}
 	return nil
+}
+
+func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	if err := r.ipFwdState.RequestForwarding(); err != nil {
+		return nil, err
+	}
+
+	ruleKey := rule.ID()
+	if _, exists := r.rules[ruleKey+dnatSuffix]; exists {
+		return rule, nil
+	}
+
+	protoNum, err := protoToInt(rule.Protocol)
+	if err != nil {
+		return nil, fmt.Errorf("convert protocol to number: %w", err)
+	}
+
+	if err := r.addDnatRedirect(rule, protoNum, ruleKey); err != nil {
+		return nil, err
+	}
+
+	r.addDnatMasq(rule, protoNum, ruleKey)
+
+	// Unlike iptables, there's no point in adding "out" rules in the forward chain here as our policy is ACCEPT.
+	// To overcome DROP policies in other chains, we'd have to add rules to the chains there.
+	// We also cannot just add "oif <iface> accept" there and filter in our own table as we don't know what is supposed to be allowed.
+	// TODO: find chains with drop policies and add rules there
+
+	if err := r.conn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush rules: %w", err)
+	}
+
+	return &rule, nil
+}
+
+func (r *router) addDnatRedirect(rule firewall.ForwardRule, protoNum uint8, ruleKey string) error {
+	dnatExprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{protoNum},
+		},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       2,
+			Len:          2,
+		},
+	}
+	dnatExprs = append(dnatExprs, applyPort(&rule.DestinationPort, false)...)
+
+	// shifted translated port is not supported in nftables, so we hand this over to xtables
+	if rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2 {
+		if rule.TranslatedPort.Values[0] != rule.DestinationPort.Values[0] ||
+			rule.TranslatedPort.Values[1] != rule.DestinationPort.Values[1] {
+			return r.addXTablesRedirect(dnatExprs, ruleKey, rule)
+		}
+	}
+
+	additionalExprs, regProtoMin, regProtoMax, err := r.handleTranslatedPort(rule)
+	if err != nil {
+		return err
+	}
+	dnatExprs = append(dnatExprs, additionalExprs...)
+
+	dnatExprs = append(dnatExprs,
+		&expr.NAT{
+			Type:        expr.NATTypeDestNAT,
+			Family:      uint32(nftables.TableFamilyIPv4),
+			RegAddrMin:  1,
+			RegProtoMin: regProtoMin,
+			RegProtoMax: regProtoMax,
+		},
+	)
+
+	dnatRule := &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingRdr],
+		Exprs:    dnatExprs,
+		UserData: []byte(ruleKey + dnatSuffix),
+	}
+	r.conn.AddRule(dnatRule)
+	r.rules[ruleKey+dnatSuffix] = dnatRule
+
+	return nil
+}
+
+func (r *router) handleTranslatedPort(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	switch {
+	case rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2:
+		return r.handlePortRange(rule)
+	case len(rule.TranslatedPort.Values) == 0:
+		return r.handleAddressOnly(rule)
+	case len(rule.TranslatedPort.Values) == 1:
+		return r.handleSinglePort(rule)
+	default:
+		return nil, 0, 0, fmt.Errorf("invalid translated port: %v", rule.TranslatedPort)
+	}
+}
+
+func (r *router) handlePortRange(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[0]),
+		},
+		&expr.Immediate{
+			Register: 3,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[1]),
+		},
+	}
+	return exprs, 2, 3, nil
+}
+
+func (r *router) handleAddressOnly(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+	}
+	return exprs, 0, 0, nil
+}
+
+func (r *router) handleSinglePort(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[0]),
+		},
+	}
+	return exprs, 2, 0, nil
+}
+
+func (r *router) addXTablesRedirect(dnatExprs []expr.Any, ruleKey string, rule firewall.ForwardRule) error {
+	dnatExprs = append(dnatExprs,
+		&expr.Counter{},
+		&expr.Target{
+			Name: "DNAT",
+			Rev:  2,
+			Info: &xt.NatRange2{
+				NatRange: xt.NatRange{
+					Flags:   uint(xt.NatRangeMapIPs | xt.NatRangeProtoSpecified | xt.NatRangeProtoOffset),
+					MinIP:   rule.TranslatedAddress.AsSlice(),
+					MaxIP:   rule.TranslatedAddress.AsSlice(),
+					MinPort: rule.TranslatedPort.Values[0],
+					MaxPort: rule.TranslatedPort.Values[1],
+				},
+				BasePort: rule.DestinationPort.Values[0],
+			},
+		},
+	)
+
+	dnatRule := &nftables.Rule{
+		Table: &nftables.Table{
+			Name:   tableNat,
+			Family: nftables.TableFamilyIPv4,
+		},
+		Chain: &nftables.Chain{
+			Name:     chainNameNatPrerouting,
+			Table:    r.filterTable,
+			Type:     nftables.ChainTypeNAT,
+			Hooknum:  nftables.ChainHookPrerouting,
+			Priority: nftables.ChainPriorityNATDest,
+		},
+		Exprs:    dnatExprs,
+		UserData: []byte(ruleKey + dnatSuffix),
+	}
+	r.conn.AddRule(dnatRule)
+	r.rules[ruleKey+dnatSuffix] = dnatRule
+
+	return nil
+}
+
+func (r *router) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleKey string) {
+	masqExprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{protoNum},
+		},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       16,
+			Len:          4,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+	}
+
+	masqExprs = append(masqExprs, applyPort(&rule.TranslatedPort, false)...)
+	masqExprs = append(masqExprs, &expr.Masq{})
+
+	masqRule := &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingNat],
+		Exprs:    masqExprs,
+		UserData: []byte(ruleKey + snatSuffix),
+	}
+	r.conn.AddRule(masqRule)
+	r.rules[ruleKey+snatSuffix] = masqRule
+}
+
+func (r *router) DeleteDNATRule(rule firewall.Rule) error {
+	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+		log.Errorf("%v", err)
+	}
+
+	ruleKey := rule.ID()
+
+	if err := r.refreshRulesMap(); err != nil {
+		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	var merr *multierror.Error
+	if dnatRule, exists := r.rules[ruleKey+dnatSuffix]; exists {
+		if err := r.conn.DelRule(dnatRule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete dnat rule: %w", err))
+		}
+	}
+
+	if masqRule, exists := r.rules[ruleKey+snatSuffix]; exists {
+		if err := r.conn.DelRule(masqRule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete snat rule: %w", err))
+		}
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
+	}
+
+	if merr == nil {
+		delete(r.rules, ruleKey+dnatSuffix)
+		delete(r.rules, ruleKey+snatSuffix)
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // generateCIDRMatcherExpressions generates nftables expressions that matches a CIDR
@@ -959,15 +1293,11 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 	if port.IsRange && len(port.Values) == 2 {
 		// Handle port range
 		exprs = append(exprs,
-			&expr.Cmp{
-				Op:       expr.CmpOpGte,
+			&expr.Range{
+				Op:       expr.CmpOpEq,
 				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(port.Values[0]),
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpLte,
-				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(port.Values[1]),
+				FromData: binaryutil.BigEndian.PutUint16(port.Values[0]),
+				ToData:   binaryutil.BigEndian.PutUint16(port.Values[1]),
 			},
 		)
 	} else {

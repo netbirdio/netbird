@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -29,7 +29,7 @@ const (
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string
-	Address() iface.WGAddress
+	Address() wgaddr.Address
 	IsUserspaceBind() bool
 }
 
@@ -340,6 +340,22 @@ func (m *Manager) Flush() error {
 	defer m.mutex.Unlock()
 
 	return m.aclManager.Flush()
+}
+
+// AddDNATRule adds a DNAT rule
+func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddDNATRule(rule)
+}
+
+// DeleteDNATRule deletes a DNAT rule
+func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.DeleteDNATRule(rule)
 }
 
 func (m *Manager) createWorkTable() (*nftables.Table, error) {

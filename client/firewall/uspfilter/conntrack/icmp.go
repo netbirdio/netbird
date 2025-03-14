@@ -1,6 +1,7 @@
 package conntrack
 
 import (
+	"context"
 	"net"
 	"sync"
 	"time"
@@ -39,8 +40,8 @@ type ICMPTracker struct {
 	connections   map[ICMPConnKey]*ICMPConnTrack
 	timeout       time.Duration
 	cleanupTicker *time.Ticker
+	tickerCancel  context.CancelFunc
 	mutex         sync.RWMutex
-	done          chan struct{}
 	ipPool        *PreallocatedIPs
 }
 
@@ -50,16 +51,18 @@ func NewICMPTracker(timeout time.Duration, logger *nblog.Logger) *ICMPTracker {
 		timeout = DefaultICMPTimeout
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	tracker := &ICMPTracker{
 		logger:        logger,
 		connections:   make(map[ICMPConnKey]*ICMPConnTrack),
 		timeout:       timeout,
 		cleanupTicker: time.NewTicker(ICMPCleanupInterval),
-		done:          make(chan struct{}),
+		tickerCancel:  cancel,
 		ipPool:        NewPreallocatedIPs(),
 	}
 
-	go tracker.cleanupRoutine()
+	go tracker.cleanupRoutine(ctx)
 	return tracker
 }
 
@@ -119,12 +122,14 @@ func (t *ICMPTracker) IsValidInbound(srcIP net.IP, dstIP net.IP, id uint16, seq 
 		conn.Sequence == seq
 }
 
-func (t *ICMPTracker) cleanupRoutine() {
+func (t *ICMPTracker) cleanupRoutine(ctx context.Context) {
+	defer t.tickerCancel()
+
 	for {
 		select {
 		case <-t.cleanupTicker.C:
 			t.cleanup()
-		case <-t.done:
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -146,8 +151,7 @@ func (t *ICMPTracker) cleanup() {
 
 // Close stops the cleanup routine and releases resources
 func (t *ICMPTracker) Close() {
-	t.cleanupTicker.Stop()
-	close(t.done)
+	t.tickerCancel()
 
 	t.mutex.Lock()
 	for _, conn := range t.connections {
