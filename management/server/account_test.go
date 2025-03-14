@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -2809,7 +2810,9 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
+	permissionsManagerMock := permissions.NewManagerMock()
+
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), permissionsManagerMock)
 	if err != nil {
 		return nil, err
 	}
@@ -3130,4 +3133,52 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			}
 		})
 	}
+}
+
+func Test_CreateAccountByPrivateDomain(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx := context.Background()
+	initiatorId := "test-user"
+	domain := "example.com"
+
+	account, err := manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.NoError(t, err)
+
+	assert.False(t, account.IsDomainPrimaryAccount)
+	assert.Equal(t, domain, account.Domain)
+	assert.Equal(t, types.PrivateCategory, account.DomainCategory)
+	assert.Equal(t, initiatorId, account.CreatedBy)
+	assert.Equal(t, 1, len(account.Groups))
+	assert.Equal(t, 0, len(account.Users))
+	assert.Equal(t, 0, len(account.SetupKeys))
+
+	// retry should fail
+	_, err = manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.Error(t, err)
+}
+
+func Test_UpdateToPrimaryAccount(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx := context.Background()
+	initiatorId := "test-user"
+	domain := "example.com"
+
+	account, err := manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.NoError(t, err)
+	assert.False(t, account.IsDomainPrimaryAccount)
+
+	// retry should fail
+	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	assert.NoError(t, err)
+	assert.True(t, account.IsDomainPrimaryAccount)
 }
