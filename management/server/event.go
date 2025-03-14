@@ -96,39 +96,11 @@ func (am *DefaultAccountManager) fillEventsWithUserInfo(ctx context.Context, eve
 	}
 
 	for _, event := range events {
-		initiatorUserInfo, ok := eventUserInfo[event.InitiatorID]
-		if !ok {
+		if !fillEventInitiatorInfo(eventUserInfo, event) {
 			log.WithContext(ctx).Warnf("failed to resolve user info for initiator: %s", event.InitiatorID)
 		}
 
-		if event.InitiatorEmail == "" && ok {
-			event.InitiatorEmail = initiatorUserInfo.email
-		}
-
-		if event.InitiatorName == "" && ok {
-			// here to allowed to be empty because in the first release we did not store the name
-			event.InitiatorName = initiatorUserInfo.name
-		}
-
-		if ok && event.AccountID != initiatorUserInfo.accountId {
-			if event.Meta == nil {
-				event.Meta = make(map[string]any)
-			}
-
-			event.Meta["external"] = true
-		}
-
-		targetUserInfo, ok := eventUserInfo[event.TargetID]
-		if !ok {
-			continue
-		}
-
-		if event.Meta == nil {
-			event.Meta = make(map[string]any)
-		}
-
-		event.Meta["email"] = targetUserInfo.email
-		event.Meta["username"] = targetUserInfo.name
+		fillEventTargetInfo(eventUserInfo, event)
 	}
 	return nil
 }
@@ -224,4 +196,42 @@ func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, 
 	}
 
 	return eventUserInfos, nil
+}
+
+func fillEventTargetInfo(eventUserInfo map[string]eventUserInfo, event *activity.Event) {
+	userInfo, ok := eventUserInfo[event.TargetID]
+	if !ok {
+		return
+	}
+
+	if event.Meta == nil {
+		event.Meta = make(map[string]any)
+	}
+
+	event.Meta["email"] = userInfo.email
+	event.Meta["username"] = userInfo.name
+}
+
+func fillEventInitiatorInfo(eventUserInfo map[string]eventUserInfo, event *activity.Event) bool {
+	userInfo, ok := eventUserInfo[event.InitiatorID]
+	if !ok {
+		return false
+	}
+
+	if event.InitiatorEmail == "" {
+		event.InitiatorEmail = userInfo.email
+	}
+
+	if event.InitiatorName == "" {
+		event.InitiatorName = userInfo.name
+	}
+
+	if event.AccountID != userInfo.accountId {
+		if event.Meta == nil {
+			event.Meta = make(map[string]any)
+		}
+
+		event.Meta["external"] = true
+	}
+	return true
 }
