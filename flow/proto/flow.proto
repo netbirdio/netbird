@@ -67,6 +67,11 @@ message FlowFields {
   // Number of bytes
   uint64 rx_bytes = 12;
   uint64 tx_bytes = 13;
+
+  // Resource ID
+  bytes source_resource_id = 14;
+  bytes dest_resource_id = 15;
+
 }
 
 // Flow event types

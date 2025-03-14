@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"runtime"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/flow/client"
 	"github.com/netbirdio/netbird/flow/proto"
 )
@@ -31,8 +33,12 @@ type Manager struct {
 }
 
 // NewManager creates a new netflow manager
-func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte) *Manager {
-	flowLogger := logger.New(ctx)
+func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
+	var ipNet net.IPNet
+	if iface != nil {
+		ipNet = *iface.Address().Network
+	}
+	flowLogger := logger.New(ctx, statusRecorder, ipNet)
 
 	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
@@ -197,17 +203,19 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 		Timestamp: timestamppb.New(event.Timestamp),
 		PublicKey: publicKey,
 		FlowFields: &proto.FlowFields{
-			FlowId:    event.FlowID[:],
-			RuleId:    event.RuleID,
-			Type:      proto.Type(event.Type),
-			Direction: proto.Direction(event.Direction),
-			Protocol:  uint32(event.Protocol),
-			SourceIp:  event.SourceIP.AsSlice(),
-			DestIp:    event.DestIP.AsSlice(),
-			RxPackets: event.RxPackets,
-			TxPackets: event.TxPackets,
-			RxBytes:   event.RxBytes,
-			TxBytes:   event.TxBytes,
+			FlowId:           event.FlowID[:],
+			RuleId:           event.RuleID,
+			Type:             proto.Type(event.Type),
+			Direction:        proto.Direction(event.Direction),
+			Protocol:         uint32(event.Protocol),
+			SourceIp:         event.SourceIP.AsSlice(),
+			DestIp:           event.DestIP.AsSlice(),
+			RxPackets:        event.RxPackets,
+			TxPackets:        event.TxPackets,
+			RxBytes:          event.RxBytes,
+			TxBytes:          event.TxBytes,
+			SourceResourceId: event.SourceResourceID,
+			DestResourceId:   event.DestResourceID,
 		},
 	}
 
