@@ -46,6 +46,9 @@ func (i *InactivityMonitor) Start(ctx context.Context, timeoutChan chan peer.Con
 }
 
 func (i *InactivityMonitor) Stop() {
+	if i.cancel == nil {
+		return
+	}
 	i.cancel()
 }
 

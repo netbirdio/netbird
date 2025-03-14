@@ -226,13 +226,13 @@ func (conn *Conn) Close() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	conn.Log.Infof("close peer connection")
-	conn.ctxCancel()
-
 	if !conn.opened {
 		conn.Log.Debugf("ignore close connection to peer")
 		return
 	}
+
+	conn.Log.Infof("close peer connection")
+	conn.ctxCancel()
 
 	conn.workerRelay.DisableWgWatcher()
 	conn.workerRelay.CloseConn()
