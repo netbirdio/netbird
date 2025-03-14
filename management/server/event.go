@@ -188,6 +188,7 @@ func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, 
 
 		externalUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, id)
 		if err != nil {
+			// @todo consider logging
 			continue
 		}
 

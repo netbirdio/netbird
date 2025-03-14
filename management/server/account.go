@@ -1611,3 +1611,113 @@ func separateGroups(autoGroups []string, allGroups []*types.Group) ([]string, ma
 func (am *DefaultAccountManager) GetStore() store.Store {
 	return am.Store
 }
+
+// Creates account by private domain.
+// Expects domain value to be a valid and a private dns domain.
+func (am *DefaultAccountManager) CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error) {
+	cancel := am.Store.AcquireGlobalLock(ctx)
+	defer cancel()
+
+	domain = strings.ToLower(domain)
+
+	count, err := am.Store.CountAccountsByPrivateDomain(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	if count > 0 {
+		return nil, status.Errorf(status.InvalidArgument, "account with private domain already exists")
+	}
+
+	// retry twice for new ID clashes
+	for range 2 {
+		accountId := xid.New().String()
+
+		exists, err := am.Store.AccountExists(ctx, store.LockingStrengthShare, accountId)
+		if err != nil || exists {
+			continue
+		}
+
+		network := types.NewNetwork()
+		peers := make(map[string]*nbpeer.Peer)
+		users := make(map[string]*types.User)
+		routes := make(map[route.ID]*route.Route)
+		setupKeys := map[string]*types.SetupKey{}
+		nameServersGroups := make(map[string]*nbdns.NameServerGroup)
+
+		dnsSettings := types.DNSSettings{
+			DisabledManagementGroups: make([]string, 0),
+		}
+
+		newAccount := &types.Account{
+			Id:        accountId,
+			CreatedAt: time.Now().UTC(),
+			SetupKeys: setupKeys,
+			Network:   network,
+			Peers:     peers,
+			Users:     users,
+			// @todo check if using the MSP owner id here is ok
+			CreatedBy:              initiatorId,
+			Domain:                 domain,
+			DomainCategory:         types.PrivateCategory,
+			IsDomainPrimaryAccount: false,
+			Routes:                 routes,
+			NameServerGroups:       nameServersGroups,
+			DNSSettings:            dnsSettings,
+			Settings: &types.Settings{
+				PeerLoginExpirationEnabled: true,
+				PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+				GroupsPropagationEnabled:   true,
+				RegularUsersViewBlocked:    true,
+
+				PeerInactivityExpirationEnabled: false,
+				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
+				RoutingPeerDNSResolutionEnabled: true,
+			},
+		}
+
+		if err := newAccount.AddAllGroup(); err != nil {
+			return nil, status.Errorf(status.Internal, "failed to add all group to new account by private domain")
+		}
+
+		if err := am.Store.SaveAccount(ctx, newAccount); err != nil {
+			log.WithContext(ctx).Errorf("failed to save new account %s by private domain: %v", newAccount.Id, err)
+			return nil, err
+		}
+
+		am.StoreEvent(ctx, initiatorId, newAccount.Id, accountId, activity.AccountCreated, nil)
+		return newAccount, nil
+	}
+
+	return nil, status.Errorf(status.Internal, "failed to create new account by private domain")
+}
+
+func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
+	account, err := am.Store.GetAccount(ctx, accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	if account.IsDomainPrimaryAccount {
+		return account, nil
+	}
+
+	// additional check to ensure there is only one account for this domain at the time of update
+	count, err := am.Store.CountAccountsByPrivateDomain(ctx, account.Domain)
+	if err != nil {
+		return nil, err
+	}
+
+	if count > 1 {
+		return nil, status.Errorf(status.Internal, "more than one account exists with the same private domain")
+	}
+
+	account.IsDomainPrimaryAccount = true
+
+	if err := am.Store.SaveAccount(ctx, account); err != nil {
+		log.WithContext(ctx).Errorf("failed to update primary account %s by private domain: %v", account.Id, err)
+		return nil, status.Errorf(status.Internal, "failed to update primary account %s by private domain", account.Id)
+	}
+
+	return account, nil
+}
