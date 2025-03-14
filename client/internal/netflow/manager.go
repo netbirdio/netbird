@@ -175,7 +175,12 @@ func (m *Manager) startSender() {
 
 func (m *Manager) receiveACKs(client *client.GRPCClient) {
 	err := client.Receive(m.ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
-		log.Tracef("received flow event ack: %s", ack.EventId)
+		id, err := uuid.FromBytes(ack.EventId)
+		if err != nil {
+			log.Warnf("failed to convert ack event id to uuid: %s", err)
+			return nil
+		}
+		log.Tracef("received flow event ack: %s", id)
 		m.logger.DeleteEvents([]uuid.UUID{uuid.UUID(ack.EventId)})
 		return nil
 	})
