@@ -16,7 +16,7 @@ type Manager interface {
 	GetExtraSettingsManager() extra_settings.Manager
 	GetSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error)
-	UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) error
+	UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) error
 }
 
 type managerImpl struct {
@@ -67,6 +67,9 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 	// Once we migrate the peer approval to settings manager this merging is obsolete
 	if settings.Extra != nil {
 		settings.Extra.FlowEnabled = extraSettings.FlowEnabled
+		settings.Extra.FlowPacketCounterEnabled = extraSettings.FlowPacketCounterEnabled
+		settings.Extra.FlowENCollectionEnabled = extraSettings.FlowENCollectionEnabled
+		settings.Extra.FlowDnsCollectionEnabled = extraSettings.FlowDnsCollectionEnabled
 	}
 
 	return settings, nil
@@ -93,8 +96,8 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 	return settings.Extra, nil
 }
 
-func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) error {
-	return m.extraSettingsManager.UpdateExtraSettings(ctx, accountID, extraSettings)
+func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) error {
+	return m.extraSettingsManager.UpdateExtraSettings(ctx, accountID, userID, extraSettings)
 }
 
 func NewManagerMock() *ManagerMock {
@@ -125,6 +128,6 @@ func (m *ManagerMock) GetExtraSettings(ctx context.Context, accountID string) (*
 	return &types.ExtraSettings{}, nil
 }
 
-func (m *ManagerMock) UpdateExtraSettings(ctx context.Context, accountID string, extraSettings *types.ExtraSettings) error {
+func (m *ManagerMock) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) error {
 	return nil
 }

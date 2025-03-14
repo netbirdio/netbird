@@ -91,13 +91,10 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Settings.Extra != nil {
-		flowEnabled := false
-		if req.Settings.Extra.NetworkTrafficLogsEnabled != nil {
-			flowEnabled = *req.Settings.Extra.NetworkTrafficLogsEnabled
-		}
 		settings.Extra = &types.ExtraSettings{
-			PeerApprovalEnabled: *req.Settings.Extra.PeerApprovalEnabled,
-			FlowEnabled:         flowEnabled,
+			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
+			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
+			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 		}
 	}
 
@@ -173,8 +170,9 @@ func toAccountResponse(accountID string, settings *types.Settings) *api.Account 
 
 	if settings.Extra != nil {
 		apiSettings.Extra = &api.AccountExtraSettings{
-			PeerApprovalEnabled:       &settings.Extra.PeerApprovalEnabled,
-			NetworkTrafficLogsEnabled: &settings.Extra.FlowEnabled,
+			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
+			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
+			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,
 		}
 	}
 

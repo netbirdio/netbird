@@ -226,6 +226,10 @@ message FlowConfig {
 
   // counters determines if flow packets and bytes counters should be sent
   bool counters = 6;
+  // exitNodeCollection determines if event collection on exit nodes should be enabled
+  bool exitNodeCollection = 7;
+  // dnsCollection determines if DNS event collection should be enabled
+  bool dnsCollection = 8;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password

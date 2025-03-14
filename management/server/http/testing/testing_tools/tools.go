@@ -124,7 +124,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	validatorMock := server.MocIntegratedValidator{}
 	proxyController := integrations.NewController(store)
 	userManager := users.NewManager(store)
-	settingsManager := settings.NewManager(store, userManager, integrations.NewManager())
+	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}))
 	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)

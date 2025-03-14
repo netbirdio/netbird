@@ -202,7 +202,7 @@ var (
 			}
 
 			userManager := users.NewManager(store)
-			extraSettingsManager := integrations.NewManager()
+			extraSettingsManager := integrations.NewManager(eventStore)
 			settingsManager := settings.NewManager(store, userManager, extraSettingsManager)
 			permissionsManager := permissions.NewManager(userManager, settingsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
