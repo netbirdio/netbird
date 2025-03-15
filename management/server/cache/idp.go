@@ -20,52 +20,20 @@ const (
 	DefaultIDPCacheCleanupInterval = 30 * time.Minute
 )
 
-func NewIDPCacheManagers[T any, M any](loadableFunc cache.LoadFunction[T], store store.StoreInterface) (*cache.Cache[M], *cache.LoadableCache[T]) {
-	simpleCache := cache.New[T](store)
-	loadableCache := cache.NewLoadable[T](loadableFunc, simpleCache)
-	return cache.New[M](store), loadableCache
+// UserDataCache is an interface that wraps the basic Get, Set and Delete methods for idp.UserData objects.
+type UserDataCache interface {
+	Get(ctx context.Context, key string) (*idp.UserData, error)
+	Set(ctx context.Context, key string, value *idp.UserData, expiration time.Duration) error
+	Delete(ctx context.Context, key string) error
 }
 
-type IDPCache interface {
-	Get(ctx context.Context, key any) (any, error)
-	Set(ctx context.Context, key any, value any, duration time.Duration) error
-	Delete(ctx context.Context, key any) error
-}
-
-type Marshaler interface {
-	Get(ctx context.Context, key any, returnObj any) (any, error)
-	Set(ctx context.Context, key, object any, options ...store.Option) error
-	Delete(ctx context.Context, key any) error
-}
-
-type cacher[T any] interface {
-	Get(ctx context.Context, key any) (T, error)
-	Set(ctx context.Context, key any, object T, options ...store.Option) error
-	Delete(ctx context.Context, key any) error
-}
-
-type marshalerWraper struct {
-	cache cacher[any]
-}
-
-func (m marshalerWraper) Get(ctx context.Context, key any, _ any) (any, error) {
-	return m.cache.Get(ctx, key)
-}
-
-func (m marshalerWraper) Set(ctx context.Context, key, object any, options ...store.Option) error {
-	return m.cache.Set(ctx, key, object, options...)
-}
-
-func (m marshalerWraper) Delete(ctx context.Context, key any) error {
-	return m.cache.Delete(ctx, key)
-}
-
-type LIDPCache struct {
+// UserDataCacheImpl is a struct that implements the UserDataCache interface.
+type UserDataCacheImpl struct {
 	cache Marshaler
 }
 
-func (i *LIDPCache) Get(ctx context.Context, key string) (*idp.UserData, error) {
-	v, err := i.cache.Get(ctx, key, new(idp.UserData))
+func (u *UserDataCacheImpl) Get(ctx context.Context, key string) (*idp.UserData, error) {
+	v, err := u.cache.Get(ctx, key, new(idp.UserData))
 	if err != nil {
 		return nil, err
 	}
@@ -74,31 +42,32 @@ func (i *LIDPCache) Get(ctx context.Context, key string) (*idp.UserData, error) 
 	return data, nil
 }
 
-func (i *LIDPCache) Set(ctx context.Context, key string, value *idp.UserData, expiration time.Duration) error {
-	fmt.Printf("setting key: %s, value: %v\n", key, value)
-	return i.cache.Set(ctx, key, value)
+func (u *UserDataCacheImpl) Set(ctx context.Context, key string, value *idp.UserData, expiration time.Duration) error {
+	return u.cache.Set(ctx, key, value, store.WithExpiration(expiration))
 }
 
-func (i *LIDPCache) Delete(ctx context.Context, key string) error {
-	return i.cache.Delete(ctx, key)
+func (u *UserDataCacheImpl) Delete(ctx context.Context, key string) error {
+	return u.cache.Delete(ctx, key)
 }
 
-func NewIDPCache(store store.StoreInterface) *LIDPCache {
+// NewUserDataCache creates a new UserDataCacheImpl object.
+func NewUserDataCache(store store.StoreInterface) *UserDataCacheImpl {
 	simpleCache := cache.New[any](store)
 	if store.GetType() == redis.RedisType {
 		m := marshaler.New(simpleCache)
-		return &LIDPCache{cache: m}
+		return &UserDataCacheImpl{cache: m}
 	}
-	return &LIDPCache{cache: &marshalerWraper{simpleCache}}
+	return &UserDataCacheImpl{cache: &marshalerWraper{simpleCache}}
 }
 
-type IDPCacheLoadable struct {
+// AccountUserDataCache wraps the basic Get, Set and Delete methods for []*idp.UserData objects.
+type AccountUserDataCache struct {
 	cache Marshaler
 }
 
-func (i *IDPCacheLoadable) Get(ctx context.Context, key string) ([]*idp.UserData, error) {
+func (a *AccountUserDataCache) Get(ctx context.Context, key string) ([]*idp.UserData, error) {
 	var m []*idp.UserData
-	v, err := i.cache.Get(ctx, key, &m)
+	v, err := a.cache.Get(ctx, key, &m)
 	if err != nil {
 		return nil, err
 	}
@@ -120,20 +89,21 @@ func (i *IDPCacheLoadable) Get(ctx context.Context, key string) ([]*idp.UserData
 	return nil, fmt.Errorf("unexpected type: %T", v)
 }
 
-func (i *IDPCacheLoadable) Set(ctx context.Context, key string, value []*idp.UserData, expiration time.Duration) error {
-	return i.cache.Set(ctx, key, value)
+func (a *AccountUserDataCache) Set(ctx context.Context, key string, value []*idp.UserData, expiration time.Duration) error {
+	return a.cache.Set(ctx, key, value, store.WithExpiration(expiration))
 }
 
-func (i *IDPCacheLoadable) Delete(ctx context.Context, key string) error {
-	return i.cache.Delete(ctx, key)
+func (a *AccountUserDataCache) Delete(ctx context.Context, key string) error {
+	return a.cache.Delete(ctx, key)
 }
 
-func NewIDPLoadableCache(loadableFunc cache.LoadFunction[any], store store.StoreInterface) *IDPCacheLoadable {
+// NewAccountUserDataCache creates a new AccountUserDataCache object.
+func NewAccountUserDataCache(loadableFunc cache.LoadFunction[any], store store.StoreInterface) *AccountUserDataCache {
 	simpleCache := cache.New[any](store)
 	loadable := cache.NewLoadable[any](loadableFunc, simpleCache)
 	if store.GetType() == redis.RedisType {
 		m := marshaler.New(loadable)
-		return &IDPCacheLoadable{cache: m}
+		return &AccountUserDataCache{cache: m}
 	}
-	return &IDPCacheLoadable{cache: &marshalerWraper{loadable}}
+	return &AccountUserDataCache{cache: &marshalerWraper{loadable}}
 }

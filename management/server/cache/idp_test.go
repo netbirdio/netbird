@@ -2,7 +2,6 @@ package cache_test
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -50,40 +49,20 @@ func TestNewIDPCacheManagers(t *testing.T) {
 				t.Fatalf("couldn't create cache store: %s", err)
 			}
 
-			// simple, loadable := cache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](loader, cacheStore)
-
-			simple := cache.NewIDPCache(cacheStore)
-			loadable := cache.NewIDPLoadableCache(loader, cacheStore)
+			simple := cache.NewUserDataCache(cacheStore)
+			loadable := cache.NewAccountUserDataCache(loader, cacheStore)
 
 			ctx := context.Background()
 			value := &idp.UserData{ID: "v", Name: "vv"}
 			err = simple.Set(ctx, "key1", value, time.Minute)
-			// err = simple.Set(ctx, "key1", value, store.WithExpiration(time.Minute))
 			if err != nil {
 				t.Errorf("couldn't set testing data: %s", err)
-			}
-
-			// checking with direct store client
-			if tc.redis {
-				// wait for redis to sync
-				options, err := redis.ParseURL(os.Getenv(cache.RedisStoreEnvVar))
-				if err != nil {
-					t.Errorf("parsing redis cache url: %s", err)
-				}
-
-				redisClient := redis.NewClient(options)
-				r, e := redisClient.Get(ctx, "key1").Result()
-				if e != nil {
-					t.Errorf("couldn't get testing data from redis: %s", e)
-				}
-				t.Logf("redis value: %#v", r)
 			}
 
 			result, err := simple.Get(ctx, "key1")
 			if err != nil {
 				t.Errorf("couldn't get testing data: %s", err)
 			}
-			t.Log(result)
 			if value.ID != result.ID || value.Name != result.Name {
 				t.Errorf("value returned doesn't match testing data, got %v, expected %v", result, "value1")
 			}
@@ -93,7 +72,6 @@ func TestNewIDPCacheManagers(t *testing.T) {
 				{ID: "v4", Name: "v4v4"},
 			}
 			err = loadable.Set(ctx, "key2", values, time.Minute)
-			// err = loadable.Set(ctx, "key2", values, store.WithExpiration(time.Minute))
 
 			if err != nil {
 				t.Errorf("couldn't set testing data: %s", err)
@@ -110,26 +88,25 @@ func TestNewIDPCacheManagers(t *testing.T) {
 				t.Errorf("value returned doesn't match testing data, got %v, expected %v", result2[1], values[1])
 			}
 
-			// testing loadable capability
-			result2, err = loadable.Get(ctx, "loadKey")
-			if err != nil {
-				t.Errorf("couldn't get testing data: %s", err)
-			}
-
 			// checking with direct store client
 			if tc.redis {
 				// wait for redis to sync
 				options, err := redis.ParseURL(os.Getenv(cache.RedisStoreEnvVar))
 				if err != nil {
-					t.Errorf("parsing redis cache url: %s", err)
+					t.Fatalf("parsing redis cache url: %s", err)
 				}
 
 				redisClient := redis.NewClient(options)
-				r, e := redisClient.Get(ctx, "loadKey").Result()
-				if e != nil {
-					t.Errorf("couldn't get testing data from redis: %s", e)
+				_, err = redisClient.Get(ctx, "loadKey").Result()
+				if err == nil {
+					t.Errorf("shouldn't find testing data from redis")
 				}
-				t.Logf("redis value: %#v", r)
+			}
+
+			// testing loadable capability
+			result2, err = loadable.Get(ctx, "loadKey")
+			if err != nil {
+				t.Errorf("couldn't get testing data: %s", err)
 			}
 
 			if loadData[0].ID != result2[0].ID || loadData[0].Name != result2[0].Name {
@@ -155,9 +132,4 @@ func loader(ctx context.Context, key any) (any, []store.Option, error) {
 		return nil, nil, err
 	}
 	return bytes, nil, nil
-}
-
-func loader2(ctx context.Context, key any) (any, []store.Option, error) {
-	data, err := json.Marshal(loadData)
-	return data, nil, err
 }
