@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eko/gocache/lib/v4/cache"
 	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"github.com/vmihailenco/msgpack/v5"
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -60,8 +60,8 @@ type DefaultAccountManager struct {
 	cacheLoading         map[string]chan struct{}
 	peersUpdateManager   *PeersUpdateManager
 	idpManager           idp.Manager
-	cacheManager         cache.CacheInterface[[]*idp.UserData]
-	externalCacheManager account.ExternalCacheManager
+	cacheManager         *nbcache.AccountUserDataCache
+	externalCacheManager nbcache.UserDataCache
 	ctx                  context.Context
 	eventStore           activity.Store
 	geo                  geolocation.Geolocation
@@ -202,7 +202,8 @@ func BuildManager(
 	if err != nil {
 		return nil, fmt.Errorf("getting cache store: %s", err)
 	}
-	am.externalCacheManager, am.cacheManager = nbcache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](am.loadAccount, cacheStore)
+	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
 
 	if !isNil(am.idpManager) {
 		go func() {
@@ -484,7 +485,7 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
 	rcvdUsers := 0
 	for accountID, users := range userData {
 		rcvdUsers += len(users)
-		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
+		err = am.cacheManager.Set(am.ctx, accountID, users, cacheEntryExpiration())
 		if err != nil {
 			return err
 		}
@@ -628,7 +629,7 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, u
 	return nil
 }
 
-func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any) ([]*idp.UserData, []cacheStore.Option, error) {
+func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any) (any, []cacheStore.Option, error) {
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
@@ -660,7 +661,13 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 		}
 		matchedUserData = append(matchedUserData, datum)
 	}
-	return matchedUserData, []cacheStore.Option{cacheStore.WithExpiration(cacheEntryExpiration())}, nil
+
+	data, err := msgpack.Marshal(matchedUserData)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return data, []cacheStore.Option{cacheStore.WithExpiration(cacheEntryExpiration())}, nil
 }
 
 func (am *DefaultAccountManager) lookupUserInCacheByEmail(ctx context.Context, email string, accountID string) (*idp.UserData, error) {
@@ -846,7 +853,7 @@ func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accoun
 		}
 	}
 
-	return am.cacheManager.Set(am.ctx, accountID, data, cacheStore.WithExpiration(cacheEntryExpiration()))
+	return am.cacheManager.Set(am.ctx, accountID, data, cacheEntryExpiration())
 }
 
 // updateAccountDomainAttributesIfNotUpToDate updates the account domain attributes if they are not up to date and then, saves the account changes

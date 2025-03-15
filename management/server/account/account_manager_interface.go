@@ -6,11 +6,10 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/eko/gocache/lib/v4/cache"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -20,7 +19,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-type ExternalCacheManager cache.CacheInterface[*idp.UserData]
+type ExternalCacheManager nbcache.UserDataCache
 
 // nolint
 type AccountManager interface {

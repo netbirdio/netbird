@@ -516,9 +516,10 @@ func TestUser_InviteNewUser(t *testing.T) {
 		cacheLoading: map[string]chan struct{}{},
 	}
 
-	cs := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	cs, err := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	require.NoError(t, err)
 
-	_, am.cacheManager = nbcache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](am.loadAccount, cs)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cs)
 
 	mockData := []*idp.UserData{
 		{
@@ -1093,16 +1094,17 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		cacheLoading: map[string]chan struct{}{},
 	}
 
-	cacheStore := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
-	am.externalCacheManager, am.cacheManager = nbcache.NewIDPCacheManagers[[]*idp.UserData, *idp.UserData](am.loadAccount, cacheStore)
-
+	cacheStore, err := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	assert.NoError(t, err)
+	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
 	// pretend that we receive mockUserID from IDP
-	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}})
+	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}}, time.Minute)
 	assert.NoError(t, err)
 
 	cacheManager := am.GetExternalCacheManager()
 	cacheKey := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
-	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"})
+	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"}, time.Minute)
 	assert.NoError(t, err)
 
 	infos, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
