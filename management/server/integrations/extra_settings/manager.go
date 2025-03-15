@@ -8,5 +8,5 @@ import (
 
 type Manager interface {
 	GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error)
-	UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) error
+	UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error)
 }
