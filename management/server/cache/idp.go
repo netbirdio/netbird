@@ -78,15 +78,19 @@ func (a *AccountUserDataCache) Get(ctx context.Context, key string) ([]*idp.User
 	case *[]*idp.UserData:
 		return *v, nil
 	case []byte:
-		returnObj := &[]*idp.UserData{}
-		err = msgpack.Unmarshal(v, returnObj)
-		if err != nil {
-			return nil, err
-		}
-		return *returnObj, nil
+		return unmarshalUserData(v)
 	}
 
 	return nil, fmt.Errorf("unexpected type: %T", v)
+}
+
+func unmarshalUserData(data []byte) ([]*idp.UserData, error) {
+	returnObj := &[]*idp.UserData{}
+	err := msgpack.Unmarshal(data, returnObj)
+	if err != nil {
+		return nil, err
+	}
+	return *returnObj, nil
 }
 
 func (a *AccountUserDataCache) Set(ctx context.Context, key string, value []*idp.UserData, expiration time.Duration) error {
