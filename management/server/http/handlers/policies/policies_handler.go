@@ -7,7 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -18,10 +18,10 @@ import (
 
 // handler is a handler that returns policy of the account
 type handler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, locationManager geolocation.Geolocation, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
 	policiesHandler := newHandler(accountManager)
 	router.HandleFunc("/policies", policiesHandler.getAllPolicies).Methods("GET", "OPTIONS")
 	router.HandleFunc("/policies", policiesHandler.createPolicy).Methods("POST", "OPTIONS")
@@ -32,7 +32,7 @@ func AddEndpoints(accountManager server.AccountManager, locationManager geolocat
 }
 
 // newHandler creates a new policies handler
-func newHandler(accountManager server.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}

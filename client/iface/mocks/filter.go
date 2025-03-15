@@ -6,6 +6,7 @@ package mocks
 
 import (
 	net "net"
+	"net/netip"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -35,7 +36,7 @@ func (m *MockPacketFilter) EXPECT() *MockPacketFilterMockRecorder {
 }
 
 // AddUDPPacketHook mocks base method.
-func (m *MockPacketFilter) AddUDPPacketHook(arg0 bool, arg1 net.IP, arg2 uint16, arg3 func([]byte) bool) string {
+func (m *MockPacketFilter) AddUDPPacketHook(arg0 bool, arg1 netip.Addr, arg2 uint16, arg3 func([]byte) bool) string {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddUDPPacketHook", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(string)
@@ -49,31 +50,31 @@ func (mr *MockPacketFilterMockRecorder) AddUDPPacketHook(arg0, arg1, arg2, arg3 
 }
 
 // DropIncoming mocks base method.
-func (m *MockPacketFilter) DropIncoming(arg0 []byte) bool {
+func (m *MockPacketFilter) DropIncoming(arg0 []byte, arg1 int) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DropIncoming", arg0)
+	ret := m.ctrl.Call(m, "DropIncoming", arg0, arg1)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
 // DropIncoming indicates an expected call of DropIncoming.
-func (mr *MockPacketFilterMockRecorder) DropIncoming(arg0 interface{}) *gomock.Call {
+func (mr *MockPacketFilterMockRecorder) DropIncoming(arg0 interface{}, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropIncoming", reflect.TypeOf((*MockPacketFilter)(nil).DropIncoming), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropIncoming", reflect.TypeOf((*MockPacketFilter)(nil).DropIncoming), arg0, arg1)
 }
 
 // DropOutgoing mocks base method.
-func (m *MockPacketFilter) DropOutgoing(arg0 []byte) bool {
+func (m *MockPacketFilter) DropOutgoing(arg0 []byte, arg1 int) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DropOutgoing", arg0)
+	ret := m.ctrl.Call(m, "DropOutgoing", arg0, arg1)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
 // DropOutgoing indicates an expected call of DropOutgoing.
-func (mr *MockPacketFilterMockRecorder) DropOutgoing(arg0 interface{}) *gomock.Call {
+func (mr *MockPacketFilterMockRecorder) DropOutgoing(arg0 interface{}, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropOutgoing", reflect.TypeOf((*MockPacketFilter)(nil).DropOutgoing), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropOutgoing", reflect.TypeOf((*MockPacketFilter)(nil).DropOutgoing), arg0, arg1)
 }
 
 // RemovePacketHook mocks base method.

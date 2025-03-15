@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 
 option go_package = "/proto";
 
@@ -97,7 +98,7 @@ message LoginRequest {
   string jwtToken = 3;
   // Can be absent for now.
   PeerKeys peerKeys = 4;
-  
+
   repeated string dnsLabels = 5;
 }
 
@@ -191,6 +192,8 @@ message NetbirdConfig {
   HostConfig signal = 3;
 
   RelayConfig relay = 4;
+
+  FlowConfig flow = 5;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -212,6 +215,21 @@ message RelayConfig {
   repeated string urls = 1;
   string tokenPayload = 2;
   string tokenSignature = 3;
+}
+
+message FlowConfig {
+  string url = 1;
+  string tokenPayload = 2;
+  string tokenSignature = 3;
+  google.protobuf.Duration interval = 4;
+  bool enabled = 5;
+
+  // counters determines if flow packets and bytes counters should be sent
+  bool counters = 6;
+  // exitNodeCollection determines if event collection on exit nodes should be enabled
+  bool exitNodeCollection = 7;
+  // dnsCollection determines if DNS event collection should be enabled
+  bool dnsCollection = 8;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
@@ -434,6 +452,9 @@ message FirewallRule {
   RuleProtocol Protocol = 4;
   string Port = 5;
   PortInfo PortInfo = 6;
+
+  // PolicyID is the ID of the policy that this rule belongs to
+  bytes PolicyID = 7;
 }
 
 message NetworkAddress {
@@ -483,6 +504,9 @@ message RouteFirewallRule {
 
   // CustomProtocol is a custom protocol ID.
   uint32 customProtocol = 8;
+
+  // PolicyID is the ID of the policy that this rule belongs to
+  bytes PolicyID = 9;
 }
 
 message ForwardingRule {
@@ -493,7 +517,6 @@ message ForwardingRule {
   PortInfo destinationPort = 2;
 
   // IP address of the translated address (remote peer) to send traffic to
-  // todo type pending
   bytes translatedAddress = 3;
 
   // Translated port information, where the traffic should be forwarded to

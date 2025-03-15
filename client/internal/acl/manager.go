@@ -28,6 +28,11 @@ type Manager interface {
 	ApplyFiltering(networkMap *mgmProto.NetworkMap)
 }
 
+type protoMatch struct {
+	ips      map[string]int
+	policyID []byte
+}
+
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
 	firewall       firewall.Manager
@@ -240,7 +245,7 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 
 	dPorts := convertPortInfo(rule.PortInfo)
 
-	addedRule, err := d.firewall.AddRouteFiltering(sources, destination, protocol, nil, dPorts, action)
+	addedRule, err := d.firewall.AddRouteFiltering(rule.PolicyID, sources, destination, protocol, nil, dPorts, action)
 	if err != nil {
 		return "", fmt.Errorf("add route rule: %w", err)
 	}
@@ -281,7 +286,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 		}
 	}
 
-	ruleID := d.getPeerRuleID(ip, protocol, int(r.Direction), port, action, "")
+	ruleID := d.getPeerRuleID(ip, protocol, int(r.Direction), port, action)
 	if rulesPair, ok := d.peerRulesPairs[ruleID]; ok {
 		return ruleID, rulesPair, nil
 	}
@@ -289,11 +294,11 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	var rules []firewall.Rule
 	switch r.Direction {
 	case mgmProto.RuleDirection_IN:
-		rules, err = d.addInRules(ip, protocol, port, action, ipsetName, "")
+		rules, err = d.addInRules(r.PolicyID, ip, protocol, port, action, ipsetName)
 	case mgmProto.RuleDirection_OUT:
 		// TODO: Remove this soon. Outbound rules are obsolete.
 		// We only maintain this for return traffic (inbound dir) which is now handled by the stateful firewall already
-		rules, err = d.addOutRules(ip, protocol, port, action, ipsetName, "")
+		rules, err = d.addOutRules(r.PolicyID, ip, protocol, port, action, ipsetName)
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
 	}
@@ -322,14 +327,14 @@ func portInfoEmpty(portInfo *mgmProto.PortInfo) bool {
 }
 
 func (d *DefaultManager) addInRules(
+	id []byte,
 	ip net.IP,
 	protocol firewall.Protocol,
 	port *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
-	comment string,
 ) ([]firewall.Rule, error) {
-	rule, err := d.firewall.AddPeerFiltering(ip, protocol, nil, port, action, ipsetName, comment)
+	rule, err := d.firewall.AddPeerFiltering(id, ip, protocol, nil, port, action, ipsetName)
 	if err != nil {
 		return nil, fmt.Errorf("add firewall rule: %w", err)
 	}
@@ -338,18 +343,18 @@ func (d *DefaultManager) addInRules(
 }
 
 func (d *DefaultManager) addOutRules(
+	id []byte,
 	ip net.IP,
 	protocol firewall.Protocol,
 	port *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
-	comment string,
 ) ([]firewall.Rule, error) {
 	if shouldSkipInvertedRule(protocol, port) {
 		return nil, nil
 	}
 
-	rule, err := d.firewall.AddPeerFiltering(ip, protocol, port, nil, action, ipsetName, comment)
+	rule, err := d.firewall.AddPeerFiltering(id, ip, protocol, port, nil, action, ipsetName)
 	if err != nil {
 		return nil, fmt.Errorf("add firewall rule: %w", err)
 	}
@@ -364,9 +369,8 @@ func (d *DefaultManager) getPeerRuleID(
 	direction int,
 	port *firewall.Port,
 	action firewall.Action,
-	comment string,
 ) id.RuleID {
-	idStr := ip.String() + string(proto) + strconv.Itoa(direction) + strconv.Itoa(int(action)) + comment
+	idStr := ip.String() + string(proto) + strconv.Itoa(direction) + strconv.Itoa(int(action))
 	if port != nil {
 		idStr += port.String()
 	}
@@ -389,10 +393,8 @@ func (d *DefaultManager) squashAcceptRules(
 		}
 	}
 
-	type protoMatch map[mgmProto.RuleProtocol]map[string]int
-
-	in := protoMatch{}
-	out := protoMatch{}
+	in := map[mgmProto.RuleProtocol]*protoMatch{}
+	out := map[mgmProto.RuleProtocol]*protoMatch{}
 
 	// trace which type of protocols was squashed
 	squashedRules := []*mgmProto.FirewallRule{}
@@ -405,14 +407,18 @@ func (d *DefaultManager) squashAcceptRules(
 	// 2. Any of rule contains Port.
 	//
 	// We zeroed this to notify squash function that this protocol can't be squashed.
-	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols protoMatch) {
+	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols map[mgmProto.RuleProtocol]*protoMatch) {
 		drop := r.Action == mgmProto.RuleAction_DROP || r.Port != ""
 		if drop {
-			protocols[r.Protocol] = map[string]int{}
+			protocols[r.Protocol] = &protoMatch{ips: map[string]int{}}
 			return
 		}
 		if _, ok := protocols[r.Protocol]; !ok {
-			protocols[r.Protocol] = map[string]int{}
+			protocols[r.Protocol] = &protoMatch{
+				ips: map[string]int{},
+				// store the first encountered PolicyID for this protocol
+				policyID: r.PolicyID,
+			}
 		}
 
 		// special case, when we receive this all network IP address
@@ -424,7 +430,7 @@ func (d *DefaultManager) squashAcceptRules(
 			return
 		}
 
-		ipset := protocols[r.Protocol]
+		ipset := protocols[r.Protocol].ips
 
 		if _, ok := ipset[r.PeerIP]; ok {
 			return
@@ -450,9 +456,10 @@ func (d *DefaultManager) squashAcceptRules(
 		mgmProto.RuleProtocol_UDP,
 	}
 
-	squash := func(matches protoMatch, direction mgmProto.RuleDirection) {
+	squash := func(matches map[mgmProto.RuleProtocol]*protoMatch, direction mgmProto.RuleDirection) {
 		for _, protocol := range protocolOrders {
-			if ipset, ok := matches[protocol]; !ok || len(ipset) != totalIPs || len(ipset) < 2 {
+			match, ok := matches[protocol]
+			if !ok || len(match.ips) != totalIPs || len(match.ips) < 2 {
 				// don't squash if :
 				// 1. Rules not cover all peers in the network
 				// 2. Rules cover only one peer in the network.
@@ -465,6 +472,7 @@ func (d *DefaultManager) squashAcceptRules(
 				Direction: direction,
 				Action:    mgmProto.RuleAction_ACCEPT,
 				Protocol:  protocol,
+				PolicyID:  match.policyID,
 			})
 			squashedProtocols[protocol] = struct{}{}
 
@@ -493,9 +501,9 @@ func (d *DefaultManager) squashAcceptRules(
 	// if we also have other not squashed rules.
 	for i, r := range networkMap.FirewallRules {
 		if _, ok := squashedProtocols[r.Protocol]; ok {
-			if m, ok := in[r.Protocol]; ok && m[r.PeerIP] == i {
+			if m, ok := in[r.Protocol]; ok && m.ips[r.PeerIP] == i {
 				continue
-			} else if m, ok := out[r.Protocol]; ok && m[r.PeerIP] == i {
+			} else if m, ok := out[r.Protocol]; ok && m.ips[r.PeerIP] == i {
 				continue
 			}
 		}

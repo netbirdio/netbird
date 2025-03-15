@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -27,13 +28,17 @@ func (s *MockStore) GetAllEphemeralPeers(_ context.Context, _ store.LockingStren
 }
 
 type MocAccountManager struct {
-	AccountManager
+	nbAccount.Manager
 	store *MockStore
 }
 
 func (a MocAccountManager) DeletePeer(_ context.Context, accountID, peerID, userID string) error {
 	delete(a.store.account.Peers, peerID)
 	return nil //nolint:nil
+}
+
+func (a MocAccountManager) GetStore() store.Store {
+	return a.store
 }
 
 func TestNewManager(t *testing.T) {

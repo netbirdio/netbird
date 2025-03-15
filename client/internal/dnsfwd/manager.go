@@ -88,7 +88,7 @@ func (h *Manager) allowDNSFirewall() error {
 		return nil
 	}
 
-	dnsRules, err := h.firewall.AddPeerFiltering(net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "", "")
+	dnsRules, err := h.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "")
 	if err != nil {
 		log.Errorf("failed to add allow DNS router rules, err: %v", err)
 		return err

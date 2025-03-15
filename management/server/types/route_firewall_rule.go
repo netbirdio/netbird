@@ -6,6 +6,9 @@ import (
 
 // RouteFirewallRule a firewall rule applicable for a routed network.
 type RouteFirewallRule struct {
+	// PolicyID is the ID of the policy this rule is derived from
+	PolicyID string
+
 	// SourceRanges IP ranges of the routing peers.
 	SourceRanges []string
 

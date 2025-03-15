@@ -2,7 +2,7 @@ package dns
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/google/gopacket"
@@ -117,5 +117,10 @@ func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
 		return true
 	}
 
-	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook), nil
+	ip, err := netip.ParseAddr(s.runtimeIP)
+	if err != nil {
+		return "", fmt.Errorf("parse runtime ip: %w", err)
+	}
+
+	return filter.AddUDPPacketHook(false, ip, uint16(s.runtimePort), hook), nil
 }

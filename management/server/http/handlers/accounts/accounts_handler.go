@@ -7,31 +7,33 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // handler is a handler that handles the server.Account HTTP endpoints
 type handler struct {
-	accountManager server.AccountManager
+	accountManager  account.Manager
+	settingsManager settings.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
-	accountsHandler := newHandler(accountManager)
+func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
+	accountsHandler := newHandler(accountManager, settingsManager)
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/accounts", accountsHandler.getAllAccounts).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new handler HTTP handler
-func newHandler(accountManager server.AccountManager) *handler {
+func newHandler(accountManager account.Manager, settingsManager settings.Manager) *handler {
 	return &handler{
-		accountManager: accountManager,
+		accountManager:  accountManager,
+		settingsManager: settingsManager,
 	}
 }
 
@@ -45,7 +47,7 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	settings, err := h.accountManager.GetAccountSettings(r.Context(), accountID, userID)
+	settings, err := h.settingsManager.GetSettings(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -89,7 +91,11 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Settings.Extra != nil {
-		settings.Extra = &account.ExtraSettings{PeerApprovalEnabled: *req.Settings.Extra.PeerApprovalEnabled}
+		settings.Extra = &types.ExtraSettings{
+			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
+			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
+			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
+		}
 	}
 
 	if req.Settings.JwtGroupsEnabled != nil {
@@ -163,7 +169,11 @@ func toAccountResponse(accountID string, settings *types.Settings) *api.Account 
 	}
 
 	if settings.Extra != nil {
-		apiSettings.Extra = &api.AccountExtraSettings{PeerApprovalEnabled: &settings.Extra.PeerApprovalEnabled}
+		apiSettings.Extra = &api.AccountExtraSettings{
+			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
+			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
+			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,
+		}
 	}
 
 	return &api.Account{

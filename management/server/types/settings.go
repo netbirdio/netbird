@@ -2,8 +2,6 @@ package types
 
 import (
 	"time"
-
-	"github.com/netbirdio/netbird/management/server/account"
 )
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -42,7 +40,7 @@ type Settings struct {
 	RoutingPeerDNSResolutionEnabled bool
 
 	// Extra is a dictionary of Account settings
-	Extra *account.ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
+	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 }
 
 // Copy copies the Settings struct
@@ -65,4 +63,27 @@ func (s *Settings) Copy() *Settings {
 		settings.Extra = s.Extra.Copy()
 	}
 	return settings
+}
+
+type ExtraSettings struct {
+	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
+	PeerApprovalEnabled bool
+
+	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
+	IntegratedValidatorGroups []string `gorm:"serializer:json"`
+
+	FlowEnabled              bool `gorm:"-"`
+	FlowPacketCounterEnabled bool `gorm:"-"`
+	FlowENCollectionEnabled  bool `gorm:"-"`
+	FlowDnsCollectionEnabled bool `gorm:"-"`
+}
+
+// Copy copies the ExtraSettings struct
+func (e *ExtraSettings) Copy() *ExtraSettings {
+	var cpGroup []string
+
+	return &ExtraSettings{
+		PeerApprovalEnabled:       e.PeerApprovalEnabled,
+		IntegratedValidatorGroups: append(cpGroup, e.IntegratedValidatorGroups...),
+	}
 }

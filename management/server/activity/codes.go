@@ -172,8 +172,8 @@ const (
 )
 
 var activityMap = map[Activity]Code{
-	PeerAddedByUser:                          {"Peer added", "user.peer.add"},
-	PeerAddedWithSetupKey:                    {"Peer added", "setupkey.peer.add"},
+	PeerAddedByUser:                          {"Peer added", "peer.user.add"},
+	PeerAddedWithSetupKey:                    {"Peer added", "peer.setupkey.add"},
 	UserJoined:                               {"User joined", "user.join"},
 	UserInvited:                              {"User invited", "user.invite"},
 	AccountCreated:                           {"Account created", "account.create"},
@@ -232,9 +232,9 @@ var activityMap = map[Activity]Code{
 	PeerApproved:                              {"Peer approved", "peer.approve"},
 	PeerApprovalRevoked:                       {"Peer approval revoked", "peer.approval.revoke"},
 	TransferredOwnerRole:                      {"Transferred owner role", "transferred.owner.role"},
-	PostureCheckCreated:                       {"Posture check created", "posture.check.created"},
-	PostureCheckUpdated:                       {"Posture check updated", "posture.check.updated"},
-	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.deleted"},
+	PostureCheckCreated:                       {"Posture check created", "posture.check.create"},
+	PostureCheckUpdated:                       {"Posture check updated", "posture.check.update"},
+	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.delete"},
 
 	PeerInactivityExpirationEnabled:  {"Peer inactivity expiration enabled", "peer.inactivity.expiration.enable"},
 	PeerInactivityExpirationDisabled: {"Peer inactivity expiration disabled", "peer.inactivity.expiration.disable"},
