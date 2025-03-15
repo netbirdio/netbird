@@ -2,11 +2,12 @@ package types
 
 import (
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type Protocol uint8
@@ -27,8 +28,10 @@ func (p Protocol) String() string {
 		return "TCP"
 	case 17:
 		return "UDP"
+	case 132:
+		return "SCTP"
 	default:
-		return "unknown"
+		return strconv.FormatUint(uint64(p), 10)
 	}
 }
 
@@ -61,28 +64,36 @@ const (
 )
 
 type Event struct {
-	ID        string
+	ID        uuid.UUID
 	Timestamp time.Time
 	EventFields
 }
 
 type EventFields struct {
-	FlowID     uuid.UUID
-	Type       Type
-	Direction  Direction
-	Protocol   Protocol
-	SourceIP   netip.Addr
-	DestIP     netip.Addr
-	SourcePort uint16
-	DestPort   uint16
-	ICMPType   uint8
-	ICMPCode   uint8
+	FlowID           uuid.UUID
+	Type             Type
+	RuleID           []byte
+	Direction        Direction
+	Protocol         Protocol
+	SourceIP         netip.Addr
+	DestIP           netip.Addr
+	SourceResourceID []byte
+	DestResourceID   []byte
+	SourcePort       uint16
+	DestPort         uint16
+	ICMPType         uint8
+	ICMPCode         uint8
+	RxPackets        uint64
+	TxPackets        uint64
+	RxBytes          uint64
+	TxBytes          uint64
 }
 
 type FlowConfig struct {
 	URL            string
 	Interval       time.Duration
 	Enabled        bool
+	Counters       bool
 	TokenPayload   string
 	TokenSignature string
 }
@@ -102,7 +113,7 @@ type FlowLogger interface {
 	// GetEvents returns all stored events
 	GetEvents() []*Event
 	// DeleteEvents deletes events from the store
-	DeleteEvents([]string)
+	DeleteEvents([]uuid.UUID)
 	// Close closes the logger
 	Close()
 	// Enable enables the flow logger receiver
@@ -117,7 +128,7 @@ type Store interface {
 	// GetEvents returns all stored events
 	GetEvents() []*Event
 	// DeleteEvents deletes events from the store
-	DeleteEvents([]string)
+	DeleteEvents([]uuid.UUID)
 	// Close closes the store
 	Close()
 }
@@ -125,7 +136,7 @@ type Store interface {
 // ConnTracker defines the interface for connection tracking functionality
 type ConnTracker interface {
 	// Start begins tracking connections by listening for conntrack events.
-	Start() error
+	Start(bool) error
 	// Stop stops the connection tracking.
 	Stop()
 	// Close stops listening for events and cleans up resources
@@ -136,5 +147,5 @@ type ConnTracker interface {
 type IFaceMapper interface {
 	IsUserspaceBind() bool
 	Name() string
-	Address() device.WGAddress
+	Address() wgaddr.Address
 }

@@ -353,7 +353,7 @@ func (e *Engine) Start() error {
 
 	// start flow manager right after interface creation
 	publicKey := e.config.WgPrivateKey.PublicKey()
-	e.flowManager = netflow.NewManager(e.ctx, e.wgInterface, publicKey[:])
+	e.flowManager = netflow.NewManager(e.ctx, e.wgInterface, publicKey[:], e.statusRecorder)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
@@ -495,12 +495,12 @@ func (e *Engine) initFirewall() error {
 
 	// this rule is static and will be torn down on engine down by the firewall manager
 	if _, err := e.firewall.AddPeerFiltering(
+		nil,
 		net.IP{0, 0, 0, 0},
 		firewallManager.ProtocolUDP,
 		nil,
 		&port,
 		firewallManager.ActionAccept,
-		"",
 		"",
 	); err != nil {
 		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
@@ -525,6 +525,7 @@ func (e *Engine) blockLanAccess() {
 	v4 := netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 	for _, network := range toBlock {
 		if _, err := e.firewall.AddRouteFiltering(
+			nil,
 			[]netip.Prefix{v4},
 			network,
 			firewallManager.ProtocolALL,
@@ -734,6 +735,7 @@ func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error
 	}
 	return &nftypes.FlowConfig{
 		Enabled:        config.GetEnabled(),
+		Counters:       config.GetCounters(),
 		URL:            config.GetUrl(),
 		TokenPayload:   config.GetTokenPayload(),
 		TokenSignature: config.GetTokenSignature(),
@@ -1426,7 +1428,7 @@ func (e *Engine) close() {
 	}
 
 	if e.firewall != nil {
-		err := e.firewall.Reset(e.stateManager)
+		err := e.firewall.Close(e.stateManager)
 		if err != nil {
 			log.Warnf("failed to reset firewall: %s", err)
 		}
@@ -1639,16 +1641,19 @@ func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)
 }
 
+// restartEngine restarts the engine by cancelling the client context
 func (e *Engine) restartEngine() {
-	log.Info("restarting engine")
-	CtxGetState(e.ctx).Set(StatusConnecting)
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
 
-	if err := e.Stop(); err != nil {
-		log.Errorf("Failed to stop engine: %v", err)
+	if e.ctx.Err() != nil {
+		return
 	}
 
+	log.Info("restarting engine")
+	CtxGetState(e.ctx).Set(StatusConnecting)
 	_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-	log.Infof("cancelling client, engine will be recreated")
+	log.Infof("cancelling client context, engine will be recreated")
 	e.clientCancel()
 }
 
@@ -1660,34 +1665,17 @@ func (e *Engine) startNetworkMonitor() {
 
 	e.networkMonitor = networkmonitor.New()
 	go func() {
-		var mu sync.Mutex
-		var debounceTimer *time.Timer
-
-		// Start the network monitor with a callback, Start will block until the monitor is stopped,
-		// a network change is detected, or an error occurs on start up
-		err := e.networkMonitor.Start(e.ctx, func() {
-			// This function is called when a network change is detected
-			mu.Lock()
-			defer mu.Unlock()
-
-			if debounceTimer != nil {
-				log.Infof("Network monitor: detected network change, reset debounceTimer")
-				debounceTimer.Stop()
+		if err := e.networkMonitor.Listen(e.ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				log.Infof("network monitor stopped")
+				return
 			}
-
-			// Set a new timer to debounce rapid network changes
-			debounceTimer = time.AfterFunc(2*time.Second, func() {
-				// This function is called after the debounce period
-				mu.Lock()
-				defer mu.Unlock()
-
-				log.Infof("Network monitor: detected network change, restarting engine")
-				e.restartEngine()
-			})
-		})
-		if err != nil && !errors.Is(err, networkmonitor.ErrStopped) {
-			log.Errorf("Network monitor: %v", err)
+			log.Errorf("network monitor error: %v", err)
+			return
 		}
+
+		log.Infof("Network monitor: detected network change, restarting engine")
+		e.restartEngine()
 	}()
 }
 

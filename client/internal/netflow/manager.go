@@ -2,17 +2,21 @@ package netflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
-	"github.com/netbirdio/netbird/client/internal/netflow/types"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/flow/client"
 	"github.com/netbirdio/netbird/flow/proto"
 )
@@ -20,19 +24,23 @@ import (
 // Manager handles netflow tracking and logging
 type Manager struct {
 	mux            sync.Mutex
-	logger         types.FlowLogger
-	flowConfig     *types.FlowConfig
-	conntrack      types.ConnTracker
+	logger         nftypes.FlowLogger
+	flowConfig     *nftypes.FlowConfig
+	conntrack      nftypes.ConnTracker
 	ctx            context.Context
 	receiverClient *client.GRPCClient
 	publicKey      []byte
 }
 
 // NewManager creates a new netflow manager
-func NewManager(ctx context.Context, iface types.IFaceMapper, publicKey []byte) *Manager {
-	flowLogger := logger.New(ctx)
+func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
+	var ipNet net.IPNet
+	if iface != nil {
+		ipNet = *iface.Address().Network
+	}
+	flowLogger := logger.New(ctx, statusRecorder, ipNet)
 
-	var ct types.ConnTracker
+	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
 		ct = conntrack.New(flowLogger, iface)
 	}
@@ -46,45 +54,79 @@ func NewManager(ctx context.Context, iface types.IFaceMapper, publicKey []byte) 
 }
 
 // Update applies new flow configuration settings
-func (m *Manager) Update(update *types.FlowConfig) error {
+// needsNewClient checks if a new client needs to be created
+func (m *Manager) needsNewClient(previous *nftypes.FlowConfig) bool {
+	current := m.flowConfig
+	return previous == nil ||
+		!previous.Enabled ||
+		previous.TokenPayload != current.TokenPayload ||
+		previous.TokenSignature != current.TokenSignature ||
+		previous.URL != current.URL
+}
+
+// enableFlow starts components for flow tracking
+func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
+	// first make sender ready so events don't pile up
+	if m.needsNewClient(previous) {
+		if m.receiverClient != nil {
+			if err := m.receiverClient.Close(); err != nil {
+				log.Warnf("error closing previous flow client: %s", err)
+			}
+		}
+
+		flowClient, err := client.NewClient(m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature, m.flowConfig.Interval)
+		if err != nil {
+			return fmt.Errorf("create client: %w", err)
+		}
+		log.Infof("flow client configured to connect to %s", m.flowConfig.URL)
+
+		m.receiverClient = flowClient
+		go m.receiveACKs(flowClient)
+		go m.startSender()
+	}
+
+	m.logger.Enable()
+
+	if m.conntrack != nil {
+		if err := m.conntrack.Start(m.flowConfig.Counters); err != nil {
+			return fmt.Errorf("start conntrack: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// disableFlow stops components for flow tracking
+func (m *Manager) disableFlow() error {
+	if m.conntrack != nil {
+		m.conntrack.Stop()
+	}
+
+	m.logger.Disable()
+
+	if m.receiverClient != nil {
+		return m.receiverClient.Close()
+	}
+	return nil
+}
+
+// Update applies new flow configuration settings
+func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	if update == nil {
 		return nil
 	}
+
 	m.mux.Lock()
 	defer m.mux.Unlock()
+
 	previous := m.flowConfig
 	m.flowConfig = update
 
 	if update.Enabled {
-		if m.conntrack != nil {
-			if err := m.conntrack.Start(); err != nil {
-				return fmt.Errorf("start conntrack: %w", err)
-			}
-		}
-
-		m.logger.Enable()
-		if previous == nil || !previous.Enabled {
-			flowClient, err := client.NewClient(m.ctx, m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature)
-			if err != nil {
-				return err
-			}
-			log.Infof("flow client connected to %s", m.flowConfig.URL)
-			m.receiverClient = flowClient
-			go m.receiveACKs()
-			go m.startSender()
-		}
-		return nil
+		return m.enableFlow(previous)
 	}
 
-	if m.conntrack != nil {
-		m.conntrack.Stop()
-	}
-	m.logger.Disable()
-	if previous != nil && previous.Enabled {
-		return m.receiverClient.Close()
-	}
-
-	return nil
+	return m.disableFlow()
 }
 
 // Close cleans up all resources
@@ -95,17 +137,25 @@ func (m *Manager) Close() {
 	if m.conntrack != nil {
 		m.conntrack.Close()
 	}
+
+	if m.receiverClient != nil {
+		if err := m.receiverClient.Close(); err != nil {
+			log.Warnf("failed to close receiver client: %s", err)
+		}
+	}
+
 	m.logger.Close()
 }
 
 // GetLogger returns the flow logger
-func (m *Manager) GetLogger() types.FlowLogger {
+func (m *Manager) GetLogger() nftypes.FlowLogger {
 	return m.logger
 }
 
 func (m *Manager) startSender() {
 	ticker := time.NewTicker(m.flowConfig.Interval)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -113,53 +163,69 @@ func (m *Manager) startSender() {
 		case <-ticker.C:
 			events := m.logger.GetEvents()
 			for _, event := range events {
-				log.Infof("send flow event to server: %s", event.ID)
-				err := m.send(event)
-				if err != nil {
-					log.Errorf("send flow event to server: %s", err)
+				if err := m.send(event); err != nil {
+					log.Errorf("failed to send flow event to server: %s", err)
+					continue
 				}
+				log.Tracef("sent flow event: %s", event.ID)
 			}
 		}
 	}
 }
 
-func (m *Manager) receiveACKs() {
-	if m.receiverClient == nil {
-		return
-	}
-	err := m.receiverClient.Receive(m.ctx, func(ack *proto.FlowEventAck) error {
-		log.Infof("receive flow event ack: %s", ack.EventId)
-		m.logger.DeleteEvents([]string{ack.EventId})
+func (m *Manager) receiveACKs(client *client.GRPCClient) {
+	err := client.Receive(m.ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
+		id, err := uuid.FromBytes(ack.EventId)
+		if err != nil {
+			log.Warnf("failed to convert ack event id to uuid: %s", err)
+			return nil
+		}
+		log.Tracef("received flow event ack: %s", id)
+		m.logger.DeleteEvents([]uuid.UUID{uuid.UUID(ack.EventId)})
 		return nil
 	})
-	if err != nil {
-		log.Errorf("receive flow event ack: %s", err)
+
+	if err != nil && !errors.Is(err, context.Canceled) {
+		log.Errorf("failed to receive flow event ack: %s", err)
 	}
 }
 
-func (m *Manager) send(event *types.Event) error {
-	if m.receiverClient == nil {
+func (m *Manager) send(event *nftypes.Event) error {
+	m.mux.Lock()
+	client := m.receiverClient
+	m.mux.Unlock()
+
+	if client == nil {
 		return nil
 	}
-	return m.receiverClient.Send(m.ctx, toProtoEvent(m.publicKey, event))
+
+	return client.Send(toProtoEvent(m.publicKey, event))
 }
 
-func toProtoEvent(publicKey []byte, event *types.Event) *proto.FlowEvent {
+func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 	protoEvent := &proto.FlowEvent{
-		EventId:   event.ID,
-		FlowId:    event.FlowID.String(),
+		EventId:   event.ID[:],
 		Timestamp: timestamppb.New(event.Timestamp),
 		PublicKey: publicKey,
-		EventFields: &proto.EventFields{
-			Type:      proto.Type(event.Type),
-			Direction: proto.Direction(event.Direction),
-			Protocol:  uint32(event.Protocol),
-			SourceIp:  event.SourceIP.AsSlice(),
-			DestIp:    event.DestIP.AsSlice(),
+		FlowFields: &proto.FlowFields{
+			FlowId:           event.FlowID[:],
+			RuleId:           event.RuleID,
+			Type:             proto.Type(event.Type),
+			Direction:        proto.Direction(event.Direction),
+			Protocol:         uint32(event.Protocol),
+			SourceIp:         event.SourceIP.AsSlice(),
+			DestIp:           event.DestIP.AsSlice(),
+			RxPackets:        event.RxPackets,
+			TxPackets:        event.TxPackets,
+			RxBytes:          event.RxBytes,
+			TxBytes:          event.TxBytes,
+			SourceResourceId: event.SourceResourceID,
+			DestResourceId:   event.DestResourceID,
 		},
 	}
-	if event.Protocol == 1 {
-		protoEvent.EventFields.ConnectionInfo = &proto.EventFields_IcmpInfo{
+
+	if event.Protocol == nftypes.ICMP {
+		protoEvent.FlowFields.ConnectionInfo = &proto.FlowFields_IcmpInfo{
 			IcmpInfo: &proto.ICMPInfo{
 				IcmpType: uint32(event.ICMPType),
 				IcmpCode: uint32(event.ICMPCode),
@@ -168,7 +234,7 @@ func toProtoEvent(publicKey []byte, event *types.Event) *proto.FlowEvent {
 		return protoEvent
 	}
 
-	protoEvent.EventFields.ConnectionInfo = &proto.EventFields_PortInfo{
+	protoEvent.FlowFields.ConnectionInfo = &proto.FlowFields_PortInfo{
 		PortInfo: &proto.PortInfo{
 			SourcePort: uint32(event.SourcePort),
 			DestPort:   uint32(event.DestPort),

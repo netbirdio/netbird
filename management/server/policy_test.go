@@ -182,6 +182,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleDefault",
 			},
 			{
 				PeerIP:    "0.0.0.0",
@@ -189,6 +190,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleDefault",
 			},
 			{
 				PeerIP:    "100.65.14.88",
@@ -196,6 +198,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.14.88",
@@ -203,6 +206,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.62.5",
@@ -210,6 +214,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.62.5",
@@ -217,6 +222,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 
 			{
@@ -225,6 +231,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.32.206",
@@ -232,6 +239,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 
 			{
@@ -240,6 +248,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.250.202",
@@ -247,6 +256,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 
 			{
@@ -255,6 +265,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.13.186",
@@ -262,6 +273,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 
 			{
@@ -270,6 +282,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.29.55",
@@ -277,6 +290,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -404,6 +418,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.254.139",
@@ -411,6 +426,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -432,6 +448,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.80.39",
@@ -439,6 +456,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -462,6 +480,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -483,6 +502,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -690,6 +710,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.ElementsMatch(t, firewallRules, expectedFirewallRules)
@@ -773,6 +794,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.32.206",
@@ -780,6 +802,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.13.186",
@@ -787,6 +810,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.29.55",
@@ -794,6 +818,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.254.139",
@@ -801,6 +826,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.62.5",
@@ -808,6 +834,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(expectedFirewallRules))

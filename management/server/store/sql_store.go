@@ -2185,6 +2185,7 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
 		First(&peer, "account_id = ? AND ip = ?", accountID, jsonValue)
 	if result.Error != nil {
+		// no logging here
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
 	}
 

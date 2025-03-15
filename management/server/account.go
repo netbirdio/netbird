@@ -312,7 +312,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	err = am.settingsManager.UpdateExtraSettings(ctx, accountID, newSettings.Extra)
+	err = am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -1393,7 +1393,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
 	defer peerUnlock()
 
-	peer, netMap, postureChecks, err := am.SyncPeer(ctx, account.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
+	peer, netMap, postureChecks, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error syncing peer: %w", err)
 	}
@@ -1433,7 +1433,7 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
 	defer unlockPeer()
 
-	_, _, _, err = am.SyncPeer(ctx, account.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
+	_, _, _, err = am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
 	if err != nil {
 		return mapError(ctx, err)
 	}

@@ -3,9 +3,9 @@ package iface
 import (
 	"net"
 
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type wgIfaceBase interface {
@@ -13,7 +13,7 @@ type wgIfaceBase interface {
 	RemoveAllowedIP(peerKey string, allowedIP string) error
 
 	Name() string
-	Address() iface.WGAddress
+	Address() wgaddr.Address
 	ToInterface() *net.Interface
 	IsUserspaceBind() bool
 	GetFilter() device.PacketFilter

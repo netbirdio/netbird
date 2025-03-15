@@ -3,6 +3,7 @@ package uspfilter
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os/exec"
 	"syscall"
 	"time"
@@ -22,12 +23,12 @@ const (
 )
 
 // Reset firewall to the default state
-func (m *Manager) Reset(*statemanager.Manager) error {
+func (m *Manager) Close(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	m.outgoingRules = make(map[string]RuleSet)
-	m.incomingRules = make(map[string]RuleSet)
+	m.outgoingRules = make(map[netip.Addr]RuleSet)
+	m.incomingRules = make(map[netip.Addr]RuleSet)
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
@@ -44,8 +45,8 @@ func (m *Manager) Reset(*statemanager.Manager) error {
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, m.flowLogger)
 	}
 
-	if m.forwarder != nil {
-		m.forwarder.Stop()
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.Stop()
 	}
 
 	if m.logger != nil {

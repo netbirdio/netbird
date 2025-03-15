@@ -17,16 +17,16 @@ import (
 
 // handler HTTP handler
 type handler struct {
-	accountManager account.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	eventsHandler := newHandler(accountManager)
 	router.HandleFunc("/events", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new events handler
-func newHandler(accountManager account.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{accountManager: accountManager}
 }
 

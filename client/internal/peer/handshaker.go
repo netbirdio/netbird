@@ -76,19 +76,19 @@ func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAn
 
 func (h *Handshaker) Listen() {
 	for {
-		h.log.Debugf("wait for remote offer confirmation")
+		h.log.Info("wait for remote offer confirmation")
 		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
 		if err != nil {
 			var connectionClosedError *ConnectionClosedError
 			if errors.As(err, &connectionClosedError) {
-				h.log.Tracef("stop handshaker")
+				h.log.Info("exit from handshaker")
 				return
 			}
 			h.log.Errorf("failed to received remote offer confirmation: %s", err)
 			continue
 		}
 
-		h.log.Debugf("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
+		h.log.Infof("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
 		for _, listener := range h.onNewOfferListeners {
 			go listener(remoteOfferAnswer)
 		}
@@ -108,7 +108,7 @@ func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
 	case h.remoteOffersCh <- offer:
 		return true
 	default:
-		h.log.Debugf("OnRemoteOffer skipping message because is not ready")
+		h.log.Warnf("OnRemoteOffer skipping message because is not ready")
 		// connection might not be ready yet to receive so we ignore the message
 		return false
 	}
@@ -131,8 +131,7 @@ func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
 	select {
 	case remoteOfferAnswer := <-h.remoteOffersCh:
 		// received confirmation from the remote peer -> ready to proceed
-		err := h.sendAnswer()
-		if err != nil {
+		if err := h.sendAnswer(); err != nil {
 			return nil, err
 		}
 		return &remoteOfferAnswer, nil
@@ -168,7 +167,7 @@ func (h *Handshaker) sendOffer() error {
 }
 
 func (h *Handshaker) sendAnswer() error {
-	h.log.Debugf("sending answer")
+	h.log.Infof("sending answer")
 	uFrag, pwd := h.ice.GetLocalUserCredentials()
 
 	answer := OfferAnswer{

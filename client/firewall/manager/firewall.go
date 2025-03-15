@@ -65,13 +65,13 @@ type Manager interface {
 	// If comment argument is empty firewall manager should set
 	// rule ID as comment for the rule
 	AddPeerFiltering(
+		id []byte,
 		ip net.IP,
 		proto Protocol,
 		sPort *Port,
 		dPort *Port,
 		action Action,
 		ipsetName string,
-		comment string,
 	) ([]Rule, error)
 
 	// DeletePeerRule from the firewall by rule definition
@@ -80,7 +80,15 @@ type Manager interface {
 	// IsServerRouteSupported returns true if the firewall supports server side routing operations
 	IsServerRouteSupported() bool
 
-	AddRouteFiltering(source []netip.Prefix, destination netip.Prefix, proto Protocol, sPort *Port, dPort *Port, action Action) (Rule, error)
+	AddRouteFiltering(
+		id []byte,
+		sources []netip.Prefix,
+		destination netip.Prefix,
+		proto Protocol,
+		sPort *Port,
+		dPort *Port,
+		action Action,
+	) (Rule, error)
 
 	// DeleteRouteRule deletes a routing rule
 	DeleteRouteRule(rule Rule) error
@@ -94,8 +102,8 @@ type Manager interface {
 	// SetLegacyManagement sets the legacy management mode
 	SetLegacyManagement(legacy bool) error
 
-	// Reset firewall to the default state
-	Reset(stateManager *statemanager.Manager) error
+	// Close closes the firewall manager
+	Close(stateManager *statemanager.Manager) error
 
 	// Flush the changes to firewall controller
 	Flush() error
