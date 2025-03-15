@@ -13,8 +13,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// RedisStoreEnvVar is the environment variable that determines if a redis store should be used.
+// The value should follow redis URL format. https://github.com/redis/redis-specifications/blob/master/uri/redis.txt
 const RedisStoreEnvVar = "NB_IDP_CACHE_REDIS_ADDRESS"
 
+// NewStore creates a new cache store with the given max timeout and cleanup interval. It checks for the environment Variable RedisStoreEnvVar
+// to determine if a redis store should be used. If the environment variable is set, it will attempt to connect to the redis store.
 func NewStore(maxTimeout, cleanupInterval time.Duration) (store.StoreInterface, error) {
 	redisAddr := os.Getenv(RedisStoreEnvVar)
 	if redisAddr != "" {
@@ -30,6 +34,9 @@ func getRedisStore(redisEnvAddr string) (store.StoreInterface, error) {
 		return nil, fmt.Errorf("parsing redis cache url: %s", err)
 	}
 
+	options.MaxIdleConns = 6
+	options.MinIdleConns = 3
+	options.MaxActiveConns = 100
 	redisClient := redis.NewClient(options)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

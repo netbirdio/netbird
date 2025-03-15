@@ -34,7 +34,7 @@ func TestMemoryStore(t *testing.T) {
 	}
 	// test expiration
 	time.Sleep(300 * time.Millisecond)
-	result, err = memStore.Get(ctx, key)
+	_, err = memStore.Get(ctx, key)
 	if err == nil {
 		t.Error("value should not be found")
 	}
@@ -98,7 +98,7 @@ func TestRedisStoreConnectionSuccess(t *testing.T) {
 	}
 	// test expiration
 	time.Sleep(300 * time.Millisecond)
-	result, err = redisStore.Get(ctx, key)
+	_, err = redisStore.Get(ctx, key)
 	if err == nil {
 		t.Error("value should not be found")
 	}
