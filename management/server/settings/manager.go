@@ -128,6 +128,6 @@ func (m *ManagerMock) GetExtraSettings(ctx context.Context, accountID string) (*
 	return &types.ExtraSettings{}, nil
 }
 
-func (m *ManagerMock) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) error {
-	return nil
+func (m *ManagerMock) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error) {
+	return false, nil
 }
