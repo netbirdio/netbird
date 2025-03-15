@@ -7,19 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eko/gocache/v3/cache"
-	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
 
+	"golang.org/x/exp/maps"
+
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/util"
-	"golang.org/x/exp/maps"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
-	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -517,9 +516,10 @@ func TestUser_InviteNewUser(t *testing.T) {
 		cacheLoading: map[string]chan struct{}{},
 	}
 
-	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
-	goCacheStore := cacheStore.NewGoCache(goCacheClient)
-	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
+	cs, err := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	require.NoError(t, err)
+
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cs)
 
 	mockData := []*idp.UserData{
 		{
@@ -1092,21 +1092,19 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		eventStore:   &activity.InMemoryEventStore{},
 		idpManager:   &idp.GoogleWorkspaceManager{}, // empty manager
 		cacheLoading: map[string]chan struct{}{},
-		cacheManager: cache.New[[]*idp.UserData](
-			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
-		),
-		externalCacheManager: cache.New[*idp.UserData](
-			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
-		),
 	}
 
+	cacheStore, err := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	assert.NoError(t, err)
+	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
 	// pretend that we receive mockUserID from IDP
-	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}})
+	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}}, time.Minute)
 	assert.NoError(t, err)
 
 	cacheManager := am.GetExternalCacheManager()
 	cacheKey := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
-	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"})
+	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"}, time.Minute)
 	assert.NoError(t, err)
 
 	infos, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)

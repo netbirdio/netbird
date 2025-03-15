@@ -13,16 +13,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eko/gocache/v3/cache"
-	cacheStore "github.com/eko/gocache/v3/store"
-	gocache "github.com/patrickmn/go-cache"
+	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"github.com/vmihailenco/msgpack/v5"
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -40,8 +40,6 @@ import (
 )
 
 const (
-	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
-	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
@@ -50,7 +48,7 @@ const (
 type userLoggedInOnce bool
 
 func cacheEntryExpiration() time.Duration {
-	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
+	r := rand.Intn(int(nbcache.DefaultIDPCacheExpirationMax.Milliseconds()-nbcache.DefaultIDPCacheExpirationMin.Milliseconds())) + int(nbcache.DefaultIDPCacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
 }
 
@@ -62,8 +60,8 @@ type DefaultAccountManager struct {
 	cacheLoading         map[string]chan struct{}
 	peersUpdateManager   *PeersUpdateManager
 	idpManager           idp.Manager
-	cacheManager         cache.CacheInterface[[]*idp.UserData]
-	externalCacheManager account.ExternalCacheManager
+	cacheManager         *nbcache.AccountUserDataCache
+	externalCacheManager nbcache.UserDataCache
 	ctx                  context.Context
 	eventStore           activity.Store
 	geo                  geolocation.Geolocation
@@ -200,14 +198,12 @@ func BuildManager(
 		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
-	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
-	goCacheStore := cacheStore.NewGoCache(goCacheClient)
-	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
-
-	// TODO: what is max expiration time? Should be quite long
-	am.externalCacheManager = cache.New[*idp.UserData](
-		cacheStore.NewGoCache(goCacheClient),
-	)
+	cacheStore, err := nbcache.NewStore(nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	if err != nil {
+		return nil, fmt.Errorf("getting cache store: %s", err)
+	}
+	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
 
 	if !isNil(am.idpManager) {
 		go func() {
@@ -489,7 +485,7 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
 	rcvdUsers := 0
 	for accountID, users := range userData {
 		rcvdUsers += len(users)
-		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
+		err = am.cacheManager.Set(am.ctx, accountID, users, cacheEntryExpiration())
 		if err != nil {
 			return err
 		}
@@ -633,18 +629,18 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, u
 	return nil
 }
 
-func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID interface{}) ([]*idp.UserData, error) {
+func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any) (any, []cacheStore.Option, error) {
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
 	account, err := am.Store.GetAccount(ctx, accountIDString)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	userData, err := am.idpManager.GetAccount(ctx, accountIDString)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	log.WithContext(ctx).Debugf("%d entries received from IdP management", len(userData))
 
@@ -665,7 +661,13 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID inte
 		}
 		matchedUserData = append(matchedUserData, datum)
 	}
-	return matchedUserData, nil
+
+	data, err := msgpack.Marshal(matchedUserData)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return data, []cacheStore.Option{cacheStore.WithExpiration(cacheEntryExpiration())}, nil
 }
 
 func (am *DefaultAccountManager) lookupUserInCacheByEmail(ctx context.Context, email string, accountID string) (*idp.UserData, error) {
@@ -851,7 +853,7 @@ func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accoun
 		}
 	}
 
-	return am.cacheManager.Set(am.ctx, accountID, data, cacheStore.WithExpiration(cacheEntryExpiration()))
+	return am.cacheManager.Set(am.ctx, accountID, data, cacheEntryExpiration())
 }
 
 // updateAccountDomainAttributesIfNotUpToDate updates the account domain attributes if they are not up to date and then, saves the account changes
