@@ -165,9 +165,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 
-	ctrl := isController(conn.config)
-
-	conn.workerRelay = NewWorkerRelay(conn.Log, ctrl, conn.config, conn, conn.relayManager)
+	conn.workerRelay = NewWorkerRelay(conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
@@ -183,7 +181,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
 	}
 
-	conn.guard = guard.NewGuard(conn.Log, ctrl, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
+	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
 
 	conn.wg.Add(1)
 	go func() {
@@ -642,11 +640,7 @@ func (conn *Conn) evalStatus() ConnStatus {
 		return StatusConnected
 	}
 
-	if conn.statusRelay.Get() == StatusConnecting || conn.statusICE.Get() == StatusConnecting {
-		return StatusConnecting
-	}
-
-	return StatusIdle
+	return StatusConnecting
 }
 
 func (conn *Conn) isConnectedOnAllWay() (connected bool) {
