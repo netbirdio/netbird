@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"time"
@@ -224,6 +225,9 @@ func (s *Server) addSystemInfo(req *proto.DebugBundleRequest, anonymizer *anonym
 	if err := s.addFirewallRules(req, anonymizer, archive); err != nil {
 		log.Errorf("Failed to add firewall rules to debug bundle: %v", err)
 	}
+	if err := s.addGoroutines(req, anonymizer, archive); err != nil {
+		log.Errorf("Failed to add goroutines rules to debug bundle: %v", err)
+	}
 }
 
 func (s *Server) addReadme(req *proto.DebugBundleRequest, archive *zip.Writer) error {
@@ -308,6 +312,20 @@ func (s *Server) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", s.config.DisableFirewall))
 
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", s.config.BlockLANAccess))
+}
+
+func (s *Server) addGoroutines(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	var buff []byte
+	myBuff := bytes.NewBuffer(buff)
+	err := pprof.Lookup("goroutine").WriteTo(myBuff, 2)
+	if err != nil {
+		return fmt.Errorf("write goroutine profile: %w", err)
+	}
+
+	if err := addFileToZip(archive, myBuff, "goroutines.txt"); err != nil {
+		return fmt.Errorf("add goroutines file to zip: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) addRoutes(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
