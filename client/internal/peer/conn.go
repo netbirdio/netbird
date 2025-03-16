@@ -163,7 +163,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 
 	go conn.handshaker.Listen()
 
-	conn.dumpState = newStateDump(connLog)
+	conn.dumpState = newStateDump(config.Key, connLog, statusRecorder)
 	go conn.dumpState.Start(ctx)
 	return conn, nil
 }
