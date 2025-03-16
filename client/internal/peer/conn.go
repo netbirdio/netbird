@@ -140,7 +140,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		statusRelay:    NewAtomicConnStatus(),
 		statusICE:      NewAtomicConnStatus(),
 		semaphore:      semaphore,
-		dumpState:      newStateDump(connLog),
+		dumpState:      newStateDump(config.Key, connLog, statusRecorder),
 	}
 
 	ctrl := isController(config)
