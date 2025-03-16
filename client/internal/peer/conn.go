@@ -140,6 +140,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		statusRelay:    NewAtomicConnStatus(),
 		statusICE:      NewAtomicConnStatus(),
 		semaphore:      semaphore,
+		dumpState:      newStateDump(connLog),
 	}
 
 	ctrl := isController(config)
@@ -163,7 +164,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 
 	go conn.handshaker.Listen()
 
-	conn.dumpState = newStateDump(config.Key, connLog, statusRecorder)
 	go conn.dumpState.Start(ctx)
 	return conn, nil
 }
