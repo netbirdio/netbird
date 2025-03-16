@@ -25,12 +25,12 @@ func (s *serviceClient) getWindowsFontFilePath() string {
 		fontFolder  = "C:/Windows/Fonts"
 		fontMapping = map[string]string{
 			"default":     "Segoeui.ttf",
-			"zh-CN":       "Msyh.ttc",
+			"zh-CN":       "Segoeui.ttf",
 			"am-ET":       "Ebrima.ttf",
 			"nirmala":     "Nirmala.ttf",
 			"chr-CHER-US": "Gadugi.ttf",
-			"zh-HK":       "Msjh.ttc",
-			"zh-TW":       "Msjh.ttc",
+			"zh-HK":       "Segoeui.ttf",
+			"zh-TW":       "Segoeui.ttf",
 			"ja-JP":       "Yugothm.ttc",
 			"km-KH":       "Leelawui.ttf",
 			"ko-KR":       "Malgun.ttf",
