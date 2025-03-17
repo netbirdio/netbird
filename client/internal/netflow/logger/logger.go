@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/netflow/store"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -17,15 +18,17 @@ import (
 
 type rcvChan chan *types.EventFields
 type Logger struct {
-	mux            sync.Mutex
-	ctx            context.Context
-	cancel         context.CancelFunc
-	enabled        atomic.Bool
-	rcvChan        atomic.Pointer[rcvChan]
-	cancelReceiver context.CancelFunc
-	statusRecorder *peer.Status
-	wgIfaceIPNet   net.IPNet
-	Store          types.Store
+	mux                sync.Mutex
+	ctx                context.Context
+	cancel             context.CancelFunc
+	enabled            atomic.Bool
+	rcvChan            atomic.Pointer[rcvChan]
+	cancelReceiver     context.CancelFunc
+	statusRecorder     *peer.Status
+	wgIfaceIPNet       net.IPNet
+	dnsCollection      atomic.Bool
+	exitNodeCollection atomic.Bool
+	Store              types.Store
 }
 
 func New(ctx context.Context, statusRecorder *peer.Status, wgIfaceIPNet net.IPNet) *Logger {
@@ -88,17 +91,20 @@ func (l *Logger) startReceiver() {
 				Timestamp:   time.Now(),
 			}
 
+			var isExitNode bool
 			if event.Direction == types.Ingress {
 				if !l.wgIfaceIPNet.Contains(net.IP(event.SourceIP.AsSlice())) {
-					event.SourceResourceID = []byte(l.statusRecorder.CheckRoutes(event.SourceIP))
+					event.SourceResourceID, isExitNode = l.statusRecorder.CheckRoutes(event.SourceIP)
 				}
 			} else if event.Direction == types.Egress {
 				if !l.wgIfaceIPNet.Contains(net.IP(event.DestIP.AsSlice())) {
-					event.DestResourceID = []byte(l.statusRecorder.CheckRoutes(event.DestIP))
+					event.DestResourceID, isExitNode = l.statusRecorder.CheckRoutes(event.DestIP)
 				}
 			}
 
-			l.Store.StoreEvent(&event)
+			if l.shouldStore(eventFields, isExitNode) {
+				l.Store.StoreEvent(&event)
+			}
 		}
 	}
 }
@@ -131,7 +137,26 @@ func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 	l.Store.DeleteEvents(ids)
 }
 
+func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
+	l.dnsCollection.Store(dnsCollection)
+	l.exitNodeCollection.Store(exitNodeCollection)
+}
+
 func (l *Logger) Close() {
 	l.stop()
 	l.cancel()
+}
+
+func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {
+	// check dns collection
+	if !l.dnsCollection.Load() && event.Protocol == types.UDP && (event.DestPort == 53 || event.DestPort == dnsfwd.ListenPort) {
+		return false
+	}
+
+	// check exit node collection
+	if !l.exitNodeCollection.Load() && isExitNode {
+		return false
+	}
+
+	return true
 }

@@ -364,11 +364,12 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 
 // CheckRoutes checks if the source and destination addresses are within the same route
 // and returns the resource ID of the route that contains the addresses
-func (d *Status) CheckRoutes(ip netip.Addr) (resId string) {
+func (d *Status) CheckRoutes(ip netip.Addr) ([]byte, bool) {
 	if d == nil {
-		return
+		return nil, false
 	}
-	return d.routeIDLookup.Lookup(ip)
+	resId, isExitNode := d.routeIDLookup.Lookup(ip)
+	return []byte(resId), isExitNode
 }
 
 func (d *Status) UpdatePeerICEState(receivedState State) error {

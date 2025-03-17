@@ -122,6 +122,8 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	previous := m.flowConfig
 	m.flowConfig = update
 
+	m.logger.UpdateConfig(update.DNSCollection, update.ExitNodeCollection)
+
 	if update.Enabled {
 		return m.enableFlow(previous)
 	}
