@@ -595,14 +595,19 @@ func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, 
 		}
 	}
 
-	nbConfig := &proto.NetbirdConfig{
-		Stuns: stuns,
-		Turns: turns,
-		Signal: &proto.HostConfig{
+	var signalCfg *proto.HostConfig
+	if config.Signal != nil {
+		signalCfg = &proto.HostConfig{
 			Uri:      config.Signal.URI,
 			Protocol: ToResponseProto(config.Signal.Proto),
-		},
-		Relay: relayCfg,
+		}
+	}
+
+	nbConfig := &proto.NetbirdConfig{
+		Stuns:  stuns,
+		Turns:  turns,
+		Signal: signalCfg,
+		Relay:  relayCfg,
 	}
 
 	integrationsConfig.ExtendNetBirdConfig(nbConfig, extraSettings)
