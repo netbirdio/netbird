@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/netflow/store"
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -26,7 +27,7 @@ type Logger struct {
 	statusRecorder     *peer.Status
 	wgIfaceIPNet       net.IPNet
 	dnsCollection      atomic.Bool
-	ExitNodeCollection atomic.Bool
+	exitNodeCollection atomic.Bool
 	Store              types.Store
 }
 
@@ -138,7 +139,7 @@ func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 
 func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
 	l.dnsCollection.Store(dnsCollection)
-	l.ExitNodeCollection.Store(exitNodeCollection)
+	l.exitNodeCollection.Store(exitNodeCollection)
 }
 
 func (l *Logger) Close() {
@@ -148,12 +149,12 @@ func (l *Logger) Close() {
 
 func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {
 	// check dns collection
-	if !l.dnsCollection.Load() && event.Protocol == types.UDP && event.DestPort == 53 {
+	if !l.dnsCollection.Load() && event.Protocol == types.UDP && (event.DestPort == 53 || event.DestPort == dnsfwd.ListenPort) {
 		return false
 	}
 
 	// check exit node collection
-	if !l.ExitNodeCollection.Load() && isExitNode {
+	if !l.exitNodeCollection.Load() && isExitNode {
 		return false
 	}
 
