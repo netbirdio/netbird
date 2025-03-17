@@ -17,15 +17,17 @@ import (
 
 type rcvChan chan *types.EventFields
 type Logger struct {
-	mux            sync.Mutex
-	ctx            context.Context
-	cancel         context.CancelFunc
-	enabled        atomic.Bool
-	rcvChan        atomic.Pointer[rcvChan]
-	cancelReceiver context.CancelFunc
-	statusRecorder *peer.Status
-	wgIfaceIPNet   net.IPNet
-	Store          types.Store
+	mux                sync.Mutex
+	ctx                context.Context
+	cancel             context.CancelFunc
+	enabled            atomic.Bool
+	rcvChan            atomic.Pointer[rcvChan]
+	cancelReceiver     context.CancelFunc
+	statusRecorder     *peer.Status
+	wgIfaceIPNet       net.IPNet
+	dnsCollection      atomic.Bool
+	ExitNodeCollection atomic.Bool
+	Store              types.Store
 }
 
 func New(ctx context.Context, statusRecorder *peer.Status, wgIfaceIPNet net.IPNet) *Logger {
@@ -47,6 +49,10 @@ func (l *Logger) StoreEvent(flowEvent types.EventFields) {
 
 	c := l.rcvChan.Load()
 	if c == nil {
+		return
+	}
+
+	if !l.dnsCollection.Load() && flowEvent.Protocol == types.UDP && (flowEvent.SourcePort == 53 || flowEvent.DestPort == 53) {
 		return
 	}
 
@@ -129,6 +135,11 @@ func (l *Logger) GetEvents() []*types.Event {
 
 func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 	l.Store.DeleteEvents(ids)
+}
+
+func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
+	l.dnsCollection.Store(dnsCollection)
+	l.ExitNodeCollection.Store(exitNodeCollection)
 }
 
 func (l *Logger) Close() {

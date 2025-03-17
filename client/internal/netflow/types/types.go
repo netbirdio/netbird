@@ -90,12 +90,14 @@ type EventFields struct {
 }
 
 type FlowConfig struct {
-	URL            string
-	Interval       time.Duration
-	Enabled        bool
-	Counters       bool
-	TokenPayload   string
-	TokenSignature string
+	URL                string
+	Interval           time.Duration
+	Enabled            bool
+	Counters           bool
+	TokenPayload       string
+	TokenSignature     string
+	DNSCollection      bool
+	ExitNodeCollection bool
 }
 
 type FlowManager interface {
@@ -120,6 +122,9 @@ type FlowLogger interface {
 	Enable()
 	// Disable disables the flow logger receiver
 	Disable()
+
+	// UpdateConfig updates the flow manager configuration
+	UpdateConfig(dnsCollection, exitNodeCollection bool)
 }
 
 type Store interface {
