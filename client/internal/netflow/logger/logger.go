@@ -52,10 +52,6 @@ func (l *Logger) StoreEvent(flowEvent types.EventFields) {
 		return
 	}
 
-	if !l.dnsCollection.Load() && flowEvent.Protocol == types.UDP && (flowEvent.SourcePort == 53 || flowEvent.DestPort == 53) {
-		return
-	}
-
 	select {
 	case *c <- &flowEvent:
 	default:
@@ -94,17 +90,20 @@ func (l *Logger) startReceiver() {
 				Timestamp:   time.Now(),
 			}
 
+			var isExitNode bool
 			if event.Direction == types.Ingress {
 				if !l.wgIfaceIPNet.Contains(net.IP(event.SourceIP.AsSlice())) {
-					event.SourceResourceID = []byte(l.statusRecorder.CheckRoutes(event.SourceIP))
+					event.SourceResourceID, isExitNode = l.statusRecorder.CheckRoutes(event.SourceIP)
 				}
 			} else if event.Direction == types.Egress {
 				if !l.wgIfaceIPNet.Contains(net.IP(event.DestIP.AsSlice())) {
-					event.DestResourceID = []byte(l.statusRecorder.CheckRoutes(event.DestIP))
+					event.DestResourceID, isExitNode = l.statusRecorder.CheckRoutes(event.DestIP)
 				}
 			}
 
-			l.Store.StoreEvent(&event)
+			if l.shouldStore(eventFields, isExitNode) {
+				l.Store.StoreEvent(&event)
+			}
 		}
 	}
 }
@@ -145,4 +144,18 @@ func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
 func (l *Logger) Close() {
 	l.stop()
 	l.cancel()
+}
+
+func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {
+	// check dns collection
+	if !l.dnsCollection.Load() && event.Protocol == types.UDP && event.DestPort == 53 {
+		return false
+	}
+
+	// check exit node collection
+	if !l.ExitNodeCollection.Load() && isExitNode {
+		return false
+	}
+
+	return true
 }

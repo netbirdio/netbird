@@ -43,16 +43,22 @@ func (r *routeIDLookup) RemoveResolvedIP(route netip.Prefix) {
 	r.resolvedIPs.Delete(route.Addr())
 }
 
-func (r *routeIDLookup) Lookup(ip netip.Addr) string {
+// Lookup returns the resource ID for the given IP address
+// and a bool indicating if the IP is an exit node
+func (r *routeIDLookup) Lookup(ip netip.Addr) (string, bool) {
+	var isExitNode bool
+
 	resId, ok := r.resolvedIPs.Load(ip)
 	if ok {
-		return resId.(string)
+		return resId.(string), false
 	}
 
 	var resourceID string
 	r.localMap.Range(func(key, value interface{}) bool {
-		if key.(netip.Prefix).Contains(ip) {
+		pref := key.(netip.Prefix)
+		if pref.Contains(ip) {
 			resourceID = value.(string)
+			isExitNode = pref.Bits() == 0
 			return false
 
 		}
@@ -61,13 +67,15 @@ func (r *routeIDLookup) Lookup(ip netip.Addr) string {
 
 	if resourceID == "" {
 		r.remoteMap.Range(func(key, value interface{}) bool {
-			if key.(netip.Prefix).Contains(ip) {
+			pref := key.(netip.Prefix)
+			if pref.Contains(ip) {
 				resourceID = value.(string)
+				isExitNode = pref.Bits() == 0
 				return false
 			}
 			return true
 		})
 	}
 
-	return resourceID
+	return resourceID, isExitNode
 }
