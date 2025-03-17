@@ -59,12 +59,10 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 	m.peers[peerCfg.PublicKey] = listener
 
 	go m.waitForTraffic(listener, peerCfg.PublicKey, peerCfg.PeerConnID)
-
-	peerCfg.Log.Infof("created activity listener: %s", addr.String())
 	return nil
 }
 
-func (m *Manager) RemovePeer(peerID string) bool {
+func (m *Manager) RemovePeer(log *log.Entry, peerID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -72,6 +70,7 @@ func (m *Manager) RemovePeer(peerID string) bool {
 	if !ok {
 		return false
 	}
+	log.Debugf("removing activity listener")
 	delete(m.peers, peerID)
 	listener.Close()
 	return true

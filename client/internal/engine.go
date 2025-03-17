@@ -926,9 +926,13 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	// Ingress forward rules
-	if err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
+	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
+	if err != nil {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
+
+	excludedLazyPeers := e.toExcludedLazyPeers(routes, forwardingRules, networkMap.GetRemotePeers())
+	e.connMgr.SetExcludeList(excludedLazyPeers)
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
@@ -1777,21 +1781,21 @@ func (e *Engine) Address() (netip.Addr, error) {
 	return ip.Unmap(), nil
 }
 
-func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
+func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewallManager.ForwardRule, error) {
 	if e.firewall == nil {
 		log.Warn("firewall is disabled, not updating forwarding rules")
-		return nil
+		return nil, nil
 	}
 
 	if len(rules) == 0 {
 		if e.ingressGatewayMgr == nil {
-			return nil
+			return nil, nil
 		}
 
 		err := e.ingressGatewayMgr.Close()
 		e.ingressGatewayMgr = nil
 		e.statusRecorder.SetIngressGwMgr(nil)
-		return err
+		return nil, err
 	}
 
 	if e.ingressGatewayMgr == nil {
@@ -1842,7 +1846,33 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
 		log.Errorf("failed to update forwarding rules: %v", err)
 	}
 
-	return nberrors.FormatErrorOrNil(merr)
+	return forwardingRules, nberrors.FormatErrorOrNil(merr)
+}
+
+func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) []string {
+	excludedPeers := make([]string, 0)
+	for _, r := range routes {
+		if r.Peer == "" {
+			continue
+		}
+		log.Infof("excluded peer from lazy connection: %s", r.Peer)
+		excludedPeers = append(excludedPeers, r.Peer)
+	}
+
+	for _, r := range rules {
+		ip := r.TranslatedAddress
+		for _, p := range peers {
+			for _, allowedIP := range p.GetAllowedIps() {
+				if allowedIP != ip.String() {
+					continue
+				}
+				log.Infof("excluded peer from lazy connection: %s", p.GetWgPubKey())
+				excludedPeers = append(excludedPeers, p.GetWgPubKey())
+			}
+		}
+	}
+
+	return excludedPeers
 }
 
 // isChecksEqual checks if two slices of checks are equal.

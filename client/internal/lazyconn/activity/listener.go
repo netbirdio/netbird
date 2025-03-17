@@ -15,6 +15,8 @@ type Listener struct {
 	conn     *net.UDPConn
 	endpoint *net.UDPAddr
 	done     sync.Mutex
+
+	isClosed bool // use to avoid error log when closing the listener
 }
 
 func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig, conn *net.UDPConn, addr *net.UDPAddr) (*Listener, error) {
@@ -28,20 +30,27 @@ func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig, conn *net.UD
 		return nil, err
 	}
 	d.done.Lock()
+	cfg.Log.Infof("created activity listener: %s", addr.String())
 	return d, nil
 }
 
 func (d *Listener) ReadPackets() {
+	d.isClosed = false
+
 	for {
 		buffer := make([]byte, 10)
 		n, remoteAddr, err := d.conn.ReadFromUDP(buffer)
 		if err != nil {
-			log.Infof("exit from peer listener reader: %v", err)
+			if d.isClosed {
+				d.peerCfg.Log.Debugf("exit from activity listener")
+			} else {
+				d.peerCfg.Log.Errorf("failed to read from activity listener: %s", err)
+			}
 			break
 		}
 
 		if n < 4 {
-			log.Warnf("received %d bytes from %s, too short", n, remoteAddr)
+			d.peerCfg.Log.Warnf("received %d bytes from %s, too short", n, remoteAddr)
 			continue
 		}
 		break
@@ -52,6 +61,7 @@ func (d *Listener) ReadPackets() {
 }
 
 func (d *Listener) Close() {
+	d.isClosed = true
 	if err := d.conn.Close(); err != nil {
 		log.Errorf("failed to close UDP listener: %s", err)
 	}

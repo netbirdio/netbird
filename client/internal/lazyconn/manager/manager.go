@@ -112,10 +112,9 @@ func (m *Manager) RemovePeer(peerID string) {
 		cfg.Log.Debugf("inactivity monitor stopped")
 	}
 
-	m.activityManager.RemovePeer(peerID)
+	m.activityManager.RemovePeer(cfg.Log, peerID)
 	delete(m.managedPeers, peerID)
 	delete(m.managedPeersByConnID, cfg.PeerConnID)
-	cfg.Log.Debugf("activity listener removed")
 }
 
 func (m *Manager) ActivatePeer(peerID string) (found bool) {
@@ -127,21 +126,26 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 		return false
 	}
 
-	if removed := m.activityManager.RemovePeer(peerID); !removed {
+	if removed := m.activityManager.RemovePeer(cfg.Log, peerID); !removed {
 		return false
 	}
 
-	m.inactivityMonitors[cfg.PeerConnID].ResetTimer()
+	cfg.Log.Infof("activating peer")
 
-	cfg.Log.Infof("stoped activity monitor and reset inactivity monitor")
+	cfg.Log.Debugf("reset inactivity monitor timer")
+	m.inactivityMonitors[cfg.PeerConnID].ResetTimer()
 	return true
 }
 
-func (m *Manager) ExcludePeer(peerID string) {
+func (m *Manager) ExcludePeer(peerIDs []string) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
+	log.Infof("excluding peers from lazy connection manager: %v", peerIDs)
 
-	m.excludes[peerID] = struct{}{}
+	m.excludes = make(map[string]struct{})
+	for _, peerID := range peerIDs {
+		m.excludes[peerID] = struct{}{}
+	}
 }
 
 func (m *Manager) close() {
@@ -219,7 +223,7 @@ func (m *Manager) onPeerConnected(peerID string) {
 		return
 	}
 
-	peerCfg.Log.Infof("pause inactivity monitor")
+	peerCfg.Log.Infof("peer connected, pausing inactivity monitor while connection is not disconnected")
 	iw.PauseTimer()
 }
 
