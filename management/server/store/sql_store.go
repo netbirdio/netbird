@@ -1316,7 +1316,6 @@ func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewPeerNotFoundError(peerID)
 		}
-		log.WithContext(ctx).Errorf("failed to get peer from store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
 	}
 
