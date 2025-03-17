@@ -60,7 +60,7 @@ require (
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20250314152438-fccc423d1e7f
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20250314233615-5be625e48b11
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20241010133937-e0df50df217d
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
@@ -95,7 +95,7 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a
-	golang.org/x/net v0.33.0
+	golang.org/x/net v0.36.0
 	golang.org/x/oauth2 v0.19.0
 	golang.org/x/sync v0.12.0
 	golang.org/x/term v0.30.0

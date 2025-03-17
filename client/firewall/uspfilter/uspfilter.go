@@ -726,12 +726,13 @@ func (m *Manager) handleNetstackLocalTraffic(packetData []byte) bool {
 		return false
 	}
 
-	if m.forwarder.Load() == nil {
+	fwd := m.forwarder.Load()
+	if fwd == nil {
 		m.logger.Trace("Dropping local packet (forwarder not initialized)")
 		return true
 	}
 
-	if err := m.forwarder.Load().InjectIncomingPacket(packetData); err != nil {
+	if err := fwd.InjectIncomingPacket(packetData); err != nil {
 		m.logger.Error("Failed to inject local packet: %v", err)
 	}
 
@@ -777,8 +778,13 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	}
 
 	// Let forwarder handle the packet if it passed route ACLs
-	if err := m.forwarder.Load().InjectIncomingPacket(packetData); err != nil {
-		m.logger.Error("Failed to inject incoming packet: %v", err)
+	fwd := m.forwarder.Load()
+	if fwd == nil {
+		m.logger.Trace("failed to forward routed packet (forwarder not initialized)")
+	} else {
+		if err := fwd.InjectIncomingPacket(packetData); err != nil {
+			m.logger.Error("Failed to inject routed packet: %v", err)
+		}
 	}
 
 	// Forwarded packets shouldn't reach the native stack, hence they won't be visible in a packet capture
