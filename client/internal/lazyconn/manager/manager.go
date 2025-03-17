@@ -118,7 +118,7 @@ func (m *Manager) RemovePeer(peerID string) {
 	cfg.Log.Debugf("activity listener removed")
 }
 
-func (m *Manager) RunInactivityMonitor(peerID string) (found bool) {
+func (m *Manager) ActivatePeer(peerID string) (found bool) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
