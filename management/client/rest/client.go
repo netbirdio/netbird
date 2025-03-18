@@ -68,26 +68,40 @@ type Client struct {
 	Events *EventsAPI
 }
 
-// New initialize new Client instance
+// New initialize new Client instance using PAT token
 func New(managementURL, token string) *Client {
 	client := &Client{
 		managementURL: managementURL,
 		authHeader:    "Token " + token,
 	}
-	client.Accounts = &AccountsAPI{client}
-	client.Users = &UsersAPI{client}
-	client.Tokens = &TokensAPI{client}
-	client.Peers = &PeersAPI{client}
-	client.SetupKeys = &SetupKeysAPI{client}
-	client.Groups = &GroupsAPI{client}
-	client.Policies = &PoliciesAPI{client}
-	client.PostureChecks = &PostureChecksAPI{client}
-	client.Networks = &NetworksAPI{client}
-	client.Routes = &RoutesAPI{client}
-	client.DNS = &DNSAPI{client}
-	client.GeoLocation = &GeoLocationAPI{client}
-	client.Events = &EventsAPI{client}
+	client.initialize()
 	return client
+}
+
+// NewWithBearerToken initialize new Client instance using Bearer token type
+func NewWithBearerToken(managementURL, token string) *Client {
+	client := &Client{
+		managementURL: managementURL,
+		authHeader:    "Bearer " + token,
+	}
+	client.initialize()
+	return client
+}
+
+func (c *Client) initialize() {
+	c.Accounts = &AccountsAPI{c}
+	c.Users = &UsersAPI{c}
+	c.Tokens = &TokensAPI{c}
+	c.Peers = &PeersAPI{c}
+	c.SetupKeys = &SetupKeysAPI{c}
+	c.Groups = &GroupsAPI{c}
+	c.Policies = &PoliciesAPI{c}
+	c.PostureChecks = &PostureChecksAPI{c}
+	c.Networks = &NetworksAPI{c}
+	c.Routes = &RoutesAPI{c}
+	c.DNS = &DNSAPI{c}
+	c.GeoLocation = &GeoLocationAPI{c}
+	c.Events = &EventsAPI{c}
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
