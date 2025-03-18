@@ -51,6 +51,7 @@ func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *
 func (e *ConnMgr) Start(parentCtx context.Context) {
 	if e.lazyConnMgr == nil {
 		log.Infof("lazy connection manager is disabled")
+		e.ctx = parentCtx
 		return
 	}
 
