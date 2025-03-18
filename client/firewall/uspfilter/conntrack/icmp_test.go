@@ -33,7 +33,7 @@ func TestICMPTracker_TrackOutbound_NonEcho(t *testing.T) {
 
 	// Since type != EchoRequest the connection should not be stored.
 	require.Equal(t, 0, len(tracker.connections), "Non-echo request should not be tracked")
-	// But an event should be sent (via sendStartEvent).
+	// No events should be generated for non-echo requests.
 	events := flowLogger.GetEvents()
 	require.Equal(t, len(events), 0, "Non-echo request should not generate an event")
 }
