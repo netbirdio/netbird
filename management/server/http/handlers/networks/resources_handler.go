@@ -118,7 +118,6 @@ func (h *resourceHandler) createResource(w http.ResponseWriter, r *http.Request)
 
 	resource.NetworkID = mux.Vars(r)["networkId"]
 	resource.AccountID = accountID
-	resource.Enabled = true
 	resource, err = h.resourceManager.CreateResource(r.Context(), userID, resource)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
