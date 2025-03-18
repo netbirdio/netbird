@@ -119,8 +119,8 @@ type Conn struct {
 
 	guard              *guard.Guard
 	semaphore          *semaphoregroup.SemaphoreGroup
-	wg                 sync.WaitGroup
 	peerConnDispatcher *ConnectionDispatcher
+	wg                 sync.WaitGroup
 
 	// debug purpose
 	dumpState *stateDump
@@ -136,15 +136,18 @@ func NewConn(config ConnConfig, statusRecorder *Status, signaler *Signaler, iFac
 	connLog := log.WithField("peer", config.Key)
 
 	var conn = &Conn{
-		Log:            connLog,
-		config:         config,
-		statusRecorder: statusRecorder,
-		signaler:       signaler,
-		relayManager:   relayManager,
-		statusRelay:    NewAtomicConnStatus(),
-		statusICE:      NewAtomicConnStatus(),
-		semaphore:      semaphore,
-		dumpState:      newStateDump(connLog),
+		Log:                connLog,
+		config:             config,
+		statusRecorder:     statusRecorder,
+		signaler:           signaler,
+		iFaceDiscover:      iFaceDiscover,
+		relayManager:       relayManager,
+		srWatcher:          srWatcher,
+		semaphore:          semaphore,
+		peerConnDispatcher: peerConnDispatcher,
+		statusRelay:        NewAtomicConnStatus(),
+		statusICE:          NewAtomicConnStatus(),
+		dumpState:          newStateDump(connLog),
 	}
 
 	return conn, nil
