@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	envDisableLazyConn = "NB_LAZY_CONN_DISABLE"
+	envDisableLazyConn = "NB_LAZY_CONN_DISABLED"
 )
 
 // ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
