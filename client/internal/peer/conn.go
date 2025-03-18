@@ -117,10 +117,13 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
-	guard              *guard.Guard
-	semaphore          *semaphoregroup.SemaphoreGroup
+	guard     *guard.Guard
+	semaphore *semaphoregroup.SemaphoreGroup
 	wg                 sync.WaitGroup
 	peerConnDispatcher *ConnectionDispatcher
+
+	// debug purpose
+	dumpState *stateDump
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -133,17 +136,15 @@ func NewConn(config ConnConfig, statusRecorder *Status, signaler *Signaler, iFac
 	connLog := log.WithField("peer", config.Key)
 
 	var conn = &Conn{
-		Log:                connLog,
-		config:             config,
-		statusRecorder:     statusRecorder,
-		signaler:           signaler,
-		iFaceDiscover:      iFaceDiscover,
-		relayManager:       relayManager,
-		srWatcher:          srWatcher,
-		statusRelay:        NewAtomicConnStatus(),
-		statusICE:          NewAtomicConnStatus(),
-		semaphore:          semaphore,
-		peerConnDispatcher: peerConnDispatcher,
+		Log:            connLog,
+		config:         config,
+		statusRecorder: statusRecorder,
+		signaler:       signaler,
+		relayManager:   relayManager,
+		statusRelay:    NewAtomicConnStatus(),
+		statusICE:      NewAtomicConnStatus(),
+		semaphore:      semaphore,
+		dumpState:      newStateDump(connLog),
 	}
 
 	return conn, nil
@@ -165,7 +166,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 
-	conn.workerRelay = NewWorkerRelay(conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
+	conn.workerRelay = NewWorkerRelay(conn.Log, isController(conn.config), conn.config, conn, conn.relayManager, conn.dumpState)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
@@ -188,6 +189,8 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		defer conn.wg.Done()
 		conn.handshaker.Listen(conn.ctx)
 	}()
+	go conn.dumpState.Start(conn.ctx)
+
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -205,6 +208,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		conn.waitInitialRandomSleepTime(conn.ctx)
 		conn.semaphore.Done(conn.ctx)
 
+		conn.dumpState.SendOffer()
 		if err := conn.handshaker.sendOffer(); err != nil {
 			conn.Log.Errorf("failed to send initial offer: %v", err)
 		}
@@ -271,12 +275,14 @@ func (conn *Conn) Close() {
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
 func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
-	conn.Log.Debugf("OnRemoteAnswer, status ICE: %s, status relay: %s", conn.statusICE, conn.statusRelay)
+	conn.dumpState.RemoteAnswer()
+	conn.Log.Infof("OnRemoteAnswer, status ICE: %s, status relay: %s", conn.statusICE, conn.statusRelay)
 	return conn.handshaker.OnRemoteAnswer(answer)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
 func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
+	conn.dumpState.RemoteCandidate()
 	conn.workerICE.OnRemoteCandidate(candidate, haRoutes)
 }
 
@@ -298,7 +304,8 @@ func (conn *Conn) SetOnDisconnected(handler func(remotePeer string)) {
 }
 
 func (conn *Conn) OnRemoteOffer(offer OfferAnswer) bool {
-	conn.Log.Debugf("OnRemoteOffer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
+	conn.dumpState.RemoteOffer()
+	conn.Log.Infof("OnRemoteOffer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
 	return conn.handshaker.OnRemoteOffer(offer)
 }
 
@@ -342,6 +349,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 	}
 
 	conn.Log.Infof("set ICE to active connection")
+	conn.dumpState.P2PConnected()
 
 	var (
 		ep      *net.UDPAddr
@@ -349,6 +357,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 		err     error
 	)
 	if iceConnInfo.RelayedOnLocal {
+		conn.dumpState.NewLocalProxy()
 		wgProxy, err = conn.newProxy(iceConnInfo.RemoteConn)
 		if err != nil {
 			conn.Log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
@@ -412,6 +421,7 @@ func (conn *Conn) onICEStateDisconnected() {
 	// switch back to relay connection
 	if conn.isReadyToUpgrade() {
 		conn.Log.Infof("ICE disconnected, set Relay to active connection")
+		conn.dumpState.SwitchToRelay()
 		conn.wgProxyRelay.Work()
 
 		if err := conn.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr()); err != nil {
@@ -448,6 +458,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	conn.dumpState.RelayConnected()
 	conn.Log.Debugf("Relay connection has been established, setup the WireGuard")
 
 	wgProxy, err := conn.newProxy(rci.relayedConn)
@@ -455,6 +466,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 		return
 	}
+	conn.dumpState.NewLocalProxy()
 
 	conn.Log.Infof("created new wgProxy for relay connection: %s", wgProxy.EndpointAddr().String())
 
@@ -529,6 +541,7 @@ func (conn *Conn) onRelayDisconnected() {
 
 func (conn *Conn) onGuardEvent() {
 	conn.Log.Debugf("send offer to peer")
+	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
 	}

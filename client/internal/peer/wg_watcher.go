@@ -28,6 +28,7 @@ type WGWatcher struct {
 	log           *log.Entry
 	wgIfaceStater WGInterfaceStater
 	peerKey       string
+	stateDump     *stateDump
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -35,11 +36,12 @@ type WGWatcher struct {
 	waitGroup sync.WaitGroup
 }
 
-func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string) *WGWatcher {
+func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
 	return &WGWatcher{
 		log:           log,
 		wgIfaceStater: wgIfaceStater,
 		peerKey:       peerKey,
+		stateDump:     stateDump,
 	}
 }
 
@@ -106,6 +108,7 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 
 			resetTime := time.Until(handshake.Add(checkPeriod))
 			timer.Reset(resetTime)
+			w.stateDump.WGcheckSuccess()
 
 			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
 		case <-ctx.Done():
