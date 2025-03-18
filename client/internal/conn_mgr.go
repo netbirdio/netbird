@@ -68,6 +68,10 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 // SetExcludeList sets the list of peer IDs that should always have permanent connections.
 // Must be called before Add/Remove peer conn.
 func (e *ConnMgr) SetExcludeList(peerIDs []string) {
+	if e.lazyConnMgr == nil {
+		return
+	}
+
 	e.lazyConnMgr.ExcludePeer(peerIDs)
 }
 
