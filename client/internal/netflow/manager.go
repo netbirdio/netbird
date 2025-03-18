@@ -122,6 +122,11 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	previous := m.flowConfig
 	m.flowConfig = update
 
+	if previous != nil && previous.TokenPayload != "" && m.flowConfig != nil && m.flowConfig.TokenPayload == "" {
+		m.flowConfig.TokenPayload = previous.TokenPayload
+		m.flowConfig.TokenSignature = previous.TokenSignature
+	}
+
 	m.logger.UpdateConfig(update.DNSCollection, update.ExitNodeCollection)
 
 	if update.Enabled {
