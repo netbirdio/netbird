@@ -117,8 +117,8 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
-	guard     *guard.Guard
-	semaphore *semaphoregroup.SemaphoreGroup
+	guard              *guard.Guard
+	semaphore          *semaphoregroup.SemaphoreGroup
 	wg                 sync.WaitGroup
 	peerConnDispatcher *ConnectionDispatcher
 
@@ -190,7 +190,6 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		conn.handshaker.Listen(conn.ctx)
 	}()
 	go conn.dumpState.Start(conn.ctx)
-
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -334,6 +333,10 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	if conn.ctx.Err() != nil {
+		return
+	}
+
 	if remoteConnNil(conn.Log, iceConnInfo.RemoteConn) {
 		conn.Log.Errorf("remote ICE connection is nil")
 		return
@@ -410,6 +413,10 @@ func (conn *Conn) onICEStateDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	if conn.ctx.Err() != nil {
+		return
+	}
+
 	conn.Log.Tracef("ICE connection state changed to disconnected")
 
 	if conn.wgProxyICE != nil {
@@ -458,6 +465,13 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	if conn.ctx.Err() != nil {
+		if err := rci.relayedConn.Close(); err != nil {
+			conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
+		}
+		return
+	}
+
 	conn.dumpState.RelayConnected()
 	conn.Log.Debugf("Relay connection has been established, setup the WireGuard")
 
@@ -505,6 +519,10 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 func (conn *Conn) onRelayDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
+
+	if conn.ctx.Err() != nil {
+		return
+	}
 
 	conn.Log.Debugf("relay connection is disconnected")
 
