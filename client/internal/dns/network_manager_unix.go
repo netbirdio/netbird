@@ -103,7 +103,7 @@ func (n *networkManagerDbusConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager statemanager.Manager) error {
 	connSettings, configVersion, err := n.getAppliedConnectionSettings()
 	if err != nil {
 		return fmt.Errorf("retrieving the applied connection settings, error: %w", err)

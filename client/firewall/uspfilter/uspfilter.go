@@ -322,7 +322,7 @@ func (m *Manager) initForwarder() error {
 	return nil
 }
 
-func (m *Manager) Init(*statemanager.Manager) error {
+func (m *Manager) Init(statemanager.Manager) error {
 	return nil
 }
 

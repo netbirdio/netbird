@@ -32,7 +32,7 @@ var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
 
 var ErrRoutingIsSeparate = errors.New("routing is separate")
 
-func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	stateManager.RegisterState(&ShutdownState{})
 
 	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
@@ -80,13 +80,13 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 }
 
 // updateState updates state on every change so it will be persisted regularly
-func (r *SysOps) updateState(stateManager *statemanager.Manager) {
+func (r *SysOps) updateState(stateManager statemanager.Manager) {
 	if err := stateManager.UpdateState((*ShutdownState)(r.refCounter)); err != nil {
 		log.Errorf("failed to update state: %v", err)
 	}
 }
 
-func (r *SysOps) cleanupRefCounter(stateManager *statemanager.Manager) error {
+func (r *SysOps) cleanupRefCounter(stateManager statemanager.Manager) error {
 	if r.refCounter == nil {
 		return nil
 	}
@@ -337,7 +337,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	return r.removeFromRouteTable(prefix, nextHop)
 }
 
-func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
 		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {

@@ -76,7 +76,7 @@ type router struct {
 	wgIface          iFaceMapper
 	legacyManagement bool
 
-	stateManager *statemanager.Manager
+	stateManager statemanager.Manager
 	ipFwdState   *ipfwdstate.IPForwardingState
 }
 
@@ -104,7 +104,7 @@ func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router,
 	return r, nil
 }
 
-func (r *router) init(stateManager *statemanager.Manager) error {
+func (r *router) init(stateManager statemanager.Manager) error {
 	r.stateManager = stateManager
 
 	if err := r.cleanUpDefaultForwardRules(); err != nil {

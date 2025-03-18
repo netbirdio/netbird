@@ -647,7 +647,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 
 	var domainsUpdate string
-	hostManager.applyDNSConfigFunc = func(config HostDNSConfig, statemanager *statemanager.Manager) error {
+	hostManager.applyDNSConfigFunc = func(config HostDNSConfig, statemanager statemanager.Manager) error {
 		domains := []string{}
 		for _, item := range config.Domains {
 			if item.Disabled {

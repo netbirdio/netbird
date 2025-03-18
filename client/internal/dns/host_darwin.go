@@ -5,6 +5,7 @@ package dns
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -49,7 +50,7 @@ func (s *systemConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager statemanager.Manager) error {
 	var err error
 
 	if err := stateManager.UpdateState(&ShutdownState{}); err != nil {
@@ -200,8 +201,12 @@ func (s *systemConfigurator) recordSystemDNSSettings(force bool) error {
 func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	primaryServiceKey, _, err := s.getPrimaryService()
 	if err != nil || primaryServiceKey == "" {
+		if err == nil {
+			err = errors.New("primary service key not found")
+		}
 		return SystemDNSSettings{}, fmt.Errorf("couldn't find the primary service key: %w", err)
 	}
+
 	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, primaryServiceKey)
 	line := buildCommandLine("show", dnsServiceKey, "")
 	stdinCommands := wrapCommand(line)
@@ -379,7 +384,7 @@ func buildWriteStateOperation(operation, state, commands string) string {
 	return fmt.Sprintf("d.init\n%s %s\n%s\nset %s\n", operation, state, commands, state)
 }
 
-func runSystemConfigCommand(command string) ([]byte, error) {
+var runSystemConfigCommand = func(command string) ([]byte, error) {
 	cmd := exec.Command(scutilPath)
 	cmd.Stdin = strings.NewReader(command)
 	out, err := cmd.Output()

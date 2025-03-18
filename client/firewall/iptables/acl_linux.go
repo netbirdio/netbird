@@ -36,7 +36,7 @@ type aclManager struct {
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
 
-	stateManager *statemanager.Manager
+	stateManager statemanager.Manager
 }
 
 func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*aclManager, error) {
@@ -55,7 +55,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*acl
 	return m, nil
 }
 
-func (m *aclManager) init(stateManager *statemanager.Manager) error {
+func (m *aclManager) init(stateManager statemanager.Manager) error {
 	m.stateManager = stateManager
 
 	m.seedInitialEntries()

@@ -15,7 +15,7 @@ import (
 )
 
 // NewFirewall creates a firewall manager instance
-func NewFirewall(iface IFaceMapper, _ *statemanager.Manager, flowLogger nftypes.FlowLogger, disableServerRoutes bool) (firewall.Manager, error) {
+func NewFirewall(iface IFaceMapper, _ statemanager.Manager, flowLogger nftypes.FlowLogger, disableServerRoutes bool) (firewall.Manager, error) {
 	if !iface.IsUserspaceBind() {
 		return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
 	}

@@ -74,7 +74,7 @@ func (r *registryConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager statemanager.Manager) error {
 	if config.RouteAll {
 		if err := r.addDNSSetupForAll(config.ServerIP); err != nil {
 			return fmt.Errorf("add dns setup: %w", err)

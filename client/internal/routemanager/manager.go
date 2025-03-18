@@ -45,7 +45,7 @@ type Manager interface {
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
 	EnableServerRouter(firewall firewall.Manager) error
-	Stop(stateManager *statemanager.Manager)
+	Stop(stateManager statemanager.Manager)
 }
 
 type ManagerConfig struct {
@@ -56,7 +56,7 @@ type ManagerConfig struct {
 	StatusRecorder      *peer.Status
 	RelayManager        *relayClient.Manager
 	InitialRoutes       []*route.Route
-	StateManager        *statemanager.Manager
+	StateManager        statemanager.Manager
 	DNSServer           dns.Server
 	PeerStore           *peerstore.Store
 	DisableClientRoutes bool
@@ -80,7 +80,7 @@ type DefaultManager struct {
 	routeRefCounter      *refcounter.RouteRefCounter
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter
 	dnsRouteInterval     time.Duration
-	stateManager         *statemanager.Manager
+	stateManager         statemanager.Manager
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
 	clientRoutes        route.HAMap
 	dnsServer           dns.Server
@@ -234,7 +234,7 @@ func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 }
 
 // Stop stops the manager watchers and clean firewall rules
-func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
+func (m *DefaultManager) Stop(stateManager statemanager.Manager) {
 	m.stop()
 	if m.serverRouter != nil {
 		m.serverRouter.cleanUp()

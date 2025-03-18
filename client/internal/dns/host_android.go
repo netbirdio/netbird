@@ -11,7 +11,7 @@ func newHostManager() (*androidHostManager, error) {
 	return &androidHostManager{}, nil
 }
 
-func (a androidHostManager) applyDNSConfig(HostDNSConfig, *statemanager.Manager) error {
+func (a androidHostManager) applyDNSConfig(HostDNSConfig, statemanager.Manager) error {
 	return nil
 }
 

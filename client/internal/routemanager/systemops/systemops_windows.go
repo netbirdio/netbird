@@ -131,11 +131,11 @@ const (
 	RouteDeleted
 )
 
-func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 
-func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
+func (r *SysOps) CleanupRouting(stateManager statemanager.Manager) error {
 	return r.cleanupRefCounter(stateManager)
 }
 

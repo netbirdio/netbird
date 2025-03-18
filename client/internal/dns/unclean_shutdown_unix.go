@@ -35,7 +35,7 @@ func (s *ShutdownState) Cleanup() error {
 }
 
 // TODO: move file contents to state manager
-func createUncleanShutdownIndicator(sourcePath string, dnsAddressStr string, stateManager *statemanager.Manager) error {
+func createUncleanShutdownIndicator(sourcePath string, dnsAddressStr string, stateManager statemanager.Manager) error {
 	dnsAddress, err := netip.ParseAddr(dnsAddressStr)
 	if err != nil {
 		return fmt.Errorf("parse dns address %s: %w", dnsAddressStr, err)

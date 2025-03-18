@@ -67,7 +67,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 }
 
 // Init nftables firewall manager
-func (m *Manager) Init(stateManager *statemanager.Manager) error {
+func (m *Manager) Init(stateManager statemanager.Manager) error {
 	workTable, err := m.createWorkTable()
 	if err != nil {
 		return fmt.Errorf("create work table: %w", err)
@@ -243,7 +243,7 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 }
 
 // Reset firewall to the default state
-func (m *Manager) Close(stateManager *statemanager.Manager) error {
+func (m *Manager) Close(stateManager statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

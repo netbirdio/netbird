@@ -17,7 +17,7 @@ const (
 )
 
 type hostManager interface {
-	applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error
+	applyDNSConfig(config HostDNSConfig, stateManager statemanager.Manager) error
 	restoreHostDNS() error
 	supportCustomPort() bool
 	string() string
@@ -43,14 +43,14 @@ type DomainConfig struct {
 }
 
 type mockHostConfigurator struct {
-	applyDNSConfigFunc            func(config HostDNSConfig, stateManager *statemanager.Manager) error
+	applyDNSConfigFunc            func(config HostDNSConfig, stateManager statemanager.Manager) error
 	restoreHostDNSFunc            func() error
 	supportCustomPortFunc         func() bool
 	restoreUncleanShutdownDNSFunc func(*netip.Addr) error
 	stringFunc                    func() string
 }
 
-func (m *mockHostConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+func (m *mockHostConfigurator) applyDNSConfig(config HostDNSConfig, stateManager statemanager.Manager) error {
 	if m.applyDNSConfigFunc != nil {
 		return m.applyDNSConfigFunc(config, stateManager)
 	}
@@ -80,7 +80,7 @@ func (m *mockHostConfigurator) string() string {
 
 func newNoopHostMocker() hostManager {
 	return &mockHostConfigurator{
-		applyDNSConfigFunc:            func(config HostDNSConfig, stateManager *statemanager.Manager) error { return nil },
+		applyDNSConfigFunc:            func(config HostDNSConfig, stateManager statemanager.Manager) error { return nil },
 		restoreHostDNSFunc:            func() error { return nil },
 		supportCustomPortFunc:         func() bool { return true },
 		restoreUncleanShutdownDNSFunc: func(*netip.Addr) error { return nil },
@@ -122,7 +122,7 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 
 type noopHostConfigurator struct{}
 
-func (n noopHostConfigurator) applyDNSConfig(HostDNSConfig, *statemanager.Manager) error {
+func (n noopHostConfigurator) applyDNSConfig(HostDNSConfig, statemanager.Manager) error {
 	return nil
 }
 
