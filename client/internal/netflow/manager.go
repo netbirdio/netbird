@@ -32,7 +32,7 @@ type Manager struct {
 	publicKey      []byte
 }
 
-// NewManager creates a new netflow manager
+// NewManager creates a new netnetflow manager
 func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
 	var ipNet net.IPNet
 	if iface != nil {
@@ -70,7 +70,7 @@ func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 	if m.needsNewClient(previous) {
 		if m.receiverClient != nil {
 			if err := m.receiverClient.Close(); err != nil {
-				log.Warnf("error closing previous flow client: %s", err)
+				log.Warnf("error closing previous flow client: %v", err)
 			}
 		}
 
@@ -113,8 +113,11 @@ func (m *Manager) disableFlow() error {
 // Update applies new flow configuration settings
 func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	if update == nil {
+		log.Debug("no update provided; skipping update")
 		return nil
 	}
+
+	log.Tracef("updating flow configuration with new settings: %+v", update)
 
 	m.mux.Lock()
 	defer m.mux.Unlock()
@@ -122,6 +125,7 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	previous := m.flowConfig
 	m.flowConfig = update
 
+	// Preserve TokenPayload and TokenSignature if they were set previously
 	if previous != nil && previous.TokenPayload != "" && m.flowConfig != nil && m.flowConfig.TokenPayload == "" {
 		m.flowConfig.TokenPayload = previous.TokenPayload
 		m.flowConfig.TokenSignature = previous.TokenSignature
@@ -130,10 +134,24 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	m.logger.UpdateConfig(update.DNSCollection, update.ExitNodeCollection)
 
 	if update.Enabled {
-		return m.enableFlow(previous)
+		log.Infof("netflow manager enabled; starting netflow manager")
+		err := m.enableFlow(previous)
+		if err != nil {
+			log.Errorf("failed to enable netflow manager: %v", err)
+		} else {
+			log.Infof("netflow manager enabled successfully")
+		}
+		return err
 	}
 
-	return m.disableFlow()
+	log.Infof("netflow manager disabled; stopping netflow manager")
+	err := m.disableFlow()
+	if err != nil {
+		log.Errorf("failed to disable netflow manager: %v", err)
+	} else {
+		log.Infof("netflow manager disabled successfully")
+	}
+	return err
 }
 
 // Close cleans up all resources
@@ -147,7 +165,7 @@ func (m *Manager) Close() {
 
 	if m.receiverClient != nil {
 		if err := m.receiverClient.Close(); err != nil {
-			log.Warnf("failed to close receiver client: %s", err)
+			log.Warnf("failed to close receiver client: %v", err)
 		}
 	}
 
@@ -171,7 +189,7 @@ func (m *Manager) startSender() {
 			events := m.logger.GetEvents()
 			for _, event := range events {
 				if err := m.send(event); err != nil {
-					log.Errorf("failed to send flow event to server: %s", err)
+					log.Errorf("failed to send flow event to server: %v", err)
 					continue
 				}
 				log.Tracef("sent flow event: %s", event.ID)
@@ -184,7 +202,7 @@ func (m *Manager) receiveACKs(client *client.GRPCClient) {
 	err := client.Receive(m.ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
 		id, err := uuid.FromBytes(ack.EventId)
 		if err != nil {
-			log.Warnf("failed to convert ack event id to uuid: %s", err)
+			log.Warnf("failed to convert ack event id to uuid: %v", err)
 			return nil
 		}
 		log.Tracef("received flow event ack: %s", id)
@@ -193,7 +211,7 @@ func (m *Manager) receiveACKs(client *client.GRPCClient) {
 	})
 
 	if err != nil && !errors.Is(err, context.Canceled) {
-		log.Errorf("failed to receive flow event ack: %s", err)
+		log.Errorf("failed to receive flow event ack: %v", err)
 	}
 }
 

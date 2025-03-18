@@ -326,10 +326,7 @@ func (d *Status) AddPeerStateRoute(peer string, route string, resourceId string)
 	d.peers[peer] = peerState
 
 	pref, err := netip.ParsePrefix(route)
-	if err != nil {
-		log.Errorf("failed to parse prefix %s: %v", route, err)
-	} else {
-
+	if err == nil {
 		d.routeIDLookup.AddRemoteRouteID(resourceId, pref)
 	}
 
