@@ -78,6 +78,18 @@ func TestLocalIPManager(t *testing.T) {
 			expected: false,
 		},
 		{
+			name: "Local IP doesn't match - addresses 32 apart",
+			setupAddr: wgaddr.Address{
+				IP: net.ParseIP("192.168.1.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("192.168.1.0"),
+					Mask: net.CIDRMask(24, 32),
+				},
+			},
+			testIP:   netip.MustParseAddr("192.168.1.33"),
+			expected: false,
+		},
+		{
 			name: "IPv6 address",
 			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("fe80::1"),
@@ -192,10 +204,8 @@ func BenchmarkIPChecks(b *testing.B) {
 		interfaces[i] = net.IPv4(10, 0, byte(i>>8), byte(i))
 	}
 
-	// Setup bitmap version
-	bitmapManager := &localIPManager{
-		ipv4Bitmap: [1 << 16]uint32{},
-	}
+	// Setup bitmap
+	bitmapManager := newLocalIPManager()
 	for _, ip := range interfaces[:8] { // Add half of IPs
 		bitmapManager.setBitmapBit(ip)
 	}
@@ -248,7 +258,7 @@ func BenchmarkWGPosition(b *testing.B) {
 
 	// Create two managers - one checks WG IP first, other checks it last
 	b.Run("WG_First", func(b *testing.B) {
-		bm := &localIPManager{ipv4Bitmap: [1 << 16]uint32{}}
+		bm := newLocalIPManager()
 		bm.setBitmapBit(wgIP)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -257,7 +267,7 @@ func BenchmarkWGPosition(b *testing.B) {
 	})
 
 	b.Run("WG_Last", func(b *testing.B) {
-		bm := &localIPManager{ipv4Bitmap: [1 << 16]uint32{}}
+		bm := newLocalIPManager()
 		// Fill with other IPs first
 		for i := 0; i < 15; i++ {
 			bm.setBitmapBit(net.IPv4(10, 0, byte(i>>8), byte(i)))
