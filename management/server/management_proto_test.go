@@ -436,6 +436,11 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 	t.Cleanup(ctrl.Finish)
 	peersMockManager := peers.NewMockManager(ctrl)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		AnyTimes().
+		Return(&types.Settings{}, nil)
 
 	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
