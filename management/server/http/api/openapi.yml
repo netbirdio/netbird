@@ -4145,6 +4145,8 @@ paths:
       summary: List all Network Traffic Events
       description: Returns a list of all network traffic events
       tags: [ Events ]
+      x-cloud-only: true
+      x-experimental: true
       responses:
         "200":
           description: List of network traffic events
