@@ -32,7 +32,7 @@ type Manager struct {
 	publicKey      []byte
 }
 
-// NewManager creates a new netnetflow manager
+// NewManager creates a new netflow manager
 func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
 	var ipNet net.IPNet
 	if iface != nil {
