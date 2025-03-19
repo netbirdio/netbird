@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -91,7 +92,9 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	peersMockManager := peers.NewMockManager(ctrl)
+	peersMockManager.EXPECT().GetPeerAccountID(gomock.Any(), "some_peer").Return("someAccountID", nil).AnyTimes()
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), "someAccountID").Return(&types.ExtraSettings{}, nil).AnyTimes()
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL:       ttl,

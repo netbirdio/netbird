@@ -1267,10 +1267,19 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 		EXPECT().
 		GetSettings(
 			gomock.Any(),
-			"someAccountID",
-			"someUserID",
+			gomock.Any(),
+			gomock.Any(),
 		).
-		Return(nil, nil)
+		Return(nil, nil).
+		AnyTimes()
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(
+			gomock.Any(),
+			gomock.Any(),
+		).
+		AnyTimes().
+		Return(&types.ExtraSettings{}, nil)
 
 	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
 }

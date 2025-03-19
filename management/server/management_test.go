@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -183,6 +184,16 @@ func startServer(
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+	settingsMockManager.
+		EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&types.Settings{}, nil).
+		AnyTimes()
 	peersMockManager := peers.NewMockManager(ctrl)
 
 	accountManager, err := server.BuildManager(
