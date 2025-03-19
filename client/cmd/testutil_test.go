@@ -97,14 +97,6 @@ func startManagement(t *testing.T, config *mgmt.Config, testFile string) (*grpc.
 
 	settingsMockManager := settings.NewMockManager(ctrl)
 	peersMockManager := peers.NewMockManager(ctrl)
-	// settingsMockManager.EXPECT().
-	// 	GetExtraSettings(gomock.Any(), gomock.Any()).
-	// 	Return(&types.ExtraSettings{}, nil).
-	// 	AnyTimes()
-	// settingsMockManager.EXPECT().
-	// 	UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-	// 	Return(false, nil).
-	// 	AnyTimes()
 
 	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
 	if err != nil {

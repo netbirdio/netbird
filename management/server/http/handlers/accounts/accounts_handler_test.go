@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
@@ -21,11 +22,15 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-func initAccountsTestData(account *types.Account) *handler {
-	settingsMock := settings.NewManagerMock()
-	settingsMock.GetSettingsFunc = func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
-		return account.Settings, nil
-	}
+func initAccountsTestData(t *testing.T, account *types.Account) *handler {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().
+		GetSettings(gomock.Any(), account.Id, "test_user").
+		Return(account.Settings, nil).
+		AnyTimes()
+
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
@@ -46,7 +51,7 @@ func initAccountsTestData(account *types.Account) *handler {
 				return accCopy, nil
 			},
 		},
-		settingsManager: settingsMock,
+		settingsManager: settingsMockManager,
 	}
 }
 
@@ -57,7 +62,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
 
-	handler := initAccountsTestData(&types.Account{
+	handler := initAccountsTestData(t, &types.Account{
 		Id:      accountID,
 		Domain:  "hotmail.com",
 		Network: types.NewNetwork(),
