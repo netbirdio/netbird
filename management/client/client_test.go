@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -78,6 +79,15 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 	peersManagerMock := peers.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetSettings(
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Any(),
+		).
+		Return(&types.Settings{}, nil).
+		AnyTimes()
 
 	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
 	if err != nil {
