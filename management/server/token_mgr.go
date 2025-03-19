@@ -224,18 +224,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		}
 	}
 
-	accountID, err := m.peersManager.GetPeerAccountID(ctx, peerID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get peer: %v", err)
-		return
-	}
-
-	extraSettings, err := m.settingsManager.GetExtraSettings(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
-	}
-
-	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, extraSettings)
+	m.extendNetbirdConfig(ctx, peerID, update)
 
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
@@ -259,6 +248,13 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, pe
 		},
 	}
 
+	m.extendNetbirdConfig(ctx, peerID, update)
+
+	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
+	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
+}
+
+func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, peerID string, update *proto.SyncResponse) {
 	accountID, err := m.peersManager.GetPeerAccountID(ctx, peerID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peer: %v", err)
@@ -271,7 +267,4 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, pe
 	}
 
 	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, extraSettings)
-
-	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
-	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
 }
