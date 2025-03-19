@@ -138,8 +138,6 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 		err := m.enableFlow(previous)
 		if err != nil {
 			log.Errorf("failed to enable netflow manager: %v", err)
-		} else {
-			log.Infof("netflow manager enabled successfully")
 		}
 		return err
 	}
@@ -148,8 +146,6 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 	err := m.disableFlow()
 	if err != nil {
 		log.Errorf("failed to disable netflow manager: %v", err)
-	} else {
-		log.Infof("netflow manager disabled successfully")
 	}
 	return err
 }
