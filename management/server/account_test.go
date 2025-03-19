@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
+
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -2795,6 +2797,8 @@ type TB interface {
 	Cleanup(func())
 	Helper()
 	TempDir() string
+	Errorf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
 }
 
 func createManager(t TB) (*DefaultAccountManager, error) {
@@ -2811,7 +2815,20 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settings.NewManagerMock())
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+	settingsMockManager.EXPECT().
+		UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(false, nil).
+		AnyTimes()
+
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
 	if err != nil {
 		return nil, err
 	}

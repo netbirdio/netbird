@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -178,6 +180,11 @@ func startServer(
 		t.Fatalf("failed creating metrics: %v", err)
 	}
 
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	peersMockManager := peers.NewMockManager(ctrl)
+
 	accountManager, err := server.BuildManager(
 		context.Background(),
 		str,
@@ -191,18 +198,18 @@ func startServer(
 		server.MocIntegratedValidator{},
 		metrics,
 		port_forwarding.NewControllerMock(),
-		settings.NewManagerMock(),
+		settingsMockManager,
 	)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, peersMockManager)
 	mgmtServer, err := server.NewServer(
 		context.Background(),
 		config,
 		accountManager,
-		settings.NewManagerMock(),
+		settingsMockManager,
 		peersUpdateManager,
 		secretsManager,
 		nil,

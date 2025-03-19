@@ -9,10 +9,13 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/peers"
+	"github.com/netbirdio/netbird/management/server/settings"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	authv2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
-	log "github.com/sirupsen/logrus"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 )
@@ -29,25 +32,29 @@ type SecretsManager interface {
 
 // TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
 type TimeBasedAuthSecretsManager struct {
-	mux            sync.Mutex
-	turnCfg        *TURNConfig
-	relayCfg       *Relay
-	turnHmacToken  *auth.TimedHMAC
-	relayHmacToken *authv2.Generator
-	updateManager  *PeersUpdateManager
-	turnCancelMap  map[string]chan struct{}
-	relayCancelMap map[string]chan struct{}
+	mux             sync.Mutex
+	turnCfg         *TURNConfig
+	relayCfg        *Relay
+	turnHmacToken   *auth.TimedHMAC
+	relayHmacToken  *authv2.Generator
+	updateManager   *PeersUpdateManager
+	peersManager    peers.Manager
+	settingsManager settings.Manager
+	turnCancelMap   map[string]chan struct{}
+	relayCancelMap  map[string]chan struct{}
 }
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *Relay) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *Relay, settingsManager settings.Manager, peersManager peers.Manager) *TimeBasedAuthSecretsManager {
 	mgr := &TimeBasedAuthSecretsManager{
-		updateManager:  updateManager,
-		turnCfg:        turnCfg,
-		relayCfg:       relayCfg,
-		turnCancelMap:  make(map[string]chan struct{}),
-		relayCancelMap: make(map[string]chan struct{}),
+		updateManager:   updateManager,
+		turnCfg:         turnCfg,
+		relayCfg:        relayCfg,
+		turnCancelMap:   make(map[string]chan struct{}),
+		relayCancelMap:  make(map[string]chan struct{}),
+		settingsManager: settingsManager,
+		peersManager:    peersManager,
 	}
 
 	if turnCfg != nil {
@@ -182,7 +189,7 @@ func (m *TimeBasedAuthSecretsManager) refreshRelayTokens(ctx context.Context, pe
 func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Context, peerID string) {
 	turnToken, err := m.turnHmacToken.GenerateToken(sha1.New)
 	if err != nil {
-		log.Errorf("failed to generate token for peer '%s': %s", peerID, err)
+		log.WithContext(ctx).Errorf("failed to generate token for peer '%s': %s", peerID, err)
 		return
 	}
 
@@ -217,7 +224,18 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		}
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, nil)
+	accountID, err := m.peersManager.GetPeerAccountID(ctx, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer: %v", err)
+		return
+	}
+
+	extraSettings, err := m.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
+	}
+
+	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, extraSettings)
 
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
@@ -241,7 +259,18 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, pe
 		},
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, nil)
+	accountID, err := m.peersManager.GetPeerAccountID(ctx, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer: %v", err)
+		return
+	}
+
+	extraSettings, err := m.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
+	}
+
+	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, extraSettings)
 
 	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
