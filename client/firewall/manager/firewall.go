@@ -55,7 +55,7 @@ const (
 // It declares methods which handle actions required by the
 // Netbird client for ACL and routing functionality
 type Manager interface {
-	Init(stateManager *statemanager.Manager) error
+	Init(stateManager statemanager.Manager) error
 
 	// AllowNetbird allows netbird interface traffic
 	AllowNetbird() error
@@ -103,7 +103,7 @@ type Manager interface {
 	SetLegacyManagement(legacy bool) error
 
 	// Close closes the firewall manager
-	Close(stateManager *statemanager.Manager) error
+	Close(stateManager statemanager.Manager) error
 
 	// Flush the changes to firewall controller
 	Flush() error

@@ -22,7 +22,7 @@ var (
 	}
 )
 
-type repairConfFn func([]string, string, *resolvConf, *statemanager.Manager) error
+type repairConfFn func([]string, string, *resolvConf, statemanager.Manager) error
 
 type repair struct {
 	operationFile string
@@ -42,7 +42,7 @@ func newRepair(operationFile string, updateFn repairConfFn) *repair {
 	}
 }
 
-func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP string, stateManager *statemanager.Manager) {
+func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP string, stateManager statemanager.Manager) {
 	if f.inotify != nil {
 		return
 	}

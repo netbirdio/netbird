@@ -84,7 +84,7 @@ func (r *resolvconf) supportCustomPort() bool {
 	return false
 }
 
-func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager statemanager.Manager) error {
 	var err error
 	if !config.RouteAll {
 		err = r.restoreHostDNS()

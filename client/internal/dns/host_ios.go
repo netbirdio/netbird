@@ -20,7 +20,7 @@ func newHostManager(dnsManager IosDnsManager) (*iosHostManager, error) {
 	}, nil
 }
 
-func (a iosHostManager) applyDNSConfig(config HostDNSConfig, _ *statemanager.Manager) error {
+func (a iosHostManager) applyDNSConfig(config HostDNSConfig, _ statemanager.Manager) error {
 	jsonData, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)

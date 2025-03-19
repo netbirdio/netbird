@@ -34,7 +34,7 @@ const SKIP_NFTABLES_ENV = "NB_SKIP_NFTABLES_CHECK"
 // FWType is the type for the firewall type
 type FWType int
 
-func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, flowLogger nftypes.FlowLogger, disableServerRoutes bool) (firewall.Manager, error) {
+func NewFirewall(iface IFaceMapper, stateManager statemanager.Manager, flowLogger nftypes.FlowLogger, disableServerRoutes bool) (firewall.Manager, error) {
 	// on the linux system we try to user nftables or iptables
 	// in any case, because we need to allow netbird interface traffic
 	// so we use AllowNetbird traffic from these firewall managers
@@ -51,7 +51,7 @@ func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, flowLogg
 	return createUserspaceFirewall(iface, fm, disableServerRoutes, flowLogger)
 }
 
-func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager, routes bool) (firewall.Manager, error) {
+func createNativeFirewall(iface IFaceMapper, stateManager statemanager.Manager, routes bool) (firewall.Manager, error) {
 	fm, err := createFW(iface)
 	if err != nil {
 		return nil, fmt.Errorf("create firewall: %s", err)

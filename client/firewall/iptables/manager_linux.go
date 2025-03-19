@@ -60,7 +60,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 	return m, nil
 }
 
-func (m *Manager) Init(stateManager *statemanager.Manager) error {
+func (m *Manager) Init(stateManager statemanager.Manager) error {
 	state := &ShutdownState{
 		InterfaceState: &InterfaceState{
 			NameStr:       m.wgIface.Name(),
@@ -167,7 +167,7 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 }
 
 // Reset firewall to the default state
-func (m *Manager) Close(stateManager *statemanager.Manager) error {
+func (m *Manager) Close(stateManager statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

@@ -49,8 +49,25 @@ func (r *RawState) MarshalJSON() ([]byte, error) {
 	return r.data, nil
 }
 
+// Manager is the interface that exposes the persistence and state management methods.
+type Manager interface {
+	Start()
+	Stop(ctx context.Context) error
+	RegisterState(state State)
+	GetState(state State) State
+	UpdateState(state State) error
+	DeleteState(state State) error
+	DeleteStateByName(stateName string) error
+	DeleteAllStates() (int, error)
+	PersistState(ctx context.Context) error
+	LoadState(state State) error
+	CleanupStateByName(name string) error
+	PerformCleanup() error
+	GetSavedStateNames() ([]string, error)
+}
+
 // Manager handles the persistence and management of various states
-type Manager struct {
+type managerImpl struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -65,8 +82,8 @@ type Manager struct {
 }
 
 // New creates a new Manager instance
-func New(filePath string) *Manager {
-	return &Manager{
+func New(filePath string) Manager {
+	return &managerImpl{
 		filePath:   filePath,
 		states:     make(map[string]State),
 		dirty:      make(map[string]struct{}),
@@ -75,7 +92,7 @@ func New(filePath string) *Manager {
 }
 
 // Start starts the state manager periodic save routine
-func (m *Manager) Start() {
+func (m *managerImpl) Start() {
 	if m == nil {
 		return
 	}
@@ -90,7 +107,7 @@ func (m *Manager) Start() {
 	go m.periodicStateSave(ctx)
 }
 
-func (m *Manager) Stop(ctx context.Context) error {
+func (m *managerImpl) Stop(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
@@ -114,7 +131,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 // RegisterState registers a state with the manager but doesn't attempt to persist it.
 // Pass an uninitialized state to register it.
-func (m *Manager) RegisterState(state State) {
+func (m *managerImpl) RegisterState(state State) {
 	if m == nil {
 		return
 	}
@@ -128,7 +145,7 @@ func (m *Manager) RegisterState(state State) {
 }
 
 // GetState returns the state for the given type
-func (m *Manager) GetState(state State) State {
+func (m *managerImpl) GetState(state State) State {
 	if m == nil {
 		return nil
 	}
@@ -141,7 +158,7 @@ func (m *Manager) GetState(state State) State {
 
 // UpdateState updates the state in the manager and marks it as dirty for the next save.
 // The state will be replaced with the new one.
-func (m *Manager) UpdateState(state State) error {
+func (m *managerImpl) UpdateState(state State) error {
 	if m == nil {
 		return nil
 	}
@@ -151,7 +168,7 @@ func (m *Manager) UpdateState(state State) error {
 
 // DeleteState removes the state from the manager and marks it as dirty for the next save.
 // Pass an uninitialized state to delete it.
-func (m *Manager) DeleteState(state State) error {
+func (m *managerImpl) DeleteState(state State) error {
 	if m == nil {
 		return nil
 	}
@@ -159,7 +176,7 @@ func (m *Manager) DeleteState(state State) error {
 	return m.setState(state.Name(), nil)
 }
 
-func (m *Manager) setState(name string, state State) error {
+func (m *managerImpl) setState(name string, state State) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -175,7 +192,7 @@ func (m *Manager) setState(name string, state State) error {
 
 // DeleteStateByName handles deletion of states without cleanup.
 // It doesn't require the state to be registered.
-func (m *Manager) DeleteStateByName(stateName string) error {
+func (m *managerImpl) DeleteStateByName(stateName string) error {
 	if m == nil {
 		return nil
 	}
@@ -203,7 +220,7 @@ func (m *Manager) DeleteStateByName(stateName string) error {
 }
 
 // DeleteAllStates removes all states.
-func (m *Manager) DeleteAllStates() (int, error) {
+func (m *managerImpl) DeleteAllStates() (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -230,7 +247,7 @@ func (m *Manager) DeleteAllStates() (int, error) {
 	return count, nil
 }
 
-func (m *Manager) periodicStateSave(ctx context.Context) {
+func (m *managerImpl) periodicStateSave(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	defer close(m.done)
@@ -248,7 +265,7 @@ func (m *Manager) periodicStateSave(ctx context.Context) {
 }
 
 // PersistState persists the states that have been updated since the last save.
-func (m *Manager) PersistState(ctx context.Context) error {
+func (m *managerImpl) PersistState(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
@@ -291,7 +308,7 @@ func (m *Manager) PersistState(ctx context.Context) error {
 }
 
 // loadStateFile reads and unmarshals the state file into a map of raw JSON messages
-func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage, error) {
+func (m *managerImpl) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage, error) {
 	data, err := os.ReadFile(m.filePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -311,7 +328,7 @@ func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage,
 }
 
 // handleCorruptedState creates a backup of a corrupted state file by moving it
-func (m *Manager) handleCorruptedState(deleteCorrupt bool) {
+func (m *managerImpl) handleCorruptedState(deleteCorrupt bool) {
 	if !deleteCorrupt {
 		return
 	}
@@ -327,7 +344,7 @@ func (m *Manager) handleCorruptedState(deleteCorrupt bool) {
 }
 
 // loadSingleRawState unmarshals a raw state into a concrete state object
-func (m *Manager) loadSingleRawState(name string, rawState json.RawMessage) (State, error) {
+func (m *managerImpl) loadSingleRawState(name string, rawState json.RawMessage) (State, error) {
 	stateType, ok := m.stateTypes[name]
 	if !ok {
 		return nil, fmt.Errorf(errStateNotRegistered, name)
@@ -346,7 +363,7 @@ func (m *Manager) loadSingleRawState(name string, rawState json.RawMessage) (Sta
 }
 
 // LoadState loads a specific state from the state file
-func (m *Manager) LoadState(state State) error {
+func (m *managerImpl) LoadState(state State) error {
 	if m == nil {
 		return nil
 	}
@@ -383,7 +400,7 @@ func (m *Manager) LoadState(state State) error {
 
 // cleanupSingleState handles the cleanup of a specific state and returns any error.
 // The caller must hold the mutex.
-func (m *Manager) cleanupSingleState(name string, rawState json.RawMessage) error {
+func (m *managerImpl) cleanupSingleState(name string, rawState json.RawMessage) error {
 	// For unregistered states, preserve the raw JSON
 	if _, registered := m.stateTypes[name]; !registered {
 		m.states[name] = &RawState{data: rawState}
@@ -424,7 +441,7 @@ func (m *Manager) cleanupSingleState(name string, rawState json.RawMessage) erro
 
 // CleanupStateByName loads and cleans up a specific state by name if it implements CleanableState.
 // Returns an error if the state doesn't exist, isn't registered, or cleanup fails.
-func (m *Manager) CleanupStateByName(name string) error {
+func (m *managerImpl) CleanupStateByName(name string) error {
 	if m == nil {
 		return nil
 	}
@@ -461,7 +478,7 @@ func (m *Manager) CleanupStateByName(name string) error {
 
 // PerformCleanup retrieves all states from the state file and calls Cleanup on registered states that support it.
 // Unregistered states are preserved in their original state.
-func (m *Manager) PerformCleanup() error {
+func (m *managerImpl) PerformCleanup() error {
 	if m == nil {
 		return nil
 	}
@@ -491,7 +508,7 @@ func (m *Manager) PerformCleanup() error {
 }
 
 // GetSavedStateNames returns all state names that are currently saved in the state file.
-func (m *Manager) GetSavedStateNames() ([]string, error) {
+func (m *managerImpl) GetSavedStateNames() ([]string, error) {
 	if m == nil {
 		return nil, nil
 	}

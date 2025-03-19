@@ -87,7 +87,7 @@ func (s *systemdDbusConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager statemanager.Manager) error {
 	parsedIP, err := netip.ParseAddr(config.ServerIP)
 	if err != nil {
 		return fmt.Errorf("unable to parse ip address, error: %w", err)

@@ -75,7 +75,7 @@ type DefaultServer struct {
 	iosDnsManager        IosDnsManager
 
 	statusRecorder *peer.Status
-	stateManager   *statemanager.Manager
+	stateManager   statemanager.Manager
 }
 
 type handlerWithStop interface {
@@ -99,7 +99,7 @@ func NewDefaultServer(
 	wgInterface WGIface,
 	customAddress string,
 	statusRecorder *peer.Status,
-	stateManager *statemanager.Manager,
+	stateManager statemanager.Manager,
 	disableSys bool,
 ) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
@@ -161,7 +161,7 @@ func newDefaultServer(
 	wgInterface WGIface,
 	dnsService service,
 	statusRecorder *peer.Status,
-	stateManager *statemanager.Manager,
+	stateManager statemanager.Manager,
 	disableSys bool,
 ) *DefaultServer {
 	ctx, stop := context.WithCancel(ctx)

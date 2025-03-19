@@ -10,7 +10,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-func registerStates(mgr *statemanager.Manager) {
+func registerStates(mgr statemanager.Manager) {
 	mgr.RegisterState(&dns.ShutdownState{})
 	mgr.RegisterState(&systemops.ShutdownState{})
 	mgr.RegisterState(&nftables.ShutdownState{})

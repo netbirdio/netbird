@@ -184,7 +184,7 @@ type Engine struct {
 	checks []*mgmProto.Checks
 
 	relayManager *relayClient.Manager
-	stateManager *statemanager.Manager
+	stateManager statemanager.Manager
 	srWatcher    *guard.SRWatcher
 
 	// Network map persistence

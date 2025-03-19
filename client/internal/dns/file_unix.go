@@ -48,7 +48,7 @@ func (f *fileConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager statemanager.Manager) error {
 	backupFileExist := f.isBackupFileExist()
 	if !config.RouteAll {
 		if backupFileExist {
@@ -86,7 +86,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *st
 	return nil
 }
 
-func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf, stateManager *statemanager.Manager) error {
+func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf, stateManager statemanager.Manager) error {
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
 	nameServers := generateNsList(nbNameserverIP, cfg)
 
