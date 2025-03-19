@@ -176,7 +176,7 @@ func (t *TCPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 
 // TrackOutbound records an outbound TCP connection
 func (t *TCPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, flags uint8, size int) {
-	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags, 0, 0); !exists {
+	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags, nftypes.Egress, size); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
 		t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress, nil, size)
 	}
@@ -210,6 +210,7 @@ func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 
 	t.logger.Trace("New %s TCP connection: %s", direction, key)
 	t.updateState(key, conn, flags, direction == nftypes.Egress)
+	conn.UpdateCounters(direction, size)
 
 	t.mutex.Lock()
 	t.connections[key] = conn
@@ -237,20 +238,7 @@ func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 
 	// Handle RST flag specially - it always causes transition to closed
 	if flags&TCPRst != 0 {
-		if conn.IsTombstone() {
-			return true
-		}
-
-		conn.Lock()
-		conn.SetTombstone()
-		conn.State = TCPStateClosed
-		conn.SetEstablished(false)
-		conn.Unlock()
-		conn.UpdateCounters(nftypes.Ingress, size)
-
-		t.logger.Trace("TCP connection reset: %s", key)
-		t.sendEvent(nftypes.TypeEnd, conn, nil)
-		return true
+		return t.handleRst(key, conn, size)
 	}
 
 	conn.Lock()
@@ -258,8 +246,26 @@ func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 	isEstablished := conn.IsEstablished()
 	isValidState := t.isValidStateForFlags(conn.State, flags)
 	conn.Unlock()
+	conn.UpdateCounters(nftypes.Ingress, size)
 
 	return isEstablished || isValidState
+}
+
+func (t *TCPTracker) handleRst(key ConnKey, conn *TCPConnTrack, size int) bool {
+	if conn.IsTombstone() {
+		return true
+	}
+
+	conn.Lock()
+	conn.SetTombstone()
+	conn.State = TCPStateClosed
+	conn.SetEstablished(false)
+	conn.Unlock()
+	conn.UpdateCounters(nftypes.Ingress, size)
+
+	t.logger.Trace("TCP connection reset: %s", key)
+	t.sendEvent(nftypes.TypeEnd, conn, nil)
+	return true
 }
 
 // updateState updates the TCP connection state based on flags

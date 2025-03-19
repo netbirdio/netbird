@@ -110,6 +110,7 @@ func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 		DestPort:   dstPort,
 	}
 	conn.UpdateLastSeen()
+	conn.UpdateCounters(direction, size)
 
 	t.mutex.Lock()
 	t.connections[key] = conn
