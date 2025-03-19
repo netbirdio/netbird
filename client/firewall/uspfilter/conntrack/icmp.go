@@ -132,6 +132,7 @@ func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, typec
 		ICMPCode: code,
 	}
 	conn.UpdateLastSeen()
+	conn.UpdateCounters(direction, size)
 
 	t.mutex.Lock()
 	t.connections[key] = conn
