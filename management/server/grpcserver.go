@@ -187,7 +187,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	s.ephemeralManager.OnPeerConnected(ctx, peer)
 
-	s.secretsManager.SetupRefresh(ctx, peer.ID)
+	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))

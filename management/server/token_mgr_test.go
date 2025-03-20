@@ -106,7 +106,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	tested.SetupRefresh(ctx, peer)
+	tested.SetupRefresh(ctx, "someAccountID", peer)
 
 	if _, ok := tested.turnCancelMap[peer]; !ok {
 		t.Errorf("expecting peer to be present in the turn cancel map, got not present")
@@ -206,7 +206,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager, peersMockManager)
 
-	tested.SetupRefresh(context.Background(), peer)
+	tested.SetupRefresh(context.Background(), "someAccountID", peer)
 	if _, ok := tested.turnCancelMap[peer]; !ok {
 		t.Errorf("expecting peer to be present in turn cancel map, got not present")
 	}
