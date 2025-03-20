@@ -55,6 +55,16 @@ const (
 	connPriorityICEP2P  ConnPriority = 3
 )
 
+type ServiceDependencies struct {
+	StatusRecorder     *Status
+	Signaler           *Signaler
+	IFaceDiscover      stdnet.ExternalIFaceDiscover
+	RelayManager       *relayClient.Manager
+	SrWatcher          *guard.SRWatcher
+	Semaphore          *semaphoregroup.SemaphoreGroup
+	PeerConnDispatcher *ConnectionDispatcher
+}
+
 type WgConfig struct {
 	WgListenPort int
 	RemoteKey    string
@@ -128,7 +138,7 @@ type Conn struct {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, signaler *Signaler, iFaceDiscover stdnet.ExternalIFaceDiscover, relayManager *relayClient.Manager, srWatcher *guard.SRWatcher, semaphore *semaphoregroup.SemaphoreGroup, peerConnDispatcher *ConnectionDispatcher) (*Conn, error) {
+func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 	if len(config.WgConfig.AllowedIps) == 0 {
 		return nil, fmt.Errorf("allowed IPs is empty")
 	}
@@ -138,13 +148,13 @@ func NewConn(config ConnConfig, statusRecorder *Status, signaler *Signaler, iFac
 	var conn = &Conn{
 		Log:                connLog,
 		config:             config,
-		statusRecorder:     statusRecorder,
-		signaler:           signaler,
-		iFaceDiscover:      iFaceDiscover,
-		relayManager:       relayManager,
-		srWatcher:          srWatcher,
-		semaphore:          semaphore,
-		peerConnDispatcher: peerConnDispatcher,
+		statusRecorder:     services.StatusRecorder,
+		signaler:           services.Signaler,
+		iFaceDiscover:      services.IFaceDiscover,
+		relayManager:       services.RelayManager,
+		srWatcher:          services.SrWatcher,
+		semaphore:          services.Semaphore,
+		peerConnDispatcher: services.PeerConnDispatcher,
 		statusRelay:        NewAtomicConnStatus(),
 		statusICE:          NewAtomicConnStatus(),
 		dumpState:          newStateDump(connLog),

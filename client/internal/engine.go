@@ -1216,7 +1216,16 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix) (*peer
 		},
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager, e.srWatcher, e.connSemaphore, e.peerConnDispatcher)
+	serviceDependencies := peer.ServiceDependencies{
+		StatusRecorder:     e.statusRecorder,
+		Signaler:           e.signaler,
+		IFaceDiscover:      e.mobileDep.IFaceDiscover,
+		RelayManager:       e.relayManager,
+		SrWatcher:          e.srWatcher,
+		Semaphore:          e.connSemaphore,
+		PeerConnDispatcher: e.peerConnDispatcher,
+	}
+	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
 		return nil, err
 	}
