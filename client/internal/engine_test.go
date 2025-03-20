@@ -374,6 +374,9 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 				},
 			}
 		},
+		UpdatePeerFunc: func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+			return nil
+		},
 	}
 	engine.wgInterface = wgIface
 	engine.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
