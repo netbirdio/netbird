@@ -3,6 +3,7 @@ package posture
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
@@ -16,13 +17,22 @@ type NBVersionCheck struct {
 
 var _ Check = (*NBVersionCheck)(nil)
 
+// sanitizeVersion removes anything after the pre-release tag (e.g., "-dev", "-alpha", etc.)
+func sanitizeVersion(version string) string {
+	parts := strings.Split(version, "-")
+	return parts[0]
+}
+
 func (n *NBVersionCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
-	peerNBVersion, err := version.NewVersion(peer.Meta.WtVersion)
+	peerVersion := sanitizeVersion(peer.Meta.WtVersion)
+	minVersion := sanitizeVersion(n.MinVersion)
+
+	peerNBVersion, err := version.NewVersion(peerVersion)
 	if err != nil {
 		return false, err
 	}
 
-	constraints, err := version.NewConstraint(">= " + n.MinVersion)
+	constraints, err := version.NewConstraint(">= " + minVersion)
 	if err != nil {
 		return false, err
 	}
