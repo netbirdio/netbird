@@ -56,6 +56,6 @@ func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string)
 	return m.store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
 }
 
-func (m *managerImpl) GetPeerAccountID(ctx context.Context, userID string) (string, error) {
-	return m.store.GetAccountIDByPeerID(ctx, store.LockingStrengthShare, userID)
+func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {
+	return m.store.GetAccountIDByPeerID(ctx, store.LockingStrengthShare, peerID)
 }
