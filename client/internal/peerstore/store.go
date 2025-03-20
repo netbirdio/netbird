@@ -89,7 +89,10 @@ func (s *Store) PeerConnOpen(ctx context.Context, pubKey string) {
 		return
 	}
 	// this can be blocked because of the connect open limiter semaphore
-	p.Open(ctx)
+	if err := p.Open(ctx); err != nil {
+		p.Log.Errorf("failed to open peer connection: %v", err)
+	}
+
 }
 
 func (s *Store) PeerConnClose(pubKey string) {
