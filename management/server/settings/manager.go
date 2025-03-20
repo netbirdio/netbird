@@ -1,5 +1,7 @@
 package settings
 
+//go:generate go run github.com/golang/mock/mockgen -package settings -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+
 import (
 	"context"
 	"fmt"
@@ -23,11 +25,6 @@ type managerImpl struct {
 	store                store.Store
 	extraSettingsManager extra_settings.Manager
 	userManager          users.Manager
-}
-
-type ManagerMock struct {
-	GetSettingsFunc      func(ctx context.Context, accountID, userID string) (*types.Settings, error)
-	GetExtraSettingsFunc func(ctx context.Context, accountID string) (*types.ExtraSettings, error)
 }
 
 func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager) Manager {
@@ -98,36 +95,4 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 
 func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error) {
 	return m.extraSettingsManager.UpdateExtraSettings(ctx, accountID, userID, extraSettings)
-}
-
-func NewManagerMock() *ManagerMock {
-	return &ManagerMock{}
-}
-
-func (m *ManagerMock) GetExtraSettingsManager() extra_settings.Manager {
-	return nil
-}
-
-func (m *ManagerMock) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
-	if m.GetSettingsFunc != nil {
-		return m.GetSettingsFunc(ctx, accountID, userID)
-	}
-
-	return &types.Settings{}, nil
-}
-
-func (m *ManagerMock) SetGetSettingsFunc(f func(ctx context.Context, accountID, userID string) (*types.Settings, error)) {
-	m.GetSettingsFunc = f
-}
-
-func (m *ManagerMock) GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error) {
-	if m.GetExtraSettingsFunc != nil {
-		return m.GetExtraSettingsFunc(ctx, accountID)
-	}
-
-	return &types.ExtraSettings{}, nil
-}
-
-func (m *ManagerMock) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error) {
-	return false, nil
 }
