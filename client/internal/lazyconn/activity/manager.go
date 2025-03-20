@@ -62,18 +62,17 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 	return nil
 }
 
-func (m *Manager) RemovePeer(log *log.Entry, peerID string) bool {
+func (m *Manager) RemovePeer(log *log.Entry, peerID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	listener, ok := m.peers[peerID]
 	if !ok {
-		return false
+		return
 	}
 	log.Debugf("removing activity listener")
 	delete(m.peers, peerID)
 	listener.Close()
-	return true
 }
 
 func (m *Manager) Close() {

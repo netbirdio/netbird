@@ -12,6 +12,18 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
+const (
+	watcherActivity watcherType = iota
+	watcherInactivity
+)
+
+type watcherType int
+
+type managedPeer struct {
+	peerCfg         *lazyconn.PeerConfig
+	expectedWatcher watcherType
+}
+
 // Manager manages lazy connections
 // It is responsible for:
 // - Managing lazy connections activated on-demand
@@ -23,7 +35,7 @@ type Manager struct {
 	connStateListener   *peer.ConnectionListener
 
 	managedPeers         map[string]*lazyconn.PeerConfig
-	managedPeersByConnID map[peer.ConnID]*lazyconn.PeerConfig
+	managedPeersByConnID map[peer.ConnID]*managedPeer
 	excludes             map[string]struct{}
 	managedPeersMu       sync.Mutex
 
@@ -38,7 +50,7 @@ func NewManager(wgIface lazyconn.WGIface, connStateDispatcher *peer.ConnectionDi
 	m := &Manager{
 		connStateDispatcher:  connStateDispatcher,
 		managedPeers:         make(map[string]*lazyconn.PeerConfig),
-		managedPeersByConnID: make(map[peer.ConnID]*lazyconn.PeerConfig),
+		managedPeersByConnID: make(map[peer.ConnID]*managedPeer),
 		excludes:             make(map[string]struct{}),
 		activityManager:      activity.NewManager(wgIface),
 		inactivityMonitors:   make(map[peer.ConnID]*inactivity.Monitor),
@@ -95,7 +107,10 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 	m.inactivityMonitors[peerCfg.PeerConnID] = im
 
 	m.managedPeers[peerCfg.PublicKey] = &peerCfg
-	m.managedPeersByConnID[peerCfg.PeerConnID] = &peerCfg
+	m.managedPeersByConnID[peerCfg.PeerConnID] = &managedPeer{
+		peerCfg:         &peerCfg,
+		expectedWatcher: watcherActivity,
+	}
 	return false, nil
 }
 
@@ -130,17 +145,26 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 		return false
 	}
 
-	if removed := m.activityManager.RemovePeer(cfg.Log, peerID); !removed {
+	mp, ok := m.managedPeersByConnID[cfg.PeerConnID]
+	if !ok {
 		return false
 	}
 
-	cfg.Log.Infof("activating peer")
+	// signal messages coming continuously after success activation, with this avoid the multiple activation
+	if mp.expectedWatcher != watcherActivity {
+		return false
+	}
+
+	mp.expectedWatcher = watcherInactivity
+
+	m.activityManager.RemovePeer(cfg.Log, peerID)
 
 	cfg.Log.Debugf("reset inactivity monitor timer")
 	m.inactivityMonitors[cfg.PeerConnID].ResetTimer()
 	return true
 }
 
+// ExcludePeer marks peers for a permanent connection
 func (m *Manager) ExcludePeer(peerIDs []string) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
@@ -165,6 +189,7 @@ func (m *Manager) close() {
 	}
 	m.inactivityMonitors = make(map[peer.ConnID]*inactivity.Monitor)
 	m.managedPeers = make(map[string]*lazyconn.PeerConfig)
+	m.managedPeersByConnID = make(map[peer.ConnID]*managedPeer)
 	log.Infof("lazy connection manager closed")
 }
 
@@ -172,14 +197,22 @@ func (m *Manager) onPeerActivity(ctx context.Context, e activity.OnAcitvityEvent
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	pcfg, ok := m.managedPeersByConnID[e.PeerConnId]
+	mp, ok := m.managedPeersByConnID[e.PeerConnId]
 	if !ok {
+		log.Errorf("peer not found by id: %v", e.PeerConnId)
 		return
 	}
 
-	pcfg.Log.Infof("detected peer activity")
+	if mp.expectedWatcher != watcherActivity {
+		mp.peerCfg.Log.Warnf("ignore activity event")
+		return
+	}
 
-	pcfg.Log.Infof("starting inactivity monitor")
+	mp.peerCfg.Log.Infof("detected peer activity")
+
+	mp.expectedWatcher = watcherInactivity
+
+	mp.peerCfg.Log.Infof("starting inactivity monitor")
 	go m.inactivityMonitors[e.PeerConnId].Start(ctx, m.onInactive)
 
 	onActiveListenerFn(e.PeerID)
@@ -189,25 +222,31 @@ func (m *Manager) onPeerInactivityTimedOut(peerConnID peer.ConnID, onInactiveLis
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	pcfg, ok := m.managedPeersByConnID[peerConnID]
+	mp, ok := m.managedPeersByConnID[peerConnID]
 	if !ok {
+		log.Errorf("peer not found by id: %v", peerConnID)
 		return
 	}
 
-	pcfg.Log.Infof("connection timed out")
-
-	if _, ok := m.inactivityMonitors[peerConnID]; !ok {
+	if mp.expectedWatcher != watcherInactivity {
+		mp.peerCfg.Log.Warnf("ignore inactivity event")
 		return
 	}
 
-	onInactiveListenerFn(pcfg.PublicKey)
+	mp.peerCfg.Log.Infof("connection timed out")
 
-	pcfg.Log.Infof("start activity monitor")
+	// this is blocking operation, potentially can be optimized
+	onInactiveListenerFn(mp.peerCfg.PublicKey)
+
+	mp.peerCfg.Log.Infof("start activity monitor")
+
+	mp.expectedWatcher = watcherActivity
 
 	// just in case free up
-	m.inactivityMonitors[pcfg.PeerConnID].PauseTimer()
-	if err := m.activityManager.MonitorPeerActivity(*pcfg); err != nil {
-		pcfg.Log.Errorf("failed to create activity monitor: %v", err)
+	m.inactivityMonitors[peerConnID].PauseTimer()
+
+	if err := m.activityManager.MonitorPeerActivity(*mp.peerCfg); err != nil {
+		mp.peerCfg.Log.Errorf("failed to create activity monitor: %v", err)
 		return
 	}
 }
@@ -218,6 +257,15 @@ func (m *Manager) onPeerConnected(peerID string) {
 
 	peerCfg, ok := m.managedPeers[peerID]
 	if !ok {
+		return
+	}
+
+	mp, ok := m.managedPeersByConnID[peerCfg.PeerConnID]
+	if !ok {
+		return
+	}
+
+	if mp.expectedWatcher != watcherInactivity {
 		return
 	}
 
@@ -237,6 +285,15 @@ func (m *Manager) onPeerDisconnected(peerID string) {
 
 	peerCfg, ok := m.managedPeers[peerID]
 	if !ok {
+		return
+	}
+
+	mp, ok := m.managedPeersByConnID[peerCfg.PeerConnID]
+	if !ok {
+		return
+	}
+
+	if mp.expectedWatcher != watcherInactivity {
 		return
 	}
 

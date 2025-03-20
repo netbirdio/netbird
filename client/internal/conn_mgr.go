@@ -130,6 +130,7 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 	}
 
 	if found := e.lazyConnMgr.ActivatePeer(peerKey); found {
+		conn.Log.Infof("activated peer from inactive state")
 		if err := conn.Open(e.ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
