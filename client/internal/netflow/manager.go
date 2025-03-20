@@ -135,11 +135,7 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 
 	if update.Enabled {
 		log.Infof("netflow manager enabled; starting netflow manager")
-		err := m.enableFlow(previous)
-		if err != nil {
-			log.Errorf("failed to enable netflow manager: %v", err)
-		}
-		return err
+		return m.enableFlow(previous)
 	}
 
 	log.Infof("netflow manager disabled; stopping netflow manager")
