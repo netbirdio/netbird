@@ -27,8 +27,6 @@ type ConnMgr struct {
 	peerStore   *peerstore.Store
 	lazyConnMgr *manager.Manager
 
-	connStateListener *peer.ConnectionListener
-
 	mu        sync.Mutex
 	wg        sync.WaitGroup
 	ctx       context.Context
