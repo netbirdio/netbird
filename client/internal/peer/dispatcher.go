@@ -36,7 +36,7 @@ func (e *ConnectionDispatcher) RemoveListener(listener *ConnectionListener) {
 func (e *ConnectionDispatcher) NotifyConnected(peerID string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for listener, _ := range e.listeners {
+	for listener := range e.listeners {
 		listener.OnConnected(peerID)
 	}
 }
@@ -44,7 +44,7 @@ func (e *ConnectionDispatcher) NotifyConnected(peerID string) {
 func (e *ConnectionDispatcher) NotifyDisconnected(peerID string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for listener, _ := range e.listeners {
+	for listener := range e.listeners {
 		listener.OnDisconnected(peerID)
 	}
 }
