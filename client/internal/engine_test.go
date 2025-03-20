@@ -394,7 +394,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
-	engine.connMgr = NewConnMgr(engine.peerStore, wgIface)
+	engine.connMgr = NewConnMgr(engine.peerStore, wgIface, peer.NewConnectionDispatcher())
 
 	type testCase struct {
 		name       string
@@ -765,7 +765,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 
 			engine.routeManager = mockRouteManager
 			engine.dnsServer = &dns.MockServer{}
-			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface)
+			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface, peer.NewConnectionDispatcher())
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -962,7 +962,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 
 			engine.dnsServer = mockDNSServer
-			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface)
+			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface, peer.NewConnectionDispatcher())
 
 			defer func() {
 				exitErr := engine.Stop()
