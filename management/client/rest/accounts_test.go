@@ -23,7 +23,7 @@ var (
 		Id: "Test",
 		Settings: api.AccountSettings{
 			Extra: &api.AccountExtraSettings{
-				PeerApprovalEnabled: ptr(false),
+				PeerApprovalEnabled: false,
 			},
 			GroupsPropagationEnabled:        ptr(true),
 			JwtGroupsEnabled:                ptr(false),
@@ -141,7 +141,7 @@ func TestAccounts_Integration_List(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, accounts, 1)
 		assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", accounts[0].Id)
-		assert.Equal(t, false, *accounts[0].Settings.Extra.PeerApprovalEnabled)
+		assert.Equal(t, false, accounts[0].Settings.Extra.PeerApprovalEnabled)
 	})
 }
 

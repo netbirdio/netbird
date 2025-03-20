@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -34,7 +35,7 @@ type ephemeralPeer struct {
 // automatically. Inactivity means the peer disconnected from the Management server.
 type EphemeralManager struct {
 	store          store.Store
-	accountManager AccountManager
+	accountManager nbAccount.Manager
 
 	headPeer  *ephemeralPeer
 	tailPeer  *ephemeralPeer
@@ -43,7 +44,7 @@ type EphemeralManager struct {
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
-func NewEphemeralManager(store store.Store, accountManager AccountManager) *EphemeralManager {
+func NewEphemeralManager(store store.Store, accountManager nbAccount.Manager) *EphemeralManager {
 	return &EphemeralManager{
 		store:          store,
 		accountManager: accountManager,

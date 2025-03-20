@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -71,7 +72,7 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 }
 
 func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
-	settings, err := m.settingsManager.GetSettings(ctx, accountID, userID)
+	settings, err := m.settingsManager.GetSettings(ctx, accountID, activity.SystemInitiator)
 	if err != nil {
 		return false, fmt.Errorf("failed to get settings: %w", err)
 	}
