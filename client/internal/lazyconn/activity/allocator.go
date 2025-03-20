@@ -12,7 +12,6 @@ const (
 )
 
 var (
-	listenIP      = net.ParseIP("127.0.0.1")
 	ErrNoFreePort = fmt.Errorf("no free port")
 )
 

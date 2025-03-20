@@ -35,6 +35,7 @@ func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig, conn *net.UD
 }
 
 func (d *Listener) ReadPackets() {
+	defer d.conn.Close()
 	d.isClosed = false
 
 	for {
@@ -69,11 +70,13 @@ func (d *Listener) Close() {
 }
 
 func (d *Listener) removeEndpoint() {
+	log.Debugf("removing lazy endpoint: %s", d.endpoint.String())
 	if err := d.wgIface.RemovePeer(d.peerCfg.PublicKey); err != nil {
 		log.Warnf("failed to remove peer listener: %v", err)
 	}
 }
 
 func (d *Listener) createEndpoint() error {
+	log.Debugf("creating lazy endpoint: %s", d.endpoint.String())
 	return d.wgIface.UpdatePeer(d.peerCfg.PublicKey, d.peerCfg.AllowedIPs, 0, d.endpoint, nil)
 }
