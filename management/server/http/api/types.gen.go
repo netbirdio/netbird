@@ -230,8 +230,14 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
+	// NetworkTrafficLogsEnabled Enables or disables network traffic logs. If enabled, all network traffic logs from peers will be stored.
+	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
+
+	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
+	NetworkTrafficPacketCounterEnabled bool `json:"network_traffic_packet_counter_enabled"`
+
 	// PeerApprovalEnabled (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
-	PeerApprovalEnabled *bool `json:"peer_approval_enabled,omitempty"`
+	PeerApprovalEnabled bool `json:"peer_approval_enabled"`
 }
 
 // AccountRequest defines model for AccountRequest.
@@ -815,6 +821,97 @@ type NetworkRouterRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+}
+
+// NetworkTrafficEndpoint defines model for NetworkTrafficEndpoint.
+type NetworkTrafficEndpoint struct {
+	// Address IP address (and possibly port) in string form.
+	Address string `json:"address"`
+
+	// DnsLabel DNS label/name if available.
+	DnsLabel    *string                `json:"dns_label"`
+	GeoLocation NetworkTrafficLocation `json:"geo_location"`
+
+	// Id ID of this endpoint (e.g., peer ID or resource ID).
+	Id string `json:"id"`
+
+	// Name Name is the name of the endpoint object (e.g., a peer name).
+	Name string `json:"name"`
+
+	// Os Operating system of the peer, if applicable.
+	Os *string `json:"os"`
+
+	// Type Type of the endpoint object (e.g., UNKNOWN, PEER, HOST_RESOURCE).
+	Type string `json:"type"`
+}
+
+// NetworkTrafficEvent defines model for NetworkTrafficEvent.
+type NetworkTrafficEvent struct {
+	Destination NetworkTrafficEndpoint `json:"destination"`
+
+	// Direction Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS).
+	Direction string `json:"direction"`
+
+	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
+	FlowId string `json:"flow_id"`
+
+	// IcmpCode ICMP code (if applicable).
+	IcmpCode int `json:"icmp_code"`
+
+	// IcmpType ICMP type (if applicable).
+	IcmpType int `json:"icmp_type"`
+
+	// Id ID of the event. Unique.
+	Id string `json:"id"`
+
+	// PolicyId ID of the policy that allowed this event.
+	PolicyId string `json:"policy_id"`
+
+	// PolicyName Name of the policy that allowed this event.
+	PolicyName string `json:"policy_name"`
+
+	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
+	Protocol int `json:"protocol"`
+
+	// ReporterId ID of the reporter of the event (e.g., the peer that reported the event).
+	ReporterId string `json:"reporter_id"`
+
+	// RxBytes Number of bytes received.
+	RxBytes int `json:"rx_bytes"`
+
+	// RxPackets Number of packets received.
+	RxPackets int                    `json:"rx_packets"`
+	Source    NetworkTrafficEndpoint `json:"source"`
+
+	// Timestamp Timestamp of the event.
+	Timestamp time.Time `json:"timestamp"`
+
+	// TxBytes Number of bytes transmitted.
+	TxBytes int `json:"tx_bytes"`
+
+	// TxPackets Number of packets transmitted.
+	TxPackets int `json:"tx_packets"`
+
+	// Type Type of the event (e.g. TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
+	Type string `json:"type"`
+
+	// UserEmail Email of the user who initiated the event (if any).
+	UserEmail *string `json:"user_email"`
+
+	// UserId UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
+	UserId *string `json:"user_id"`
+
+	// UserName Name of the user who initiated the event (if any).
+	UserName *string `json:"user_name"`
+}
+
+// NetworkTrafficLocation defines model for NetworkTrafficLocation.
+type NetworkTrafficLocation struct {
+	// CityName Name of the city (if known).
+	CityName string `json:"city_name"`
+
+	// CountryCode ISO country code (if known).
+	CountryCode string `json:"country_code"`
 }
 
 // OSVersionCheck Posture check for the version of operating system

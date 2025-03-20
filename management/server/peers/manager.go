@@ -1,5 +1,7 @@
 package peers
 
+//go:generate go run github.com/golang/mock/mockgen -package peers -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+
 import (
 	"context"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 
 type Manager interface {
 	GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error)
+	GetPeerAccountID(ctx context.Context, peerID string) (string, error)
 	GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error)
 }
 
@@ -51,4 +54,8 @@ func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string)
 	}
 
 	return m.store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+}
+
+func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {
+	return m.store.GetAccountIDByPeerID(ctx, store.LockingStrengthShare, peerID)
 }
