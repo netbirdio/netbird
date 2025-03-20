@@ -23,6 +23,7 @@ type handler struct {
 func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	eventsHandler := newHandler(accountManager)
 	router.HandleFunc("/events", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
+	router.HandleFunc("/events/audit", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new events handler

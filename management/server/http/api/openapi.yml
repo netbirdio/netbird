@@ -1829,6 +1829,137 @@ components:
         - ingress_start
         - ingress_end
         - protocol
+    NetworkTrafficLocation:
+      type: object
+      properties:
+        city_name:
+          type: string
+          description: "Name of the city (if known)."
+        country_code:
+          type: string
+          description: "ISO country code (if known)."
+      required:
+        - city_name
+        - country_code
+    NetworkTrafficEndpoint:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "ID of this endpoint (e.g., peer ID or resource ID)."
+        type:
+          type: string
+          description: "Type of the endpoint object (e.g., UNKNOWN, PEER, HOST_RESOURCE)."
+        name:
+          type: string
+          description: "Name is the name of the endpoint object (e.g., a peer name)."
+        geo_location:
+          $ref: '#/components/schemas/NetworkTrafficLocation'
+        os:
+          type: string
+          nullable: true
+          description: "Operating system of the peer, if applicable."
+        address:
+          type: string
+          description: "IP address (and possibly port) in string form."
+          example: "100.64.0.10:51820"
+        dns_label:
+          type: string
+          nullable: true
+          description: "DNS label/name if available."
+      required:
+        - id
+        - type
+        - name
+        - geo_location
+        - os
+        - address
+        - dns_label
+    NetworkTrafficEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "ID of the event. Unique."
+        flow_id:
+          type: string
+          description: "FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection)."
+        reporter_id:
+          type: string
+          description: "ID of the reporter of the event (e.g., the peer that reported the event)."
+        timestamp:
+          type: string
+          format: date-time
+          description: "Timestamp of the event."
+        source:
+          $ref: '#/components/schemas/NetworkTrafficEndpoint'
+        user_id:
+          type: string
+          nullable: true
+          description: "UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated)."
+        user_email:
+          type: string
+          nullable: true
+          description: "Email of the user who initiated the event (if any)."
+        user_name:
+          type: string
+          nullable: true
+          description: "Name of the user who initiated the event (if any)."
+        destination:
+          $ref: '#/components/schemas/NetworkTrafficEndpoint'
+        protocol:
+          type: integer
+          description: "Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.)."
+        type:
+          type: string
+          description: "Type of the event (e.g. TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP)."
+        direction:
+          type: string
+          description: "Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS)."
+        rx_bytes:
+          type: integer
+          description: "Number of bytes received."
+        rx_packets:
+          type: integer
+          description: "Number of packets received."
+        tx_bytes:
+          type: integer
+          description: "Number of bytes transmitted."
+        tx_packets:
+          type: integer
+          description: "Number of packets transmitted."
+        policy_id:
+          type: string
+          description: "ID of the policy that allowed this event."
+        policy_name:
+          type: string
+          description: "Name of the policy that allowed this event."
+        icmp_type:
+          type: integer
+          description: "ICMP type (if applicable)."
+        icmp_code:
+          type: integer
+          description: "ICMP code (if applicable)."
+      required:
+        - id
+        - flow_id
+        - reporter_id
+        - timestamp
+        - source
+        - user_id
+        - user_email
+        - destination
+        - protocol
+        - type
+        - direction
+        - rx_bytes
+        - rx_packets
+        - tx_bytes
+        - tx_packets
+        - policy_id
+        - policy_name
+        - icmp_type
+        - icmp_code
   responses:
     not_found:
       description: Resource not found
@@ -3984,10 +4115,10 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/events:
+  /api/events/audit:
     get:
-      summary: List all Events
-      description: Returns a list of all events
+      summary: List all Audit Events
+      description: Returns a list of all audit events
       tags: [ Events ]
       security:
         - BearerAuth: [ ]
@@ -4009,6 +4140,26 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/events/network-traffic:
+    get:
+      summary: List all Network Traffic Events
+      description: Returns a list of all network traffic events
+      tags: [ Events ]
+      x-cloud-only: true
+      x-experimental: true
+      responses:
+        "200":
+          description: List of network traffic events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NetworkTrafficEvent"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
   /api/posture-checks:
     get:
       summary: List all Posture Checks
