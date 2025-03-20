@@ -24,5 +24,4 @@ func TestConnStatus_String(t *testing.T) {
 			assert.Equal(t, got, table.want, "they should be equal")
 		})
 	}
-
 }
