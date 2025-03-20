@@ -13,7 +13,11 @@ import (
 )
 
 // Manager manages lazy connections
-// This is not a thread safe implementation, do not call exported functions concurrently
+// It is responsible for:
+// - Managing lazy connections activated on-demand
+// - Managing inactivity monitors for lazy connections (based on peer disconnection events)
+// - Maintaining a list of excluded peers that should always have permanent connections
+// - Handling connection establishment based on peer signaling
 type Manager struct {
 	connStateDispatcher *peer.ConnectionDispatcher
 	connStateListener   *peer.ConnectionListener
