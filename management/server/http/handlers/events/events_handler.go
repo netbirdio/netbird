@@ -8,7 +8,7 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -17,16 +17,17 @@ import (
 
 // handler HTTP handler
 type handler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	eventsHandler := newHandler(accountManager)
 	router.HandleFunc("/events", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
+	router.HandleFunc("/events/audit", eventsHandler.getAllEvents).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new events handler
-func newHandler(accountManager server.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{accountManager: accountManager}
 }
 

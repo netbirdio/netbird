@@ -93,8 +93,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			stateful: false,
 			setupFunc: func(m *Manager) {
 				// Single rule allowing all traffic
-				_, err := m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolALL, nil, nil,
-					fw.ActionAccept, "", "allow all")
+				_, err := m.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolALL, nil, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			},
 			desc: "Baseline: Single 'allow all' rule without connection tracking",
@@ -114,10 +113,15 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Add explicit rules matching return traffic pattern
 				for i := 0; i < 1000; i++ { // Simulate realistic ruleset size
 					ip := generateRandomIPs(1)[0]
-					_, err := m.AddPeerFiltering(ip, fw.ProtocolTCP,
+					_, err := m.AddPeerFiltering(
+						nil,
+						ip,
+						fw.ProtocolTCP,
 						&fw.Port{Values: []uint16{uint16(1024 + i)}},
 						&fw.Port{Values: []uint16{80}},
-						fw.ActionAccept, "", "explicit return")
+						fw.ActionAccept,
+						"",
+					)
 					require.NoError(b, err)
 				}
 			},
@@ -128,8 +132,15 @@ func BenchmarkCoreFiltering(b *testing.B) {
 			stateful: true,
 			setupFunc: func(m *Manager) {
 				// Add some basic rules but rely on state for established connections
-				_, err := m.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP, nil, nil,
-					fw.ActionDrop, "", "default drop")
+				_, err := m.AddPeerFiltering(
+					nil,
+					net.ParseIP("0.0.0.0"),
+					fw.ProtocolTCP,
+					nil,
+					nil,
+					fw.ActionDrop,
+					"",
+				)
 				require.NoError(b, err)
 			},
 			desc: "Connection tracking with established connections",
@@ -158,7 +169,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Create manager and basic setup
 				manager, _ := Create(&IFaceMock{
 					SetFilterFunc: func(device.PacketFilter) error { return nil },
-				}, false)
+				}, false, flowLogger)
 				defer b.Cleanup(func() {
 					require.NoError(b, manager.Close(nil))
 				})
@@ -182,13 +193,13 @@ func BenchmarkCoreFiltering(b *testing.B) {
 
 				// For stateful scenarios, establish the connection
 				if sc.stateful {
-					manager.processOutgoingHooks(outbound)
+					manager.processOutgoingHooks(outbound, 0)
 				}
 
 				// Measure inbound packet processing
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
-					manager.dropFilter(inbound)
+					manager.dropFilter(inbound, 0)
 				}
 			})
 		}
@@ -203,7 +214,7 @@ func BenchmarkStateScaling(b *testing.B) {
 		b.Run(fmt.Sprintf("conns_%d", count), func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -219,7 +230,7 @@ func BenchmarkStateScaling(b *testing.B) {
 			for i := 0; i < count; i++ {
 				outbound := generatePacket(b, srcIPs[i], dstIPs[i],
 					uint16(1024+i), 80, layers.IPProtocolTCP)
-				manager.processOutgoingHooks(outbound)
+				manager.processOutgoingHooks(outbound, 0)
 			}
 
 			// Test packet
@@ -227,11 +238,11 @@ func BenchmarkStateScaling(b *testing.B) {
 			testIn := generatePacket(b, dstIPs[0], srcIPs[0], 80, 1024, layers.IPProtocolTCP)
 
 			// First establish our test connection
-			manager.processOutgoingHooks(testOut)
+			manager.processOutgoingHooks(testOut, 0)
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				manager.dropFilter(testIn)
+				manager.dropFilter(testIn, 0)
 			}
 		})
 	}
@@ -251,7 +262,7 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -267,12 +278,12 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 			inbound := generatePacket(b, dstIP, srcIP, 80, 1024, layers.IPProtocolTCP)
 
 			if sc.established {
-				manager.processOutgoingHooks(outbound)
+				manager.processOutgoingHooks(outbound, 0)
 			}
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				manager.dropFilter(inbound)
+				manager.dropFilter(inbound, 0)
 			}
 		})
 	}
@@ -450,7 +461,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -466,25 +477,25 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			// For stateful cases and established connections
 			if !strings.Contains(sc.name, "allow_non_wg") ||
 				(strings.Contains(sc.state, "established") || sc.state == "post_handshake") {
-				manager.processOutgoingHooks(outbound)
+				manager.processOutgoingHooks(outbound, 0)
 
 				// For TCP post-handshake, simulate full handshake
 				if sc.state == "post_handshake" {
 					// SYN
 					syn := generateTCPPacketWithFlags(b, srcIP, dstIP, 1024, 80, uint16(conntrack.TCPSyn))
-					manager.processOutgoingHooks(syn)
+					manager.processOutgoingHooks(syn, 0)
 					// SYN-ACK
 					synack := generateTCPPacketWithFlags(b, dstIP, srcIP, 80, 1024, uint16(conntrack.TCPSyn|conntrack.TCPAck))
-					manager.dropFilter(synack)
+					manager.dropFilter(synack, 0)
 					// ACK
 					ack := generateTCPPacketWithFlags(b, srcIP, dstIP, 1024, 80, uint16(conntrack.TCPAck))
-					manager.processOutgoingHooks(ack)
+					manager.processOutgoingHooks(ack, 0)
 				}
 			}
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				manager.dropFilter(inbound)
+				manager.dropFilter(inbound, 0)
 			}
 		})
 	}
@@ -577,7 +588,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -590,10 +601,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 			// Setup initial state based on scenario
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
-				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []uint16{80}},
-					nil,
-					fw.ActionAccept, "", "return traffic")
+				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			}
 
@@ -616,17 +624,17 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 				// Initial SYN
 				syn := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
 					uint16(1024+i), 80, uint16(conntrack.TCPSyn))
-				manager.processOutgoingHooks(syn)
+				manager.processOutgoingHooks(syn, 0)
 
 				// SYN-ACK
 				synack := generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
 					80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck))
-				manager.dropFilter(synack)
+				manager.dropFilter(synack, 0)
 
 				// ACK
 				ack := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
 					uint16(1024+i), 80, uint16(conntrack.TCPAck))
-				manager.processOutgoingHooks(ack)
+				manager.processOutgoingHooks(ack, 0)
 			}
 
 			// Prepare test packets simulating bidirectional traffic
@@ -647,9 +655,9 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 
 				// Simulate bidirectional traffic
 				// First outbound data
-				manager.processOutgoingHooks(outPackets[connIdx])
+				manager.processOutgoingHooks(outPackets[connIdx], 0)
 				// Then inbound response - this is what we're actually measuring
-				manager.dropFilter(inPackets[connIdx])
+				manager.dropFilter(inPackets[connIdx], 0)
 			}
 		})
 	}
@@ -668,7 +676,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -681,10 +689,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 			// Setup initial state based on scenario
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
-				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []uint16{80}},
-					nil,
-					fw.ActionAccept, "", "return traffic")
+				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			}
 
@@ -756,19 +761,19 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 				p := patterns[connIdx]
 
 				// Connection establishment
-				manager.processOutgoingHooks(p.syn)
-				manager.dropFilter(p.synAck)
-				manager.processOutgoingHooks(p.ack)
+				manager.processOutgoingHooks(p.syn, 0)
+				manager.dropFilter(p.synAck, 0)
+				manager.processOutgoingHooks(p.ack, 0)
 
 				// Data transfer
-				manager.processOutgoingHooks(p.request)
-				manager.dropFilter(p.response)
+				manager.processOutgoingHooks(p.request, 0)
+				manager.dropFilter(p.response, 0)
 
 				// Connection teardown
-				manager.processOutgoingHooks(p.finClient)
-				manager.dropFilter(p.ackServer)
-				manager.dropFilter(p.finServer)
-				manager.processOutgoingHooks(p.ackClient)
+				manager.processOutgoingHooks(p.finClient, 0)
+				manager.dropFilter(p.ackServer, 0)
+				manager.dropFilter(p.finServer, 0)
+				manager.processOutgoingHooks(p.ackClient, 0)
 			}
 		})
 	}
@@ -787,7 +792,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -799,10 +804,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 
 			// Setup initial state based on scenario
 			if sc.rules {
-				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []uint16{80}},
-					nil,
-					fw.ActionAccept, "", "return traffic")
+				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			}
 
@@ -824,15 +826,15 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 			for i := 0; i < sc.connCount; i++ {
 				syn := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
 					uint16(1024+i), 80, uint16(conntrack.TCPSyn))
-				manager.processOutgoingHooks(syn)
+				manager.processOutgoingHooks(syn, 0)
 
 				synack := generateTCPPacketWithFlags(b, dstIPs[i], srcIPs[i],
 					80, uint16(1024+i), uint16(conntrack.TCPSyn|conntrack.TCPAck))
-				manager.dropFilter(synack)
+				manager.dropFilter(synack, 0)
 
 				ack := generateTCPPacketWithFlags(b, srcIPs[i], dstIPs[i],
 					uint16(1024+i), 80, uint16(conntrack.TCPAck))
-				manager.processOutgoingHooks(ack)
+				manager.processOutgoingHooks(ack, 0)
 			}
 
 			// Pre-generate test packets
@@ -854,8 +856,8 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 					counter++
 
 					// Simulate bidirectional traffic
-					manager.processOutgoingHooks(outPackets[connIdx])
-					manager.dropFilter(inPackets[connIdx])
+					manager.processOutgoingHooks(outPackets[connIdx], 0)
+					manager.dropFilter(inPackets[connIdx], 0)
 				}
 			})
 		})
@@ -875,7 +877,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -886,10 +888,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 			})
 
 			if sc.rules {
-				_, err := manager.AddPeerFiltering(net.ParseIP("0.0.0.0"), fw.ProtocolTCP,
-					&fw.Port{Values: []uint16{80}},
-					nil,
-					fw.ActionAccept, "", "return traffic")
+				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
 				require.NoError(b, err)
 			}
 
@@ -951,17 +950,17 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 					p := patterns[connIdx]
 
 					// Full connection lifecycle
-					manager.processOutgoingHooks(p.syn)
-					manager.dropFilter(p.synAck)
-					manager.processOutgoingHooks(p.ack)
+					manager.processOutgoingHooks(p.syn, 0)
+					manager.dropFilter(p.synAck, 0)
+					manager.processOutgoingHooks(p.ack, 0)
 
-					manager.processOutgoingHooks(p.request)
-					manager.dropFilter(p.response)
+					manager.processOutgoingHooks(p.request, 0)
+					manager.dropFilter(p.response, 0)
 
-					manager.processOutgoingHooks(p.finClient)
-					manager.dropFilter(p.ackServer)
-					manager.dropFilter(p.finServer)
-					manager.processOutgoingHooks(p.ackClient)
+					manager.processOutgoingHooks(p.finClient, 0)
+					manager.dropFilter(p.ackServer, 0)
+					manager.dropFilter(p.finServer, 0)
+					manager.processOutgoingHooks(p.ackClient, 0)
 				}
 			})
 		})
@@ -1033,14 +1032,7 @@ func BenchmarkRouteACLs(b *testing.B) {
 	}
 
 	for _, r := range rules {
-		_, err := manager.AddRouteFiltering(
-			r.sources,
-			r.dest,
-			r.proto,
-			nil,
-			r.port,
-			fw.ActionAccept,
-		)
+		_, err := manager.AddRouteFiltering(nil, r.sources, r.dest, r.proto, nil, r.port, fw.ActionAccept)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1062,8 +1054,8 @@ func BenchmarkRouteACLs(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, tc := range cases {
-			srcIP := net.ParseIP(tc.srcIP)
-			dstIP := net.ParseIP(tc.dstIP)
+			srcIP := netip.MustParseAddr(tc.srcIP)
+			dstIP := netip.MustParseAddr(tc.dstIP)
 			manager.routeACLsPass(srcIP, dstIP, tc.proto, 0, tc.dstPort)
 		}
 	}

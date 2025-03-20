@@ -2,6 +2,7 @@ package uspfilter
 
 import (
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,7 @@ func TestLocalIPManager(t *testing.T) {
 	tests := []struct {
 		name      string
 		setupAddr wgaddr.Address
-		testIP    net.IP
+		testIP    netip.Addr
 		expected  bool
 	}{
 		{
@@ -25,7 +26,7 @@ func TestLocalIPManager(t *testing.T) {
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("127.0.0.2"),
+			testIP:   netip.MustParseAddr("127.0.0.2"),
 			expected: true,
 		},
 		{
@@ -37,7 +38,7 @@ func TestLocalIPManager(t *testing.T) {
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("127.0.0.1"),
+			testIP:   netip.MustParseAddr("127.0.0.1"),
 			expected: true,
 		},
 		{
@@ -49,7 +50,7 @@ func TestLocalIPManager(t *testing.T) {
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("127.255.255.255"),
+			testIP:   netip.MustParseAddr("127.255.255.255"),
 			expected: true,
 		},
 		{
@@ -61,7 +62,7 @@ func TestLocalIPManager(t *testing.T) {
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("192.168.1.1"),
+			testIP:   netip.MustParseAddr("192.168.1.1"),
 			expected: true,
 		},
 		{
@@ -73,7 +74,7 @@ func TestLocalIPManager(t *testing.T) {
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("192.168.1.2"),
+			testIP:   netip.MustParseAddr("192.168.1.2"),
 			expected: false,
 		},
 		{
@@ -85,7 +86,7 @@ func TestLocalIPManager(t *testing.T) {
 					Mask: net.CIDRMask(64, 128),
 				},
 			},
-			testIP:   net.ParseIP("fe80::1"),
+			testIP:   netip.MustParseAddr("fe80::1"),
 			expected: false,
 		},
 	}
@@ -174,7 +175,7 @@ func TestLocalIPManager_AllInterfaces(t *testing.T) {
 	t.Logf("Testing %d IPs", len(tests))
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
-			result := manager.IsLocalIP(net.ParseIP(tt.ip))
+			result := manager.IsLocalIP(netip.MustParseAddr(tt.ip))
 			require.Equal(t, tt.expected, result, "IP: %s", tt.ip)
 		})
 	}
