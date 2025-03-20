@@ -25,7 +25,6 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -434,7 +433,6 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
-	peersMockManager := peers.NewMockManager(ctrl)
 	settingsMockManager := settings.NewMockManager(ctrl)
 	settingsMockManager.
 		EXPECT().
@@ -450,7 +448,7 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 		return nil, nil, "", cleanup, err
 	}
 
-	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, peersMockManager)
+	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
 	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)

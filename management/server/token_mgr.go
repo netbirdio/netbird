@@ -12,7 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/settings"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	authv2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
@@ -38,7 +37,6 @@ type TimeBasedAuthSecretsManager struct {
 	turnHmacToken   *auth.TimedHMAC
 	relayHmacToken  *authv2.Generator
 	updateManager   *PeersUpdateManager
-	peersManager    peers.Manager
 	settingsManager settings.Manager
 	turnCancelMap   map[string]chan struct{}
 	relayCancelMap  map[string]chan struct{}
@@ -46,7 +44,7 @@ type TimeBasedAuthSecretsManager struct {
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *Relay, settingsManager settings.Manager, peersManager peers.Manager) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,
@@ -54,7 +52,6 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *
 		turnCancelMap:   make(map[string]chan struct{}),
 		relayCancelMap:  make(map[string]chan struct{}),
 		settingsManager: settingsManager,
-		peersManager:    peersManager,
 	}
 
 	if turnCfg != nil {

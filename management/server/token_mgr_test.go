@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
@@ -40,7 +39,6 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
-	peersMockManager := peers.NewMockManager(ctrl)
 	settingsMockManager := settings.NewMockManager(ctrl)
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
@@ -48,7 +46,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		Secret:               secret,
 		Turns:                []*Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager, peersMockManager)
+	}, rc, settingsMockManager)
 
 	turnCredentials, err := tested.GenerateTurnToken()
 	require.NoError(t, err)
@@ -91,8 +89,6 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
-	peersMockManager := peers.NewMockManager(ctrl)
-	peersMockManager.EXPECT().GetPeerAccountID(gomock.Any(), "some_peer").Return("someAccountID", nil).AnyTimes()
 	settingsMockManager := settings.NewMockManager(ctrl)
 	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), "someAccountID").Return(&types.ExtraSettings{}, nil).AnyTimes()
 
@@ -101,7 +97,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 		Secret:               secret,
 		Turns:                []*Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager, peersMockManager)
+	}, rc, settingsMockManager)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -196,7 +192,6 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
-	peersMockManager := peers.NewMockManager(ctrl)
 	settingsMockManager := settings.NewMockManager(ctrl)
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
@@ -204,7 +199,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 		Secret:               secret,
 		Turns:                []*Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager, peersMockManager)
+	}, rc, settingsMockManager)
 
 	tested.SetupRefresh(context.Background(), "someAccountID", peer)
 	if _, ok := tested.turnCancelMap[peer]; !ok {

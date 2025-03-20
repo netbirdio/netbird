@@ -28,7 +28,6 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
-	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -1446,14 +1445,13 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&types.Settings{}, nil).
 		AnyTimes()
-	peersManagerMock := peers.NewMockManager(ctrl)
 
 	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, peersManagerMock)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
 	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil)
 	if err != nil {
 		return nil, "", err

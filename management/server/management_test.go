@@ -24,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -194,7 +193,6 @@ func startServer(
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&types.Settings{}, nil).
 		AnyTimes()
-	peersMockManager := peers.NewMockManager(ctrl)
 
 	accountManager, err := server.BuildManager(
 		context.Background(),
@@ -215,7 +213,7 @@ func startServer(
 		t.Fatalf("failed creating an account manager: %v", err)
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, peersMockManager)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
 	mgmtServer, err := server.NewServer(
 		context.Background(),
 		config,
