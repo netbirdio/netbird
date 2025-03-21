@@ -107,7 +107,7 @@ components:
           type: boolean
           example: true
         network_traffic_logs_enabled:
-          description: Enables or disables network traffic logs. If enabled, all network traffic logs from peers will be stored.
+          description: Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
           type: boolean
           example: true
         network_traffic_packet_counter_enabled:
@@ -4172,7 +4172,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/events/network-traffic:
     get:
-      summary: List all Network Traffic Events
+      summary: List all Traffic Events
       description: Returns a list of all network traffic events
       tags: [ Events ]
       x-cloud-only: true
