@@ -117,7 +117,7 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 		return nil
 	}
 
-	log.Tracef("updating flow configuration with new settings: %+v", update)
+	log.Tracef("updating flow configuration with new settings: url -> %s, interval -> %s, enabled? %t", update.URL, update.Interval, update.Enabled)
 
 	m.mux.Lock()
 	defer m.mux.Unlock()
