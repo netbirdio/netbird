@@ -184,7 +184,6 @@ type serviceClient struct {
 	mStatus            *systray.MenuItem
 	mUp                *systray.MenuItem
 	mDown              *systray.MenuItem
-	mAdminPanel        *systray.MenuItem
 	mSettings          *systray.MenuItem
 	mAbout             *systray.MenuItem
 	mGitHub            *systray.MenuItem
@@ -606,7 +605,6 @@ func (s *serviceClient) onTrayReady() {
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
 	s.mDown.Disable()
-	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Netbird Admin Panel")
 	systray.AddSeparator()
 
 	s.mSettings = systray.AddMenuItem("Settings", settingsMenuDescr)
@@ -629,7 +627,7 @@ func (s *serviceClient) onTrayReady() {
 
 	s.mAbout = systray.AddMenuItem("About", "About")
 	s.mAbout.SetIcon(s.icAbout)
-	
+
 	s.mGitHub = s.mAbout.AddSubMenuItem("GitHub", "GitHub")
 
 	versionString := normalizedVersion(version.NetbirdVersion())
@@ -676,8 +674,6 @@ func (s *serviceClient) onTrayReady() {
 		var err error
 		for {
 			select {
-			case <-s.mAdminPanel.ClickedCh:
-				err = open.Run(s.adminURL)
 			case <-s.mUp.ClickedCh:
 				s.mUp.Disable()
 				go func() {
