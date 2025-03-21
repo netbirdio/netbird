@@ -410,8 +410,7 @@ func (e *Engine) Start() error {
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	err = e.wgInterfaceCreate()
-	if err != nil {
+	if err = e.wgInterfaceCreate(); err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		e.close()
 		return fmt.Errorf("create wg interface: %w", err)
@@ -460,7 +459,6 @@ func (e *Engine) Start() error {
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
-
 	return nil
 }
 
