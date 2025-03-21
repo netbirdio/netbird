@@ -1899,7 +1899,12 @@ components:
         timestamp:
           type: string
           format: date-time
-          description: "Timestamp of the event."
+          description: "Timestamp of the event. Send by the peer."
+          example: "2025-03-20T16:23:58.125397Z"
+        receive_timestamp:
+          type: string
+          format: date-time
+          description: "Timestamp when the event was received by our API."
           example: "2025-03-20T16:23:58.125397Z"
         source:
           $ref: '#/components/schemas/NetworkTrafficEndpoint'
@@ -1969,6 +1974,7 @@ components:
         - flow_id
         - reporter_id
         - timestamp
+        - receive_timestamp
         - source
         - user_id
         - user_email
