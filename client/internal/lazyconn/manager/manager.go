@@ -87,8 +87,8 @@ func (m *Manager) Start(ctx context.Context, activeFn func(peerID string), inact
 		select {
 		case <-ctx.Done():
 			return
-		case e := <-m.activityManager.OnActivityChan:
-			m.onPeerActivity(ctx, e, activeFn)
+		case peerConnID := <-m.activityManager.OnActivityChan:
+			m.onPeerActivity(ctx, peerConnID, activeFn)
 		case peerConnID := <-m.onInactive:
 			m.onPeerInactivityTimedOut(peerConnID, inactiveFn)
 		}
@@ -143,7 +143,7 @@ func (m *Manager) RemovePeer(peerID string) {
 		cfg.Log.Debugf("inactivity monitor stopped")
 	}
 
-	m.activityManager.RemovePeer(cfg.Log, peerID)
+	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
 	delete(m.managedPeers, peerID)
 	delete(m.managedPeersByConnID, cfg.PeerConnID)
 }
@@ -169,7 +169,7 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 
 	mp.expectedWatcher = watcherInactivity
 
-	m.activityManager.RemovePeer(cfg.Log, peerID)
+	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
 
 	cfg.Log.Debugf("reset inactivity monitor timer")
 	m.inactivityMonitors[cfg.PeerConnID].ResetTimer()
@@ -205,13 +205,13 @@ func (m *Manager) close() {
 	log.Infof("lazy connection manager closed")
 }
 
-func (m *Manager) onPeerActivity(ctx context.Context, e activity.OnAcitvityEvent, onActiveListenerFn func(peerID string)) {
+func (m *Manager) onPeerActivity(ctx context.Context, peerConnID peerid.ConnID, onActiveListenerFn func(peerID string)) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	mp, ok := m.managedPeersByConnID[e.PeerConnId]
+	mp, ok := m.managedPeersByConnID[peerConnID]
 	if !ok {
-		log.Errorf("peer not found by id: %v", e.PeerConnId)
+		log.Errorf("peer not found by conn id: %v", peerConnID)
 		return
 	}
 
@@ -225,9 +225,9 @@ func (m *Manager) onPeerActivity(ctx context.Context, e activity.OnAcitvityEvent
 	mp.expectedWatcher = watcherInactivity
 
 	mp.peerCfg.Log.Infof("starting inactivity monitor")
-	go m.inactivityMonitors[e.PeerConnId].Start(ctx, m.onInactive)
+	go m.inactivityMonitors[peerConnID].Start(ctx, m.onInactive)
 
-	onActiveListenerFn(e.PeerID)
+	onActiveListenerFn(mp.peerCfg.PublicKey)
 }
 
 func (m *Manager) onPeerInactivityTimedOut(peerConnID peerid.ConnID, onInactiveListenerFn func(peerID string)) {

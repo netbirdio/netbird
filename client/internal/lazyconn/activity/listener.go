@@ -4,8 +4,6 @@ import (
 	"net"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 )
 
@@ -35,9 +33,6 @@ func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig, conn *net.UD
 }
 
 func (d *Listener) ReadPackets() {
-	defer d.conn.Close()
-	d.isClosed = false
-
 	for {
 		buffer := make([]byte, 10)
 		n, remoteAddr, err := d.conn.ReadFromUDP(buffer)
@@ -57,26 +52,29 @@ func (d *Listener) ReadPackets() {
 		break
 	}
 
-	d.removeEndpoint()
+	if err := d.removeEndpoint(); err != nil {
+		d.peerCfg.Log.Errorf("failed to remove endpoint: %s", err)
+	}
+
+	_ = d.conn.Close() // do not care err because some cases it will return "use of closed network connection"
 	d.done.Unlock()
 }
 
 func (d *Listener) Close() {
+	d.peerCfg.Log.Infof("closing listener: %s", d.conn.LocalAddr().String())
 	d.isClosed = true
 	if err := d.conn.Close(); err != nil {
-		log.Errorf("failed to close UDP listener: %s", err)
+		d.peerCfg.Log.Errorf("failed to close UDP listener: %s", err)
 	}
 	d.done.Lock()
 }
 
-func (d *Listener) removeEndpoint() {
-	log.Debugf("removing lazy endpoint: %s", d.endpoint.String())
-	if err := d.wgIface.RemovePeer(d.peerCfg.PublicKey); err != nil {
-		log.Warnf("failed to remove peer listener: %v", err)
-	}
+func (d *Listener) removeEndpoint() error {
+	d.peerCfg.Log.Debugf("removing lazy endpoint: %s", d.endpoint.String())
+	return d.wgIface.RemovePeer(d.peerCfg.PublicKey)
 }
 
 func (d *Listener) createEndpoint() error {
-	log.Debugf("creating lazy endpoint: %s", d.endpoint.String())
+	d.peerCfg.Log.Debugf("creating lazy endpoint: %s", d.endpoint.String())
 	return d.wgIface.UpdatePeer(d.peerCfg.PublicKey, d.peerCfg.AllowedIPs, 0, d.endpoint, nil)
 }

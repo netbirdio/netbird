@@ -10,18 +10,13 @@ import (
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
 
-type OnAcitvityEvent struct {
-	PeerID     string
-	PeerConnId peerid.ConnID
-}
-
 type Manager struct {
-	OnActivityChan chan OnAcitvityEvent
+	OnActivityChan chan peerid.ConnID
 
 	wgIface lazyconn.WGIface
 
 	portGenerator *portAllocator
-	peers         map[string]*Listener
+	peers         map[peerid.ConnID]*Listener
 	done          chan struct{}
 
 	mu sync.Mutex
@@ -29,10 +24,10 @@ type Manager struct {
 
 func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
-		OnActivityChan: make(chan OnAcitvityEvent, 1),
+		OnActivityChan: make(chan peerid.ConnID, 1),
 		wgIface:        wgIface,
 		portGenerator:  newPortAllocator(),
-		peers:          make(map[string]*Listener),
+		peers:          make(map[peerid.ConnID]*Listener),
 		done:           make(chan struct{}),
 	}
 	return m
@@ -42,7 +37,7 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.peers[peerCfg.PublicKey]; ok {
+	if _, ok := m.peers[peerCfg.PeerConnID]; ok {
 		log.Warnf("activity listener already exists for: %s", peerCfg.PublicKey)
 		return nil
 	}
@@ -56,22 +51,22 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 	if err != nil {
 		return err
 	}
-	m.peers[peerCfg.PublicKey] = listener
+	m.peers[peerCfg.PeerConnID] = listener
 
-	go m.waitForTraffic(listener, peerCfg.PublicKey, peerCfg.PeerConnID)
+	go m.waitForTraffic(listener, peerCfg.PeerConnID)
 	return nil
 }
 
-func (m *Manager) RemovePeer(log *log.Entry, peerID string) {
+func (m *Manager) RemovePeer(log *log.Entry, peerConnID peerid.ConnID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	listener, ok := m.peers[peerID]
+	listener, ok := m.peers[peerConnID]
 	if !ok {
 		return
 	}
 	log.Debugf("removing activity listener")
-	delete(m.peers, peerID)
+	delete(m.peers, peerConnID)
 	listener.Close()
 }
 
@@ -81,29 +76,29 @@ func (m *Manager) Close() {
 
 	close(m.done)
 	for peerID, listener := range m.peers {
-		listener.Close()
 		delete(m.peers, peerID)
+		listener.Close()
 	}
 }
 
-func (m *Manager) waitForTraffic(listener *Listener, peerID string, peerConnID peerid.ConnID) {
+func (m *Manager) waitForTraffic(listener *Listener, peerConnID peerid.ConnID) {
 	listener.ReadPackets()
 
 	m.mu.Lock()
-	if _, ok := m.peers[peerID]; !ok {
+	if _, ok := m.peers[peerConnID]; !ok {
 		m.mu.Unlock()
 		return
 	}
-	delete(m.peers, peerID)
+	delete(m.peers, peerConnID)
 	m.mu.Unlock()
 
-	m.notify(OnAcitvityEvent{PeerID: peerID, PeerConnId: peerConnID})
+	m.notify(peerConnID)
 }
 
-func (m *Manager) notify(event OnAcitvityEvent) {
-	log.Debugf("peer activity detected: %s", event.PeerID)
+func (m *Manager) notify(peerConnID peerid.ConnID) {
+	log.Tracef("peer activity detected: %v", peerConnID)
 	select {
 	case <-m.done:
-	case m.OnActivityChan <- event:
+	case m.OnActivityChan <- peerConnID:
 	}
 }
