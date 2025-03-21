@@ -2,15 +2,13 @@ package inactivity
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 const (
-	defaultInactivityThreshold = 60 * time.Minute // idle after 1 hour inactivity
+	DefaultInactivityThreshold = 60 * time.Minute // idle after 1 hour inactivity
 )
 
 type Monitor struct {
@@ -20,11 +18,11 @@ type Monitor struct {
 	inactivityThreshold time.Duration
 }
 
-func NewInactivityMonitor(peerID peer.ConnID) *Monitor {
+func NewInactivityMonitor(peerID peer.ConnID, threshold time.Duration) *Monitor {
 	i := &Monitor{
 		id:                  peerID,
 		timer:               time.NewTimer(0),
-		inactivityThreshold: inactivityThreshold(),
+		inactivityThreshold: threshold,
 	}
 	i.timer.Stop()
 	return i
@@ -35,7 +33,13 @@ func (i *Monitor) Start(ctx context.Context, timeoutChan chan peer.ConnID) {
 	defer i.timer.Stop()
 
 	ctx, i.cancel = context.WithCancel(ctx)
-	defer i.cancel()
+	defer func() {
+		defer i.cancel()
+		select {
+		case <-i.timer.C:
+		default:
+		}
+	}()
 
 	select {
 	case <-i.timer.C:
@@ -62,18 +66,4 @@ func (i *Monitor) PauseTimer() {
 
 func (i *Monitor) ResetTimer() {
 	i.timer.Reset(i.inactivityThreshold)
-}
-
-func inactivityThreshold() time.Duration {
-	envValue := os.Getenv("NB_INACTIVITY_THRESHOLD")
-	if envValue == "" {
-		return defaultInactivityThreshold
-	}
-
-	parsedMinutes, err := strconv.Atoi(envValue)
-	if err != nil || parsedMinutes <= 0 {
-		return defaultInactivityThreshold
-	}
-
-	return time.Duration(parsedMinutes) * time.Minute
 }

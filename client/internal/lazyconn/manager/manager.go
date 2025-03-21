@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -24,6 +25,10 @@ type managedPeer struct {
 	expectedWatcher watcherType
 }
 
+type Config struct {
+	InactivityThreshold *time.Duration
+}
+
 // Manager manages lazy connections
 // It is responsible for:
 // - Managing lazy connections activated on-demand
@@ -32,8 +37,9 @@ type managedPeer struct {
 // - Handling connection establishment based on peer signaling
 type Manager struct {
 	connStateDispatcher *peer.ConnectionDispatcher
-	connStateListener   *peer.ConnectionListener
+	inactivityThreshold time.Duration
 
+	connStateListener    *peer.ConnectionListener
 	managedPeers         map[string]*lazyconn.PeerConfig
 	managedPeersByConnID map[peer.ConnID]*managedPeer
 	excludes             map[string]struct{}
@@ -46,15 +52,20 @@ type Manager struct {
 	onInactive chan peer.ConnID
 }
 
-func NewManager(wgIface lazyconn.WGIface, connStateDispatcher *peer.ConnectionDispatcher) *Manager {
+func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *peer.ConnectionDispatcher) *Manager {
 	m := &Manager{
 		connStateDispatcher:  connStateDispatcher,
+		inactivityThreshold:  inactivity.DefaultInactivityThreshold,
 		managedPeers:         make(map[string]*lazyconn.PeerConfig),
 		managedPeersByConnID: make(map[peer.ConnID]*managedPeer),
 		excludes:             make(map[string]struct{}),
 		activityManager:      activity.NewManager(wgIface),
 		inactivityMonitors:   make(map[peer.ConnID]*inactivity.Monitor),
 		onInactive:           make(chan peer.ConnID),
+	}
+
+	if config.InactivityThreshold != nil {
+		m.inactivityThreshold = *config.InactivityThreshold
 	}
 
 	m.connStateListener = &peer.ConnectionListener{
@@ -103,7 +114,7 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 		return false, err
 	}
 
-	im := inactivity.NewInactivityMonitor(peerCfg.PeerConnID)
+	im := inactivity.NewInactivityMonitor(peerCfg.PeerConnID, m.inactivityThreshold)
 	m.inactivityMonitors[peerCfg.PeerConnID] = im
 
 	m.managedPeers[peerCfg.PublicKey] = &peerCfg

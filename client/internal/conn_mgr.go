@@ -3,7 +3,9 @@ package internal
 import (
 	"context"
 	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -14,7 +16,9 @@ import (
 )
 
 const (
-	envDisableLazyConn = "NB_LAZY_CONN_DISABLED"
+	// todo review the names
+	envDisableLazyConn     = "NB_LAZY_CONN_DISABLED"
+	envInactivityThreshold = "NB_INACTIVITY_THRESHOLD"
 )
 
 // ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
@@ -36,7 +40,10 @@ type ConnMgr struct {
 func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *peer.ConnectionDispatcher) *ConnMgr {
 	var lazyConnMgr *manager.Manager
 	if os.Getenv(envDisableLazyConn) != "true" {
-		lazyConnMgr = manager.NewManager(iface, dispatcher)
+		cfg := manager.Config{
+			InactivityThreshold: inactivityThresholdEnv(),
+		}
+		lazyConnMgr = manager.NewManager(cfg, iface, dispatcher)
 	}
 
 	e := &ConnMgr{
@@ -182,4 +189,19 @@ func (e *ConnMgr) onInactive(peerID string) {
 
 func (e *ConnMgr) isStartedWithLazyMgr() bool {
 	return e.lazyConnMgr != nil && e.ctxCancel != nil
+}
+
+func inactivityThresholdEnv() *time.Duration {
+	envValue := os.Getenv(envInactivityThreshold)
+	if envValue == "" {
+		return nil
+	}
+
+	parsedMinutes, err := strconv.Atoi(envValue)
+	if err != nil || parsedMinutes <= 0 {
+		return nil
+	}
+
+	d := time.Duration(parsedMinutes) * time.Minute
+	return &d
 }
