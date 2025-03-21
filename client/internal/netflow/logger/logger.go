@@ -88,7 +88,7 @@ func (l *Logger) startReceiver() {
 			event := types.Event{
 				ID:          id,
 				EventFields: *eventFields,
-				Timestamp:   time.Now(),
+				Timestamp:   time.Now().UTC(),
 			}
 
 			var isExitNode bool
