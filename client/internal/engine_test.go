@@ -28,8 +28,6 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
-	"github.com/netbirdio/netbird/management/server/types"
-
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -38,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -52,6 +51,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -402,7 +402,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
-	engine.connMgr = NewConnMgr(engine.peerStore, wgIface, peer.NewConnectionDispatcher())
+	engine.connMgr = NewConnMgr(engine.peerStore, wgIface, dispatcher.NewConnectionDispatcher())
 	engine.connMgr.Start(ctx)
 
 	type testCase struct {
@@ -774,7 +774,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 
 			engine.routeManager = mockRouteManager
 			engine.dnsServer = &dns.MockServer{}
-			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface, peer.NewConnectionDispatcher())
+			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface, dispatcher.NewConnectionDispatcher())
 			engine.connMgr.Start(ctx)
 
 			defer func() {
@@ -972,7 +972,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 
 			engine.dnsServer = mockDNSServer
-			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface, peer.NewConnectionDispatcher())
+			engine.connMgr = NewConnMgr(engine.peerStore, engine.wgInterface, dispatcher.NewConnectionDispatcher())
 			engine.connMgr.Start(ctx)
 
 			defer func() {

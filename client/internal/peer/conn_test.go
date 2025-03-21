@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/iface"
+	connDispatcher "github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -16,7 +17,7 @@ import (
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
-var dispatcher = NewConnectionDispatcher()
+var dispatcher = connDispatcher.NewConnectionDispatcher()
 
 var connConf = ConnConfig{
 	Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",

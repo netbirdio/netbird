@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal/peer"
+	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
 
 type MocPeer struct {
 }
 
-func (m *MocPeer) ConnID() peer.ConnID {
-	return peer.ConnID(m)
+func (m *MocPeer) ConnID() peerid.ConnID {
+	return peerid.ConnID(m)
 }
 
 func TestInactivityMonitor(t *testing.T) {
@@ -22,7 +22,7 @@ func TestInactivityMonitor(t *testing.T) {
 	p := &MocPeer{}
 	im := NewInactivityMonitor(p.ConnID(), time.Second*2)
 
-	timeoutChan := make(chan peer.ConnID)
+	timeoutChan := make(chan peerid.ConnID)
 
 	exitChan := make(chan struct{})
 
@@ -48,7 +48,7 @@ func TestReuseInactivityMonitor(t *testing.T) {
 	p := &MocPeer{}
 	im := NewInactivityMonitor(p.ConnID(), time.Second*2)
 
-	timeoutChan := make(chan peer.ConnID)
+	timeoutChan := make(chan peerid.ConnID)
 
 	for i := 2; i > 0; i-- {
 		exitChan := make(chan struct{})
@@ -82,7 +82,7 @@ func TestStopInactivityMonitor(t *testing.T) {
 	p := &MocPeer{}
 	im := NewInactivityMonitor(p.ConnID(), DefaultInactivityThreshold)
 
-	timeoutChan := make(chan peer.ConnID)
+	timeoutChan := make(chan peerid.ConnID)
 
 	exitChan := make(chan struct{})
 
@@ -116,7 +116,7 @@ func TestPauseInactivityMonitor(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	timeoutChan := make(chan peer.ConnID)
+	timeoutChan := make(chan peerid.ConnID)
 
 	exitChan := make(chan struct{})
 

@@ -1,12 +1,14 @@
-package peer
+package dispatcher
 
 import (
 	"sync"
+
+	"github.com/netbirdio/netbird/client/internal/peer/id"
 )
 
 type ConnectionListener struct {
-	OnConnected    func(peerID string)
-	OnDisconnected func(peerID string)
+	OnConnected    func(peerID id.ConnID)
+	OnDisconnected func(peerID id.ConnID)
 }
 
 type ConnectionDispatcher struct {
@@ -33,18 +35,18 @@ func (e *ConnectionDispatcher) RemoveListener(listener *ConnectionListener) {
 	delete(e.listeners, listener)
 }
 
-func (e *ConnectionDispatcher) NotifyConnected(peerID string) {
+func (e *ConnectionDispatcher) NotifyConnected(peerConnID id.ConnID) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for listener := range e.listeners {
-		listener.OnConnected(peerID)
+		listener.OnConnected(peerConnID)
 	}
 }
 
-func (e *ConnectionDispatcher) NotifyDisconnected(peerID string) {
+func (e *ConnectionDispatcher) NotifyDisconnected(peerConnID id.ConnID) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for listener := range e.listeners {
-		listener.OnDisconnected(peerID)
+		listener.OnDisconnected(peerConnID)
 	}
 }

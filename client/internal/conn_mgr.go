@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 )
 
@@ -37,7 +38,7 @@ type ConnMgr struct {
 	ctxCancel context.CancelFunc
 }
 
-func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *peer.ConnectionDispatcher) *ConnMgr {
+func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
 	var lazyConnMgr *manager.Manager
 	if os.Getenv(envDisableLazyConn) != "true" {
 		cfg := manager.Config{

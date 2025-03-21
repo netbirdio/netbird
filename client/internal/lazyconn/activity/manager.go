@@ -7,12 +7,12 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
-	"github.com/netbirdio/netbird/client/internal/peer"
+	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
 
 type OnAcitvityEvent struct {
 	PeerID     string
-	PeerConnId peer.ConnID
+	PeerConnId peerid.ConnID
 }
 
 type Manager struct {
@@ -86,7 +86,7 @@ func (m *Manager) Close() {
 	}
 }
 
-func (m *Manager) waitForTraffic(listener *Listener, peerID string, peerConnID peer.ConnID) {
+func (m *Manager) waitForTraffic(listener *Listener, peerID string, peerConnID peerid.ConnID) {
 	listener.ReadPackets()
 
 	m.mu.Lock()

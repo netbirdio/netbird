@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal/peer"
+	peer "github.com/netbirdio/netbird/client/internal/peer/id"
 )
 
 const (

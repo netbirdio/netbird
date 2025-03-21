@@ -38,6 +38,7 @@ import (
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
@@ -173,7 +174,7 @@ type Engine struct {
 	sshServer     nbssh.Server
 
 	statusRecorder     *peer.Status
-	peerConnDispatcher *peer.ConnectionDispatcher
+	peerConnDispatcher *dispatcher.ConnectionDispatcher
 
 	firewall          firewallManager.Manager
 	routeManager      routemanager.Manager
@@ -446,7 +447,7 @@ func (e *Engine) Start() error {
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
 
-	e.peerConnDispatcher = peer.NewConnectionDispatcher()
+	e.peerConnDispatcher = dispatcher.NewConnectionDispatcher()
 
 	e.connMgr = NewConnMgr(e.peerStore, wgIface, e.peerConnDispatcher)
 	e.connMgr.Start(e.ctx)

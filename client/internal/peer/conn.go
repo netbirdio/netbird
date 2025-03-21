@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/pion/ice/v3"
 	log "github.com/sirupsen/logrus"
@@ -18,16 +17,16 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	nbnet "github.com/netbirdio/netbird/util/net"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
-
-type ConnID unsafe.Pointer
 
 type ConnPriority int
 
@@ -62,7 +61,7 @@ type ServiceDependencies struct {
 	RelayManager       *relayClient.Manager
 	SrWatcher          *guard.SRWatcher
 	Semaphore          *semaphoregroup.SemaphoreGroup
-	PeerConnDispatcher *ConnectionDispatcher
+	PeerConnDispatcher *dispatcher.ConnectionDispatcher
 }
 
 type WgConfig struct {
@@ -129,7 +128,7 @@ type Conn struct {
 
 	guard              *guard.Guard
 	semaphore          *semaphoregroup.SemaphoreGroup
-	peerConnDispatcher *ConnectionDispatcher
+	peerConnDispatcher *dispatcher.ConnectionDispatcher
 	wg                 sync.WaitGroup
 
 	// debug purpose
@@ -337,8 +336,8 @@ func (conn *Conn) GetKey() string {
 	return conn.config.Key
 }
 
-func (conn *Conn) ConnID() ConnID {
-	return ConnID(conn)
+func (conn *Conn) ConnID() id.ConnID {
+	return id.ConnID(conn)
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
@@ -418,7 +417,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 
 	if oldState == connPriorityNone {
-		conn.peerConnDispatcher.NotifyConnected(conn.config.Key)
+		conn.peerConnDispatcher.NotifyConnected(conn.ConnID())
 	}
 }
 
@@ -452,7 +451,7 @@ func (conn *Conn) onICEStateDisconnected() {
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", connPriorityNone.String())
 		conn.currentConnPriority = connPriorityNone
-		conn.peerConnDispatcher.NotifyDisconnected(conn.config.Key)
+		conn.peerConnDispatcher.NotifyDisconnected(conn.ConnID())
 	}
 
 	changed := conn.statusICE.Get() != StatusIdle
@@ -526,7 +525,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr)
-	conn.peerConnDispatcher.NotifyConnected(conn.config.Key)
+	conn.peerConnDispatcher.NotifyConnected(conn.ConnID())
 }
 
 func (conn *Conn) onRelayDisconnected() {
@@ -545,7 +544,7 @@ func (conn *Conn) onRelayDisconnected() {
 			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 		}
 		conn.currentConnPriority = connPriorityNone
-		conn.peerConnDispatcher.NotifyDisconnected(conn.config.Key)
+		conn.peerConnDispatcher.NotifyDisconnected(conn.ConnID())
 	}
 
 	if conn.wgProxyRelay != nil {
