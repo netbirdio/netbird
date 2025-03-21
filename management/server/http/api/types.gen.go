@@ -873,6 +873,9 @@ type NetworkTrafficEvent struct {
 	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
 	Protocol int `json:"protocol"`
 
+	// ReceiveTimestamp Timestamp when the event was received by our API.
+	ReceiveTimestamp time.Time `json:"receive_timestamp"`
+
 	// ReporterId ID of the reporter of the event (e.g., the peer that reported the event).
 	ReporterId string `json:"reporter_id"`
 
@@ -883,7 +886,7 @@ type NetworkTrafficEvent struct {
 	RxPackets int                    `json:"rx_packets"`
 	Source    NetworkTrafficEndpoint `json:"source"`
 
-	// Timestamp Timestamp of the event.
+	// Timestamp Timestamp of the event. Send by the peer.
 	Timestamp time.Time `json:"timestamp"`
 
 	// TxBytes Number of bytes transmitted.
