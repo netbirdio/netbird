@@ -92,7 +92,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 
 func (c *GRPCClient) establishStreamAndReceive(ctx context.Context, msgHandler func(msg *proto.FlowEventAck) error) error {
 	if c.clientConn.GetState() == connectivity.Shutdown {
-		return backoff.Permanent(errors.New("connection to flow receiver has been shut down"))
+		return errors.New("connection to flow receiver has been shut down")
 	}
 
 	stream, err := c.realClient.Events(ctx, grpc.WaitForReady(true))
