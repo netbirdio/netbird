@@ -96,7 +96,6 @@ func (m *Manager) waitForTraffic(listener *Listener, peerConnID peerid.ConnID) {
 }
 
 func (m *Manager) notify(peerConnID peerid.ConnID) {
-	log.Tracef("peer activity detected: %v", peerConnID)
 	select {
 	case <-m.done:
 	case m.OnActivityChan <- peerConnID:

@@ -7,6 +7,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 )
 
+// Listener it is not a thread safe implementation, do not call Close before ReadPackets. It will cause blocking
 type Listener struct {
 	wgIface  lazyconn.WGIface
 	peerCfg  lazyconn.PeerConfig
