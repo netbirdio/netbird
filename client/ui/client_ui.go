@@ -671,7 +671,6 @@ func (s *serviceClient) onTrayReady() {
 	go s.eventManager.Start(s.ctx)
 
 	go func() {
-		var err error
 		for {
 			select {
 			case <-s.mUp.ClickedCh:
@@ -768,9 +767,6 @@ func (s *serviceClient) onTrayReady() {
 				}
 			}
 
-			if err != nil {
-				log.Errorf("process connection: %v", err)
-			}
 		}
 	}()
 }
