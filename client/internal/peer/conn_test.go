@@ -1,7 +1,6 @@
 package peer
 
 import (
-	"context"
 	"os"
 	"sync"
 	"testing"
@@ -10,12 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
+
+var testDispatcher = dispatcher.NewConnectionDispatcher()
 
 var connConf = ConnConfig{
 	Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
@@ -47,7 +49,13 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 
 func TestConn_GetKey(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, nil, nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+
+	sd := ServiceDependencies{
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
@@ -59,7 +67,13 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	sd := ServiceDependencies{
+		StatusRecorder:     NewRecorder("https://mgm"),
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
@@ -93,7 +107,13 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	sd := ServiceDependencies{
+		StatusRecorder:     NewRecorder("https://mgm"),
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
@@ -126,7 +146,13 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 }
 func TestConn_Status(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	sd := ServiceDependencies{
+		StatusRecorder:     NewRecorder("https://mgm"),
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
@@ -138,11 +164,11 @@ func TestConn_Status(t *testing.T) {
 		want        ConnStatus
 	}{
 		{"StatusConnected", StatusConnected, StatusConnected, StatusConnected},
-		{"StatusDisconnected", StatusDisconnected, StatusDisconnected, StatusDisconnected},
+		{"StatusIdle", StatusIdle, StatusIdle, StatusIdle},
 		{"StatusConnecting", StatusConnecting, StatusConnecting, StatusConnecting},
-		{"StatusConnectingIce", StatusConnecting, StatusDisconnected, StatusConnecting},
+		{"StatusConnectingIce", StatusConnecting, StatusIdle, StatusConnecting},
 		{"StatusConnectingIceAlternative", StatusConnecting, StatusConnected, StatusConnected},
-		{"StatusConnectingRelay", StatusDisconnected, StatusConnecting, StatusConnecting},
+		{"StatusConnectingRelay", StatusIdle, StatusConnecting, StatusConnecting},
 		{"StatusConnectingRelayAlternative", StatusConnected, StatusConnecting, StatusConnected},
 	}
 
