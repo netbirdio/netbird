@@ -2190,3 +2190,17 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 
 	return &peer, nil
 }
+
+func (s *SqlStore) CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error) {
+	var count int64
+	result := s.db.Model(&types.Account{}).
+		Where("domain = ? AND domain_category = ?",
+			strings.ToLower(domain), types.PrivateCategory,
+		).Count(&count)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to count accounts by private domain %s: %s", domain, result.Error)
+		return 0, status.Errorf(status.Internal, "failed to count accounts by private domain")
+	}
+
+	return count, nil
+}
