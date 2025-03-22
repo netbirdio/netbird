@@ -258,7 +258,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ '386','amd64' ]
+        arch: [ 'amd64' ]
         store: [ 'sqlite', 'postgres', 'mysql' ]
     runs-on: ubuntu-22.04
     steps:
@@ -325,8 +325,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ '386','amd64' ]
-        store: [ 'sqlite', 'postgres', 'mysql' ]
+        arch: [ 'amd64' ]
+        store: [ 'sqlite', 'postgres' ]
     runs-on: ubuntu-22.04
     steps:
       - name: Install Go
@@ -392,7 +392,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ '386','amd64' ]
+        arch: [ 'amd64' ]
         store: [ 'sqlite', 'postgres' ]
     runs-on: ubuntu-22.04
     steps:
@@ -461,7 +461,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ '386','amd64' ]
+        arch: [ 'amd64' ]
         store: [ 'sqlite', 'postgres']
     runs-on: ubuntu-22.04
     steps:

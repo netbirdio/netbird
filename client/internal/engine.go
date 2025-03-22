@@ -25,7 +25,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
-	"github.com/netbirdio/netbird/client/firewall/manager"
+	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -33,6 +33,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
+	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/netflow"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -169,10 +172,11 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	firewall      manager.Manager
-	routeManager  routemanager.Manager
-	acl           acl.Manager
-	dnsForwardMgr *dnsfwd.Manager
+	firewall          firewallManager.Manager
+	routeManager      routemanager.Manager
+	acl               acl.Manager
+	dnsForwardMgr     *dnsfwd.Manager
+	ingressGatewayMgr *ingressgw.Manager
 
 	dnsServer dns.Server
 
@@ -187,6 +191,7 @@ type Engine struct {
 	persistNetworkMap bool
 	latestNetworkMap  *mgmProto.NetworkMap
 	connSemaphore     *semaphoregroup.SemaphoreGroup
+	flowManager       nftypes.FlowManager
 }
 
 // Peer is an instance of the Connection Peer
@@ -266,6 +271,13 @@ func (e *Engine) Stop() error {
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
 	e.stopDNSServer()
 
+	if e.ingressGatewayMgr != nil {
+		if err := e.ingressGatewayMgr.Close(); err != nil {
+			log.Warnf("failed to cleanup forward rules: %v", err)
+		}
+		e.ingressGatewayMgr = nil
+	}
+
 	if e.routeManager != nil {
 		e.routeManager.Stop(e.stateManager)
 	}
@@ -299,6 +311,12 @@ func (e *Engine) Stop() error {
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
+
+	// stop flow manager after wg interface is gone
+	if e.flowManager != nil {
+		e.flowManager.Close()
+	}
+
 	log.Infof("stopped Netbird Engine")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -332,6 +350,10 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
+
+	// start flow manager right after interface creation
+	publicKey := e.config.WgPrivateKey.PublicKey()
+	e.flowManager = netflow.NewManager(e.ctx, e.wgInterface, publicKey[:], e.statusRecorder)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
@@ -439,7 +461,7 @@ func (e *Engine) createFirewall() error {
 	}
 
 	var err error
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.config.DisableServerRoutes)
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes)
 	if err != nil || e.firewall == nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 		return nil
@@ -469,16 +491,16 @@ func (e *Engine) initFirewall() error {
 	}
 
 	rosenpassPort := e.rpManager.GetAddress().Port
-	port := manager.Port{Values: []uint16{uint16(rosenpassPort)}}
+	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
 
 	// this rule is static and will be torn down on engine down by the firewall manager
 	if _, err := e.firewall.AddPeerFiltering(
+		nil,
 		net.IP{0, 0, 0, 0},
-		manager.ProtocolUDP,
+		firewallManager.ProtocolUDP,
 		nil,
 		&port,
-		manager.ActionAccept,
-		"",
+		firewallManager.ActionAccept,
 		"",
 	); err != nil {
 		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
@@ -503,12 +525,13 @@ func (e *Engine) blockLanAccess() {
 	v4 := netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 	for _, network := range toBlock {
 		if _, err := e.firewall.AddRouteFiltering(
+			nil,
 			[]netip.Prefix{v4},
 			network,
-			manager.ProtocolALL,
+			firewallManager.ProtocolALL,
 			nil,
 			nil,
-			manager.ActionDrop,
+			firewallManager.ActionDrop,
 		); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add fw rule for network %s: %w", network, err))
 		}
@@ -633,25 +656,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		stunTurn = append(stunTurn, e.TURNs...)
 		e.stunTurn.Store(stunTurn)
 
-		relayMsg := wCfg.GetRelay()
-		if relayMsg != nil {
-			// when we receive token we expect valid address list too
-			c := &auth.Token{
-				Payload:   relayMsg.GetTokenPayload(),
-				Signature: relayMsg.GetTokenSignature(),
-			}
-			if err := e.relayManager.UpdateToken(c); err != nil {
-				log.Errorf("failed to update relay token: %v", err)
-				return fmt.Errorf("update relay token: %w", err)
-			}
+		err = e.handleRelayUpdate(wCfg.GetRelay())
+		if err != nil {
+			return err
+		}
 
-			e.relayManager.UpdateServerURLs(relayMsg.Urls)
-
-			// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
-			// We can ignore all errors because the guard will manage the reconnection retries.
-			_ = e.relayManager.Serve()
-		} else {
-			e.relayManager.UpdateServerURLs(nil)
+		err = e.handleFlowUpdate(wCfg.GetFlow())
+		if err != nil {
+			return fmt.Errorf("handle the flow configuration: %w", err)
 		}
 
 		// todo update signal
@@ -680,6 +692,57 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil
+}
+
+func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
+	if update != nil {
+		// when we receive token we expect valid address list too
+		c := &auth.Token{
+			Payload:   update.GetTokenPayload(),
+			Signature: update.GetTokenSignature(),
+		}
+		if err := e.relayManager.UpdateToken(c); err != nil {
+			return fmt.Errorf("update relay token: %w", err)
+		}
+
+		e.relayManager.UpdateServerURLs(update.Urls)
+
+		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
+		// We can ignore all errors because the guard will manage the reconnection retries.
+		_ = e.relayManager.Serve()
+	} else {
+		e.relayManager.UpdateServerURLs(nil)
+	}
+
+	return nil
+}
+
+func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
+	if config == nil {
+		return nil
+	}
+
+	flowConfig, err := toFlowLoggerConfig(config)
+	if err != nil {
+		return err
+	}
+	return e.flowManager.Update(flowConfig)
+}
+
+func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error) {
+	if config.GetInterval() == nil {
+		return nil, errors.New("flow interval is nil")
+	}
+	return &nftypes.FlowConfig{
+		Enabled:            config.GetEnabled(),
+		Counters:           config.GetCounters(),
+		URL:                config.GetUrl(),
+		TokenPayload:       config.GetTokenPayload(),
+		TokenSignature:     config.GetTokenSignature(),
+		Interval:           config.GetInterval().AsDuration(),
+		DNSCollection:      config.GetDnsCollection(),
+		ExitNodeCollection: config.GetExitNodeCollection(),
+	}, nil
 }
 
 // updateChecksIfNew updates checks if there are changes and sync new meta with management
@@ -910,6 +973,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	routes := toRoutes(networkMap.GetRoutes())
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
+	}
+
+	// Ingress forward rules
+	if err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
+		log.Errorf("failed to update forward rules, err: %v", err)
 	}
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
@@ -1482,7 +1550,7 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 }
 
 // GetFirewallManager returns the firewall manager
-func (e *Engine) GetFirewallManager() manager.Manager {
+func (e *Engine) GetFirewallManager() firewallManager.Manager {
 	return e.firewall
 }
 
@@ -1575,16 +1643,19 @@ func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)
 }
 
+// restartEngine restarts the engine by cancelling the client context
 func (e *Engine) restartEngine() {
-	log.Info("restarting engine")
-	CtxGetState(e.ctx).Set(StatusConnecting)
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
 
-	if err := e.Stop(); err != nil {
-		log.Errorf("Failed to stop engine: %v", err)
+	if e.ctx.Err() != nil {
+		return
 	}
 
+	log.Info("restarting engine")
+	CtxGetState(e.ctx).Set(StatusConnecting)
 	_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-	log.Infof("cancelling client, engine will be recreated")
+	log.Infof("cancelling client context, engine will be recreated")
 	e.clientCancel()
 }
 
@@ -1596,34 +1667,17 @@ func (e *Engine) startNetworkMonitor() {
 
 	e.networkMonitor = networkmonitor.New()
 	go func() {
-		var mu sync.Mutex
-		var debounceTimer *time.Timer
-
-		// Start the network monitor with a callback, Start will block until the monitor is stopped,
-		// a network change is detected, or an error occurs on start up
-		err := e.networkMonitor.Start(e.ctx, func() {
-			// This function is called when a network change is detected
-			mu.Lock()
-			defer mu.Unlock()
-
-			if debounceTimer != nil {
-				log.Infof("Network monitor: detected network change, reset debounceTimer")
-				debounceTimer.Stop()
+		if err := e.networkMonitor.Listen(e.ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				log.Infof("network monitor stopped")
+				return
 			}
-
-			// Set a new timer to debounce rapid network changes
-			debounceTimer = time.AfterFunc(2*time.Second, func() {
-				// This function is called after the debounce period
-				mu.Lock()
-				defer mu.Unlock()
-
-				log.Infof("Network monitor: detected network change, restarting engine")
-				e.restartEngine()
-			})
-		})
-		if err != nil && !errors.Is(err, networkmonitor.ErrStopped) {
-			log.Errorf("Network monitor: %v", err)
+			log.Errorf("network monitor error: %v", err)
+			return
 		}
+
+		log.Infof("Network monitor: detected network change, restarting engine")
+		e.restartEngine()
 	}()
 }
 
@@ -1768,6 +1822,74 @@ func (e *Engine) Address() (netip.Addr, error) {
 		return netip.Addr{}, errors.New("failed to convert address to netip.Addr")
 	}
 	return ip.Unmap(), nil
+}
+
+func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) error {
+	if e.firewall == nil {
+		log.Warn("firewall is disabled, not updating forwarding rules")
+		return nil
+	}
+
+	if len(rules) == 0 {
+		if e.ingressGatewayMgr == nil {
+			return nil
+		}
+
+		err := e.ingressGatewayMgr.Close()
+		e.ingressGatewayMgr = nil
+		e.statusRecorder.SetIngressGwMgr(nil)
+		return err
+	}
+
+	if e.ingressGatewayMgr == nil {
+		mgr := ingressgw.NewManager(e.firewall)
+		e.ingressGatewayMgr = mgr
+		e.statusRecorder.SetIngressGwMgr(mgr)
+	}
+
+	var merr *multierror.Error
+	forwardingRules := make([]firewallManager.ForwardRule, 0, len(rules))
+	for _, rule := range rules {
+		proto, err := convertToFirewallProtocol(rule.GetProtocol())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("failed to convert protocol '%s': %w", rule.GetProtocol(), err))
+			continue
+		}
+
+		dstPortInfo, err := convertPortInfo(rule.GetDestinationPort())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("invalid destination port '%v': %w", rule.GetDestinationPort(), err))
+			continue
+		}
+
+		translateIP, err := convertToIP(rule.GetTranslatedAddress())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("failed to convert translated address '%s': %w", rule.GetTranslatedAddress(), err))
+			continue
+		}
+
+		translatePort, err := convertPortInfo(rule.GetTranslatedPort())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("invalid translate port '%v': %w", rule.GetTranslatedPort(), err))
+			continue
+		}
+
+		forwardRule := firewallManager.ForwardRule{
+			Protocol:          proto,
+			DestinationPort:   *dstPortInfo,
+			TranslatedAddress: translateIP,
+			TranslatedPort:    *translatePort,
+		}
+
+		forwardingRules = append(forwardingRules, forwardRule)
+	}
+
+	log.Infof("updating forwarding rules: %d", len(forwardingRules))
+	if err := e.ingressGatewayMgr.Update(forwardingRules); err != nil {
+		log.Errorf("failed to update forwarding rules: %v", err)
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // isChecksEqual checks if two slices of checks are equal.

@@ -13,7 +13,6 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -41,7 +40,7 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 
 	for routeID := range m.routes {
 		update, found := routesMap[routeID]
-		if !found || !update.IsEqual(m.routes[routeID]) {
+		if !found || !update.Equal(m.routes[routeID]) {
 			serverRoutesToRemove = append(serverRoutesToRemove, routeID)
 		}
 	}
@@ -71,9 +70,6 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 	}
 
 	if len(m.routes) > 0 {
-		if err := systemops.EnableIPForwarding(); err != nil {
-			return fmt.Errorf("enable ip forwarding: %w", err)
-		}
 		if err := m.firewall.EnableRouting(); err != nil {
 			return fmt.Errorf("enable routing: %w", err)
 		}
@@ -107,9 +103,7 @@ func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
 
 	delete(m.routes, route.ID)
 
-	state := m.statusRecorder.GetLocalPeerState()
-	delete(state.Routes, route.Network.String())
-	m.statusRecorder.UpdateLocalPeerState(state)
+	m.statusRecorder.RemoveLocalPeerStateRoute(route.Network.String())
 
 	return nil
 }
@@ -135,18 +129,12 @@ func (m *serverRouter) addToServerNetwork(route *route.Route) error {
 
 	m.routes[route.ID] = route
 
-	state := m.statusRecorder.GetLocalPeerState()
-	if state.Routes == nil {
-		state.Routes = map[string]struct{}{}
-	}
-
 	routeStr := route.Network.String()
 	if route.IsDynamic() {
 		routeStr = route.Domains.SafeString()
 	}
-	state.Routes[routeStr] = struct{}{}
 
-	m.statusRecorder.UpdateLocalPeerState(state)
+	m.statusRecorder.AddLocalPeerStateRoute(routeStr, route.GetResourceID())
 
 	return nil
 }
@@ -168,9 +156,7 @@ func (m *serverRouter) cleanUp() {
 
 	}
 
-	state := m.statusRecorder.GetLocalPeerState()
-	state.Routes = nil
-	m.statusRecorder.UpdateLocalPeerState(state)
+	m.statusRecorder.CleanLocalPeerStateRoutes()
 }
 
 func routeToRouterPair(route *route.Route) (firewall.RouterPair, error) {

@@ -37,7 +37,7 @@ type PKCEAuthProviderConfig struct {
 	RedirectURLs []string
 	// UseIDToken indicates if the id token should be used for authentication
 	UseIDToken bool
-	//ClientCertPair is used for mTLS authentication to the IDP
+	// ClientCertPair is used for mTLS authentication to the IDP
 	ClientCertPair *tls.Certificate
 }
 

@@ -13,6 +13,8 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	wgConn "golang.zx2c4.com/wireguard/conn"
+
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type RecvMessage struct {
@@ -51,9 +53,10 @@ type ICEBind struct {
 
 	muUDPMux sync.Mutex
 	udpMux   *UniversalUDPMuxDefault
+	address  wgaddr.Address
 }
 
-func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
+func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:   b,
@@ -63,6 +66,7 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
 		endpoints:    make(map[netip.Addr]net.Conn),
 		closedChan:   make(chan struct{}),
 		closed:       true,
+		address:      address,
 	}
 
 	rc := receiverCreator{
@@ -142,9 +146,10 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 
 	s.udpMux = NewUniversalUDPMuxDefault(
 		UniversalUDPMuxParams{
-			UDPConn:  conn,
-			Net:      s.transportNet,
-			FilterFn: s.filterFn,
+			UDPConn:   conn,
+			Net:       s.transportNet,
+			FilterFn:  s.filterFn,
+			WGAddress: s.address,
 		},
 	)
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {

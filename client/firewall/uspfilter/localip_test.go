@@ -2,90 +2,91 @@ package uspfilter
 
 import (
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 func TestLocalIPManager(t *testing.T) {
 	tests := []struct {
 		name      string
-		setupAddr iface.WGAddress
-		testIP    net.IP
+		setupAddr wgaddr.Address
+		testIP    netip.Addr
 		expected  bool
 	}{
 		{
 			name: "Localhost range",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("127.0.0.2"),
+			testIP:   netip.MustParseAddr("127.0.0.2"),
 			expected: true,
 		},
 		{
 			name: "Localhost standard address",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("127.0.0.1"),
+			testIP:   netip.MustParseAddr("127.0.0.1"),
 			expected: true,
 		},
 		{
 			name: "Localhost range edge",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("127.255.255.255"),
+			testIP:   netip.MustParseAddr("127.255.255.255"),
 			expected: true,
 		},
 		{
 			name: "Local IP matches",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("192.168.1.1"),
+			testIP:   netip.MustParseAddr("192.168.1.1"),
 			expected: true,
 		},
 		{
 			name: "Local IP doesn't match",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("192.168.1.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("192.168.1.0"),
 					Mask: net.CIDRMask(24, 32),
 				},
 			},
-			testIP:   net.ParseIP("192.168.1.2"),
+			testIP:   netip.MustParseAddr("192.168.1.2"),
 			expected: false,
 		},
 		{
 			name: "IPv6 address",
-			setupAddr: iface.WGAddress{
+			setupAddr: wgaddr.Address{
 				IP: net.ParseIP("fe80::1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("fe80::"),
 					Mask: net.CIDRMask(64, 128),
 				},
 			},
-			testIP:   net.ParseIP("fe80::1"),
+			testIP:   netip.MustParseAddr("fe80::1"),
 			expected: false,
 		},
 	}
@@ -95,7 +96,7 @@ func TestLocalIPManager(t *testing.T) {
 			manager := newLocalIPManager()
 
 			mock := &IFaceMock{
-				AddressFunc: func() iface.WGAddress {
+				AddressFunc: func() wgaddr.Address {
 					return tt.setupAddr
 				},
 			}
@@ -174,7 +175,7 @@ func TestLocalIPManager_AllInterfaces(t *testing.T) {
 	t.Logf("Testing %d IPs", len(tests))
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
-			result := manager.IsLocalIP(net.ParseIP(tt.ip))
+			result := manager.IsLocalIP(netip.MustParseAddr(tt.ip))
 			require.Equal(t, tt.expected, result, "IP: %s", tt.ip)
 		})
 	}

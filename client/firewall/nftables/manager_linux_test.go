@@ -16,15 +16,15 @@ import (
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 var ifaceMock = &iFaceMock{
 	NameFunc: func() string {
 		return "lo"
 	},
-	AddressFunc: func() iface.WGAddress {
-		return iface.WGAddress{
+	AddressFunc: func() wgaddr.Address {
+		return wgaddr.Address{
 			IP: net.ParseIP("100.96.0.1"),
 			Network: &net.IPNet{
 				IP:   net.ParseIP("100.96.0.0"),
@@ -37,7 +37,7 @@ var ifaceMock = &iFaceMock{
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMock struct {
 	NameFunc    func() string
-	AddressFunc func() iface.WGAddress
+	AddressFunc func() wgaddr.Address
 }
 
 func (i *iFaceMock) Name() string {
@@ -47,7 +47,7 @@ func (i *iFaceMock) Name() string {
 	panic("NameFunc is not set")
 }
 
-func (i *iFaceMock) Address() iface.WGAddress {
+func (i *iFaceMock) Address() wgaddr.Address {
 	if i.AddressFunc != nil {
 		return i.AddressFunc()
 	}
@@ -74,7 +74,7 @@ func TestNftablesManager(t *testing.T) {
 
 	testClient := &nftables.Conn{}
 
-	rule, err := manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{53}}, fw.ActionDrop, "", "")
+	rule, err := manager.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{53}}, fw.ActionDrop, "")
 	require.NoError(t, err, "failed to add rule")
 
 	err = manager.Flush()
@@ -171,8 +171,8 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 		NameFunc: func() string {
 			return "lo"
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("100.96.0.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("100.96.0.0"),
@@ -201,7 +201,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
-				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
+				_, err = manager.AddPeerFiltering(nil, ip, "tcp", nil, port, fw.ActionAccept, "")
 				require.NoError(t, err, "failed to add rule")
 
 				if i%100 == 0 {
@@ -283,10 +283,11 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	})
 
 	ip := net.ParseIP("100.96.0.1")
-	_, err = manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "", "test rule")
+	_, err = manager.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
 	require.NoError(t, err, "failed to add peer filtering rule")
 
 	_, err = manager.AddRouteFiltering(
+		nil,
 		[]netip.Prefix{netip.MustParsePrefix("192.168.2.0/24")},
 		netip.MustParsePrefix("10.1.0.0/24"),
 		fw.ProtocolTCP,

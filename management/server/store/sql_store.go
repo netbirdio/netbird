@@ -26,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/account"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -95,7 +94,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 	err = db.AutoMigrate(
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-		&installation{}, &account.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
+		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
 	)
 	if err != nil {
@@ -1262,10 +1261,18 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 }
 
 // GetAccountPeers retrieves peers for an account.
-func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error) {
+func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&peers, accountIDCondition, accountID)
-	if err := result.Error; err != nil {
+	query := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Where(accountIDCondition, accountID)
+
+	if nameFilter != "" {
+		query = query.Where("name LIKE ?", "%"+nameFilter+"%")
+	}
+	if ipFilter != "" {
+		query = query.Where("ip LIKE ?", "%"+ipFilter+"%")
+	}
+
+	if err := query.Find(&peers).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "failed to get peers from store")
 	}
@@ -1309,7 +1316,6 @@ func (s *SqlStore) GetPeerByID(ctx context.Context, lockStrength LockingStrength
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewPeerNotFoundError(peerID)
 		}
-		log.WithContext(ctx).Errorf("failed to get peer from store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
 	}
 
@@ -2169,4 +2175,18 @@ func (s *SqlStore) DeletePAT(ctx context.Context, lockStrength LockingStrength, 
 	}
 
 	return nil
+}
+
+func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error) {
+	jsonValue := fmt.Sprintf(`"%s"`, ip.String())
+
+	var peer nbpeer.Peer
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&peer, "account_id = ? AND ip = ?", accountID, jsonValue)
+	if result.Error != nil {
+		// no logging here
+		return nil, status.Errorf(status.Internal, "failed to get peer from store")
+	}
+
+	return &peer, nil
 }

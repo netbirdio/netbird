@@ -13,11 +13,12 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 // WGTunDevice ignore the WGTunDevice interface on Android because the creation of the tun device is different on this platform
 type WGTunDevice struct {
-	address    WGAddress
+	address    wgaddr.Address
 	port       int
 	key        string
 	mtu        int
@@ -31,7 +32,7 @@ type WGTunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind, tunAdapter TunAdapter) *WGTunDevice {
+func NewTunDevice(address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind, tunAdapter TunAdapter) *WGTunDevice {
 	return &WGTunDevice{
 		address:    address,
 		port:       port,
@@ -93,7 +94,7 @@ func (t *WGTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *WGTunDevice) UpdateAddr(addr WGAddress) error {
+func (t *WGTunDevice) UpdateAddr(addr wgaddr.Address) error {
 	// todo implement
 	return nil
 }
@@ -123,7 +124,7 @@ func (t *WGTunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *WGTunDevice) WgAddress() WGAddress {
+func (t *WGTunDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 

@@ -13,13 +13,14 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
 
 type TunDevice struct {
 	name    string
-	address WGAddress
+	address wgaddr.Address
 	port    int
 	key     string
 	mtu     int
@@ -32,7 +33,7 @@ type TunDevice struct {
 	configurer      WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
@@ -118,7 +119,7 @@ func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *TunDevice) UpdateAddr(address WGAddress) error {
+func (t *TunDevice) UpdateAddr(address wgaddr.Address) error {
 	t.address = address
 	return t.assignAddr()
 }
@@ -139,7 +140,7 @@ func (t *TunDevice) Close() error {
 	}
 	return nil
 }
-func (t *TunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 

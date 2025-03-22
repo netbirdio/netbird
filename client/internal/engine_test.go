@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
@@ -27,10 +28,13 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/server/types"
+
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -44,6 +48,7 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -74,7 +79,7 @@ type MockWGIface struct {
 	CreateOnAndroidFunc        func(routeRange []string, ip string, domains []string) error
 	IsUserspaceBindFunc        func() bool
 	NameFunc                   func() string
-	AddressFunc                func() device.WGAddress
+	AddressFunc                func() wgaddr.Address
 	ToInterfaceFunc            func() *net.Interface
 	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddrFunc             func(newAddr string) error
@@ -113,7 +118,7 @@ func (m *MockWGIface) Name() string {
 	return m.NameFunc()
 }
 
-func (m *MockWGIface) Address() device.WGAddress {
+func (m *MockWGIface) Address() wgaddr.Address {
 	return m.AddressFunc()
 }
 
@@ -363,8 +368,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("10.20.0.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("10.20.0.0"),
@@ -1433,13 +1438,21 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&types.Settings{}, nil).
+		AnyTimes()
+
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil, nil)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

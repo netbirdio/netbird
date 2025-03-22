@@ -83,6 +83,27 @@ const (
 	GroupMinimumIssuedJwt         GroupMinimumIssued = "jwt"
 )
 
+// Defines values for IngressPortAllocationPortMappingProtocol.
+const (
+	IngressPortAllocationPortMappingProtocolTcp    IngressPortAllocationPortMappingProtocol = "tcp"
+	IngressPortAllocationPortMappingProtocolTcpudp IngressPortAllocationPortMappingProtocol = "tcp/udp"
+	IngressPortAllocationPortMappingProtocolUdp    IngressPortAllocationPortMappingProtocol = "udp"
+)
+
+// Defines values for IngressPortAllocationRequestDirectPortProtocol.
+const (
+	IngressPortAllocationRequestDirectPortProtocolTcp    IngressPortAllocationRequestDirectPortProtocol = "tcp"
+	IngressPortAllocationRequestDirectPortProtocolTcpudp IngressPortAllocationRequestDirectPortProtocol = "tcp/udp"
+	IngressPortAllocationRequestDirectPortProtocolUdp    IngressPortAllocationRequestDirectPortProtocol = "udp"
+)
+
+// Defines values for IngressPortAllocationRequestPortRangeProtocol.
+const (
+	IngressPortAllocationRequestPortRangeProtocolTcp    IngressPortAllocationRequestPortRangeProtocol = "tcp"
+	IngressPortAllocationRequestPortRangeProtocolTcpudp IngressPortAllocationRequestPortRangeProtocol = "tcp/udp"
+	IngressPortAllocationRequestPortRangeProtocolUdp    IngressPortAllocationRequestPortRangeProtocol = "udp"
+)
+
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
@@ -209,8 +230,14 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
+	// NetworkTrafficLogsEnabled Enables or disables network traffic logs. If enabled, all network traffic logs from peers will be stored.
+	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
+
+	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
+	NetworkTrafficPacketCounterEnabled bool `json:"network_traffic_packet_counter_enabled"`
+
 	// PeerApprovalEnabled (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
-	PeerApprovalEnabled *bool `json:"peer_approval_enabled,omitempty"`
+	PeerApprovalEnabled bool `json:"peer_approval_enabled"`
 }
 
 // AccountRequest defines model for AccountRequest.
@@ -251,6 +278,15 @@ type AccountSettings struct {
 
 	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
+}
+
+// AvailablePorts defines model for AvailablePorts.
+type AvailablePorts struct {
+	// Tcp Number of available TCP  ports left on the ingress peer
+	Tcp int `json:"tcp"`
+
+	// Udp Number of available UDP ports left on the ingress peer
+	Udp int `json:"udp"`
 }
 
 // Checks List of objects that perform the actual checks
@@ -425,6 +461,139 @@ type GroupRequest struct {
 	Peers     *[]string   `json:"peers,omitempty"`
 	Resources *[]Resource `json:"resources,omitempty"`
 }
+
+// IngressPeer defines model for IngressPeer.
+type IngressPeer struct {
+	AvailablePorts AvailablePorts `json:"available_ports"`
+
+	// Connected Indicates if an ingress peer is connected to the management server
+	Connected bool `json:"connected"`
+
+	// Enabled Indicates if an ingress peer is enabled
+	Enabled bool `json:"enabled"`
+
+	// Fallback Indicates if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
+	Fallback bool `json:"fallback"`
+
+	// Id ID of the ingress peer
+	Id string `json:"id"`
+
+	// IngressIp Ingress IP address of the ingress peer where the traffic arrives
+	IngressIp string `json:"ingress_ip"`
+
+	// PeerId ID of the peer that is used as an ingress peer
+	PeerId string `json:"peer_id"`
+
+	// Region Region of the ingress peer
+	Region string `json:"region"`
+}
+
+// IngressPeerCreateRequest defines model for IngressPeerCreateRequest.
+type IngressPeerCreateRequest struct {
+	// Enabled Defines if an ingress peer is enabled
+	Enabled bool `json:"enabled"`
+
+	// Fallback Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
+	Fallback bool `json:"fallback"`
+
+	// PeerId ID of the peer that is used as an ingress peer
+	PeerId string `json:"peer_id"`
+}
+
+// IngressPeerUpdateRequest defines model for IngressPeerUpdateRequest.
+type IngressPeerUpdateRequest struct {
+	// Enabled Defines if an ingress peer is enabled
+	Enabled bool `json:"enabled"`
+
+	// Fallback Defines if an ingress peer can be used as a fallback if no ingress peer can be found in the region of the forwarded peer
+	Fallback bool `json:"fallback"`
+}
+
+// IngressPortAllocation defines model for IngressPortAllocation.
+type IngressPortAllocation struct {
+	// Enabled Indicates if an ingress port allocation is enabled
+	Enabled bool `json:"enabled"`
+
+	// Id ID of the ingress port allocation
+	Id string `json:"id"`
+
+	// IngressIp Ingress IP address of the ingress peer where the traffic arrives
+	IngressIp string `json:"ingress_ip"`
+
+	// IngressPeerId ID of the ingress peer that forwards the ports
+	IngressPeerId string `json:"ingress_peer_id"`
+
+	// Name Name of the ingress port allocation
+	Name string `json:"name"`
+
+	// PortRangeMappings List of port ranges that are allowed to be used by the ingress peer
+	PortRangeMappings []IngressPortAllocationPortMapping `json:"port_range_mappings"`
+
+	// Region Region of the ingress peer
+	Region string `json:"region"`
+}
+
+// IngressPortAllocationPortMapping defines model for IngressPortAllocationPortMapping.
+type IngressPortAllocationPortMapping struct {
+	// IngressEnd The ending port of the range of ingress ports mapped to the forwarded ports
+	IngressEnd int `json:"ingress_end"`
+
+	// IngressStart The starting port of the range of ingress ports mapped to the forwarded ports
+	IngressStart int `json:"ingress_start"`
+
+	// Protocol Protocol accepted by the ports
+	Protocol IngressPortAllocationPortMappingProtocol `json:"protocol"`
+
+	// TranslatedEnd The ending port of the translated range of forwarded ports
+	TranslatedEnd int `json:"translated_end"`
+
+	// TranslatedStart The starting port of the translated range of forwarded ports
+	TranslatedStart int `json:"translated_start"`
+}
+
+// IngressPortAllocationPortMappingProtocol Protocol accepted by the ports
+type IngressPortAllocationPortMappingProtocol string
+
+// IngressPortAllocationRequest defines model for IngressPortAllocationRequest.
+type IngressPortAllocationRequest struct {
+	DirectPort *IngressPortAllocationRequestDirectPort `json:"direct_port,omitempty"`
+
+	// Enabled Indicates if an ingress port allocation is enabled
+	Enabled bool `json:"enabled"`
+
+	// Name Name of the ingress port allocation
+	Name string `json:"name"`
+
+	// PortRanges List of port ranges that are forwarded by the ingress peer
+	PortRanges *[]IngressPortAllocationRequestPortRange `json:"port_ranges,omitempty"`
+}
+
+// IngressPortAllocationRequestDirectPort defines model for IngressPortAllocationRequestDirectPort.
+type IngressPortAllocationRequestDirectPort struct {
+	// Count The number of ports to be forwarded
+	Count int `json:"count"`
+
+	// Protocol The protocol accepted by the port
+	Protocol IngressPortAllocationRequestDirectPortProtocol `json:"protocol"`
+}
+
+// IngressPortAllocationRequestDirectPortProtocol The protocol accepted by the port
+type IngressPortAllocationRequestDirectPortProtocol string
+
+// IngressPortAllocationRequestPortRange defines model for IngressPortAllocationRequestPortRange.
+type IngressPortAllocationRequestPortRange struct {
+	// End The ending port of the range of forwarded ports
+	End int `json:"end"`
+
+	// Protocol The protocol accepted by the port range
+	Protocol IngressPortAllocationRequestPortRangeProtocol `json:"protocol"`
+
+	// Start The starting port of the range of forwarded ports
+	Start int `json:"start"`
+}
+
+// IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
+type IngressPortAllocationRequestPortRangeProtocol string
 
 // Location Describe geographical location information
 type Location struct {
@@ -652,6 +821,100 @@ type NetworkRouterRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+}
+
+// NetworkTrafficEndpoint defines model for NetworkTrafficEndpoint.
+type NetworkTrafficEndpoint struct {
+	// Address IP address (and possibly port) in string form.
+	Address string `json:"address"`
+
+	// DnsLabel DNS label/name if available.
+	DnsLabel    *string                `json:"dns_label"`
+	GeoLocation NetworkTrafficLocation `json:"geo_location"`
+
+	// Id ID of this endpoint (e.g., peer ID or resource ID).
+	Id string `json:"id"`
+
+	// Name Name is the name of the endpoint object (e.g., a peer name).
+	Name string `json:"name"`
+
+	// Os Operating system of the peer, if applicable.
+	Os *string `json:"os"`
+
+	// Type Type of the endpoint object (e.g., UNKNOWN, PEER, HOST_RESOURCE).
+	Type string `json:"type"`
+}
+
+// NetworkTrafficEvent defines model for NetworkTrafficEvent.
+type NetworkTrafficEvent struct {
+	Destination NetworkTrafficEndpoint `json:"destination"`
+
+	// Direction Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS).
+	Direction string `json:"direction"`
+
+	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
+	FlowId string `json:"flow_id"`
+
+	// IcmpCode ICMP code (if applicable).
+	IcmpCode int `json:"icmp_code"`
+
+	// IcmpType ICMP type (if applicable).
+	IcmpType int `json:"icmp_type"`
+
+	// Id ID of the event. Unique.
+	Id string `json:"id"`
+
+	// PolicyId ID of the policy that allowed this event.
+	PolicyId string `json:"policy_id"`
+
+	// PolicyName Name of the policy that allowed this event.
+	PolicyName string `json:"policy_name"`
+
+	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
+	Protocol int `json:"protocol"`
+
+	// ReceiveTimestamp Timestamp when the event was received by our API.
+	ReceiveTimestamp time.Time `json:"receive_timestamp"`
+
+	// ReporterId ID of the reporter of the event (e.g., the peer that reported the event).
+	ReporterId string `json:"reporter_id"`
+
+	// RxBytes Number of bytes received.
+	RxBytes int `json:"rx_bytes"`
+
+	// RxPackets Number of packets received.
+	RxPackets int                    `json:"rx_packets"`
+	Source    NetworkTrafficEndpoint `json:"source"`
+
+	// Timestamp Timestamp of the event. Send by the peer.
+	Timestamp time.Time `json:"timestamp"`
+
+	// TxBytes Number of bytes transmitted.
+	TxBytes int `json:"tx_bytes"`
+
+	// TxPackets Number of packets transmitted.
+	TxPackets int `json:"tx_packets"`
+
+	// Type Type of the event (e.g. TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
+	Type string `json:"type"`
+
+	// UserEmail Email of the user who initiated the event (if any).
+	UserEmail *string `json:"user_email"`
+
+	// UserId UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
+	UserId *string `json:"user_id"`
+
+	// UserName Name of the user who initiated the event (if any).
+	UserName *string `json:"user_name"`
+}
+
+// NetworkTrafficLocation defines model for NetworkTrafficLocation.
+type NetworkTrafficLocation struct {
+	// CityName Name of the city (if known).
+	CityName string `json:"city_name"`
+
+	// CountryCode ISO country code (if known).
+	CountryCode string `json:"country_code"`
 }
 
 // OSVersionCheck Posture check for the version of operating system
@@ -1466,6 +1729,21 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
+// GetApiPeersParams defines parameters for GetApiPeers.
+type GetApiPeersParams struct {
+	// Name Filter peers by name
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// Ip Filter peers by IP address
+	Ip *string `form:"ip,omitempty" json:"ip,omitempty"`
+}
+
+// GetApiPeersPeerIdIngressPortsParams defines parameters for GetApiPeersPeerIdIngressPorts.
+type GetApiPeersPeerIdIngressPortsParams struct {
+	// Name Filters ingress port allocations by name
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+}
+
 // GetApiUsersParams defines parameters for GetApiUsers.
 type GetApiUsersParams struct {
 	// ServiceUser Filters users and returns either regular users or service users
@@ -1490,6 +1768,12 @@ type PostApiGroupsJSONRequestBody = GroupRequest
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
 type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
 
+// PostApiIngressPeersJSONRequestBody defines body for PostApiIngressPeers for application/json ContentType.
+type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
+
+// PutApiIngressPeersIngressPeerIdJSONRequestBody defines body for PutApiIngressPeersIngressPeerId for application/json ContentType.
+type PutApiIngressPeersIngressPeerIdJSONRequestBody = IngressPeerUpdateRequest
+
 // PostApiNetworksJSONRequestBody defines body for PostApiNetworks for application/json ContentType.
 type PostApiNetworksJSONRequestBody = NetworkRequest
 
@@ -1510,6 +1794,12 @@ type PutApiNetworksNetworkIdRoutersRouterIdJSONRequestBody = NetworkRouterReques
 
 // PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
 type PutApiPeersPeerIdJSONRequestBody = PeerRequest
+
+// PostApiPeersPeerIdIngressPortsJSONRequestBody defines body for PostApiPeersPeerIdIngressPorts for application/json ContentType.
+type PostApiPeersPeerIdIngressPortsJSONRequestBody = IngressPortAllocationRequest
+
+// PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody defines body for PutApiPeersPeerIdIngressPortsAllocationId for application/json ContentType.
+type PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody = IngressPortAllocationRequest
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
 type PostApiPoliciesJSONRequestBody = PolicyUpdate

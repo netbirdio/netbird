@@ -7,10 +7,10 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
-	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -19,10 +19,10 @@ import (
 
 // handler is a handler that returns groups of the account
 type handler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	groupsHandler := newHandler(accountManager)
 	router.HandleFunc("/groups", groupsHandler.getAllGroups).Methods("GET", "OPTIONS")
 	router.HandleFunc("/groups", groupsHandler.createGroup).Methods("POST", "OPTIONS")
@@ -32,7 +32,7 @@ func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
 }
 
 // newHandler creates a new groups handler
-func newHandler(accountManager server.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}
@@ -54,7 +54,7 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -149,7 +149,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -209,7 +209,7 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -270,7 +270,7 @@ func (h *handler) getGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

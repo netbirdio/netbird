@@ -10,15 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 var ifaceMock = &iFaceMock{
 	NameFunc: func() string {
 		return "lo"
 	},
-	AddressFunc: func() iface.WGAddress {
-		return iface.WGAddress{
+	AddressFunc: func() wgaddr.Address {
+		return wgaddr.Address{
 			IP: net.ParseIP("10.20.0.1"),
 			Network: &net.IPNet{
 				IP:   net.ParseIP("10.20.0.0"),
@@ -31,7 +31,7 @@ var ifaceMock = &iFaceMock{
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMock struct {
 	NameFunc    func() string
-	AddressFunc func() iface.WGAddress
+	AddressFunc func() wgaddr.Address
 }
 
 func (i *iFaceMock) Name() string {
@@ -41,7 +41,7 @@ func (i *iFaceMock) Name() string {
 	panic("NameFunc is not set")
 }
 
-func (i *iFaceMock) Address() iface.WGAddress {
+func (i *iFaceMock) Address() wgaddr.Address {
 	if i.AddressFunc != nil {
 		return i.AddressFunc()
 	}
@@ -75,7 +75,7 @@ func TestIptablesManager(t *testing.T) {
 			IsRange: true,
 			Values:  []uint16{8043, 8046},
 		}
-		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, fw.ActionAccept, "", "accept HTTPS traffic from ports range")
+		rule2, err = manager.AddPeerFiltering(nil, ip, "tcp", port, nil, fw.ActionAccept, "")
 		require.NoError(t, err, "failed to add rule")
 
 		for _, r := range rule2 {
@@ -97,7 +97,7 @@ func TestIptablesManager(t *testing.T) {
 		// add second rule
 		ip := net.ParseIP("10.20.0.3")
 		port := &fw.Port{Values: []uint16{5353}}
-		_, err = manager.AddPeerFiltering(ip, "udp", nil, port, fw.ActionAccept, "", "accept Fake DNS traffic")
+		_, err = manager.AddPeerFiltering(nil, ip, "udp", nil, port, fw.ActionAccept, "")
 		require.NoError(t, err, "failed to add rule")
 
 		err = manager.Close(nil)
@@ -117,8 +117,8 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		NameFunc: func() string {
 			return "lo"
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("10.20.0.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("10.20.0.0"),
@@ -148,7 +148,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		port := &fw.Port{
 			Values: []uint16{443},
 		}
-		rule2, err = manager.AddPeerFiltering(ip, "tcp", port, nil, fw.ActionAccept, "default", "accept HTTPS traffic from ports range")
+		rule2, err = manager.AddPeerFiltering(nil, ip, "tcp", port, nil, fw.ActionAccept, "default")
 		for _, r := range rule2 {
 			require.NoError(t, err, "failed to add rule")
 			require.Equal(t, r.(*Rule).ipsetName, "default-sport", "ipset name must be set")
@@ -184,8 +184,8 @@ func TestIptablesCreatePerformance(t *testing.T) {
 		NameFunc: func() string {
 			return "lo"
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
 				IP: net.ParseIP("10.20.0.1"),
 				Network: &net.IPNet{
 					IP:   net.ParseIP("10.20.0.0"),
@@ -216,7 +216,7 @@ func TestIptablesCreatePerformance(t *testing.T) {
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
-				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
+				_, err = manager.AddPeerFiltering(nil, ip, "tcp", nil, port, fw.ActionAccept, "")
 
 				require.NoError(t, err, "failed to add rule")
 			}

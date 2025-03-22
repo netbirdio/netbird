@@ -89,7 +89,7 @@ func (h *resourceHandler) getAllResourcesInAccount(w http.ResponseWriter, r *htt
 
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
 
-	var resourcesResponse []*api.NetworkResource
+	resourcesResponse := make([]*api.NetworkResource, 0, len(resources))
 	for _, resource := range resources {
 		resourcesResponse = append(resourcesResponse, resource.ToAPIResponse(grpsInfoMap[resource.ID]))
 	}
@@ -118,7 +118,6 @@ func (h *resourceHandler) createResource(w http.ResponseWriter, r *http.Request)
 
 	resource.NetworkID = mux.Vars(r)["networkId"]
 	resource.AccountID = accountID
-	resource.Enabled = true
 	resource, err = h.resourceManager.CreateResource(r.Context(), userID, resource)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)

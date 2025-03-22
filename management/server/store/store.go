@@ -23,10 +23,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
-
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/migration"
@@ -120,7 +119,7 @@ type Store interface {
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, lockStrength LockingStrength, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
@@ -185,6 +184,7 @@ type Store interface {
 	GetNetworkResourceByName(ctx context.Context, lockStrength LockingStrength, accountID, resourceName string) (*resourceTypes.NetworkResource, error)
 	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *resourceTypes.NetworkResource) error
 	DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error
+	GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error)
 }
 
 type Engine string
@@ -342,7 +342,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 
 	if filename != "" {
-		err = loadSQL(db, filename)
+		err = LoadSQL(db, filename)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
 		}
@@ -353,12 +353,11 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
-  	err = addAllGroupToAccount(ctx, store)
+	err = addAllGroupToAccount(ctx, store)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
-  
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
 		sqlStore, cleanUp, err := getSqlStoreEngine(ctx, store, kind)
@@ -516,7 +515,7 @@ func replaceDBName(dsn, newDBName string) string {
 	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
-func loadSQL(db *gorm.DB, filepath string) error {
+func LoadSQL(db *gorm.DB, filepath string) error {
 	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {
 		return err

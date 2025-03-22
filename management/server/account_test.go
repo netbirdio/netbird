@@ -13,6 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
+
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -35,7 +40,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *types.Account, userID string) {
+func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.Manager, account *types.Account, userID string) {
 	t.Helper()
 	peer := &nbpeer.Peer{
 		Key:  "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8=",
@@ -1402,7 +1407,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
-func getEvent(t *testing.T, accountID string, manager AccountManager, eventType activity.Activity) *activity.Event {
+func getEvent(t *testing.T, accountID string, manager nbAccount.Manager, eventType activity.Activity) *activity.Event {
 	t.Helper()
 	for {
 		select {
@@ -2792,6 +2797,8 @@ type TB interface {
 	Cleanup(func())
 	Helper()
 	TempDir() string
+	Errorf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
 }
 
 func createManager(t TB) (*DefaultAccountManager, error) {
@@ -2808,7 +2815,20 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+	settingsMockManager.EXPECT().
+		UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(false, nil).
+		AnyTimes()
+
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
 	if err != nil {
 		return nil, err
 	}
@@ -3023,7 +3043,7 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := manager.LoginPeer(context.Background(), PeerLogin{
+				_, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
 					WireGuardPubKey: account.Peers["peer-1"].Key,
 					SSHKey:          "someKey",
 					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},
@@ -3098,7 +3118,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, err := manager.LoginPeer(context.Background(), PeerLogin{
+				_, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
 					WireGuardPubKey: "some-new-key" + strconv.Itoa(i),
 					SSHKey:          "someKey",
 					Meta:            nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)},

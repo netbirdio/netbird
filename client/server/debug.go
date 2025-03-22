@@ -53,7 +53,7 @@ The files in this bundle have been anonymized to protect sensitive information. 
 
 IP Addresses
 
-IPv4 addresses are replaced with addresses starting from 192.51.100.0
+IPv4 addresses are replaced with addresses starting from 198.51.100.0
 IPv6 addresses are replaced with addresses starting from 100::
 
 IP addresses from non public ranges and well known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., etc.).

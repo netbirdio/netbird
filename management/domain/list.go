@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 type List []Domain
 
@@ -58,6 +61,27 @@ func (d List) SafeString() string {
 // PunycodeString converts the List to a comma-separated string of Punycode-encoded domains.
 func (d List) PunycodeString() string {
 	return strings.Join(d.ToPunycodeList(), ", ")
+}
+
+func (d List) Equal(domains List) bool {
+	if len(d) != len(domains) {
+		return false
+	}
+
+	sort.Slice(d, func(i, j int) bool {
+		return d[i] < d[j]
+	})
+
+	sort.Slice(domains, func(i, j int) bool {
+		return domains[i] < domains[j]
+	})
+
+	for i, domain := range d {
+		if domain != domains[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // FromStringList creates a DomainList from a slice of string.

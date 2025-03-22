@@ -302,7 +302,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem(rsn reason) error
 
 	// If the chosen route is the same as the current route, do nothing
 	if c.currentChosen != nil && c.currentChosen.ID == newChosenID &&
-		c.currentChosen.IsEqual(c.routes[newChosenID]) {
+		c.currentChosen.Equal(c.routes[newChosenID]) {
 		return nil
 	}
 
@@ -330,7 +330,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem(rsn reason) error
 		c.connectEvent()
 	}
 
-	err := c.statusRecorder.AddPeerStateRoute(c.currentChosen.Peer, c.handler.String())
+	err := c.statusRecorder.AddPeerStateRoute(c.currentChosen.Peer, c.handler.String(), c.currentChosen.GetResourceID())
 	if err != nil {
 		return fmt.Errorf("add peer state route: %w", err)
 	}
