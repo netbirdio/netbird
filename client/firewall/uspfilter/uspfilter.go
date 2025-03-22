@@ -710,21 +710,18 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 	}
 
 	// if running in netstack mode we need to pass this to the forwarder
-	if m.netstack {
+	if m.netstack && m.localForwarding {
 		return m.handleNetstackLocalTraffic(packetData)
 	}
 
 	// track inbound packets to get the correct direction and session id for flows
 	m.trackInbound(d, srcIP, dstIP, ruleID, size)
 
+	// pass to either native or virtual stack (to be picked up by listeners)
 	return false
 }
 
 func (m *Manager) handleNetstackLocalTraffic(packetData []byte) bool {
-	if !m.localForwarding {
-		// pass to virtual tcp/ip stack to be picked up by listeners
-		return false
-	}
 
 	fwd := m.forwarder.Load()
 	if fwd == nil {
