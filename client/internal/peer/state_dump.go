@@ -9,7 +9,9 @@ import (
 )
 
 type stateDump struct {
-	log *log.Entry
+	log    *log.Entry
+	status *Status
+	key    string
 
 	sentOffer       int
 	remoteOffer     int
@@ -24,9 +26,11 @@ type stateDump struct {
 	mu sync.Mutex
 }
 
-func newStateDump(log *log.Entry) *stateDump {
+func newStateDump(key string, log *log.Entry, statusRecorder *Status) *stateDump {
 	return &stateDump{
-		log: log,
+		log:    log,
+		status: statusRecorder,
+		key:    key,
 	}
 }
 
@@ -66,8 +70,14 @@ func (s *stateDump) dumpState() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.log.Infof("Dump stat: SentOffer: %d, RemoteOffer: %d, RemoteAnswer: %d, RemoteCandidate: %d, P2PConnected: %d, SwitchToRelay: %d, WGCheckSuccess: %d, RelayConnected: %d, LocalProxies: %d",
-		s.sentOffer, s.remoteOffer, s.remoteAnswer, s.remoteCandidate, s.p2pConnected, s.switchToRelay, s.wgCheckSuccess, s.relayConnected, s.localProxies)
+	status := "unknown"
+	state, e := s.status.GetPeer(s.key)
+	if e == nil {
+		status = state.ConnStatus.String()
+	}
+
+	s.log.Infof("Dump stat: Status: %s, SentOffer: %d, RemoteOffer: %d, RemoteAnswer: %d, RemoteCandidate: %d, P2PConnected: %d, SwitchToRelay: %d, WGCheckSuccess: %d, RelayConnected: %d, LocalProxies: %d",
+		status, s.sentOffer, s.remoteOffer, s.remoteAnswer, s.remoteCandidate, s.p2pConnected, s.switchToRelay, s.wgCheckSuccess, s.relayConnected, s.localProxies)
 }
 
 func (s *stateDump) RemoteAnswer() {

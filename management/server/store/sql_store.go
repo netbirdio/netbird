@@ -220,6 +220,10 @@ func generateAccountSQLTypes(account *types.Account) {
 		account.SetupKeysG = append(account.SetupKeysG, *key)
 	}
 
+	if len(account.SetupKeys) != len(account.SetupKeysG) {
+		log.Warnf("SetupKeysG length mismatch for account %s", account.Id)
+	}
+
 	for id, peer := range account.Peers {
 		peer.ID = id
 		account.PeersG = append(account.PeersG, *peer)
