@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	// todo review the names
-	envDisableLazyConn     = "NB_LAZY_CONN_DISABLED"
-	envInactivityThreshold = "NB_INACTIVITY_THRESHOLD"
+	envEnableLazyConn      = "NB_ENABLE_EXPERIMENTAL_LAZY_CONN"
+	envInactivityThreshold = "NB_LAZY_CONN_INACTIVITY_THRESHOLD"
 )
 
 // ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
@@ -39,17 +38,14 @@ type ConnMgr struct {
 }
 
 func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
-	var lazyConnMgr *manager.Manager
-	if os.Getenv(envDisableLazyConn) != "true" {
+	e := &ConnMgr{
+		peerStore: peerStore,
+	}
+	if os.Getenv(envEnableLazyConn) == "true" {
 		cfg := manager.Config{
 			InactivityThreshold: inactivityThresholdEnv(),
 		}
-		lazyConnMgr = manager.NewManager(cfg, iface, dispatcher)
-	}
-
-	e := &ConnMgr{
-		peerStore:   peerStore,
-		lazyConnMgr: lazyConnMgr,
+		e.lazyConnMgr = manager.NewManager(cfg, iface, dispatcher)
 	}
 	return e
 }
