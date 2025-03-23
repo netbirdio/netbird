@@ -258,7 +258,7 @@ func (conn *Conn) Close() {
 // doesn't block, discards the message if connection wasn't ready
 func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 	conn.dumpState.RemoteAnswer()
-	conn.log.Infof("OnRemoteAnswer, status ICE: %s, status relay: %s", conn.statusICE, conn.statusRelay)
+	conn.log.Infof("OnRemoteAnswer, priority: %s, status ICE: %s, status relay: %s", conn.currentConnPriority, conn.statusICE, conn.statusRelay)
 	return conn.handshaker.OnRemoteAnswer(answer)
 }
 
