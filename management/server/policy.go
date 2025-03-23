@@ -255,7 +255,7 @@ func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule 
 	for i := range rules {
 		rule := rules[i]
 
-		result[i] = &proto.FirewallRule{
+		fwRule := &proto.FirewallRule{
 			PolicyID:  []byte(rule.PolicyID),
 			PeerIP:    rule.PeerIP,
 			Direction: getProtoDirection(rule.Direction),
@@ -264,6 +264,16 @@ func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule 
 			Port:      rule.Port,
 			PortInfo:  rule.PortRange.ToProto(),
 		}
+
+		if shouldUsePortRange(fwRule) {
+			fwRule.PortInfo = rule.PortRange.ToProto()
+		}
+
+		result[i] = fwRule
 	}
 	return result
+}
+
+func shouldUsePortRange(rule *proto.FirewallRule) bool {
+	return rule.Port == "" && (rule.Protocol == proto.RuleProtocol_UDP || rule.Protocol == proto.RuleProtocol_TCP)
 }
