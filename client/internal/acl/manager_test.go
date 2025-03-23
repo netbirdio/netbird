@@ -1,6 +1,7 @@
 package acl
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -10,8 +11,11 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
+	"github.com/netbirdio/netbird/client/internal/netflow"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
+
+var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
 
 func TestDefaultManager(t *testing.T) {
 	networkMap := &mgmProto.NetworkMap{
@@ -52,7 +56,7 @@ func TestDefaultManager(t *testing.T) {
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
-	fw, err := firewall.NewFirewall(ifaceMock, nil, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
 	if err != nil {
 		t.Errorf("create firewall: %v", err)
 		return
@@ -346,7 +350,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
-	fw, err := firewall.NewFirewall(ifaceMock, nil, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
 	if err != nil {
 		t.Errorf("create firewall: %v", err)
 		return

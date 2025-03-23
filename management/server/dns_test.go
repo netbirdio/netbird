@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -209,7 +211,12 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock())
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	settingsMockManager := settings.NewMockManager(ctrl)
+
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
 }
 
 func createDNSStore(t *testing.T) (store.Store, error) {

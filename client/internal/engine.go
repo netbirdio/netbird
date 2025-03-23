@@ -34,6 +34,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/netflow"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -189,6 +191,7 @@ type Engine struct {
 	persistNetworkMap bool
 	latestNetworkMap  *mgmProto.NetworkMap
 	connSemaphore     *semaphoregroup.SemaphoreGroup
+	flowManager       nftypes.FlowManager
 }
 
 // Peer is an instance of the Connection Peer
@@ -308,6 +311,12 @@ func (e *Engine) Stop() error {
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
+
+	// stop flow manager after wg interface is gone
+	if e.flowManager != nil {
+		e.flowManager.Close()
+	}
+
 	log.Infof("stopped Netbird Engine")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -341,6 +350,10 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
+
+	// start flow manager right after interface creation
+	publicKey := e.config.WgPrivateKey.PublicKey()
+	e.flowManager = netflow.NewManager(e.ctx, e.wgInterface, publicKey[:], e.statusRecorder)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
@@ -448,7 +461,7 @@ func (e *Engine) createFirewall() error {
 	}
 
 	var err error
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.config.DisableServerRoutes)
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes)
 	if err != nil || e.firewall == nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 		return nil
@@ -482,12 +495,12 @@ func (e *Engine) initFirewall() error {
 
 	// this rule is static and will be torn down on engine down by the firewall manager
 	if _, err := e.firewall.AddPeerFiltering(
+		nil,
 		net.IP{0, 0, 0, 0},
 		firewallManager.ProtocolUDP,
 		nil,
 		&port,
 		firewallManager.ActionAccept,
-		"",
 		"",
 	); err != nil {
 		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
@@ -512,6 +525,7 @@ func (e *Engine) blockLanAccess() {
 	v4 := netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 	for _, network := range toBlock {
 		if _, err := e.firewall.AddRouteFiltering(
+			nil,
 			[]netip.Prefix{v4},
 			network,
 			firewallManager.ProtocolALL,
@@ -642,25 +656,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		stunTurn = append(stunTurn, e.TURNs...)
 		e.stunTurn.Store(stunTurn)
 
-		relayMsg := wCfg.GetRelay()
-		if relayMsg != nil {
-			// when we receive token we expect valid address list too
-			c := &auth.Token{
-				Payload:   relayMsg.GetTokenPayload(),
-				Signature: relayMsg.GetTokenSignature(),
-			}
-			if err := e.relayManager.UpdateToken(c); err != nil {
-				log.Errorf("failed to update relay token: %v", err)
-				return fmt.Errorf("update relay token: %w", err)
-			}
+		err = e.handleRelayUpdate(wCfg.GetRelay())
+		if err != nil {
+			return err
+		}
 
-			e.relayManager.UpdateServerURLs(relayMsg.Urls)
-
-			// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
-			// We can ignore all errors because the guard will manage the reconnection retries.
-			_ = e.relayManager.Serve()
-		} else {
-			e.relayManager.UpdateServerURLs(nil)
+		err = e.handleFlowUpdate(wCfg.GetFlow())
+		if err != nil {
+			return fmt.Errorf("handle the flow configuration: %w", err)
 		}
 
 		// todo update signal
@@ -689,6 +692,57 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil
+}
+
+func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
+	if update != nil {
+		// when we receive token we expect valid address list too
+		c := &auth.Token{
+			Payload:   update.GetTokenPayload(),
+			Signature: update.GetTokenSignature(),
+		}
+		if err := e.relayManager.UpdateToken(c); err != nil {
+			return fmt.Errorf("update relay token: %w", err)
+		}
+
+		e.relayManager.UpdateServerURLs(update.Urls)
+
+		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
+		// We can ignore all errors because the guard will manage the reconnection retries.
+		_ = e.relayManager.Serve()
+	} else {
+		e.relayManager.UpdateServerURLs(nil)
+	}
+
+	return nil
+}
+
+func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
+	if config == nil {
+		return nil
+	}
+
+	flowConfig, err := toFlowLoggerConfig(config)
+	if err != nil {
+		return err
+	}
+	return e.flowManager.Update(flowConfig)
+}
+
+func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error) {
+	if config.GetInterval() == nil {
+		return nil, errors.New("flow interval is nil")
+	}
+	return &nftypes.FlowConfig{
+		Enabled:            config.GetEnabled(),
+		Counters:           config.GetCounters(),
+		URL:                config.GetUrl(),
+		TokenPayload:       config.GetTokenPayload(),
+		TokenSignature:     config.GetTokenSignature(),
+		Interval:           config.GetInterval().AsDuration(),
+		DNSCollection:      config.GetDnsCollection(),
+		ExitNodeCollection: config.GetExitNodeCollection(),
+	}, nil
 }
 
 // updateChecksIfNew updates checks if there are changes and sync new meta with management

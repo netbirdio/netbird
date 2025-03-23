@@ -96,21 +96,22 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 //
 // Comment will be ignored because some system this feature is not supported
 func (m *Manager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
-	protocol firewall.Protocol,
+	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
-	_ string,
 ) ([]firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.aclMgr.AddPeerFiltering(ip, protocol, sPort, dPort, action, ipsetName)
+	return m.aclMgr.AddPeerFiltering(id, ip, proto, sPort, dPort, action, ipsetName)
 }
 
 func (m *Manager) AddRouteFiltering(
+	id []byte,
 	sources []netip.Prefix,
 	destination netip.Prefix,
 	proto firewall.Protocol,
@@ -125,7 +126,7 @@ func (m *Manager) AddRouteFiltering(
 		return nil, fmt.Errorf("unsupported IP version: %s", destination.Addr().String())
 	}
 
-	return m.router.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+	return m.router.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 }
 
 // DeletePeerRule from the firewall by rule definition
@@ -196,12 +197,12 @@ func (m *Manager) AllowNetbird() error {
 	}
 
 	_, err := m.AddPeerFiltering(
+		nil,
 		net.IP{0, 0, 0, 0},
 		"all",
 		nil,
 		nil,
 		firewall.ActionAccept,
-		"",
 		"",
 	)
 	if err != nil {

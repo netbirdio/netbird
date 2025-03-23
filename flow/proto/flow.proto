@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "/proto";
+
+package flow;
+
+service FlowService {
+  // Client to receiver streams of events and acknowledgements
+  rpc Events(stream FlowEvent) returns (stream FlowEventAck) {}
+}
+
+message FlowEvent {
+  // Unique client event identifier
+  bytes event_id = 1;
+
+  // When the event occurred
+  google.protobuf.Timestamp timestamp = 2;
+
+  // Public key of the sending peer
+  bytes public_key = 3;
+
+  FlowFields flow_fields = 4;
+
+  bool isInitiator = 5;
+}
+
+message FlowEventAck {
+  // Unique client event identifier that has been ack'ed
+  bytes event_id = 1;
+  bool isInitiator = 2;
+}
+
+message FlowFields {
+  // Unique client flow session identifier
+  bytes flow_id = 1;
+
+  // Flow type
+  Type type = 2;
+
+  // RuleId identifies the rule that allowed or denied the connection
+  bytes rule_id = 3;
+
+  // Initiating traffic direction
+  Direction direction = 4;
+
+  // IP protocol number
+  uint32 protocol = 5;
+
+  // Source IP address
+  bytes source_ip = 6;
+
+  // Destination IP address
+  bytes dest_ip = 7;
+
+  // Layer 4 -specific information
+  oneof connection_info {
+    // TCP/UDP port information
+    PortInfo port_info = 8;
+
+    // ICMP type and code
+    ICMPInfo icmp_info = 9;
+  }
+
+  // Number of packets
+  uint64 rx_packets = 10;
+  uint64 tx_packets = 11;
+
+  // Number of bytes
+  uint64 rx_bytes = 12;
+  uint64 tx_bytes = 13;
+
+  // Resource ID
+  bytes source_resource_id = 14;
+  bytes dest_resource_id = 15;
+
+}
+
+// Flow event types
+enum Type {
+  TYPE_UNKNOWN = 0;
+  TYPE_START = 1;
+  TYPE_END = 2;
+  TYPE_DROP = 3;
+}
+
+// Flow direction
+enum Direction {
+  DIRECTION_UNKNOWN = 0;
+  INGRESS = 1;
+  EGRESS = 2;
+}
+
+// TCP/UDP port information
+message PortInfo {
+  uint32 source_port = 1;
+  uint32 dest_port = 2;
+}
+
+// ICMP message information
+message ICMPInfo {
+  uint32 icmp_type = 1;
+  uint32 icmp_code = 2;
+}

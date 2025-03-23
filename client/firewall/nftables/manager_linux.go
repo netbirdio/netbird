@@ -113,13 +113,13 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
 func (m *Manager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
-	comment string,
 ) ([]firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -129,10 +129,11 @@ func (m *Manager) AddPeerFiltering(
 		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
 	}
 
-	return m.aclManager.AddPeerFiltering(ip, proto, sPort, dPort, action, ipsetName, comment)
+	return m.aclManager.AddPeerFiltering(id, ip, proto, sPort, dPort, action, ipsetName)
 }
 
 func (m *Manager) AddRouteFiltering(
+	id []byte,
 	sources []netip.Prefix,
 	destination netip.Prefix,
 	proto firewall.Protocol,
@@ -147,7 +148,7 @@ func (m *Manager) AddRouteFiltering(
 		return nil, fmt.Errorf("unsupported IP version: %s", destination.Addr().String())
 	}
 
-	return m.router.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+	return m.router.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 }
 
 // DeletePeerRule from the firewall by rule definition

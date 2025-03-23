@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -24,13 +24,13 @@ type Manager interface {
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
-	accountManager     s.AccountManager
+	accountManager     account.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager s.AccountManager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
