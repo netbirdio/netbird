@@ -1200,6 +1200,11 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("create peer connection: %w", err)
 	}
 
+	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String())
+	if err != nil {
+		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
+	}
+
 	if exists := e.connMgr.AddPeerConn(peerKey, conn); exists {
 		conn.Close()
 		return fmt.Errorf("peer already exists: %s", peerKey)
@@ -1209,12 +1214,6 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		conn.AddBeforeAddPeerHook(e.beforePeerHook)
 		conn.AddAfterRemovePeerHook(e.afterPeerHook)
 	}
-
-	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String())
-	if err != nil {
-		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
-	}
-
 	return nil
 }
 
