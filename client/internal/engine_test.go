@@ -1482,7 +1482,7 @@ func getConnectedPeers(e *Engine) int {
 	i := 0
 	for _, id := range e.peerStore.PeersPubKey() {
 		conn, _ := e.peerStore.PeerConn(id)
-		if conn.Status() == peer.StatusConnected {
+		if conn.IsConnected() {
 			i++
 		}
 	}

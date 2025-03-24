@@ -305,11 +305,15 @@ func (conn *Conn) WgConfig() WgConfig {
 	return conn.config.WgConfig
 }
 
-// Status returns current status of the Conn
-func (conn *Conn) Status() ConnStatus {
+// IsConnected unit tests only
+// refactor unit test to use status recorder use refactor status recorded to manage connection status in peer.Conn
+func (conn *Conn) IsConnected() bool {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	return conn.evalStatus()
+	if conn.currentConnPriority != conntype.None {
+		return true
+	}
+	return false
 }
 
 func (conn *Conn) GetKey() string {
