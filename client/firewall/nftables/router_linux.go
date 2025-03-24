@@ -100,6 +100,10 @@ func (r *router) init(workTable *nftables.Table) error {
 		return fmt.Errorf("create containers: %w", err)
 	}
 
+	if err := r.setupDataPlaneMark(); err != nil {
+		log.Errorf("failed to set up data plane mark: %v", err)
+	}
+
 	return nil
 }
 
@@ -196,15 +200,21 @@ func (r *router) createContainers() error {
 		Type:     nftables.ChainTypeNAT,
 	})
 
-	// Chain is created by acl manager
-	// TODO: move creation to a common place
-	r.chains[chainNamePrerouting] = &nftables.Chain{
-		Name:     chainNamePrerouting,
+	r.chains[chainNameManglePostrouting] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameManglePostrouting,
+		Table:    r.workTable,
+		Hooknum:  nftables.ChainHookPostrouting,
+		Priority: nftables.ChainPriorityMangle,
+		Type:     nftables.ChainTypeFilter,
+	})
+
+	r.chains[chainNameManglePrerouting] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameManglePrerouting,
 		Table:    r.workTable,
 		Hooknum:  nftables.ChainHookPrerouting,
 		Priority: nftables.ChainPriorityMangle,
 		Type:     nftables.ChainTypeFilter,
-	}
+	})
 
 	// Add the single NAT rule that matches on mark
 	if err := r.addPostroutingRules(); err != nil {
@@ -220,9 +230,77 @@ func (r *router) createContainers() error {
 	}
 
 	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf("nftables: unable to initialize table: %v", err)
+		return fmt.Errorf("initialize tables: %v", err)
 	}
 
+	return nil
+}
+
+// setupDataPlaneMark configures the fwmark for the data plane
+func (r *router) setupDataPlaneMark() error {
+	if r.chains[chainNameManglePrerouting] == nil || r.chains[chainNameManglePostrouting] == nil {
+		return errors.New("no mangle chains found")
+	}
+
+	preExprs := []expr.Any{
+		&expr.Meta{
+			Key:      expr.MetaKeyIIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Immediate{
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(nbnet.DataPlaneMarkIn),
+		},
+		&expr.Ct{
+			Key:            expr.CtKeyMARK,
+			Register:       1,
+			SourceRegister: true,
+		},
+	}
+
+	preNftRule := &nftables.Rule{
+		Table: r.workTable,
+		Chain: r.chains[chainNameManglePrerouting],
+		Exprs: preExprs,
+	}
+	r.conn.AddRule(preNftRule)
+
+	postExprs := []expr.Any{
+		&expr.Meta{
+			Key:      expr.MetaKeyOIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Immediate{
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(nbnet.DataPlaneMarkOut),
+		},
+		&expr.Ct{
+			Key:            expr.CtKeyMARK,
+			Register:       1,
+			SourceRegister: true,
+		},
+	}
+
+	postNftRule := &nftables.Rule{
+		Table: r.workTable,
+		Chain: r.chains[chainNameManglePostrouting],
+		Exprs: postExprs,
+	}
+	r.conn.AddRule(postNftRule)
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("flush: %w", err)
+	}
 	return nil
 }
 
@@ -578,7 +656,7 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 
 	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
 		Table:    r.workTable,
-		Chain:    r.chains[chainNamePrerouting],
+		Chain:    r.chains[chainNameManglePrerouting],
 		Exprs:    exprs,
 		UserData: []byte(ruleKey),
 	})
