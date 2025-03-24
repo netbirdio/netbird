@@ -34,7 +34,9 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/server/peers"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
@@ -101,9 +103,9 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = loadMgmtConfig(ctx, MgmtConfig)
+			config, err = loadMgmtConfig(ctx, types.MgmtConfigPath)
 			if err != nil {
-				return fmt.Errorf("failed reading provided config file: %s: %v", MgmtConfig, err)
+				return fmt.Errorf("failed reading provided config file: %s: %v", types.MgmtConfigPath, err)
 			}
 
 			if cmd.Flag(idpSignKeyRefreshEnabledFlagName).Changed {
@@ -183,7 +185,7 @@ var (
 			if config.DataStoreEncryptionKey != key {
 				log.WithContext(ctx).Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
-				err := updateMgmtConfig(ctx, MgmtConfig, config)
+				err := updateMgmtConfig(ctx, types.MgmtConfigPath, config)
 				if err != nil {
 					return fmt.Errorf("failed to write out store encryption key: %s", err)
 				}
@@ -636,7 +638,7 @@ func handleRebrand(cmd *cobra.Command) error {
 			}
 		}
 	}
-	if MgmtConfig == defaultMgmtConfig {
+	if types.MgmtConfigPath == defaultMgmtConfig {
 		if migrateToNetbird(oldDefaultMgmtConfig, defaultMgmtConfig) {
 			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
 			err = cpDir(oldDefaultMgmtConfigDir, defaultMgmtConfigDir)

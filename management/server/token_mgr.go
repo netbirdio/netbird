@@ -13,6 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/types"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	authv2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
 
@@ -33,7 +34,7 @@ type SecretsManager interface {
 type TimeBasedAuthSecretsManager struct {
 	mux             sync.Mutex
 	turnCfg         *TURNConfig
-	relayCfg        *Relay
+	relayCfg        *types.Relay
 	turnHmacToken   *auth.TimedHMAC
 	relayHmacToken  *authv2.Generator
 	updateManager   *PeersUpdateManager
@@ -44,7 +45,7 @@ type TimeBasedAuthSecretsManager struct {
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *types.Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,

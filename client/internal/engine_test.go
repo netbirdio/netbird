@@ -1403,7 +1403,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	config := &server.Config{
 		Stuns:      []*server.Host{},
 		TURNConfig: &server.TURNConfig{},
-		Relay: &server.Relay{
+		Relay: &types.Relay{
 			Addresses:      []string{"127.0.0.1:1234"},
 			CredentialsTTL: util.Duration{Duration: time.Hour},
 			Secret:         "222222222222222222",

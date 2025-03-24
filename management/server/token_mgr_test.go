@@ -31,7 +31,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	secret := "some_secret"
 	peersManager := NewPeersUpdateManager(nil)
 
-	rc := &Relay{
+	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
@@ -81,7 +81,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(context.Background(), peer)
 
-	rc := &Relay{
+	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
@@ -184,7 +184,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
 
-	rc := &Relay{
+	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
