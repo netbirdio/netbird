@@ -156,7 +156,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		peerConnDispatcher: services.PeerConnDispatcher,
 		statusRelay:        NewAtomicConnStatus(),
 		statusICE:          NewAtomicConnStatus(),
-		dumpState:      newStateDump(config.Key, connLog, statusRecorder),
+		dumpState:          newStateDump(config.Key, connLog, services.StatusRecorder),
 	}
 
 	return conn, nil
