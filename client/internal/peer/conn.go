@@ -310,10 +310,7 @@ func (conn *Conn) WgConfig() WgConfig {
 func (conn *Conn) IsConnected() bool {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	if conn.currentConnPriority != conntype.None {
-		return true
-	}
-	return false
+	return conn.currentConnPriority != conntype.None
 }
 
 func (conn *Conn) GetKey() string {
