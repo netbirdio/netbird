@@ -156,7 +156,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		peerConnDispatcher: services.PeerConnDispatcher,
 		statusRelay:        NewAtomicConnStatus(),
 		statusICE:          NewAtomicConnStatus(),
-		dumpState:          newStateDump(connLog),
+		dumpState:      newStateDump(config.Key, connLog, statusRecorder),
 	}
 
 	return conn, nil
@@ -287,7 +287,7 @@ func (conn *Conn) Close() {
 // doesn't block, discards the message if connection wasn't ready
 func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 	conn.dumpState.RemoteAnswer()
-	conn.Log.Infof("OnRemoteAnswer, status ICE: %s, status relay: %s", conn.statusICE, conn.statusRelay)
+	conn.Log.Infof("OnRemoteAnswer, priority: %s, status ICE: %s, status relay: %s", conn.currentConnPriority, conn.statusICE, conn.statusRelay)
 	return conn.handshaker.OnRemoteAnswer(answer)
 }
 

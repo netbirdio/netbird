@@ -6,7 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"strings"
+	"net/url"
 	"sync"
 	"time"
 
@@ -31,9 +31,12 @@ type GRPCClient struct {
 }
 
 func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCClient, error) {
+	parsedURL, err := url.Parse(addr)
+	if err != nil {
+		return nil, fmt.Errorf("parsing url: %w", err)
+	}
 	var opts []grpc.DialOption
-
-	if strings.Contains(addr, "443") {
+	if parsedURL.Scheme == "https" {
 		certPool, err := x509.SystemCertPool()
 		if err != nil || certPool == nil {
 			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
@@ -58,7 +61,7 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 		grpc.WithDefaultServiceConfig(`{"healthCheckConfig": {"serviceName": ""}}`),
 	)
 
-	conn, err := grpc.NewClient(addr, opts...)
+	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", parsedURL.Hostname(), parsedURL.Port()), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating new grpc client: %w", err)
 	}
@@ -80,7 +83,11 @@ func (c *GRPCClient) Close() error {
 func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHandler func(msg *proto.FlowEventAck) error) error {
 	backOff := defaultBackoff(ctx, interval)
 	operation := func() error {
-		return c.establishStreamAndReceive(ctx, msgHandler)
+		err := c.establishStreamAndReceive(ctx, msgHandler)
+		if err != nil {
+			log.Errorf("receive failed: %v", err)
+		}
+		return err
 	}
 
 	if err := backoff.Retry(operation, backOff); err != nil {
@@ -92,12 +99,17 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 
 func (c *GRPCClient) establishStreamAndReceive(ctx context.Context, msgHandler func(msg *proto.FlowEventAck) error) error {
 	if c.clientConn.GetState() == connectivity.Shutdown {
-		return backoff.Permanent(errors.New("connection to flow receiver has been shut down"))
+		return errors.New("connection to flow receiver has been shut down")
 	}
 
 	stream, err := c.realClient.Events(ctx, grpc.WaitForReady(true))
 	if err != nil {
 		return fmt.Errorf("create event stream: %w", err)
+	}
+
+	err = stream.Send(&proto.FlowEvent{IsInitiator: true})
+	if err != nil {
+		log.Infof("failed to send initiator message to flow receiver but will attempt to continue. Error: %s", err)
 	}
 
 	if err = checkHeader(stream); err != nil {
@@ -116,6 +128,11 @@ func (c *GRPCClient) receive(stream proto.FlowService_EventsClient, msgHandler f
 		msg, err := stream.Recv()
 		if err != nil {
 			return fmt.Errorf("receive from stream: %w", err)
+		}
+
+		if msg.IsInitiator {
+			log.Tracef("received initiator message from flow receiver")
+			continue
 		}
 
 		if err := msgHandler(msg); err != nil {

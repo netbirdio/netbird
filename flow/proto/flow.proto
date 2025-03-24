@@ -22,11 +22,14 @@ message FlowEvent {
   bytes public_key = 3;
 
   FlowFields flow_fields = 4;
+
+  bool isInitiator = 5;
 }
 
 message FlowEventAck {
   // Unique client event identifier that has been ack'ed
   bytes event_id = 1;
+  bool isInitiator = 2;
 }
 
 message FlowFields {
