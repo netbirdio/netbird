@@ -499,6 +499,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"user", linkedUser.Id}
 	}
 
+	if isLinked, linkedRouter := isGroupLinkedToNetworkRouter(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"network router", linkedRouter.ID}
+	}
+
 	return checkGroupLinkedToSettings(ctx, transaction, group)
 }
 
