@@ -124,9 +124,6 @@ func TestTCPStateMachine(t *testing.T) {
 					// Receive RST
 					valid := tracker.IsValidInbound(dstIP, srcIP, dstPort, srcPort, TCPRst, 0)
 					require.True(t, valid, "RST should be allowed for established connection")
-
-					// Connection is logically dead but we don't enforce blocking subsequent packets
-					// The connection will be cleaned up by timeout
 				},
 			},
 			{
@@ -217,7 +214,7 @@ func TestRSTHandling(t *testing.T) {
 			conn := tracker.connections[key]
 			if tt.wantValid {
 				require.NotNil(t, conn)
-				require.Equal(t, TCPStateClosed, conn.State)
+				require.Equal(t, TCPStateClosed, conn.GetState())
 			}
 		})
 	}
@@ -263,7 +260,7 @@ func BenchmarkTCPTracker(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000), TCPAck, 0)
+			tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%1000), TCPAck|TCPSyn, 0)
 		}
 	})
 
@@ -280,7 +277,7 @@ func BenchmarkTCPTracker(b *testing.B) {
 				if i%2 == 0 {
 					tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 80, TCPSyn, 0)
 				} else {
-					tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%65535), TCPAck, 0)
+					tracker.IsValidInbound(dstIP, srcIP, 80, uint16(i%65535), TCPAck|TCPSyn, 0)
 				}
 				i++
 			}
