@@ -101,9 +101,9 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = loadMgmtConfig(ctx, mgmtConfig)
+			config, err = loadMgmtConfig(ctx, MgmtConfig)
 			if err != nil {
-				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
+				return fmt.Errorf("failed reading provided config file: %s: %v", MgmtConfig, err)
 			}
 
 			if cmd.Flag(idpSignKeyRefreshEnabledFlagName).Changed {
@@ -183,7 +183,7 @@ var (
 			if config.DataStoreEncryptionKey != key {
 				log.WithContext(ctx).Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
-				err := updateMgmtConfig(ctx, mgmtConfig, config)
+				err := updateMgmtConfig(ctx, MgmtConfig, config)
 				if err != nil {
 					return fmt.Errorf("failed to write out store encryption key: %s", err)
 				}
@@ -636,7 +636,7 @@ func handleRebrand(cmd *cobra.Command) error {
 			}
 		}
 	}
-	if mgmtConfig == defaultMgmtConfig {
+	if MgmtConfig == defaultMgmtConfig {
 		if migrateToNetbird(oldDefaultMgmtConfig, defaultMgmtConfig) {
 			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
 			err = cpDir(oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
