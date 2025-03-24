@@ -128,13 +128,17 @@ type TCPTracker struct {
 	cleanupTicker *time.Ticker
 	tickerCancel  context.CancelFunc
 	timeout       time.Duration
+	waitTimeout   time.Duration
 	flowLogger    nftypes.FlowLogger
 }
 
 // NewTCPTracker creates a new TCP connection tracker
 func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftypes.FlowLogger) *TCPTracker {
+	waitTimeout := TimeWaitTimeout
 	if timeout == 0 {
 		timeout = DefaultTCPTimeout
+	} else {
+		waitTimeout = timeout / 45
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -145,6 +149,7 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 		cleanupTicker: time.NewTicker(TCPCleanupInterval),
 		tickerCancel:  cancel,
 		timeout:       timeout,
+		waitTimeout:   waitTimeout,
 		flowLogger:    flowLogger,
 	}
 
@@ -267,7 +272,11 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 	switch currentState {
 	case TCPStateNew:
 		if flags&TCPSyn != 0 && flags&TCPAck == 0 {
-			newState = TCPStateSynSent
+			if isOutbound {
+				newState = TCPStateSynSent
+			} else {
+				newState = TCPStateSynReceived
+			}
 		}
 
 	case TCPStateSynSent:
@@ -297,9 +306,13 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 	case TCPStateFinWait1:
 		switch {
 		case flags&TCPFin != 0 && flags&TCPAck != 0:
-			newState = TCPStateClosing
+			if !isOutbound {
+				newState = TCPStateClosing
+			}
 		case flags&TCPFin != 0:
-			newState = TCPStateFinWait2
+			if !isOutbound {
+				newState = TCPStateFinWait2
+			}
 		case flags&TCPAck != 0:
 			newState = TCPStateFinWait2
 		}
@@ -347,6 +360,9 @@ func (t *TCPTracker) isValidStateForFlags(state TCPState, flags uint8) bool {
 		return false
 	}
 	if flags&TCPRst != 0 {
+		if state == TCPStateSynSent {
+			return flags&TCPAck != 0
+		}
 		return true
 	}
 
@@ -354,6 +370,7 @@ func (t *TCPTracker) isValidStateForFlags(state TCPState, flags uint8) bool {
 	case TCPStateNew:
 		return flags&TCPSyn != 0 && flags&TCPAck == 0
 	case TCPStateSynSent:
+		// TODO: support simultaneous open
 		return flags&TCPSyn != 0 && flags&TCPAck != 0
 	case TCPStateSynReceived:
 		return flags&TCPAck != 0
@@ -408,7 +425,7 @@ func (t *TCPTracker) cleanup() {
 		currentState := conn.GetState()
 		switch currentState {
 		case TCPStateTimeWait:
-			timeout = TimeWaitTimeout
+			timeout = t.waitTimeout
 		case TCPStateEstablished:
 			timeout = t.timeout
 		default:
