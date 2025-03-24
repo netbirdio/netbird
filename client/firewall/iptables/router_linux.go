@@ -16,6 +16,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -27,6 +28,7 @@ const (
 	tableFilter = "filter"
 	tableNat    = "nat"
 	tableMangle = "mangle"
+	tableRaw    = "raw"
 
 	chainPOSTROUTING        = "POSTROUTING"
 	chainPREROUTING         = "PREROUTING"
@@ -41,6 +43,7 @@ const (
 	jumpManglePre = "jump-mangle-pre"
 	jumpNatPre    = "jump-nat-pre"
 	jumpNatPost   = "jump-nat-post"
+	zoneRawPre    = "zone-raw-pre"
 	matchSet      = "--match-set"
 
 	dnatSuffix = "_dnat"
@@ -354,6 +357,10 @@ func (r *router) Reset() error {
 		merr = multierror.Append(merr, err)
 	}
 
+	if err := r.cleanupConntrackZones(); err != nil {
+		merr = multierror.Append(merr, err)
+	}
+
 	r.updateState()
 
 	return nberrors.FormatErrorOrNil(merr)
@@ -389,6 +396,10 @@ func (r *router) cleanUpDefaultForwardRules() error {
 }
 
 func (r *router) createContainers() error {
+	if err := r.setupConntrackZones(); err != nil {
+		log.Errorf("failed to setup conntrack zones: %v", err)
+	}
+
 	for _, chainInfo := range []struct {
 		chain string
 		table string
@@ -418,6 +429,33 @@ func (r *router) createContainers() error {
 
 	if err := r.addJumpRules(); err != nil {
 		return fmt.Errorf("add jump rules: %w", err)
+	}
+
+	return nil
+}
+
+func (r *router) setupConntrackZones() error {
+	preRule := []string{
+		"-i", r.wgIface.Name(),
+		"-j", "CT",
+		"--zone", fmt.Sprintf("%d", nftypes.ZoneID),
+	}
+
+	if err := r.iptablesClient.AppendUnique(tableRaw, chainPREROUTING, preRule...); err != nil {
+		return fmt.Errorf("add raw prerouting zone rule: %w", err)
+	}
+
+	r.rules[zoneRawPre] = preRule
+
+	return nil
+}
+
+func (r *router) cleanupConntrackZones() error {
+	if preRule, exists := r.rules[zoneRawPre]; exists {
+		if err := r.iptablesClient.DeleteIfExists(tableRaw, chainPREROUTING, preRule...); err != nil {
+			return fmt.Errorf("remove raw prerouting zone rule: %w", err)
+		}
+		delete(r.rules, zoneRawPre)
 	}
 
 	return nil
@@ -464,7 +502,7 @@ func (r *router) insertEstablishedRule(chain string) error {
 }
 
 func (r *router) addJumpRules() error {
-	// Jump to NAT chain
+	// Jump to nat chain
 	natRule := []string{"-j", chainRTNAT}
 	if err := r.iptablesClient.Insert(tableNat, chainPOSTROUTING, 1, natRule...); err != nil {
 		return fmt.Errorf("add nat postrouting jump rule: %v", err)

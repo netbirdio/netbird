@@ -176,7 +176,7 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 	srcIP := flow.TupleOrig.IP.SourceAddress
 	dstIP := flow.TupleOrig.IP.DestinationAddress
 
-	if !c.relevantFlow(srcIP, dstIP) {
+	if !c.relevantFlow(flow.Zone, srcIP, dstIP) {
 		return
 	}
 
@@ -224,8 +224,10 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 }
 
 // relevantFlow checks if the flow is related to the specified interface
-func (c *ConnTrack) relevantFlow(srcIP, dstIP netip.Addr) bool {
-	// TODO: filter traffic by interface
+func (c *ConnTrack) relevantFlow(zone uint16, srcIP, dstIP netip.Addr) bool {
+	if zone == nftypes.ZoneID {
+		return true
+	}
 
 	wgnet := c.iface.Address().Network
 	if !wgnet.Contains(srcIP.AsSlice()) && !wgnet.Contains(dstIP.AsSlice()) {
