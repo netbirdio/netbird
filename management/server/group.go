@@ -6,18 +6,17 @@ import (
 	"fmt"
 	"slices"
 
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
-
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/status"
 )
 
 type GroupLinkError struct {
