@@ -106,8 +106,8 @@ func (t *TCPConnTrack) SetState(state TCPState) {
 }
 
 // CompareAndSwapState atomically changes the state from old to new if current == old
-func (t *TCPConnTrack) CompareAndSwapState(old, new TCPState) bool {
-	return t.state.CompareAndSwap(int32(old), int32(new))
+func (t *TCPConnTrack) CompareAndSwapState(old, newState TCPState) bool {
+	return t.state.CompareAndSwap(int32(old), int32(newState))
 }
 
 // IsTombstone safely checks if the connection is marked for deletion
