@@ -23,11 +23,11 @@ const (
 )
 
 const (
-	TCPSyn  uint8 = 0x02
-	TCPAck  uint8 = 0x10
 	TCPFin  uint8 = 0x01
+	TCPSyn  uint8 = 0x02
 	TCPRst  uint8 = 0x04
 	TCPPush uint8 = 0x08
+	TCPAck  uint8 = 0x10
 	TCPUrg  uint8 = 0x20
 )
 
@@ -89,22 +89,11 @@ const (
 // TCPConnTrack represents a TCP connection state
 type TCPConnTrack struct {
 	BaseConnTrack
-	SourcePort  uint16
-	DestPort    uint16
-	State       TCPState
-	established atomic.Bool
-	tombstone   atomic.Bool
+	SourcePort uint16
+	DestPort   uint16
+	State      TCPState
+	tombstone  atomic.Bool
 	sync.RWMutex
-}
-
-// IsEstablished safely checks if connection is established
-func (t *TCPConnTrack) IsEstablished() bool {
-	return t.established.Load()
-}
-
-// SetEstablished safely sets the established state
-func (t *TCPConnTrack) SetEstablished(state bool) {
-	t.established.Store(state)
 }
 
 // IsTombstone safely checks if the connection is marked for deletion
@@ -204,7 +193,6 @@ func (t *TCPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 		DestPort:   dstPort,
 	}
 
-	conn.established.Store(false)
 	conn.tombstone.Store(false)
 
 	t.logger.Trace("New %s TCP connection: %s", direction, key)
@@ -237,12 +225,14 @@ func (t *TCPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 
 	conn.UpdateCounters(nftypes.Ingress, size)
 	conn.Lock()
-	t.updateState(key, conn, flags, false)
-	isEstablished := conn.IsEstablished()
-	isValidState := t.isValidStateForFlags(conn.State, flags)
-	conn.Unlock()
+	defer conn.Unlock()
+	if !t.isValidStateForFlags(conn.State, flags) {
+		t.logger.Trace("TCP state %s is not valid with flags %x for connection %s", conn.State, flags, key)
+		return false
+	}
 
-	return isEstablished || isValidState
+	t.updateState(key, conn, flags, false)
+	return true
 }
 
 // updateState updates the TCP connection state based on flags
@@ -259,7 +249,6 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 	if flags&TCPRst != 0 {
 		conn.State = TCPStateClosed
 		conn.SetTombstone()
-		conn.SetEstablished(false)
 		t.logger.Trace("TCP connection reset: %s", key)
 		t.sendEvent(nftypes.TypeEnd, conn, nil)
 		return
@@ -275,7 +264,6 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 		if flags&TCPSyn != 0 && flags&TCPAck != 0 {
 			if isOutbound {
 				conn.State = TCPStateEstablished
-				conn.SetEstablished(true)
 			} else {
 				// Simultaneous open
 				conn.State = TCPStateSynReceived
@@ -285,7 +273,6 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 	case TCPStateSynReceived:
 		if flags&TCPAck != 0 && flags&TCPSyn == 0 {
 			conn.State = TCPStateEstablished
-			conn.SetEstablished(true)
 		}
 
 	case TCPStateEstablished:
@@ -295,7 +282,6 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, i
 			} else {
 				conn.State = TCPStateCloseWait
 			}
-			conn.SetEstablished(false)
 		}
 
 	case TCPStateFinWait1:
@@ -351,6 +337,9 @@ func (t *TCPTracker) isValidStateForFlags(state TCPState, flags uint8) bool {
 	if !isValidFlagCombination(flags) {
 		return false
 	}
+	if flags&TCPRst != 0 {
+		return true
+	}
 
 	switch state {
 	case TCPStateNew:
@@ -360,9 +349,6 @@ func (t *TCPTracker) isValidStateForFlags(state TCPState, flags uint8) bool {
 	case TCPStateSynReceived:
 		return flags&TCPAck != 0
 	case TCPStateEstablished:
-		if flags&TCPRst != 0 {
-			return true
-		}
 		return flags&TCPAck != 0
 	case TCPStateFinWait1:
 		return flags&TCPFin != 0 || flags&TCPAck != 0
@@ -412,10 +398,10 @@ func (t *TCPTracker) cleanup() {
 		}
 
 		var timeout time.Duration
-		switch {
-		case conn.State == TCPStateTimeWait:
+		switch conn.State {
+		case TCPStateTimeWait:
 			timeout = TimeWaitTimeout
-		case conn.IsEstablished():
+		case TCPStateEstablished:
 			timeout = t.timeout
 		default:
 			timeout = TCPHandshakeTimeout

@@ -218,7 +218,6 @@ func TestRSTHandling(t *testing.T) {
 			if tt.wantValid {
 				require.NotNil(t, conn)
 				require.Equal(t, TCPStateClosed, conn.State)
-				require.False(t, conn.IsEstablished())
 			}
 		})
 	}
