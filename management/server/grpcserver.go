@@ -611,8 +611,6 @@ func toNetbirdConfig(config *types.Config, turnCredentials *Token, relayToken *T
 		Relay:  relayCfg,
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(nbConfig, extraSettings)
-
 	return nbConfig
 }
 
@@ -638,6 +636,10 @@ func toSyncResponse(ctx context.Context, config *types.Config, peer *nbpeer.Peer
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
+
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
+	integrationsConfig.ExtendNetBirdConfig(peer.ID, nbConfig, extraSettings)
+	response.NetbirdConfig = nbConfig
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
