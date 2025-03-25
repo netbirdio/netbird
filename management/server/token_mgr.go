@@ -222,7 +222,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		}
 	}
 
-	m.extendNetbirdConfig(ctx, accountID, update)
+	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
@@ -246,17 +246,17 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 		},
 	}
 
-	m.extendNetbirdConfig(ctx, accountID, update)
+	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
 }
 
-func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, accountID string, update *proto.SyncResponse) {
+func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, peerID, accountID string, update *proto.SyncResponse) {
 	extraSettings, err := m.settingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, extraSettings)
+	integrationsConfig.ExtendNetBirdConfig(peerID, update.NetbirdConfig, extraSettings)
 }
