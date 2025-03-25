@@ -37,7 +37,7 @@ type ConnMgr struct {
 	ctxCancel context.CancelFunc
 }
 
-func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
+func NewConnMgr(statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
 	e := &ConnMgr{
 		peerStore: peerStore,
 	}
@@ -46,6 +46,7 @@ func NewConnMgr(peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *
 			InactivityThreshold: inactivityThresholdEnv(),
 		}
 		e.lazyConnMgr = manager.NewManager(cfg, iface, dispatcher)
+		statusRecorder.UpdateLazyConnection(true)
 	}
 	return e
 }

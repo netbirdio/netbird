@@ -96,6 +96,7 @@ type OutputOverview struct {
 	NumberOfForwardingRules int                        `json:"forwardingRules" yaml:"forwardingRules"`
 	NSServerGroups          []NsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
 	Events                  []SystemEventOutput        `json:"events" yaml:"events"`
+	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 }
 
 func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) OutputOverview {
@@ -135,6 +136,7 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 		NumberOfForwardingRules: int(pbFullStatus.GetNumberOfForwardingRules()),
 		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
 		Events:                  mapEvents(pbFullStatus.GetEvents()),
+		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 	}
 
 	if anon {
@@ -383,6 +385,11 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		}
 	}
 
+	lazyConnectionEnabledStatus := "false"
+	if overview.LazyConnectionEnabled {
+		lazyConnectionEnabledStatus = "true"
+	}
+
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
 	goos := runtime.GOOS
@@ -404,6 +411,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
+			"Lazy connection: %s\n"+
 			"Networks: %s\n"+
 			"Forwarding rules: %d\n"+
 			"Peers count: %s\n",
@@ -418,6 +426,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		interfaceIP,
 		interfaceTypeString,
 		rosenpassEnabledStatus,
+		lazyConnectionEnabledStatus,
 		networks,
 		overview.NumberOfForwardingRules,
 		peersCountString,
