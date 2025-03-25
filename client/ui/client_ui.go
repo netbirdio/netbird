@@ -195,6 +195,7 @@ type serviceClient struct {
 	mAllowSSH          *systray.MenuItem
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
+	mLazyConnEnabled   *systray.MenuItem
 	mNotifications     *systray.MenuItem
 	mAdvancedSettings  *systray.MenuItem
 	mCreateDebugBundle *systray.MenuItem
@@ -611,6 +612,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
+	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable lazy connection", lazyConnMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
@@ -716,6 +718,15 @@ func (s *serviceClient) onTrayReady() {
 					s.mEnableRosenpass.Uncheck()
 				} else {
 					s.mEnableRosenpass.Check()
+				}
+				if err := s.updateConfig(); err != nil {
+					log.Errorf("failed to update config: %v", err)
+				}
+			case <-s.mLazyConnEnabled.ClickedCh:
+				if s.mLazyConnEnabled.Checked() {
+					s.mLazyConnEnabled.Uncheck()
+				} else {
+					s.mLazyConnEnabled.Check()
 				}
 				if err := s.updateConfig(); err != nil {
 					log.Errorf("failed to update config: %v", err)
@@ -968,13 +979,15 @@ func (s *serviceClient) updateConfig() error {
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
 	notificationsDisabled := !s.mNotifications.Checked()
+	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 
 	loginRequest := proto.LoginRequest{
-		IsLinuxDesktopClient: runtime.GOOS == "linux",
-		ServerSSHAllowed:     &sshAllowed,
-		RosenpassEnabled:     &rosenpassEnabled,
-		DisableAutoConnect:   &disableAutoStart,
-		DisableNotifications: &notificationsDisabled,
+		IsLinuxDesktopClient:  runtime.GOOS == "linux",
+		ServerSSHAllowed:      &sshAllowed,
+		RosenpassEnabled:      &rosenpassEnabled,
+		DisableAutoConnect:    &disableAutoStart,
+		DisableNotifications:  &notificationsDisabled,
+		LazyConnectionEnabled: &lazyConnectionEnabled,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {
