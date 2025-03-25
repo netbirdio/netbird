@@ -1639,7 +1639,7 @@ func (e *Engine) RunHealthProbes() bool {
 
 	e.syncMsgMux.Unlock()
 
-	results := e.probeICE(append(stuns, turns...))
+	results := e.probeICE(stuns, turns)
 	e.statusRecorder.UpdateRelayStates(results)
 
 	relayHealthy := true
@@ -1656,8 +1656,11 @@ func (e *Engine) RunHealthProbes() bool {
 	return allHealthy
 }
 
-func (e *Engine) probeICE(stunTurn []*stun.URI) []relay.ProbeResult {
-	return relay.ProbeAll(e.ctx, relay.ProbeTURN, stunTurn)
+func (e *Engine) probeICE(stuns, turns []*stun.URI) []relay.ProbeResult {
+	return append(
+		relay.ProbeAll(e.ctx, relay.ProbeSTUN, stuns),
+		relay.ProbeAll(e.ctx, relay.ProbeSTUN, turns)...,
+	)
 }
 
 // restartEngine restarts the engine by cancelling the client context
