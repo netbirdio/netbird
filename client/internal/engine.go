@@ -450,7 +450,7 @@ func (e *Engine) Start() error {
 
 	e.peerConnDispatcher = dispatcher.NewConnectionDispatcher()
 
-	e.connMgr = NewConnMgr(e.statusRecorder, e.peerStore, wgIface, e.peerConnDispatcher)
+	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface, e.peerConnDispatcher)
 	e.connMgr.Start(e.ctx)
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)

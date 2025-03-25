@@ -54,6 +54,7 @@ type Manager struct {
 }
 
 func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
+	log.Infof("setup lazy connetion service")
 	m := &Manager{
 		connStateDispatcher:  connStateDispatcher,
 		inactivityThreshold:  inactivity.DefaultInactivityThreshold,
@@ -180,7 +181,7 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 func (m *Manager) ExcludePeer(peerIDs []string) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
-	log.Infof("excluding peers from lazy connection manager: %v", peerIDs)
+	log.Infof("update excluded peers from lazy connection: %v", peerIDs)
 
 	m.excludes = make(map[string]struct{})
 	for _, peerID := range peerIDs {
