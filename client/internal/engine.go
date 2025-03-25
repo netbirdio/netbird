@@ -1608,13 +1608,38 @@ func (e *Engine) getRosenpassAddr() string {
 // RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
 // and updates the status recorder with the latest states.
 func (e *Engine) RunHealthProbes() bool {
+	e.syncMsgMux.Lock()
+
 	signalHealthy := e.signal.IsHealthy()
 	log.Debugf("signal health check: healthy=%t", signalHealthy)
 
 	managementHealthy := e.mgmClient.IsHealthy()
 	log.Debugf("management health check: healthy=%t", managementHealthy)
 
-	results := append(e.probeSTUNs(), e.probeTURNs()...)
+	stuns := slices.Clone(e.STUNs)
+	turns := slices.Clone(e.TURNs)
+
+	if e.wgInterface != nil {
+		stats, err := e.wgInterface.GetStats()
+		if err != nil {
+			log.Warnf("failed to get wireguard stats: %v", err)
+			return false
+		}
+		for _, key := range e.peerStore.PeersPubKey() {
+			// wgStats could be zero value, in which case we just reset the stats
+			wgStats, ok := stats[key]
+			if !ok {
+				continue
+			}
+			if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
+				log.Debugf("failed to update wg stats for peer %s: %s", key, err)
+			}
+		}
+	}
+
+	e.syncMsgMux.Unlock()
+
+	results := e.probeICE(append(stuns, turns...))
 	e.statusRecorder.UpdateRelayStates(results)
 
 	relayHealthy := true
@@ -1626,41 +1651,13 @@ func (e *Engine) RunHealthProbes() bool {
 	}
 	log.Debugf("relay health check: healthy=%t", relayHealthy)
 
-	stats, err := e.wgInterface.GetStats()
-	if err != nil {
-		log.Warnf("failed to get wireguard stats: %v", err)
-		return false
-	}
-	for _, key := range e.peerStore.PeersPubKey() {
-		// wgStats could be zero value, in which case we just reset the stats
-		wgStats, ok := stats[key]
-		if !ok {
-			continue
-		}
-		if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
-			log.Debugf("failed to update wg stats for peer %s: %s", key, err)
-		}
-	}
-
 	allHealthy := signalHealthy && managementHealthy && relayHealthy
 	log.Debugf("all health checks completed: healthy=%t", allHealthy)
 	return allHealthy
 }
 
-func (e *Engine) probeSTUNs() []relay.ProbeResult {
-	e.syncMsgMux.Lock()
-	stuns := slices.Clone(e.STUNs)
-	e.syncMsgMux.Unlock()
-
-	return relay.ProbeAll(e.ctx, relay.ProbeSTUN, stuns)
-}
-
-func (e *Engine) probeTURNs() []relay.ProbeResult {
-	e.syncMsgMux.Lock()
-	turns := slices.Clone(e.TURNs)
-	e.syncMsgMux.Unlock()
-
-	return relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)
+func (e *Engine) probeICE(stunTurn []*stun.URI) []relay.ProbeResult {
+	return relay.ProbeAll(e.ctx, relay.ProbeTURN, stunTurn)
 }
 
 // restartEngine restarts the engine by cancelling the client context
