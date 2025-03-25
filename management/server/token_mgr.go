@@ -33,7 +33,7 @@ type SecretsManager interface {
 // TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
 type TimeBasedAuthSecretsManager struct {
 	mux             sync.Mutex
-	turnCfg         *TURNConfig
+	turnCfg         *types.TURNConfig
 	relayCfg        *types.Relay
 	turnHmacToken   *auth.TimedHMAC
 	relayHmacToken  *authv2.Generator
@@ -45,7 +45,7 @@ type TimeBasedAuthSecretsManager struct {
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *types.Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *types.TURNConfig, relayCfg *types.Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,

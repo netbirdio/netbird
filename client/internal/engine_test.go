@@ -1400,15 +1400,15 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, string, error) {
 	t.Helper()
 
-	config := &server.Config{
-		Stuns:      []*server.Host{},
-		TURNConfig: &server.TURNConfig{},
+	config := &types.Config{
+		Stuns:      []*types.Host{},
+		TURNConfig: &types.TURNConfig{},
 		Relay: &types.Relay{
 			Addresses:      []string{"127.0.0.1:1234"},
 			CredentialsTTL: util.Duration{Duration: time.Hour},
 			Secret:         "222222222222222222",
 		},
-		Signal: &server.Host{
+		Signal: &types.Host{
 			Proto: "http",
 			URI:   "localhost:10000",
 		},

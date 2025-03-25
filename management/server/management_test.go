@@ -58,7 +58,7 @@ func setupTest(t *testing.T) *testSuite {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
 
-	config := &server.Config{}
+	config := &types.Config{}
 	_, err = util.ReadJson("testdata/management.json", config)
 	if err != nil {
 		t.Fatalf("failed to read management.json: %v", err)
@@ -156,7 +156,7 @@ func createRawClient(t *testing.T, addr string) (mgmtProto.ManagementServiceClie
 
 func startServer(
 	t *testing.T,
-	config *server.Config,
+	config *types.Config,
 	dataDir string,
 	testFile string,
 ) (*grpc.Server, net.Listener) {

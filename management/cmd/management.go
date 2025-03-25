@@ -72,7 +72,7 @@ var (
 	mgmtSingleAccModeDomain string
 	certFile                string
 	certKey                 string
-	config                  *server.Config
+	config                  *types.Config
 
 	kaep = keepalive.EnforcementPolicy{
 		MinTime:             15 * time.Second,
@@ -488,8 +488,8 @@ func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handle
 	})
 }
 
-func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config, error) {
-	loadedConfig := &server.Config{}
+func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*types.Config, error) {
+	loadedConfig := &types.Config{}
 	_, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig)
 	if err != nil {
 		return nil, err
@@ -524,7 +524,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
 		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
-		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(server.NONE)) {
+		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(types.NONE)) {
 			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
@@ -541,7 +541,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
 
 			if loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
-				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = server.DefaultDeviceAuthFlowScope
+				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = types.DefaultDeviceAuthFlowScope
 			}
 		}
 
@@ -562,7 +562,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 	return loadedConfig, err
 }
 
-func updateMgmtConfig(ctx context.Context, path string, config *server.Config) error {
+func updateMgmtConfig(ctx context.Context, path string, config *types.Config) error {
 	return util.DirectWriteJson(ctx, path, config)
 }
 

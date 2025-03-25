@@ -1008,16 +1008,16 @@ func TestToSyncResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	config := &Config{
-		Signal: &Host{
+	config := &types.Config{
+		Signal: &types.Host{
 			Proto:    "https",
 			URI:      "signal.uri",
 			Username: "",
 			Password: "",
 		},
-		Stuns: []*Host{{URI: "stun.uri", Proto: UDP}},
-		TURNConfig: &TURNConfig{
-			Turns: []*Host{{URI: "turn.uri", Proto: UDP, Username: "turn-user", Password: "turn-pass"}},
+		Stuns: []*types.Host{{URI: "stun.uri", Proto: types.UDP}},
+		TURNConfig: &types.TURNConfig{
+			Turns: []*types.Host{{URI: "turn.uri", Proto: types.UDP, Username: "turn-user", Password: "turn-pass"}},
 		},
 	}
 	peer := &nbpeer.Peer{

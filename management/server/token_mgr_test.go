@@ -19,8 +19,8 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-var TurnTestHost = &Host{
-	Proto:    UDP,
+var TurnTestHost = &types.Host{
+	Proto:    types.UDP,
 	URI:      "turn:turn.netbird.io:77777",
 	Username: "username",
 	Password: "",
@@ -41,10 +41,10 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager)
 
@@ -92,10 +92,10 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), "someAccountID").Return(&types.ExtraSettings{}, nil).AnyTimes()
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager)
 
@@ -194,10 +194,10 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager)
 
