@@ -83,7 +83,11 @@ func (c *GRPCClient) Close() error {
 func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHandler func(msg *proto.FlowEventAck) error) error {
 	backOff := defaultBackoff(ctx, interval)
 	operation := func() error {
-		return c.establishStreamAndReceive(ctx, msgHandler)
+		err := c.establishStreamAndReceive(ctx, msgHandler)
+		if err != nil {
+			log.Errorf("receive failed: %v", err)
+		}
+		return err
 	}
 
 	if err := backoff.Retry(operation, backOff); err != nil {
@@ -95,7 +99,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 
 func (c *GRPCClient) establishStreamAndReceive(ctx context.Context, msgHandler func(msg *proto.FlowEventAck) error) error {
 	if c.clientConn.GetState() == connectivity.Shutdown {
-		return backoff.Permanent(errors.New("connection to flow receiver has been shut down"))
+		return errors.New("connection to flow receiver has been shut down")
 	}
 
 	stream, err := c.realClient.Events(ctx, grpc.WaitForReady(true))
@@ -124,6 +128,11 @@ func (c *GRPCClient) receive(stream proto.FlowService_EventsClient, msgHandler f
 		msg, err := stream.Recv()
 		if err != nil {
 			return fmt.Errorf("receive from stream: %w", err)
+		}
+
+		if msg.IsInitiator {
+			log.Tracef("received initiator message from flow receiver")
+			continue
 		}
 
 		if err := msgHandler(msg); err != nil {
