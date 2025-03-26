@@ -66,6 +66,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 		iFaceDiscover:     ifaceDiscover,
 		statusRecorder:    statusRecorder,
 		hasRelayOnLocally: hasRelayOnLocally,
+		lastKnownState:    ice.ConnectionStateDisconnected,
 	}
 
 	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
@@ -214,7 +215,7 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 			w.lastKnownState = ice.ConnectionStateConnected
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected:
-			if w.lastKnownState != ice.ConnectionStateDisconnected {
+			if w.lastKnownState == ice.ConnectionStateConnected {
 				w.lastKnownState = ice.ConnectionStateDisconnected
 				w.conn.onICEStateDisconnected()
 			}
