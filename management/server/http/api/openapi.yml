@@ -1990,6 +1990,32 @@ components:
         - policy_name
         - icmp_type
         - icmp_code
+    NetworkTrafficEventsResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          description: List of network traffic events
+          items:
+            $ref: "#/components/schemas/NetworkTrafficEvent"
+        page:
+          type: integer
+          description: Current page number
+        page_size:
+          type: integer
+          description: Number of items per page
+        total_records:
+          type: integer
+          description: Total number of event records available
+        total_pages:
+          type: integer
+          description: Total number of pages available
+      required:
+        - events
+        - page
+        - page_size
+        - total_records
+        - total_pages
   responses:
     not_found:
       description: Resource not found
@@ -4183,15 +4209,31 @@ paths:
       tags: [ Events ]
       x-cloud-only: true
       x-experimental: true
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          description: Number of items per page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50000
+            default: 1000
       responses:
         "200":
           description: List of network traffic events
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/NetworkTrafficEvent"
+                $ref: "#/components/schemas/NetworkTrafficEventsResponse"
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
