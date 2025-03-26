@@ -21,6 +21,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -33,6 +34,7 @@ const (
 	chainNameRoutingNat    = "netbird-rt-postrouting"
 	chainNameRoutingRdr    = "netbird-rt-redirect"
 	chainNameForward       = "FORWARD"
+	chainNameRaw           = "netbird-raw"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
 	userDataAcceptForwardRuleOif = "frwacceptoif"
@@ -94,6 +96,10 @@ func (r *router) init(workTable *nftables.Table) error {
 
 	if err := r.removeAcceptForwardRules(); err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
+	}
+
+	if err := r.setupConntrackZones(); err != nil {
+		log.Errorf("failed to setup conntrack zones: %v", err)
 	}
 
 	if err := r.createContainers(); err != nil {
@@ -223,6 +229,49 @@ func (r *router) createContainers() error {
 		return fmt.Errorf("nftables: unable to initialize table: %v", err)
 	}
 
+	return nil
+}
+
+// setupConntrackZones configures the connection tracking zones for the NetBird interface
+func (r *router) setupConntrackZones() error {
+	rawChain := r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameRaw,
+		Table:    r.workTable,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityRaw,
+	})
+
+	exprs := []expr.Any{
+		&expr.Meta{
+			Key:      expr.MetaKeyIIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Immediate{
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(nftypes.ZoneID),
+		},
+		&expr.Ct{
+			Key:            expr.CtKeyZONE,
+			Register:       1,
+			SourceRegister: true,
+		},
+	}
+
+	r.conn.AddRule(&nftables.Rule{
+		Table: r.workTable,
+		Chain: rawChain,
+		Exprs: exprs,
+	})
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("nftables: flush conntrack zone: %w", err)
+	}
 	return nil
 }
 

@@ -114,6 +114,10 @@ func (r *router) init(stateManager *statemanager.Manager) error {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
+	if err := r.setupConntrackZones(); err != nil {
+		log.Errorf("failed to setup conntrack zones: %v", err)
+	}
+
 	if err := r.createContainers(); err != nil {
 		return fmt.Errorf("create containers: %w", err)
 	}
@@ -396,10 +400,6 @@ func (r *router) cleanUpDefaultForwardRules() error {
 }
 
 func (r *router) createContainers() error {
-	if err := r.setupConntrackZones(); err != nil {
-		log.Errorf("failed to setup conntrack zones: %v", err)
-	}
-
 	for _, chainInfo := range []struct {
 		chain string
 		table string

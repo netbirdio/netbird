@@ -225,16 +225,14 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 
 // relevantFlow checks if the flow is related to the specified interface
 func (c *ConnTrack) relevantFlow(zone uint16, srcIP, dstIP netip.Addr) bool {
+	// This currently only covers inbound.
+	// TODO: handle outbound flows based on interface for site2site traffic
 	if zone == nftypes.ZoneID {
 		return true
 	}
 
 	wgnet := c.iface.Address().Network
-	if !wgnet.Contains(srcIP.AsSlice()) && !wgnet.Contains(dstIP.AsSlice()) {
-		return false
-	}
-
-	return true
+	return wgnet.Contains(srcIP.AsSlice()) || wgnet.Contains(dstIP.AsSlice())
 }
 
 // mapRxPackets maps packet counts to RX based on flow direction
