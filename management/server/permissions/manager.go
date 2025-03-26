@@ -102,10 +102,12 @@ func NewManagerMock() Manager {
 }
 
 func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
-	if userID == "allowedUser" {
+	switch userID {
+	case "a23efe53-63fb-11ec-90d6-0242ac120003", "allowedUser":
 		return true, nil
+	default:
+		return false, nil
 	}
-	return false, nil
 }
 
 func (m *managerMock) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error {
