@@ -4227,6 +4227,52 @@ paths:
             minimum: 1
             maximum: 50000
             default: 1000
+        - name: user_id
+          in: query
+          description: Filter by user ID
+          required: false
+          schema:
+            type: string
+        - name: protocol
+          in: query
+          description: Filter by protocol
+          required: false
+          schema:
+            type: integer
+        - name: type
+          in: query
+          description: Filter by event type
+          required: false
+          schema:
+            type: string
+            enum: [TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP]
+        - name: direction
+          in: query
+          description: Filter by direction
+          required: false
+          schema:
+            type: string
+            enum: [INGRESS, EGRESS, DIRECTION_UNKNOWN]
+        - name: search
+          in: query
+          description: Filters events with a partial match on user email, source and destination names and source and destination addresses
+          required: false
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          description: Start date for filtering events (ISO 8601 format, e.g., 2024-01-01T00:00:00Z).
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          description: End date for filtering events (ISO 8601 format, e.g., 2024-01-31T23:59:59Z).
+          required: false
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: List of network traffic events
