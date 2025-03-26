@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/management/server/users"
 )
 
 type Module string
@@ -18,6 +16,7 @@ const (
 	Networks Module = "networks"
 	Peers    Module = "peers"
 	Groups   Module = "groups"
+	Settings Module = "settings"
 )
 
 type Operation string
@@ -33,22 +32,20 @@ type Manager interface {
 }
 
 type managerImpl struct {
-	userManager     users.Manager
-	settingsManager settings.Manager
+	store store.Store
 }
 
 type managerMock struct {
 }
 
-func NewManager(userManager users.Manager, settingsManager settings.Manager) Manager {
+func NewManager(store store.Store) Manager {
 	return &managerImpl{
-		userManager:     userManager,
-		settingsManager: settingsManager,
+		store: store,
 	}
 }
 
 func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
-	user, err := m.userManager.GetUser(ctx, userID)
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return false, err
 	}
@@ -65,7 +62,7 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 	case types.UserRoleAdmin, types.UserRoleOwner:
 		return true, nil
 	case types.UserRoleUser:
-		return m.validateRegularUserPermissions(ctx, accountID, userID, module, operation)
+		return m.validateRegularUserPermissions(ctx, accountID, module, operation)
 	case types.UserRoleBillingAdmin:
 		return false, nil
 	default:
@@ -73,8 +70,8 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 	}
 }
 
-func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
-	settings, err := m.settingsManager.GetSettings(ctx, accountID, activity.SystemInitiator)
+func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accountID string, module Module, operation Operation) (bool, error) {
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get settings: %w", err)
 	}

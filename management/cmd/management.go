@@ -200,10 +200,10 @@ var (
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
 
+			permissionsManager := integrations.InitPermissionsManager(store)
 			userManager := users.NewManager(store)
 			extraSettingsManager := integrations.NewManager(eventStore)
-			settingsManager := settings.NewManager(store, userManager, extraSettingsManager)
-			permissionsManager := integrations.InitPermissionsManager(userManager, settingsManager)
+			settingsManager := settings.NewManager(store, userManager, extraSettingsManager, permissionsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
 			proxyController := integrations.NewController(store)
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
