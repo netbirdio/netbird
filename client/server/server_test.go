@@ -108,6 +108,49 @@ func TestServer_Up(t *testing.T) {
 	assert.Contains(t, err.Error(), "NeedsLogin")
 }
 
+type mockSubscribeEventsServer struct {
+	ctx        context.Context
+	sentEvents []*daemonProto.SystemEvent
+	grpc.ServerStream
+}
+
+func (m *mockSubscribeEventsServer) Send(event *daemonProto.SystemEvent) error {
+	m.sentEvents = append(m.sentEvents, event)
+	return nil
+}
+
+func (m *mockSubscribeEventsServer) Context() context.Context {
+	return m.ctx
+}
+
+func TestServer_SubcribeEvents(t *testing.T) {
+	ctx := internal.CtxInitState(context.Background())
+
+	s := New(ctx, t.TempDir()+"/config.json", "console")
+
+	err := s.Start()
+	require.NoError(t, err)
+
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+	s.config = &internal.Config{
+		ManagementURL: u,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	upReq := &daemonProto.SubscribeRequest{}
+	mockServer := &mockSubscribeEventsServer{
+		ctx:          ctx,
+		sentEvents:   make([]*daemonProto.SystemEvent, 0),
+		ServerStream: nil,
+	}
+	err = s.SubscribeEvents(upReq, mockServer)
+
+	assert.NoError(t, err)
+}
+
 type mockServer struct {
 	mgmtProto.ManagementServiceServer
 	counter *int
