@@ -637,8 +637,8 @@ func toSyncResponse(ctx context.Context, config *types.Config, peer *nbpeer.Peer
 	}
 
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
-	integrationsConfig.ExtendNetBirdConfig(peer.ID, nbConfig, extraSettings)
-	response.NetbirdConfig = nbConfig
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, nbConfig, extraSettings)
+	response.NetbirdConfig = extendedConfig
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
