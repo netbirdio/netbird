@@ -1054,7 +1054,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transact
 
 	err = transaction.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.GetLastLogin())
 	if err != nil {
-		log.WithContext(ctx).Debugf("failed to update user last login: %w", err)
+		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 	}
 
 	am.StoreEvent(ctx, user.Id, peer.ID, user.AccountID, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
