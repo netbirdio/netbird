@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/pion/ice/v3"
-	"github.com/pion/logging"
 	"github.com/pion/stun/v2"
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
@@ -48,7 +47,6 @@ const maxAddrSize = 512
 
 // UDPMuxParams are parameters for UDPMux.
 type UDPMuxParams struct {
-	Logger  logging.LeveledLogger
 	UDPConn net.PacketConn
 
 	// Required for gathering local addresses
@@ -149,9 +147,6 @@ func isZeros(ip net.IP) bool {
 
 // NewUDPMuxDefault creates an implementation of UDPMux
 func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
-	if params.Logger == nil {
-		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
-	}
 
 	mux := &UDPMuxDefault{
 		addressMap: map[string][]*udpMuxedConn{},
@@ -174,12 +169,12 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 func (m *UDPMuxDefault) updateLocalAddresses() {
 	var localAddrsForUnspecified []net.Addr
 	if addr, ok := m.params.UDPConn.LocalAddr().(*net.UDPAddr); !ok {
-		m.params.Logger.Errorf("LocalAddr is not a net.UDPAddr, got %T", m.params.UDPConn.LocalAddr())
+		log.Errorf("LocalAddr is not a net.UDPAddr, got %T", m.params.UDPConn.LocalAddr())
 	} else if ok && addr.IP.IsUnspecified() {
 		// For unspecified addresses, the correct behavior is to return errListenUnspecified, but
 		// it will break the applications that are already using unspecified UDP connection
 		// with UDPMuxDefault, so print a warn log and create a local address list for mux.
-		m.params.Logger.Warn("UDPMuxDefault should not listening on unspecified address, use NewMultiUDPMuxFromPort instead")
+		log.Warn("UDPMuxDefault should not listening on unspecified address, use NewMultiUDPMuxFromPort instead")
 		var networks []ice.NetworkType
 		switch {
 
@@ -190,13 +185,13 @@ func (m *UDPMuxDefault) updateLocalAddresses() {
 			networks = []ice.NetworkType{ice.NetworkTypeUDP4}
 
 		default:
-			m.params.Logger.Errorf("LocalAddr expected IPV4 or IPV6, got %T", m.params.UDPConn.LocalAddr())
+			log.Errorf("LocalAddr expected IPV4 or IPV6, got %T", m.params.UDPConn.LocalAddr())
 		}
 		if len(networks) > 0 {
 			if m.params.Net == nil {
 				var err error
 				if m.params.Net, err = stdnet.NewNet(); err != nil {
-					m.params.Logger.Errorf("failed to get create network: %v", err)
+					log.Errorf("failed to get create network: %v", err)
 				}
 			}
 
@@ -206,7 +201,7 @@ func (m *UDPMuxDefault) updateLocalAddresses() {
 					localAddrsForUnspecified = append(localAddrsForUnspecified, &net.UDPAddr{IP: ip, Port: addr.Port})
 				}
 			} else {
-				m.params.Logger.Errorf("failed to get local interfaces for unspecified addr: %v", err)
+				log.Errorf("failed to get local interfaces for unspecified addr: %v", err)
 			}
 		}
 	}
@@ -369,7 +364,6 @@ func (m *UDPMuxDefault) createMuxedConn(key string) *udpMuxedConn {
 		Key:       key,
 		AddrPool:  m.pool,
 		LocalAddr: m.LocalAddr(),
-		Logger:    m.params.Logger,
 	})
 	return c
 }

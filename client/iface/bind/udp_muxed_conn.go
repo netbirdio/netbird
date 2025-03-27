@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/logging"
 	"github.com/pion/transport/v3/packetio"
 )
 
@@ -20,7 +19,6 @@ type udpMuxedConnParams struct {
 	AddrPool  *sync.Pool
 	Key       string
 	LocalAddr net.Addr
-	Logger    logging.LeveledLogger
 }
 
 // udpMuxedConn represents a logical packet conn for a single remote as identified by ufrag

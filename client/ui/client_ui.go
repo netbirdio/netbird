@@ -38,6 +38,8 @@ import (
 	"github.com/netbirdio/netbird/client/ui/process"
 	"github.com/netbirdio/netbird/util"
 
+	grpcLogger "github.com/netbirdio/netbird/client/grpc/logger"
+
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -822,6 +824,7 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
+		grpc.WithUnaryInterceptor(grpcLogger.UnaryClientInterceptor()),
 		grpc.WithUserAgent(desktop.GetUIUserAgent()),
 	)
 	if err != nil {

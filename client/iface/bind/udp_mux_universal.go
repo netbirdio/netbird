@@ -14,7 +14,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pion/logging"
 	"github.com/pion/stun/v2"
 	"github.com/pion/transport/v3"
 
@@ -38,7 +37,6 @@ type UniversalUDPMuxDefault struct {
 
 // UniversalUDPMuxParams are parameters for UniversalUDPMux server reflexive.
 type UniversalUDPMuxParams struct {
-	Logger                logging.LeveledLogger
 	UDPConn               net.PacketConn
 	XORMappedAddrCacheTTL time.Duration
 	Net                   transport.Net
@@ -48,9 +46,6 @@ type UniversalUDPMuxParams struct {
 
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux
 func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDefault {
-	if params.Logger == nil {
-		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
-	}
 	if params.XORMappedAddrCacheTTL == 0 {
 		params.XORMappedAddrCacheTTL = time.Second * 25
 	}
@@ -65,14 +60,12 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 	m.params.UDPConn = &udpConn{
 		PacketConn: params.UDPConn,
 		mux:        m,
-		logger:     params.Logger,
 		filterFn:   params.FilterFn,
 		address:    params.WGAddress,
 	}
 
 	// embed UDPMux
 	udpMuxParams := UDPMuxParams{
-		Logger:  params.Logger,
 		UDPConn: m.params.UDPConn,
 		Net:     m.params.Net,
 	}
@@ -118,7 +111,6 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 type udpConn struct {
 	net.PacketConn
 	mux      *UniversalUDPMuxDefault
-	logger   logging.LeveledLogger
 	filterFn FilterFn
 	// TODO: reset cache on route changes
 	addrCache sync.Map
