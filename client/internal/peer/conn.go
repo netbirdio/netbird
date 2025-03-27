@@ -606,6 +606,7 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo) {
 func (conn *Conn) setStatusToDisconnected() {
 	conn.statusRelay.SetDisconnected()
 	conn.statusICE.SetDisconnected()
+	conn.currentConnPriority = conntype.None
 
 	peerState := State{
 		PubKey:           conn.config.Key,
