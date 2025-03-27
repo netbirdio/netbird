@@ -502,6 +502,7 @@ func (conn *Conn) onRelayDisconnected() {
 		if err := conn.removeWgPeer(); err != nil {
 			conn.log.Errorf("failed to remove wg endpoint: %v", err)
 		}
+		conn.currentConnPriority = connPriorityNone
 	}
 
 	if conn.wgProxyRelay != nil {
