@@ -21,8 +21,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	grpcLogger "github.com/netbirdio/netbird/client/grpc/logger"
-
 	"github.com/netbirdio/netbird/client/internal"
 )
 
@@ -243,7 +241,6 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
-		grpc.WithUnaryInterceptor(grpcLogger.UnaryClientInterceptor()),
 	)
 }
 

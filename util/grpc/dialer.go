@@ -20,7 +20,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
-	grpcLogger "github.com/netbirdio/netbird/client/grpc/logger"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -85,7 +84,6 @@ func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,
 		}),
-		grpc.WithUnaryInterceptor(grpcLogger.UnaryClientInterceptor()),
 	)
 	if err != nil {
 		log.Printf("DialContext error: %v", err)
