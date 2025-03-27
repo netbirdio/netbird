@@ -621,7 +621,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		if addedByUser {
 			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 			if err != nil {
-				log.WithContext(ctx).Debugf("failed to update user last login: %w", err)
+				log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 			}
 		} else {
 			err = transaction.IncrementSetupKeyUsage(ctx, setupKeyID)
