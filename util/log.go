@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/grpclog"
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/netbirdio/netbird/formatter"
@@ -48,6 +49,14 @@ func InitLog(logLevel string, logPath string) error {
 		formatter.SetTextFormatter(log.StandardLogger())
 	}
 	log.SetLevel(level)
+
+	if logPath == "console" {
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
+	} else {
+		logOut := log.StandardLogger().Out
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(logOut, logOut, logOut))
+	}
+
 	return nil
 }
 
