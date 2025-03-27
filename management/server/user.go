@@ -197,7 +197,7 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 
 	err = am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed saving user last login: %v", err)
+		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 	}
 
 	if newLogin {

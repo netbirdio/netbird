@@ -258,13 +258,13 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Settings, permissions.Write)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 
-	if !user.HasAdminPower() {
-		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	err = am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID)
