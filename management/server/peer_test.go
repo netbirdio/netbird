@@ -723,7 +723,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 }
 
-func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccountManager, string, string, error) {
+func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, string, string, error) {
 	b.Helper()
 
 	manager, err := createManager(b)
@@ -993,6 +993,53 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 
 			if msPerOp > (maxExpected * 1.1) {
 				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			}
+		})
+	}
+}
+
+func TestUpdateAccountPeers(t *testing.T) {
+	testCases := []struct {
+		name   string
+		peers  int
+		groups int
+	}{
+		{"Small", 50, 1},
+		{"Medium", 500, 1},
+		{"Large", 1000, 1},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, accountID, _, err := setupTestAccountManager(t, tc.peers, tc.groups)
+			if err != nil {
+				t.Fatalf("Failed to setup test account manager: %v", err)
+			}
+
+			ctx := context.Background()
+
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				t.Fatalf("Failed to get account: %v", err)
+			}
+
+			peerChannels := make(map[string]chan *UpdateMessage)
+
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+
+			manager.peersUpdateManager.peerChannels = peerChannels
+			manager.UpdateAccountPeers(ctx, account.Id)
+
+			for _, channel := range peerChannels {
+				update := <-channel
+				assert.Nil(t, update.Update.NetbirdConfig)
+				assert.Equal(t, tc.peers, len(update.NetworkMap.Peers))
+				assert.Equal(t, tc.peers*2, len(update.NetworkMap.FirewallRules))
 			}
 		})
 	}
