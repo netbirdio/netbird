@@ -51,6 +51,7 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
 		LocalUfrag:             ufrag,
 		LocalPwd:               pwd,
+		LoggerFactory:          newLogrusFactory(log.StandardLogger()),
 	}
 
 	if config.DisableIPv6Discovery {

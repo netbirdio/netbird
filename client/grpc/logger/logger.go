@@ -2,9 +2,10 @@ package logger
 
 import (
 	"context"
+	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -22,15 +23,19 @@ func UnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	) error {
 		start := time.Now()
 
-		// og the request
-		if msg, ok := req.(proto.Message); ok {
-			if jsonReq, err := protojson.Marshal(msg); err == nil {
-				logrus.Debugf("gRPC request initiated: method=%s, request=%s", method, jsonReq)
+		isStdout := log.StandardLogger().Out == os.Stdout
+
+		if !isStdout {
+			// log the request
+			if msg, ok := req.(proto.Message); ok {
+				if jsonReq, err := protojson.Marshal(msg); err == nil {
+					log.Debugf("gRPC request initiated: method=%s, request=%s", method, jsonReq)
+				} else {
+					log.Warnf("Could not marshal gRPC request: method=%s, error=%v", method, err)
+				}
 			} else {
-				logrus.Warnf("Could not marshal gRPC request: method=%s, error=%v", method, err)
+				log.Debugf("gRPC request initiated: method=%s, requestType=%T", method, req)
 			}
-		} else {
-			logrus.Debugf("gRPC request initiated: method=%s, requestType=%T", method, req)
 		}
 
 		err := invoker(ctx, method, req, reply, cc, opts...)
@@ -38,17 +43,19 @@ func UnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		duration := time.Since(start)
 
 		// log the response
-		if err != nil {
-			logrus.Errorf("gRPC request failed: method=%s, duration=%v, error=%v", method, duration, err)
-		} else {
-			if msg, ok := reply.(proto.Message); ok {
-				if jsonReply, err := protojson.Marshal(msg); err == nil {
-					logrus.Debugf("gRPC request succeeded: method=%s, duration=%v, response=%s", method, duration, jsonReply)
-				} else {
-					logrus.Warnf("Could not marshal gRPC response: method=%s, error=%v", method, err)
-				}
+		if !isStdout {
+			if err != nil {
+				log.Errorf("gRPC request failed: method=%s, duration=%v, error=%v", method, duration, err)
 			} else {
-				logrus.Debugf("gRPC request succeeded: method=%s, duration=%v, responseType=%T", method, duration, reply)
+				if msg, ok := reply.(proto.Message); ok {
+					if jsonReply, err := protojson.Marshal(msg); err == nil {
+						log.Debugf("gRPC request succeeded: method=%s, duration=%v, response=%s", method, duration, jsonReply)
+					} else {
+						log.Warnf("Could not marshal gRPC response: method=%s, error=%v", method, err)
+					}
+				} else {
+					log.Debugf("gRPC request succeeded: method=%s, duration=%v, responseType=%T", method, duration, reply)
+				}
 			}
 		}
 
