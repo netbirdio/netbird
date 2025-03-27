@@ -23,9 +23,10 @@ func UnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	) error {
 		start := time.Now()
 
-		isStdout := log.StandardLogger().Out == os.Stdout
+		// don't log if log output is not a file
+		ignoreLog := log.StandardLogger().Out == os.Stdout || log.StandardLogger().Out == os.Stderr
 
-		if !isStdout {
+		if !ignoreLog {
 			// log the request
 			if msg, ok := req.(proto.Message); ok {
 				if jsonReq, err := protojson.Marshal(msg); err == nil {
@@ -43,7 +44,7 @@ func UnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		duration := time.Since(start)
 
 		// log the response
-		if !isStdout {
+		if !ignoreLog {
 			if err != nil {
 				log.Errorf("gRPC request failed: method=%s, duration=%v, error=%v", method, duration, err)
 			} else {
