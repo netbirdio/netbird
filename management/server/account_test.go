@@ -2793,15 +2793,15 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 	})
 }
 
-type TB interface {
-	Cleanup(func())
-	Helper()
-	TempDir() string
-	Errorf(format string, args ...interface{})
-	Fatalf(format string, args ...interface{})
-}
+//type TB interface {
+//	Cleanup(func())
+//	Helper()
+//	TempDir() string
+//	Errorf(format string, args ...interface{})
+//	Fatalf(format string, args ...interface{})
+//}
 
-func createManager(t TB) (*DefaultAccountManager, error) {
+func createManager(t testing.TB) (*DefaultAccountManager, error) {
 	t.Helper()
 
 	store, err := createStore(t)
@@ -2836,7 +2836,7 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 	return manager, nil
 }
 
-func createStore(t TB) (store.Store, error) {
+func createStore(t testing.TB) (store.Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)

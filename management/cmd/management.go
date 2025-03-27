@@ -34,7 +34,9 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/server/peers"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
@@ -70,7 +72,7 @@ var (
 	mgmtSingleAccModeDomain string
 	certFile                string
 	certKey                 string
-	config                  *server.Config
+	config                  *types.Config
 
 	kaep = keepalive.EnforcementPolicy{
 		MinTime:             15 * time.Second,
@@ -101,9 +103,9 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = loadMgmtConfig(ctx, mgmtConfig)
+			config, err = loadMgmtConfig(ctx, types.MgmtConfigPath)
 			if err != nil {
-				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
+				return fmt.Errorf("failed reading provided config file: %s: %v", types.MgmtConfigPath, err)
 			}
 
 			if cmd.Flag(idpSignKeyRefreshEnabledFlagName).Changed {
@@ -183,7 +185,7 @@ var (
 			if config.DataStoreEncryptionKey != key {
 				log.WithContext(ctx).Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
-				err := updateMgmtConfig(ctx, mgmtConfig, config)
+				err := updateMgmtConfig(ctx, types.MgmtConfigPath, config)
 				if err != nil {
 					return fmt.Errorf("failed to write out store encryption key: %s", err)
 				}
@@ -486,8 +488,8 @@ func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handle
 	})
 }
 
-func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config, error) {
-	loadedConfig := &server.Config{}
+func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*types.Config, error) {
+	loadedConfig := &types.Config{}
 	_, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig)
 	if err != nil {
 		return nil, err
@@ -522,7 +524,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
 		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
-		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(server.NONE)) {
+		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(types.NONE)) {
 			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
@@ -539,7 +541,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
 
 			if loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
-				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = server.DefaultDeviceAuthFlowScope
+				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = types.DefaultDeviceAuthFlowScope
 			}
 		}
 
@@ -560,7 +562,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 	return loadedConfig, err
 }
 
-func updateMgmtConfig(ctx context.Context, path string, config *server.Config) error {
+func updateMgmtConfig(ctx context.Context, path string, config *types.Config) error {
 	return util.DirectWriteJson(ctx, path, config)
 }
 
@@ -636,7 +638,7 @@ func handleRebrand(cmd *cobra.Command) error {
 			}
 		}
 	}
-	if mgmtConfig == defaultMgmtConfig {
+	if types.MgmtConfigPath == defaultMgmtConfig {
 		if migrateToNetbird(oldDefaultMgmtConfig, defaultMgmtConfig) {
 			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
 			err = cpDir(oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
