@@ -38,7 +38,6 @@ const (
 
 type systemdDbusConfigurator struct {
 	dbusLinkObject dbus.ObjectPath
-	routingAll     bool
 	ifaceName      string
 }
 
@@ -124,18 +123,19 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 	}
 
 	if config.RouteAll {
-		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 		err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
 		if err != nil {
-			return fmt.Errorf("setting link as default dns router, failed with error: %w", err)
+			return fmt.Errorf("set link as default dns router: %w", err)
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
 			Domain:    nbdns.RootZone,
 			MatchOnly: true,
 		})
-		s.routingAll = true
-	} else if s.routingAll {
-		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
+		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
+	} else {
+		if err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, false); err != nil {
+			return fmt.Errorf("remove link as default dns router: %w", err)
+		}
 	}
 
 	state := &ShutdownState{
