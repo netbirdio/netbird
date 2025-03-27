@@ -258,5 +258,6 @@ func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, p
 		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(peerID, update.NetbirdConfig, extraSettings)
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, update.NetbirdConfig, extraSettings)
+	update.NetbirdConfig = extendedConfig
 }
