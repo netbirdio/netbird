@@ -508,12 +508,12 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return err
 	}
 
-	user, err := account.FindUser(userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Accounts, permissions.Write)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 
-	if user.Role != types.UserRoleOwner {
+	if !allowed {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
 
@@ -543,14 +543,12 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	}
 
 	userInfo, ok := userInfosMap[userID]
-	if !ok {
-		return status.Errorf(status.NotFound, "user info not found for user %s", userID)
-	}
-
-	_, err = am.deleteRegularUser(ctx, accountID, userID, userInfo)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
-		return err
+	if ok {
+		_, err = am.deleteRegularUser(ctx, accountID, userID, userInfo)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
+			return err
+		}
 	}
 
 	err = am.Store.DeleteAccount(ctx, account)

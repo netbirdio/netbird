@@ -17,6 +17,7 @@ const (
 	Peers    Module = "peers"
 	Groups   Module = "groups"
 	Settings Module = "settings"
+	Accounts Module = "accounts"
 )
 
 type Operation string
@@ -56,6 +57,15 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 
 	if err := m.ValidateAccountAccess(ctx, accountID, user); err != nil {
 		return false, err
+	}
+
+	switch module {
+	case Accounts:
+		if operation == Write && user.Role != types.UserRoleOwner {
+			return false, nil
+		}
+		return true, nil
+	default:
 	}
 
 	switch user.Role {
