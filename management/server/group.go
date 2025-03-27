@@ -10,13 +10,13 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
-
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/status"
 )
 
 type GroupLinkError struct {
@@ -498,6 +498,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"user", linkedUser.Id}
 	}
 
+	if isLinked, linkedRouter := isGroupLinkedToNetworkRouter(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"network router", linkedRouter.ID}
+	}
+
 	return checkGroupLinkedToSettings(ctx, transaction, group)
 }
 
@@ -613,6 +617,22 @@ func isGroupLinkedToUser(ctx context.Context, transaction store.Store, accountID
 	return false, nil
 }
 
+// isGroupLinkedToNetworkRouter checks if a group is linked to any network router in the account.
+func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *routerTypes.NetworkRouter) {
+	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving network routers while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, router := range routers {
+		if slices.Contains(router.PeerGroups, groupID) {
+			return true, router
+		}
+	}
+	return false, nil
+}
+
 // areGroupChangesAffectPeers checks if any changes to the specified groups will affect peers.
 func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) (bool, error) {
 	if len(groupIDs) == 0 {
@@ -635,6 +655,9 @@ func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, ac
 			return true, nil
 		}
 		if linked, _ := isGroupLinkedToRoute(ctx, transaction, accountID, groupID); linked {
+			return true, nil
+		}
+		if linked, _ := isGroupLinkedToNetworkRouter(ctx, transaction, accountID, groupID); linked {
 			return true, nil
 		}
 	}

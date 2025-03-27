@@ -11,9 +11,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/networks"
+	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/routers"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -414,6 +424,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupD",
 			Peers: []string{},
 		},
+		{
+			ID:    "groupE",
+			Name:  "GroupE",
+			Peers: []string{peer2.ID},
+		},
 	})
 	assert.NoError(t, err)
 
@@ -664,6 +679,56 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			ID:    "groupD",
 			Name:  "GroupD",
 			Peers: []string{peer1.ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Saving a group linked to network router should update account peers and send peer update
+	t.Run("saving group linked to network router", func(t *testing.T) {
+		userManager := users.NewManager(manager.Store)
+		extraSettingsManager := integrations.NewManager(nil)
+		settingsManager := settings.NewManager(manager.Store, userManager, extraSettingsManager)
+		permissionsManager := permissions.NewManager(userManager, settingsManager)
+		groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
+		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager)
+		routersManager := routers.NewManager(manager.Store, permissionsManager, manager)
+		networksManager := networks.NewManager(manager.Store, permissionsManager, resourcesManager, routersManager, manager)
+
+		network, err := networksManager.CreateNetwork(context.Background(), userID, &networkTypes.Network{
+			ID:          "network_test",
+			AccountID:   account.Id,
+			Name:        "network_test",
+			Description: "",
+		})
+		require.NoError(t, err)
+
+		_, err = routersManager.CreateRouter(context.Background(), userID, &routerTypes.NetworkRouter{
+			ID:         "router_test",
+			NetworkID:  network.ID,
+			AccountID:  account.Id,
+			PeerGroups: []string{"groupE"},
+			Masquerade: true,
+			Metric:     9999,
+			Enabled:    true,
+		})
+		require.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+			ID:    "groupE",
+			Name:  "GroupE",
+			Peers: []string{peer2.ID, peer3.ID},
 		})
 		assert.NoError(t, err)
 

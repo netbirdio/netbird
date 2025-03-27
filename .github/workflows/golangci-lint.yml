@@ -19,7 +19,7 @@ jobs:
       - name: codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          ignore_words_list: erro,clienta,hastable,iif,groupd,testin
+          ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe
           skip: go.mod,go.sum
           only_warn: 1
   golangci:
