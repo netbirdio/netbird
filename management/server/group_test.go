@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
@@ -20,10 +19,8 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -691,10 +688,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Saving a group linked to network router should update account peers and send peer update
 	t.Run("saving group linked to network router", func(t *testing.T) {
-		userManager := users.NewManager(manager.Store)
-		extraSettingsManager := integrations.NewManager(nil)
-		settingsManager := settings.NewManager(manager.Store, userManager, extraSettingsManager)
-		permissionsManager := permissions.NewManager(userManager, settingsManager)
+		permissionsManager := permissions.NewManager(manager.Store)
 		groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
 		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager)
 		routersManager := routers.NewManager(manager.Store, permissionsManager, manager)

@@ -5,10 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/management/server/users"
 )
 
 type Module string
@@ -17,6 +16,7 @@ const (
 	Networks Module = "networks"
 	Peers    Module = "peers"
 	Groups   Module = "groups"
+	Settings Module = "settings"
 )
 
 type Operation string
@@ -28,42 +28,41 @@ const (
 
 type Manager interface {
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error)
+	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error
 }
 
 type managerImpl struct {
-	userManager     users.Manager
-	settingsManager settings.Manager
+	store store.Store
 }
 
 type managerMock struct {
 }
 
-func NewManager(userManager users.Manager, settingsManager settings.Manager) Manager {
+func NewManager(store store.Store) Manager {
 	return &managerImpl{
-		userManager:     userManager,
-		settingsManager: settingsManager,
+		store: store,
 	}
 }
 
 func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
-	user, err := m.userManager.GetUser(ctx, userID)
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return false, err
 	}
 
 	if user == nil {
-		return false, errors.New("user not found")
+		return false, status.NewUserNotFoundError(userID)
 	}
 
-	if user.AccountID != accountID {
-		return false, errors.New("user does not belong to account")
+	if err := m.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return false, err
 	}
 
 	switch user.Role {
 	case types.UserRoleAdmin, types.UserRoleOwner:
 		return true, nil
 	case types.UserRoleUser:
-		return m.validateRegularUserPermissions(ctx, accountID, userID, module, operation)
+		return m.validateRegularUserPermissions(ctx, accountID, module, operation)
 	case types.UserRoleBillingAdmin:
 		return false, nil
 	default:
@@ -71,8 +70,8 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 	}
 }
 
-func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
-	settings, err := m.settingsManager.GetSettings(ctx, accountID, activity.SystemInitiator)
+func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accountID string, module Module, operation Operation) (bool, error) {
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get settings: %w", err)
 	}
@@ -91,13 +90,30 @@ func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accoun
 	return false, nil
 }
 
+func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error {
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
+	}
+	return nil
+}
+
 func NewManagerMock() Manager {
 	return &managerMock{}
 }
 
 func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
-	if userID == "allowedUser" {
+	switch userID {
+	case "a23efe53-63fb-11ec-90d6-0242ac120003", "allowedUser", "testingUser":
 		return true, nil
+	default:
+		return false, nil
 	}
-	return false, nil
+}
+
+func (m *managerMock) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error {
+	// @note managers explicitly checked this, so should the mock
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
+	}
+	return nil
 }

@@ -52,7 +52,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -203,15 +202,14 @@ var (
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
 
+			permissionsManager := integrations.InitPermissionsManager(store)
 			userManager := users.NewManager(store)
 			extraSettingsManager := integrations.NewManager(eventStore)
-			settingsManager := settings.NewManager(store, userManager, extraSettingsManager)
-			permissionsManager := permissions.NewManager(userManager, settingsManager)
+			settingsManager := settings.NewManager(store, userManager, extraSettingsManager, permissionsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
 			proxyController := integrations.NewController(store)
-
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}

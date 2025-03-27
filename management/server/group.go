@@ -35,8 +35,8 @@ func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, acco
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
 	}
 
 	if user.IsRegularUser() {
@@ -83,8 +83,8 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
 	}
 
 	if user.IsRegularUser() {
@@ -215,8 +215,8 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
 	}
 
 	if user.IsRegularUser() {

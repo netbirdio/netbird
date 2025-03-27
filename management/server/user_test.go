@@ -13,6 +13,7 @@ import (
 
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -59,9 +60,11 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      s,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
@@ -107,9 +110,11 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
@@ -133,9 +138,11 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
@@ -160,9 +167,11 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockWrongExpiresIn)
@@ -183,9 +192,11 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockEmptyTokenName, mockExpiresIn)
@@ -214,9 +225,11 @@ func TestUser_DeletePAT(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	err = am.DeletePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenID1)
@@ -255,9 +268,11 @@ func TestUser_GetPAT(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	pat, err := am.GetPAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenID1)
@@ -296,9 +311,11 @@ func TestUser_GetAllPATs(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	pats, err := am.GetAllPATs(context.Background(), mockAccountID, mockUserID, mockUserID)
@@ -390,9 +407,11 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	user, err := am.createServiceUser(context.Background(), mockAccountID, mockUserID, mockRole, mockServiceUserName, false, []string{"group1", "group2"})
@@ -435,9 +454,11 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	user, err := am.CreateUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{
@@ -481,9 +502,11 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	_, err = am.CreateUser(context.Background(), mockAccountID, mockUserID, &types.UserInfo{
@@ -510,10 +533,12 @@ func TestUser_InviteNewUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:        store,
-		eventStore:   &activity.InMemoryEventStore{},
-		cacheLoading: map[string]chan struct{}{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		cacheLoading:       map[string]chan struct{}{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
@@ -616,9 +641,11 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 				t.Fatalf("Error when saving account: %s", err)
 			}
 
+			permissionsMananagerMock := permissions.NewManagerMock()
 			am := DefaultAccountManager{
-				Store:      store,
-				eventStore: &activity.InMemoryEventStore{},
+				Store:              store,
+				eventStore:         &activity.InMemoryEventStore{},
+				permissionsManager: permissionsMananagerMock,
 			}
 
 			err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockServiceUserID)
@@ -652,9 +679,11 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockUserID)
@@ -704,10 +733,12 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
 		Store:                   store,
 		eventStore:              &activity.InMemoryEventStore{},
 		integratedPeerValidator: MocIntegratedValidator{},
+		permissionsManager:      permissionsMananagerMock,
 	}
 
 	testCases := []struct {
@@ -812,10 +843,12 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
 		Store:                   store,
 		eventStore:              &activity.InMemoryEventStore{},
 		integratedPeerValidator: MocIntegratedValidator{},
+		permissionsManager:      permissionsMananagerMock,
 	}
 
 	testCases := []struct {
@@ -921,9 +954,11 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	claims := nbcontext.UserAuth{
@@ -957,9 +992,11 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	users, err := am.ListUsers(context.Background(), mockAccountID)
@@ -1044,9 +1081,11 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 				t.Fatalf("Error when saving account: %s", err)
 			}
 
+			permissionsMananagerMock := permissions.NewManagerMock()
 			am := DefaultAccountManager{
-				Store:      store,
-				eventStore: &activity.InMemoryEventStore{},
+				Store:              store,
+				eventStore:         &activity.InMemoryEventStore{},
+				permissionsManager: permissionsMananagerMock,
 			}
 
 			users, err := am.ListUsers(context.Background(), mockAccountID)
@@ -1087,11 +1126,13 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:        store,
-		eventStore:   &activity.InMemoryEventStore{},
-		idpManager:   &idp.GoogleWorkspaceManager{}, // empty manager
-		cacheLoading: map[string]chan struct{}{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		idpManager:         &idp.GoogleWorkspaceManager{}, // empty manager
+		cacheLoading:       map[string]chan struct{}{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	cacheStore, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
@@ -1148,9 +1189,11 @@ func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	users, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
@@ -1180,9 +1223,11 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	permissionsMananagerMock := permissions.NewManagerMock()
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsMananagerMock,
 	}
 
 	users, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockServiceUserID)

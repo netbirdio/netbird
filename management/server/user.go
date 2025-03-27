@@ -30,8 +30,8 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 		return nil, err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return nil, err
 	}
 
 	if !initiatorUser.HasAdminPower() {
@@ -93,8 +93,8 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		return nil, err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return nil, err
 	}
 
 	inviterID := userID
@@ -142,10 +142,19 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 // createNewIdpUser validates the invite and creates a new user in the IdP
 func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID string, inviterID string, invite *types.UserInfo) (*idp.UserData, error) {
+	inviter, err := am.GetUserByID(ctx, inviterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inviter user: %w", err)
+	}
+
 	// inviterUser is the one who is inviting the new user
-	inviterUser, err := am.lookupUserInCache(ctx, inviterID, accountID)
+	inviterUser, err := am.lookupUserInCache(ctx, inviterID, inviter.AccountID)
 	if err != nil {
 		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
+	}
+
+	if inviterUser == nil {
+		return nil, status.Errorf(status.NotFound, "inviter user with ID %s is empty", inviterID)
 	}
 
 	// check if the user is already registered with this email => reject
@@ -188,7 +197,7 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 
 	err = am.Store.SaveUserLastLogin(ctx, userAuth.AccountId, userAuth.UserId, userAuth.LastLogin)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed saving user last login: %v", err)
+		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 	}
 
 	if newLogin {
@@ -228,8 +237,8 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return err
 	}
 
 	if !initiatorUser.HasAdminPower() {
@@ -290,8 +299,8 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 		return err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return err
 	}
 
 	// check if the user is already registered with this ID
@@ -338,8 +347,8 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return nil, err
 	}
 
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
@@ -376,8 +385,8 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 		return err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return err
 	}
 
 	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
@@ -411,8 +420,8 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return nil, err
 	}
 
 	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
@@ -429,8 +438,8 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 		return nil, err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return nil, err
 	}
 
 	if initiatorUserID != targetUserID && initiatorUser.IsRegularUser() {
@@ -476,8 +485,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return nil, err
 	}
 
 	if !initiatorUser.HasAdminPower() || initiatorUser.IsBlocked() {
@@ -511,7 +520,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			}
 
 			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
-				ctx, transaction, groupsMap, initiatorUser, update, addIfNotExists, settings,
+				ctx, transaction, groupsMap, accountID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to process user update: %w", err)
@@ -597,7 +606,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 }
 
 func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transaction store.Store, groupsMap map[string]*types.Group,
-	initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
+	accountID string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
 
 	if update == nil {
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
@@ -614,7 +623,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 
 	// only auto groups, revoked status, and integration reference can be updated for now
 	updatedUser := oldUser.Copy()
-	updatedUser.AccountID = initiatorUser.AccountID
+	updatedUser.AccountID = accountID
 	updatedUser.Role = update.Role
 	updatedUser.Blocked = update.Blocked
 	updatedUser.AutoGroups = update.AutoGroups
@@ -705,6 +714,7 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 
 // validateUserUpdate validates the update operation for a user.
 func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUser, update *types.User) error {
+	// @todo double check these
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
@@ -790,8 +800,8 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return nil, err
 	}
 
-	if initiatorUser.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+		return nil, err
 	}
 
 	return am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
@@ -964,6 +974,10 @@ func (am *DefaultAccountManager) deleteUserFromIDP(ctx context.Context, targetUs
 func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error {
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
 	if err != nil {
+		return err
+	}
+
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
 		return err
 	}
 
