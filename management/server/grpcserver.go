@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -671,10 +672,11 @@ func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turn
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		dst = append(dst, &proto.RemotePeerConfig{
-			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{rPeer.IP.String() + "/32"},
-			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
-			Fqdn:       rPeer.FQDN(dnsName),
+			WgPubKey:     rPeer.Key,
+			AllowedIps:   []string{rPeer.IP.String() + "/32"},
+			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
+			Fqdn:         rPeer.FQDN(dnsName),
+			AgentVersion: rPeer.Meta.WtVersion,
 		})
 	}
 	return dst

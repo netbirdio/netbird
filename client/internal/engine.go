@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
@@ -1935,6 +1936,12 @@ func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallMana
 		}
 	}
 
+	for _, p := range peers {
+		if !lazyconn.IsSupported(p.AgentVersion) {
+			log.Debugf("skipping lazy peer connection: %s (%v)", p.GetWgPubKey(), p.AgentVersion)
+			excludedPeers = append(excludedPeers, p.GetWgPubKey())
+		}
+	}
 	return excludedPeers
 }
 

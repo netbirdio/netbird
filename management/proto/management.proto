@@ -312,6 +312,7 @@ message RemotePeerConfig {
   // Peer fully qualified domain name
   string fqdn = 4;
 
+  string agentVersion = 5;
 }
 
 // SSHConfig represents SSH configurations of a peer.
