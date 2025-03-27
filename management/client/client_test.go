@@ -50,7 +50,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
-	config := &mgmt.Config{}
+	config := &types.Config{}
 	_, err := util.ReadJson("../server/testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
