@@ -122,6 +122,18 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				}
 				return p, nil
 			},
+			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
+				switch id {
+				case adminUser:
+					return account.Users[adminUser], nil
+				case regularUser:
+					return account.Users[regularUser], nil
+				case serviceUser:
+					return account.Users[serviceUser], nil
+				default:
+					return nil, fmt.Errorf("user not found")
+				}
+			},
 			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
