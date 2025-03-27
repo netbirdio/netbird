@@ -103,7 +103,7 @@ func NewManagerMock() Manager {
 
 func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
 	switch userID {
-	case "a23efe53-63fb-11ec-90d6-0242ac120003", "allowedUser":
+	case "a23efe53-63fb-11ec-90d6-0242ac120003", "allowedUser", "testingUser":
 		return true, nil
 	default:
 		return false, nil
