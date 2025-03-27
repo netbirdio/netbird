@@ -621,7 +621,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		if addedByUser {
 			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 			if err != nil {
-				return fmt.Errorf("failed to update user last login: %w", err)
+				log.WithContext(ctx).Debugf("failed to update user last login: %w", err)
 			}
 		} else {
 			err = transaction.IncrementSetupKeyUsage(ctx, setupKeyID)
@@ -1054,7 +1054,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transact
 
 	err = transaction.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.GetLastLogin())
 	if err != nil {
-		return err
+		log.WithContext(ctx).Debugf("failed to update user last login: %w", err)
 	}
 
 	am.StoreEvent(ctx, user.Id, peer.ID, user.AccountID, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
