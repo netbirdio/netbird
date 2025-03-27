@@ -50,12 +50,8 @@ func InitLog(logLevel string, logPath string) error {
 	}
 	log.SetLevel(level)
 
-	if logPath == "console" {
-		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
-	} else {
-		logOut := log.StandardLogger().Out
-		grpclog.SetLoggerV2(grpclog.NewLoggerV2(logOut, logOut, logOut))
-	}
+	logOut := log.StandardLogger().Out
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2(logOut, logOut, logOut))
 
 	return nil
 }
