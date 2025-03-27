@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/util"
 
@@ -33,7 +34,7 @@ import (
 
 func startTestingServices(t *testing.T) string {
 	t.Helper()
-	config := &mgmt.Config{}
+	config := &types.Config{}
 	_, err := util.ReadJson("../testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +69,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 	return s, lis
 }
 
-func startManagement(t *testing.T, config *mgmt.Config, testFile string) (*grpc.Server, net.Listener) {
+func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc.Server, net.Listener) {
 	t.Helper()
 
 	lis, err := net.Listen("tcp", ":0")

@@ -55,7 +55,7 @@ type SqlStore struct {
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
-	storeEngine       Engine
+	storeEngine       types.Engine
 }
 
 type installation struct {
@@ -66,7 +66,7 @@ type installation struct {
 type migrationFunc func(*gorm.DB) error
 
 // NewSqlStore creates a new SqlStore instance.
-func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 		conns = runtime.NumCPU()
 	}
 
-	if storeEngine == SqliteStoreEngine {
+	if storeEngine == types.SqliteStoreEngine {
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
 		}
@@ -105,7 +105,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
-	if s.storeEngine == MysqlStoreEngine {
+	if s.storeEngine == types.MysqlStoreEngine {
 		return mysqlKeyQueryCondition
 	}
 	return keyQueryCondition
@@ -218,6 +218,10 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 func generateAccountSQLTypes(account *types.Account) {
 	for _, key := range account.SetupKeys {
 		account.SetupKeysG = append(account.SetupKeysG, *key)
+	}
+
+	if len(account.SetupKeys) != len(account.SetupKeysG) {
+		log.Warnf("SetupKeysG length mismatch for account %s", account.Id)
 	}
 
 	for id, peer := range account.Peers {
@@ -966,7 +970,7 @@ func (s *SqlStore) Close(_ context.Context) error {
 }
 
 // GetStoreEngine returns underlying store engine
-func (s *SqlStore) GetStoreEngine() Engine {
+func (s *SqlStore) GetStoreEngine() types.Engine {
 	return s.storeEngine
 }
 
@@ -984,7 +988,7 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, SqliteStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.SqliteStoreEngine, metrics)
 }
 
 // NewPostgresqlStore creates a new Postgres store.
@@ -994,7 +998,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics)
 }
 
 // NewMysqlStore creates a new MySQL store.
@@ -1004,7 +1008,7 @@ func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, MysqlStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics)
 }
 
 func getGormConfig() *gorm.Config {
@@ -1513,9 +1517,9 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	query := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations)
 
 	switch s.storeEngine {
-	case PostgresStoreEngine:
+	case types.PostgresStoreEngine:
 		query = query.Order("json_array_length(peers::json) DESC")
-	case MysqlStoreEngine:
+	case types.MysqlStoreEngine:
 		query = query.Order("JSON_LENGTH(JSON_EXTRACT(peers, \"$\")) DESC")
 	default:
 		query = query.Order("json_array_length(peers) DESC")

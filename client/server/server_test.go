@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 )
@@ -99,10 +100,10 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	t.Helper()
 	dataDir := t.TempDir()
 
-	config := &server.Config{
-		Stuns:      []*server.Host{},
-		TURNConfig: &server.TURNConfig{},
-		Signal: &server.Host{
+	config := &types.Config{
+		Stuns:      []*types.Host{},
+		TURNConfig: &types.TURNConfig{},
+		Signal: &types.Host{
 			Proto: "http",
 			URI:   signalAddr,
 		},

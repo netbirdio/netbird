@@ -29,6 +29,7 @@ message FlowEvent {
 message FlowEventAck {
   // Unique client event identifier that has been ack'ed
   bytes event_id = 1;
+  bool isInitiator = 2;
 }
 
 message FlowFields {

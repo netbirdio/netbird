@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"time"
@@ -46,6 +47,9 @@ nftables.txt: Anonymized nftables rules with packet counters, if --system-info f
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized network map containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states.
+mutex.prof: Mutex profiling information.
+goroutine.prof: Goroutine profiling information.
+block.prof: Block profiling information.
 
 
 Anonymization Process
@@ -87,6 +91,14 @@ The state file follows the same anonymization rules as other files:
 - IP addresses (both individual and CIDR ranges) are anonymized while preserving their structure
 - Domain names are consistently anonymized
 - Technical identifiers and non-sensitive data remain unchanged
+
+Mutex, Goroutines, and Block Profiling Files
+The goroutine, block, and mutex profiling files contains process information that might help the NetBird team diagnose performance issues. The information in these files don't contain personal data.
+You can check each using the following go command:
+
+go tool pprof -http=:8088 mutex.prof
+
+This will open a web browser tab with the profiling information.
 
 Routes
 For anonymized routes, the IP addresses are replaced as described above. The prefix length remains unchanged. Note that for prefixes, the anonymized IP might not be a network address, but the prefix length is still correct.
@@ -186,6 +198,10 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 
 	if req.GetSystemInfo() {
 		s.addSystemInfo(req, anonymizer, archive)
+	}
+
+	if err := s.addProf(req, anonymizer, archive); err != nil {
+		log.Errorf("Failed to add goroutines rules to debug bundle: %v", err)
 	}
 
 	if err := s.addNetworkMap(req, anonymizer, archive); err != nil {
@@ -308,6 +324,29 @@ func (s *Server) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", s.config.DisableFirewall))
 
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", s.config.BlockLANAccess))
+}
+
+func (s *Server) addProf(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	runtime.SetBlockProfileRate(1)
+	_ = runtime.SetMutexProfileFraction(1)
+	defer runtime.SetBlockProfileRate(0)
+	defer runtime.SetMutexProfileFraction(0)
+
+	time.Sleep(5 * time.Second)
+
+	for _, profile := range []string{"goroutine", "block", "mutex"} {
+		var buff []byte
+		myBuff := bytes.NewBuffer(buff)
+		err := pprof.Lookup(profile).WriteTo(myBuff, 0)
+		if err != nil {
+			return fmt.Errorf("write %s profile: %w", profile, err)
+		}
+
+		if err := addFileToZip(archive, myBuff, profile+".prof"); err != nil {
+			return fmt.Errorf("add %s file to zip: %w", profile, err)
+		}
+	}
+	return nil
 }
 
 func (s *Server) addRoutes(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {

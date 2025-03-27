@@ -198,7 +198,7 @@ func (m *Manager) receiveACKs(client *client.GRPCClient) {
 			return nil
 		}
 		log.Tracef("received flow event ack: %s", id)
-		m.logger.DeleteEvents([]uuid.UUID{uuid.UUID(ack.EventId)})
+		m.logger.DeleteEvents([]uuid.UUID{id})
 		return nil
 	})
 
