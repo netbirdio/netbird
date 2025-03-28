@@ -19,11 +19,9 @@ import (
 type rcvChan chan *types.EventFields
 type Logger struct {
 	mux                sync.Mutex
-	ctx                context.Context
-	cancel             context.CancelFunc
 	enabled            atomic.Bool
 	rcvChan            atomic.Pointer[rcvChan]
-	cancelReceiver     context.CancelFunc
+	cancel             context.CancelFunc
 	statusRecorder     *peer.Status
 	wgIfaceIPNet       net.IPNet
 	dnsCollection      atomic.Bool
@@ -31,12 +29,9 @@ type Logger struct {
 	Store              types.Store
 }
 
-func New(ctx context.Context, statusRecorder *peer.Status, wgIfaceIPNet net.IPNet) *Logger {
+func New(statusRecorder *peer.Status, wgIfaceIPNet net.IPNet) *Logger {
 
-	ctx, cancel := context.WithCancel(ctx)
 	return &Logger{
-		ctx:            ctx,
-		cancel:         cancel,
 		statusRecorder: statusRecorder,
 		wgIfaceIPNet:   wgIfaceIPNet,
 		Store:          store.NewMemoryStore(),
@@ -70,8 +65,8 @@ func (l *Logger) startReceiver() {
 	}
 
 	l.mux.Lock()
-	ctx, cancel := context.WithCancel(l.ctx)
-	l.cancelReceiver = cancel
+	ctx, cancel := context.WithCancel(context.Background())
+	l.cancel = cancel
 	l.mux.Unlock()
 
 	c := make(rcvChan, 100)
@@ -109,7 +104,7 @@ func (l *Logger) startReceiver() {
 	}
 }
 
-func (l *Logger) Disable() {
+func (l *Logger) Close() {
 	l.stop()
 	l.Store.Close()
 }
@@ -121,9 +116,9 @@ func (l *Logger) stop() {
 
 	l.enabled.Store(false)
 	l.mux.Lock()
-	if l.cancelReceiver != nil {
-		l.cancelReceiver()
-		l.cancelReceiver = nil
+	if l.cancel != nil {
+		l.cancel()
+		l.cancel = nil
 	}
 	l.rcvChan.Store(nil)
 	l.mux.Unlock()
@@ -140,11 +135,6 @@ func (l *Logger) DeleteEvents(ids []uuid.UUID) {
 func (l *Logger) UpdateConfig(dnsCollection, exitNodeCollection bool) {
 	l.dnsCollection.Store(dnsCollection)
 	l.exitNodeCollection.Store(exitNodeCollection)
-}
-
-func (l *Logger) Close() {
-	l.stop()
-	l.cancel()
 }
 
 func (l *Logger) shouldStore(event *types.EventFields, isExitNode bool) bool {

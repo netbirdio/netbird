@@ -15,7 +15,7 @@ import (
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
-var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
+var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 func TestDefaultManager(t *testing.T) {
 	networkMap := &mgmProto.NetworkMap{

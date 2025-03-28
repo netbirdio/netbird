@@ -13,7 +13,7 @@ import (
 )
 
 func TestStore(t *testing.T) {
-	logger := logger.New(context.Background(), nil, net.IPNet{})
+	logger := logger.New(nil, net.IPNet{})
 	logger.Enable()
 
 	event := types.EventFields{
