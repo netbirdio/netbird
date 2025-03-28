@@ -80,6 +80,7 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 	onDisconnected := make(chan struct{}, 1)
 
 	go watcher.EnableWgWatcher(ctx, func() {})
+	time.Sleep(1 * time.Second)
 	watcher.DisableWgWatcher()
 
 	go watcher.EnableWgWatcher(ctx, func() {
