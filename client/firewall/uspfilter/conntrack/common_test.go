@@ -1,7 +1,6 @@
 package conntrack
 
 import (
-	"context"
 	"net/netip"
 	"testing"
 
@@ -12,7 +11,7 @@ import (
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
-var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
+var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 // Memory pressure tests
 func BenchmarkMemoryPressure(b *testing.B) {

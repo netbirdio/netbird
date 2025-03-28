@@ -1,7 +1,6 @@
 package uspfilter
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -24,7 +23,7 @@ import (
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
-var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
+var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 type IFaceMock struct {
 	SetFilterFunc   func(device.PacketFilter) error
