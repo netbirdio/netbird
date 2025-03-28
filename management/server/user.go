@@ -714,6 +714,9 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 
 // validateUserUpdate validates the update operation for a user.
 func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUser, update *types.User) error {
+	if oldUser.AccountID != update.AccountID {
+		return status.Errorf(status.InvalidArgument, "user account ID mismatch")
+	}
 	// @todo double check these
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
