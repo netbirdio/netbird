@@ -114,6 +114,7 @@ type MockAccountManager struct {
 	GetStoreFunc                        func() store.Store
 	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
+	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -862,4 +863,11 @@ func (am *MockAccountManager) UpdateToPrimaryAccount(ctx context.Context, accoun
 		return am.UpdateToPrimaryAccountFunc(ctx, accountId)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateToPrimaryAccount is not implemented")
+}
+
+func (am *MockAccountManager) GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error) {
+	if am.GetOwnerInfoFunc != nil {
+		return am.GetOwnerInfoFunc(ctx, accountId)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetOwnerInfo is not implemented")
 }
