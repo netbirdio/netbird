@@ -15,7 +15,7 @@ import (
 type WGIface interface {
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeer(peerKey string) error
-	GetStats(peerKey string) (configurer.WGStats, error)
+	GetStats() (map[string]configurer.WGStats, error)
 	GetProxy() wgproxy.Proxy
 	Address() wgaddr.Address
 }

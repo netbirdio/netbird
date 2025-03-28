@@ -324,6 +324,7 @@ func (s *Server) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", s.config.DisableFirewall))
 
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", s.config.BlockLANAccess))
+	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", s.config.LazyConnectionEnabled))
 }
 
 func (s *Server) addProf(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {

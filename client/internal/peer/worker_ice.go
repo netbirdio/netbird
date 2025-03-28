@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
@@ -65,6 +66,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 		iFaceDiscover:     ifaceDiscover,
 		statusRecorder:    statusRecorder,
 		hasRelayOnLocally: hasRelayOnLocally,
+		lastKnownState:    ice.ConnectionStateDisconnected,
 	}
 
 	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
@@ -213,7 +215,7 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, candidates []i
 			w.lastKnownState = ice.ConnectionStateConnected
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected:
-			if w.lastKnownState != ice.ConnectionStateDisconnected {
+			if w.lastKnownState == ice.ConnectionStateConnected {
 				w.lastKnownState = ice.ConnectionStateDisconnected
 				w.conn.onICEStateDisconnected()
 			}
@@ -396,10 +398,10 @@ func isRelayed(pair *ice.CandidatePair) bool {
 	return false
 }
 
-func selectedPriority(pair *ice.CandidatePair) ConnPriority {
+func selectedPriority(pair *ice.CandidatePair) conntype.ConnPriority {
 	if isRelayed(pair) {
-		return connPriorityICETurn
+		return conntype.ICETurn
 	} else {
-		return connPriorityICEP2P
+		return conntype.ICEP2P
 	}
 }
