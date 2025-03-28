@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-
 	"golang.org/x/exp/maps"
 
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
@@ -1569,4 +1568,42 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
+}
+
+func TestSaveOrAddUser_PreventAccountSwitch(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account1 := newAccountWithId(context.Background(), "account1", "ownerAccount1", "")
+	targetId := "user2"
+	account1.Users[targetId] = &types.User{
+		Id:              targetId,
+		AccountID:       account1.Id,
+		ServiceUserName: "user2username",
+	}
+	require.NoError(t, s.SaveAccount(context.Background(), account1))
+
+	account2 := newAccountWithId(context.Background(), "account2", "ownerAccount2", "")
+	require.NoError(t, s.SaveAccount(context.Background(), account2))
+
+	permissionsManagerMock := permissions.NewManagerMock()
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		idpManager:         nil,
+		cacheLoading:       map[string]chan struct{}{},
+		permissionsManager: permissionsManagerMock,
+	}
+
+	_, err = am.SaveOrAddUser(context.Background(), "account2", "ownerAccount2", account1.Users[targetId], true)
+	assert.Error(t, err, "update user to another account should fail")
+
+	user, err := s.GetUserByUserID(context.Background(), store.LockingStrengthShare, targetId)
+	require.NoError(t, err)
+	assert.Equal(t, account1.Users[targetId].Id, user.Id)
+	assert.Equal(t, account1.Users[targetId].AccountID, user.AccountID)
+	assert.Equal(t, account1.Users[targetId].AutoGroups, user.AutoGroups)
 }
