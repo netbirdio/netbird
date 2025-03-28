@@ -612,7 +612,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
-	oldUser, err := getUserOrCreateIfNotExists(ctx, transaction, update, addIfNotExists)
+	oldUser, err := getUserOrCreateIfNotExists(ctx, transaction, accountID, update, addIfNotExists)
 	if err != nil {
 		return false, nil, nil, nil, err
 	}
@@ -623,7 +623,6 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 
 	// only auto groups, revoked status, and integration reference can be updated for now
 	updatedUser := oldUser.Copy()
-	updatedUser.AccountID = accountID
 	updatedUser.Role = update.Role
 	updatedUser.Blocked = update.Blocked
 	updatedUser.AutoGroups = update.AutoGroups
@@ -666,17 +665,23 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 }
 
 // getUserOrCreateIfNotExists retrieves the existing user or creates a new one if it doesn't exist.
-func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, update *types.User, addIfNotExists bool) (*types.User, error) {
+func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, accountID string, update *types.User, addIfNotExists bool) (*types.User, error) {
 	existingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, update.Id)
 	if err != nil {
 		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
 			if !addIfNotExists {
 				return nil, status.Errorf(status.NotFound, "user to update doesn't exist: %s", update.Id)
 			}
+			update.AccountID = accountID
 			return update, nil // use all fields from update if addIfNotExists is true
 		}
 		return nil, err
 	}
+
+	if existingUser.AccountID != accountID {
+		return nil, status.Errorf(status.InvalidArgument, "user account ID mismatch")
+	}
+
 	return existingUser, nil
 }
 
@@ -714,9 +719,6 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 
 // validateUserUpdate validates the update operation for a user.
 func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUser, update *types.User) error {
-	if oldUser.AccountID != update.AccountID {
-		return status.Errorf(status.InvalidArgument, "user account ID mismatch")
-	}
 	// @todo double check these
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
