@@ -88,7 +88,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 	backOff := defaultBackoff(ctx, interval)
 	operation := func() error {
 		err := c.establishStreamAndReceive(ctx, msgHandler)
-		if err != nil && errors.Is(err, context.Canceled) {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Errorf("receive failed: %v", err)
 		}
 		return err
