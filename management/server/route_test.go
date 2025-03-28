@@ -1116,14 +1116,14 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	peer2RoutesAfterDelete, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
-	assert.Len(t, peer2RoutesAfterDelete.Routes, 2, "after peer deletion group should have 2 client routes")
+	assert.Len(t, peer2RoutesAfterDelete.Routes, 3, "after peer deletion group should have 3 client routes")
 
 	err = am.GroupDeletePeer(context.Background(), account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
 
 	peer2RoutesAfterDelete, err = am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
-	assert.Len(t, peer2RoutesAfterDelete.Routes, 1, "after peer deletion group should have only 1 route")
+	assert.Len(t, peer2RoutesAfterDelete.Routes, 2, "after peer deletion group should have only 2 routes")
 
 	err = am.GroupAddPeer(context.Background(), account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
@@ -1134,7 +1134,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	peer2RoutesAfterAdd, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
-	assert.Len(t, peer2RoutesAfterAdd.Routes, 2, "HA route should have 2 client routes")
+	assert.Len(t, peer2RoutesAfterAdd.Routes, 3, "HA route should have 3 client routes")
 
 	err = am.DeleteRoute(context.Background(), account.Id, newRoute.ID, userID)
 	require.NoError(t, err)
@@ -1492,7 +1492,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 		{
 			ID:    routeGroupHA1,
 			Name:  routeGroupHA1,
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID}, // we have one non Linux peer, see peer3
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 		},
 		{
 			ID:    routeGroupHA2,
