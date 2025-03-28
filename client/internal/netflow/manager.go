@@ -33,7 +33,7 @@ type Manager struct {
 }
 
 // NewManager creates a new netflow manager
-func NewManager(iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) nftypes.FlowManager {
+func NewManager(iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
 	var ipNet net.IPNet
 	if iface != nil {
 		ipNet = *iface.Address().Network

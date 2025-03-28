@@ -82,19 +82,18 @@ func TestManager_Update(t *testing.T) {
 				return
 			}
 
-			m := manager.(*Manager)
-			require.NotNil(t, m.flowConfig)
+			require.NotNil(t, manager.flowConfig)
 
 			if tc.config.Enabled {
-				assert.Equal(t, tc.config.Enabled, m.flowConfig.Enabled)
+				assert.Equal(t, tc.config.Enabled, manager.flowConfig.Enabled)
 			}
 
 			if tc.config.URL != "" {
-				assert.Equal(t, tc.config.URL, m.flowConfig.URL)
+				assert.Equal(t, tc.config.URL, manager.flowConfig.URL)
 			}
 
 			if tc.config.TokenPayload != "" {
-				assert.Equal(t, tc.config.TokenPayload, m.flowConfig.TokenPayload)
+				assert.Equal(t, tc.config.TokenPayload, manager.flowConfig.TokenPayload)
 			}
 		})
 	}
@@ -134,9 +133,8 @@ func TestManager_Update_TokenPreservation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify tokens were preserved
-	m := manager.(*Manager)
-	assert.Equal(t, "initial-payload", m.flowConfig.TokenPayload)
-	assert.Equal(t, "initial-signature", m.flowConfig.TokenSignature)
+	assert.Equal(t, "initial-payload", manager.flowConfig.TokenPayload)
+	assert.Equal(t, "initial-signature", manager.flowConfig.TokenSignature)
 }
 
 func TestManager_NeedsNewClient(t *testing.T) {
