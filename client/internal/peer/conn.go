@@ -365,6 +365,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 	}
 
 	conn.workerRelay.DisableWgWatcher()
+	// todo consider to run conn.wgWatcherWg.Wait() here
 
 	if conn.wgProxyRelay != nil {
 		conn.wgProxyRelay.Pause()
