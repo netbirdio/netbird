@@ -32,7 +32,6 @@ type WGWatcher struct {
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 	ctxLock   sync.Mutex
-	waitGroup sync.WaitGroup
 }
 
 func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
@@ -64,8 +63,7 @@ func (w *WGWatcher) EnableWgWatcher(parentCtx context.Context, onDisconnectedFn 
 		w.log.Warnf("failed to read initial wg stats: %v", err)
 	}
 
-	w.waitGroup.Add(1)
-	go w.periodicHandshakeCheck(ctx, ctxCancel, onDisconnectedFn, initialHandshake)
+	w.periodicHandshakeCheck(ctx, ctxCancel, onDisconnectedFn, initialHandshake)
 }
 
 // DisableWgWatcher stops the WireGuard watcher and wait for the watcher to exit
@@ -81,13 +79,11 @@ func (w *WGWatcher) DisableWgWatcher() {
 
 	w.ctxCancel()
 	w.ctxCancel = nil
-	w.waitGroup.Wait()
 }
 
 // wgStateCheck help to check the state of the WireGuard handshake and relay connection
 func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel context.CancelFunc, onDisconnectedFn func(), initialHandshake time.Time) {
 	w.log.Infof("WireGuard watcher started")
-	defer w.waitGroup.Done()
 
 	timer := time.NewTimer(wgHandshakeOvertime)
 	defer timer.Stop()
