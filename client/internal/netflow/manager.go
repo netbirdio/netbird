@@ -153,17 +153,18 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 
 	m.logger.UpdateConfig(update.DNSCollection, update.ExitNodeCollection)
 
+	changed := previous != nil && update.Enabled != previous.Enabled
 	if update.Enabled {
-		log.Infof("netflow manager enabled; starting netflow manager")
+		if changed {
+			log.Infof("netflow manager enabled; starting netflow manager")
+		}
 		return m.enableFlow(previous)
 	}
 
-	log.Infof("netflow manager disabled; stopping netflow manager")
-	err := m.disableFlow()
-	if err != nil {
-		log.Errorf("failed to disable netflow manager: %v", err)
+	if changed {
+		log.Infof("netflow manager disabled; stopping netflow manager")
 	}
-	return err
+	return m.disableFlow()
 }
 
 // Close cleans up all resources
@@ -172,7 +173,7 @@ func (m *Manager) Close() {
 	defer m.mux.Unlock()
 
 	if err := m.disableFlow(); err != nil {
-		log.Warn("failed to disable flow manager: %v", err)
+		log.Warnf("failed to disable flow manager: %v", err)
 	}
 }
 

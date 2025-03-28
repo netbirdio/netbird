@@ -1,7 +1,6 @@
 package logger_test
 
 import (
-	"context"
 	"net"
 	"testing"
 	"time"
@@ -40,7 +39,7 @@ func TestStore(t *testing.T) {
 	}
 
 	// test disable
-	logger.Disable()
+	logger.Close()
 	wait()
 	logger.StoreEvent(event)
 	wait()

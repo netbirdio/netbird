@@ -77,14 +77,18 @@ func (c *GRPCClient) Close() error {
 	defer c.streamMu.Unlock()
 
 	c.stream = nil
-	return c.clientConn.Close()
+	if err := c.clientConn.Close(); err != nil && !errors.Is(err, context.Canceled) {
+		return fmt.Errorf("close client connection: %w", err)
+	}
+
+	return nil
 }
 
 func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHandler func(msg *proto.FlowEventAck) error) error {
 	backOff := defaultBackoff(ctx, interval)
 	operation := func() error {
 		err := c.establishStreamAndReceive(ctx, msgHandler)
-		if err != nil {
+		if err != nil && errors.Is(err, context.Canceled) {
 			log.Errorf("receive failed: %v", err)
 		}
 		return err
