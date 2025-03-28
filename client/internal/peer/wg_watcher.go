@@ -47,16 +47,17 @@ func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey strin
 func (w *WGWatcher) EnableWgWatcher(parentCtx context.Context, onDisconnectedFn func()) {
 	w.log.Debugf("enable WireGuard watcher")
 	w.ctxLock.Lock()
-	defer w.ctxLock.Unlock()
 
 	if w.ctx != nil && w.ctx.Err() == nil {
 		w.log.Errorf("WireGuard watcher already enabled")
+		w.ctxLock.Unlock()
 		return
 	}
 
 	ctx, ctxCancel := context.WithCancel(parentCtx)
 	w.ctx = ctx
 	w.ctxCancel = ctxCancel
+	w.ctxLock.Unlock()
 
 	initialHandshake, err := w.wgState()
 	if err != nil {
