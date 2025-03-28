@@ -1,7 +1,6 @@
 package acl
 
 import (
-	"context"
 	"net"
 	"testing"
 

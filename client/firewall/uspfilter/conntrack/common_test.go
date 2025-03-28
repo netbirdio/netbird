@@ -1,7 +1,6 @@
 package conntrack
 
 import (
-	"context"
 	"net/netip"
 	"testing"
 
