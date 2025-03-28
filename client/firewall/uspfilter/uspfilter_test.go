@@ -1,7 +1,6 @@
 package uspfilter
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/netip"
