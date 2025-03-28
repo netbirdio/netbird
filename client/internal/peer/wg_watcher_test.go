@@ -49,7 +49,7 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 	defer cancel()
 
 	onDisconnected := make(chan struct{}, 1)
-	watcher.EnableWgWatcher(ctx, func() {
+	go watcher.EnableWgWatcher(ctx, func() {
 		mlog.Infof("onDisconnectedFn")
 		onDisconnected <- struct{}{}
 	})
@@ -79,10 +79,11 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 
 	onDisconnected := make(chan struct{}, 1)
 
-	watcher.EnableWgWatcher(ctx, func() {})
+	go watcher.EnableWgWatcher(ctx, func() {})
+	time.Sleep(1 * time.Second)
 	watcher.DisableWgWatcher()
 
-	watcher.EnableWgWatcher(ctx, func() {
+	go watcher.EnableWgWatcher(ctx, func() {
 		onDisconnected <- struct{}{}
 	})
 
