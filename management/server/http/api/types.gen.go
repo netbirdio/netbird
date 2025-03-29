@@ -230,7 +230,7 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
-	// NetworkTrafficLogsEnabled Enables or disables network traffic logs. If enabled, all network traffic logs from peers will be stored.
+	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
 	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
 
 	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
@@ -906,6 +906,24 @@ type NetworkTrafficEvent struct {
 
 	// UserName Name of the user who initiated the event (if any).
 	UserName *string `json:"user_name"`
+}
+
+// NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
+type NetworkTrafficEventsResponse struct {
+	// Events List of network traffic events
+	Events []NetworkTrafficEvent `json:"events"`
+
+	// Page Current page number
+	Page int `json:"page"`
+
+	// PageSize Number of items per page
+	PageSize int `json:"page_size"`
+
+	// TotalPages Total number of pages available
+	TotalPages int `json:"total_pages"`
+
+	// TotalRecords Total number of event records available
+	TotalRecords int `json:"total_records"`
 }
 
 // NetworkTrafficLocation defines model for NetworkTrafficLocation.
@@ -1727,6 +1745,15 @@ type UserRequest struct {
 
 	// Role User's NetBird account role
 	Role string `json:"role"`
+}
+
+// GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParams struct {
+	// Page Page number
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of items per page
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
 // GetApiPeersParams defines parameters for GetApiPeers.
