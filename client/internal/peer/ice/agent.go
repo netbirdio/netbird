@@ -4,10 +4,12 @@ import (
 	"time"
 
 	"github.com/pion/ice/v3"
+	"github.com/pion/logging"
 	"github.com/pion/randutil"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/formatter/txt"
 )
 
 const (
@@ -35,6 +37,11 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
+	fac := logging.NewDefaultLoggerFactory()
+	logger := log.New()
+	logger.Formatter = txt.NewTextFormatter()
+	fac.Writer = logger.Writer()
+
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
@@ -51,7 +58,7 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
 		LocalUfrag:             ufrag,
 		LocalPwd:               pwd,
-		LoggerFactory:          newLogrusFactory(log.StandardLogger()),
+		LoggerFactory:          fac,
 	}
 
 	if config.DisableIPv6Discovery {
