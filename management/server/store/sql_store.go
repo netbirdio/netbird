@@ -586,6 +586,19 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 	return users, nil
 }
 
+func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error) {
+	var user types.User
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).First(&user, "account_id = ? AND role = ?", accountID, types.UserRoleOwner)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account owner not found: index lookup failed")
+		}
+		return nil, status.Errorf(status.Internal, "failed to get account owner from the store")
+	}
+
+	return &user, nil
+}
+
 func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error) {
 	var groups []*types.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountIDCondition, accountID)

@@ -1100,6 +1100,25 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	return updateAccountPeers, nil
 }
 
+// GetOwnerInfo retrieves the owner information for a given account ID.
+func (am *DefaultAccountManager) GetOwnerInfo(ctx context.Context, accountID string) (*types.UserInfo, error) {
+	owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if owner == nil {
+		return nil, status.Errorf(status.NotFound, "owner not found")
+	}
+
+	userInfo, err := am.getUserInfo(ctx, owner, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return userInfo, nil
+}
+
 // updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
 func updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbpeer.Peer, groupsToAdd, groupsToRemove []string) (groupsToUpdate []*types.Group, err error) {
 	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
