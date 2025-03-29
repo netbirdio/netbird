@@ -59,6 +59,7 @@ func setGRPCLibLogger() {
 	logOut := log.StandardLogger().Writer()
 	if os.Getenv("GRPC_GO_LOG_SEVERITY_LEVEL") != "info" {
 		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, logOut, logOut))
+		return
 	}
 
 	var v int
