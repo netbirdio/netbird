@@ -67,8 +67,8 @@ func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
 	}
 
 	if user.IsRegularUser() {
@@ -89,8 +89,8 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return err
 	}
 
 	if !user.HasAdminPower() {

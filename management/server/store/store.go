@@ -69,10 +69,12 @@ type Store interface {
 	DeleteAccount(ctx context.Context, account *types.Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
+	CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error)
 
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
+	GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error)
 	SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*types.User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
