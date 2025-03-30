@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -89,6 +90,8 @@ type DefaultAccountManager struct {
 	integratedPeerValidator integrated_validator.IntegratedValidator
 
 	metrics telemetry.AppMetrics
+
+	permissionsManager permissions.Manager
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -156,6 +159,7 @@ func BuildManager(
 	metrics telemetry.AppMetrics,
 	proxyController port_forwarding.Controller,
 	settingsManager settings.Manager,
+	permissionsManager permissions.Manager,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -180,6 +184,7 @@ func BuildManager(
 		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 		proxyController:          proxyController,
 		settingsManager:          settingsManager,
+		permissionsManager:       permissionsManager,
 	}
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
@@ -253,13 +258,13 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	user, err := account.FindUser(userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Settings, permissions.Write)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 
-	if !user.HasAdminPower() {
-		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	err = am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID)
@@ -503,16 +508,12 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return err
 	}
 
-	user, err := account.FindUser(userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Accounts, permissions.Write)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to validate user permissions: %w", err)
 	}
 
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
-	}
-
-	if user.Role != types.UserRoleOwner {
+	if !allowed {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
 
@@ -542,14 +543,12 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	}
 
 	userInfo, ok := userInfosMap[userID]
-	if !ok {
-		return status.Errorf(status.NotFound, "user info not found for user %s", userID)
-	}
-
-	_, err = am.deleteRegularUser(ctx, accountID, userID, userInfo)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
-		return err
+	if ok {
+		_, err = am.deleteRegularUser(ctx, accountID, userID, userInfo)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
+			return err
+		}
 	}
 
 	err = am.Store.DeleteAccount(ctx, account)
@@ -1027,8 +1026,8 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
 	}
 
 	return am.Store.GetAccount(ctx, accountID)
@@ -1061,8 +1060,8 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return accountID, user.Id, nil
 	}
 
-	if user.AccountID != accountID {
-		return "", "", status.Errorf(status.PermissionDenied, "user %s is not part of the account %s", userAuth.UserId, accountID)
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return "", "", err
 	}
 
 	if !user.IsServiceUser && userAuth.Invited {
@@ -1521,7 +1520,11 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 		return nil, err
 	}
 
-	if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
+	}
+
+	if !user.HasAdminPower() && !user.IsServiceUser {
 		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
 	}
 
@@ -1605,4 +1608,114 @@ func separateGroups(autoGroups []string, allGroups []*types.Group) ([]string, ma
 
 func (am *DefaultAccountManager) GetStore() store.Store {
 	return am.Store
+}
+
+// Creates account by private domain.
+// Expects domain value to be a valid and a private dns domain.
+func (am *DefaultAccountManager) CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error) {
+	cancel := am.Store.AcquireGlobalLock(ctx)
+	defer cancel()
+
+	domain = strings.ToLower(domain)
+
+	count, err := am.Store.CountAccountsByPrivateDomain(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	if count > 0 {
+		return nil, status.Errorf(status.InvalidArgument, "account with private domain already exists")
+	}
+
+	// retry twice for new ID clashes
+	for range 2 {
+		accountId := xid.New().String()
+
+		exists, err := am.Store.AccountExists(ctx, store.LockingStrengthShare, accountId)
+		if err != nil || exists {
+			continue
+		}
+
+		network := types.NewNetwork()
+		peers := make(map[string]*nbpeer.Peer)
+		users := make(map[string]*types.User)
+		routes := make(map[route.ID]*route.Route)
+		setupKeys := map[string]*types.SetupKey{}
+		nameServersGroups := make(map[string]*nbdns.NameServerGroup)
+
+		dnsSettings := types.DNSSettings{
+			DisabledManagementGroups: make([]string, 0),
+		}
+
+		newAccount := &types.Account{
+			Id:        accountId,
+			CreatedAt: time.Now().UTC(),
+			SetupKeys: setupKeys,
+			Network:   network,
+			Peers:     peers,
+			Users:     users,
+			// @todo check if using the MSP owner id here is ok
+			CreatedBy:              initiatorId,
+			Domain:                 domain,
+			DomainCategory:         types.PrivateCategory,
+			IsDomainPrimaryAccount: false,
+			Routes:                 routes,
+			NameServerGroups:       nameServersGroups,
+			DNSSettings:            dnsSettings,
+			Settings: &types.Settings{
+				PeerLoginExpirationEnabled: true,
+				PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+				GroupsPropagationEnabled:   true,
+				RegularUsersViewBlocked:    true,
+
+				PeerInactivityExpirationEnabled: false,
+				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
+				RoutingPeerDNSResolutionEnabled: true,
+			},
+		}
+
+		if err := newAccount.AddAllGroup(); err != nil {
+			return nil, status.Errorf(status.Internal, "failed to add all group to new account by private domain")
+		}
+
+		if err := am.Store.SaveAccount(ctx, newAccount); err != nil {
+			log.WithContext(ctx).Errorf("failed to save new account %s by private domain: %v", newAccount.Id, err)
+			return nil, err
+		}
+
+		am.StoreEvent(ctx, initiatorId, newAccount.Id, accountId, activity.AccountCreated, nil)
+		return newAccount, nil
+	}
+
+	return nil, status.Errorf(status.Internal, "failed to create new account by private domain")
+}
+
+func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
+	account, err := am.Store.GetAccount(ctx, accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	if account.IsDomainPrimaryAccount {
+		return account, nil
+	}
+
+	// additional check to ensure there is only one account for this domain at the time of update
+	count, err := am.Store.CountAccountsByPrivateDomain(ctx, account.Domain)
+	if err != nil {
+		return nil, err
+	}
+
+	if count > 1 {
+		return nil, status.Errorf(status.Internal, "more than one account exists with the same private domain")
+	}
+
+	account.IsDomainPrimaryAccount = true
+
+	if err := am.Store.SaveAccount(ctx, account); err != nil {
+		log.WithContext(ctx).Errorf("failed to update primary account %s by private domain: %v", account.Id, err)
+		return nil, status.Errorf(status.Internal, "failed to update primary account %s by private domain", account.Id)
+	}
+
+	return account, nil
 }

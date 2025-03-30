@@ -37,8 +37,8 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
@@ -188,8 +188,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
 	}
 
 	var peer *nbpeer.Peer
@@ -321,8 +321,8 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		if user.AccountID != accountID {
-			return status.NewUserNotPartOfAccountError()
+		if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+			return err
 		}
 	}
 
@@ -621,7 +621,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		if addedByUser {
 			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 			if err != nil {
-				return fmt.Errorf("failed to update user last login: %w", err)
+				log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 			}
 		} else {
 			err = transaction.IncrementSetupKeyUsage(ctx, setupKeyID)
@@ -1054,7 +1054,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transact
 
 	err = transaction.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.GetLastLogin())
 	if err != nil {
-		return err
+		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 	}
 
 	am.StoreEvent(ctx, user.Id, peer.ID, user.AccountID, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
@@ -1099,8 +1099,8 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
