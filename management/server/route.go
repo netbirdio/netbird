@@ -123,6 +123,15 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return nil, err
+	}
+
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -240,6 +249,15 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return err
+	}
+
+	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
+	}
+
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
@@ -313,6 +331,15 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
+
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return err
+	}
+
+	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+		return err
+	}
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
