@@ -1,7 +1,6 @@
 package logger_test
 
 import (
-	"context"
 	"net"
 	"testing"
 	"time"
@@ -13,7 +12,7 @@ import (
 )
 
 func TestStore(t *testing.T) {
-	logger := logger.New(context.Background(), nil, net.IPNet{})
+	logger := logger.New(nil, net.IPNet{})
 	logger.Enable()
 
 	event := types.EventFields{
@@ -40,7 +39,7 @@ func TestStore(t *testing.T) {
 	}
 
 	// test disable
-	logger.Disable()
+	logger.Close()
 	wait()
 	logger.StoreEvent(event)
 	wait()

@@ -103,6 +103,7 @@ type Conn struct {
 
 	workerICE   *WorkerICE
 	workerRelay *WorkerRelay
+	wgWatcherWg sync.WaitGroup
 
 	connIDRelay          nbnet.ConnectionID
 	connIDICE            nbnet.ConnectionID
@@ -211,6 +212,7 @@ func (conn *Conn) startHandshakeAndReconnect(ctx context.Context) {
 // Close closes this peer Conn issuing a close event to the Conn closeCh
 func (conn *Conn) Close() {
 	conn.mu.Lock()
+	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
 
 	conn.log.Infof("close peer connection")
@@ -252,6 +254,7 @@ func (conn *Conn) Close() {
 	}
 
 	conn.setStatusToDisconnected()
+	conn.log.Infof("peer connection has been closed")
 }
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
@@ -362,6 +365,7 @@ func (conn *Conn) onICEConnectionIsReady(priority ConnPriority, iceConnInfo ICEC
 	}
 
 	conn.workerRelay.DisableWgWatcher()
+	// todo consider to run conn.wgWatcherWg.Wait() here
 
 	if conn.wgProxyRelay != nil {
 		conn.wgProxyRelay.Pause()
@@ -407,7 +411,12 @@ func (conn *Conn) onICEStateDisconnected() {
 		if err := conn.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr()); err != nil {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
-		conn.workerRelay.EnableWgWatcher(conn.ctx)
+
+		conn.wgWatcherWg.Add(1)
+		go func() {
+			defer conn.wgWatcherWg.Done()
+			conn.workerRelay.EnableWgWatcher(conn.ctx)
+		}()
 		conn.currentConnPriority = connPriorityRelay
 	} else {
 		conn.log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", connPriorityNone.String())
@@ -476,7 +485,12 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.log.Errorf("Failed to update WireGuard peer configuration: %v", err)
 		return
 	}
-	conn.workerRelay.EnableWgWatcher(conn.ctx)
+
+	conn.wgWatcherWg.Add(1)
+	go func() {
+		defer conn.wgWatcherWg.Done()
+		conn.workerRelay.EnableWgWatcher(conn.ctx)
+	}()
 
 	wgConfigWorkaround()
 	conn.currentConnPriority = connPriorityRelay
@@ -502,6 +516,7 @@ func (conn *Conn) onRelayDisconnected() {
 		if err := conn.removeWgPeer(); err != nil {
 			conn.log.Errorf("failed to remove wg endpoint: %v", err)
 		}
+		conn.currentConnPriority = connPriorityNone
 	}
 
 	if conn.wgProxyRelay != nil {

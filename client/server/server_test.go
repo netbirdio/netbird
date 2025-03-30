@@ -3,21 +3,23 @@ package server
 import (
 	"context"
 	"net"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/netbirdio/management-integrations/integrations"
-
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	daemonProto "github.com/netbirdio/netbird/client/proto"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -84,6 +86,72 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}
+}
+
+func TestServer_Up(t *testing.T) {
+	ctx := internal.CtxInitState(context.Background())
+
+	s := New(ctx, t.TempDir()+"/config.json", "console")
+
+	err := s.Start()
+	require.NoError(t, err)
+
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+	s.config = &internal.Config{
+		ManagementURL: u,
+	}
+
+	upCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	upReq := &daemonProto.UpRequest{}
+	_, err = s.Up(upCtx, upReq)
+
+	assert.Contains(t, err.Error(), "NeedsLogin")
+}
+
+type mockSubscribeEventsServer struct {
+	ctx        context.Context
+	sentEvents []*daemonProto.SystemEvent
+	grpc.ServerStream
+}
+
+func (m *mockSubscribeEventsServer) Send(event *daemonProto.SystemEvent) error {
+	m.sentEvents = append(m.sentEvents, event)
+	return nil
+}
+
+func (m *mockSubscribeEventsServer) Context() context.Context {
+	return m.ctx
+}
+
+func TestServer_SubcribeEvents(t *testing.T) {
+	ctx := internal.CtxInitState(context.Background())
+
+	s := New(ctx, t.TempDir()+"/config.json", "console")
+
+	err := s.Start()
+	require.NoError(t, err)
+
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+	s.config = &internal.Config{
+		ManagementURL: u,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	upReq := &daemonProto.SubscribeRequest{}
+	mockServer := &mockSubscribeEventsServer{
+		ctx:          ctx,
+		sentEvents:   make([]*daemonProto.SystemEvent, 0),
+		ServerStream: nil,
+	}
+	err = s.SubscribeEvents(upReq, mockServer)
+
+	assert.NoError(t, err)
 }
 
 type mockServer struct {
