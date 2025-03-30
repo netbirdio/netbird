@@ -29,7 +29,7 @@ const (
 
 type Manager interface {
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error)
-	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error
+	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
 }
 
 type managerImpl struct {
@@ -55,7 +55,7 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 		return false, status.NewUserNotFoundError(userID)
 	}
 
-	if err := m.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := m.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return false, err
 	}
 
@@ -100,7 +100,7 @@ func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accoun
 	return false, nil
 }
 
-func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error {
+func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
 	if user.AccountID != accountID {
 		return status.NewUserNotPartOfAccountError()
 	}
@@ -120,7 +120,7 @@ func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, us
 	}
 }
 
-func (m *managerMock) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User) error {
+func (m *managerMock) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
 	// @note managers explicitly checked this, so should the mock
 	if user.AccountID != accountID {
 		return status.NewUserNotPartOfAccountError()
