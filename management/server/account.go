@@ -1026,7 +1026,7 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 
@@ -1060,7 +1060,7 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return accountID, user.Id, nil
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return "", "", err
 	}
 
@@ -1520,7 +1520,7 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 

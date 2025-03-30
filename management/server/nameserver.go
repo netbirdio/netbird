@@ -25,7 +25,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 
@@ -46,7 +46,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 
@@ -108,7 +108,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return err
 	}
 
@@ -159,7 +159,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return err
 	}
 
@@ -203,7 +203,7 @@ func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accou
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 

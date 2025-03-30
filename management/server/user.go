@@ -30,7 +30,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return nil, err
 	}
 
@@ -93,7 +93,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return nil, err
 	}
 
@@ -237,7 +237,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return err
 	}
 
@@ -299,7 +299,7 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return err
 	}
 
@@ -347,7 +347,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return nil, err
 	}
 
@@ -385,7 +385,7 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return err
 	}
 
@@ -420,7 +420,7 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return nil, err
 	}
 
@@ -438,7 +438,7 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return nil, err
 	}
 
@@ -485,7 +485,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return nil, err
 	}
 
@@ -805,7 +805,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return nil, err
 	}
 
@@ -982,7 +982,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
 		return err
 	}
 

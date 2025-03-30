@@ -22,7 +22,7 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 
@@ -43,7 +43,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 
@@ -99,7 +99,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return err
 	}
 
@@ -141,7 +141,7 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 

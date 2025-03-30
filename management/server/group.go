@@ -35,7 +35,7 @@ func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, acco
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return err
 	}
 
@@ -83,7 +83,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return err
 	}
 
@@ -215,7 +215,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return err
 	}
 

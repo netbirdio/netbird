@@ -26,7 +26,7 @@ func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userI
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return nil, err
 	}
 
