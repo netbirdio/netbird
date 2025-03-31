@@ -390,7 +390,9 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// is the service should be Disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if update.ServiceEnable {
-		_ = s.service.Listen()
+		if err := s.service.Listen(); err != nil {
+			log.Errorf("failed to start DNS service: %v", err)
+		}
 	} else if !s.permanent {
 		s.service.Stop()
 	}
@@ -421,7 +423,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	}
 
 	if err = s.hostManager.applyDNSConfig(hostUpdate, s.stateManager); err != nil {
-		log.Error(err)
+		log.Errorf("failed to apply DNS host manager update: %v", err)
 		s.handleErrNoGroupaAll(err)
 	}
 

@@ -172,20 +172,20 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
 	reply, _, err := client.ExchangeContext(context.Background(), r, upstream)
-
-	var answer []dns.RR
-	if reply != nil {
-		answer = reply.Answer
-	}
-	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
-
 	if err != nil {
-		log.Errorf("failed to exchange DNS request with %s: %v", upstream, err)
+		log.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
 		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
 			log.Errorf("failed writing DNS response: %v", err)
 		}
 		return
 	}
+
+	var answer []dns.RR
+	if reply != nil {
+		answer = reply.Answer
+	}
+
+	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
 
 	reply.Id = r.Id
 	if err := d.writeMsg(w, reply); err != nil {
