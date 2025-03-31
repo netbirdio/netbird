@@ -6,7 +6,6 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
@@ -162,9 +161,8 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		r.SetEdns0(4096, false)
 		r.MsgHdr.AuthenticatedData = true
 	}
-
 	client := &dns.Client{
-		Timeout: 5 * time.Second,
+		Timeout: nbdns.UpstreamTimeout,
 		Net:     "udp",
 	}
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
