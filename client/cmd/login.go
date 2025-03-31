@@ -19,14 +19,14 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+func init() {
+	loginCmd.PersistentFlags().BoolVar(&noBrowser, "no-browser", false, "do not open the browser for SSO login")
+}
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login to the Netbird Management Service (first run)",
 	RunE:  loginFunc,
-}
-
-func init() {
-	loginCmd.PersistentFlags().BoolVar(&noBrowser, "no-browser", false, "do not open the browser for SSO login")
 }
 
 func loginFunc(cmd *cobra.Command, args []string) error {
