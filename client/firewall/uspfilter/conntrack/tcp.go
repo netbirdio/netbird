@@ -253,17 +253,17 @@ func (t *TCPTracker) IsValidInbound(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 }
 
 // updateState updates the TCP connection state based on flags
-func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, direction nftypes.Direction, size int) {
+func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, packetDir nftypes.Direction, size int) {
 	conn.UpdateLastSeen()
-	conn.UpdateCounters(direction, size)
+	conn.UpdateCounters(packetDir, size)
 
 	currentState := conn.GetState()
-	isOutbound := conn.Direction == nftypes.Egress
 
 	if flags&TCPRst != 0 {
 		if conn.CompareAndSwapState(currentState, TCPStateClosed) {
-			t.logger.Trace("TCP connection reset: %s", key)
 			conn.SetTombstone()
+			t.logger.Trace("TCP connection reset: %s (dir: %s) [in: %d Pkts/%d B, out: %d Pkts/%d B]",
+				key, packetDir, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
 		return
@@ -273,7 +273,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, d
 	switch currentState {
 	case TCPStateNew:
 		if flags&TCPSyn != 0 && flags&TCPAck == 0 {
-			if isOutbound {
+			if conn.Direction == nftypes.Egress {
 				newState = TCPStateSynSent
 			} else {
 				newState = TCPStateSynReceived
@@ -282,7 +282,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, d
 
 	case TCPStateSynSent:
 		if flags&TCPSyn != 0 && flags&TCPAck != 0 {
-			if isOutbound {
+			if packetDir != conn.Direction {
 				newState = TCPStateEstablished
 			} else {
 				// Simultaneous open
@@ -292,12 +292,14 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, d
 
 	case TCPStateSynReceived:
 		if flags&TCPAck != 0 && flags&TCPSyn == 0 {
-			newState = TCPStateEstablished
+			if packetDir == conn.Direction {
+				newState = TCPStateEstablished
+			}
 		}
 
 	case TCPStateEstablished:
 		if flags&TCPFin != 0 {
-			if isOutbound {
+			if packetDir == conn.Direction {
 				newState = TCPStateFinWait1
 			} else {
 				newState = TCPStateCloseWait
@@ -305,17 +307,15 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, d
 		}
 
 	case TCPStateFinWait1:
-		switch {
-		case flags&TCPFin != 0 && flags&TCPAck != 0:
-			if !isOutbound {
+		if packetDir != conn.Direction {
+			switch {
+			case flags&TCPFin != 0 && flags&TCPAck != 0:
 				newState = TCPStateClosing
-			}
-		case flags&TCPFin != 0:
-			if !isOutbound {
+			case flags&TCPFin != 0:
+				newState = TCPStateClosing
+			case flags&TCPAck != 0:
 				newState = TCPStateFinWait2
 			}
-		case flags&TCPAck != 0:
-			newState = TCPStateFinWait2
 		}
 
 	case TCPStateFinWait2:
@@ -340,16 +340,18 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, d
 	}
 
 	if newState != 0 && conn.CompareAndSwapState(currentState, newState) {
-		t.logger.Trace("TCP connection %s transitioned from %s to %s", key, currentState, newState)
+		t.logger.Trace("TCP connection %s transitioned from %s to %s (dir: %s)", key, currentState, newState, packetDir)
 
 		switch newState {
 		case TCPStateTimeWait:
-			t.logger.Trace("TCP connection %s completed", key)
+			t.logger.Trace("TCP connection %s completed [in: %d Pkts/%d B, out: %d Pkts/%d B]",
+				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 
 		case TCPStateClosed:
 			conn.SetTombstone()
-			t.logger.Trace("TCP connection %s closed gracefully", key)
+			t.logger.Trace("TCP connection %s closed gracefully [in: %d Pkts/%d, B out: %d Pkts/%d B]",
+				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
 	}
@@ -436,7 +438,8 @@ func (t *TCPTracker) cleanup() {
 		if conn.timeoutExceeded(timeout) {
 			delete(t.connections, key)
 
-			t.logger.Trace("Cleaned up timed-out TCP connection %s", key)
+			t.logger.Trace("Cleaned up timed-out TCP connection %s [in: %d Pkts/%d, B out: %d Pkts/%d B]",
+				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 
 			// event already handled by state change
 			if currentState != TCPStateTimeWait {
