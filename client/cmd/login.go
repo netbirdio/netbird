@@ -222,9 +222,14 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
 	}
 
-	cmd.Println("Please do the SSO login in your browser. \n" +
-		"If your browser didn't open automatically, use this URL to log in:\n\n" +
-		verificationURIComplete + " " + codeMsg)
+	if noBrowser {
+		cmd.Println("Use this URL to log in:\n\n" + verificationURIComplete + " " + codeMsg)
+	} else {
+		cmd.Println("Please do the SSO login in your browser. \n" +
+			"If your browser didn't open automatically, use this URL to log in:\n\n" +
+			verificationURIComplete + " " + codeMsg)
+	}
+
 	cmd.Println("")
 
 	if !noBrowser {
