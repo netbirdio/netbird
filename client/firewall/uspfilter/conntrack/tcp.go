@@ -438,8 +438,8 @@ func (t *TCPTracker) cleanup() {
 		if conn.timeoutExceeded(timeout) {
 			delete(t.connections, key)
 
-			t.logger.Trace("Cleaned up timed-out TCP connection %s [in: %d Pkts/%d, B out: %d Pkts/%d B]",
-				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
+			t.logger.Trace("Cleaned up timed-out TCP connection %s (%s) [in: %d Pkts/%d, B out: %d Pkts/%d B]",
+				key, conn.GetState(), conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 
 			// event already handled by state change
 			if currentState != TCPStateTimeWait {
