@@ -151,6 +151,11 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 	if err != nil {
 		log.Error(err)
 	}
+
+	if err := s.flushDNSCache(); err != nil {
+		log.Errorf("failed to flush DNS cache: %v", err)
+	}
+
 	return nil
 }
 
@@ -163,7 +168,8 @@ func (s *systemdDbusConfigurator) setDomainsForInterface(domainsInput []systemdD
 	if err != nil {
 		return fmt.Errorf("setting domains configuration failed with error: %w", err)
 	}
-	return s.flushCaches()
+
+	return nil
 }
 
 func (s *systemdDbusConfigurator) restoreHostDNS() error {
@@ -183,10 +189,14 @@ func (s *systemdDbusConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("unable to revert link configuration, got error: %w", err)
 	}
 
-	return s.flushCaches()
+	if err := s.flushDNSCache(); err != nil {
+		log.Errorf("failed to flush DNS cache: %v", err)
+	}
+
+	return nil
 }
 
-func (s *systemdDbusConfigurator) flushCaches() error {
+func (s *systemdDbusConfigurator) flushDNSCache() error {
 	obj, closeConn, err := getDbusObject(systemdResolvedDest, systemdDbusObjectNode)
 	if err != nil {
 		return fmt.Errorf("attempting to retrieve the object %s, err: %w", systemdDbusObjectNode, err)

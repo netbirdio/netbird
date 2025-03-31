@@ -184,6 +184,8 @@ func newDefaultServer(
 	return defaultServer
 }
 
+// RegisterHandler registers a handler for the given domains with the given priority.
+// Any previously registered handler for the same domain and priority will be replaced.
 func (s *DefaultServer) RegisterHandler(domains []string, handler dns.Handler, priority int) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
@@ -200,10 +202,13 @@ func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, p
 			continue
 		}
 		s.handlerChain.AddHandler(domain, handler, priority)
+
+		// overwrites already handled zones
 		s.service.RegisterMux(nbdns.NormalizeZone(domain), s.handlerChain)
 	}
 }
 
+// DeregisterHandler deregisters the handler for the given domains with the given priority.
 func (s *DefaultServer) DeregisterHandler(domains []string, priority int) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
