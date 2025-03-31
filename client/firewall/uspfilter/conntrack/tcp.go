@@ -170,7 +170,7 @@ func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 	t.mutex.RUnlock()
 
 	if exists {
-		t.updateState(key, conn, flags, conn.Direction == nftypes.Egress, direction, size)
+		t.updateState(key, conn, flags, direction, size)
 		return key, true
 	}
 
@@ -212,7 +212,7 @@ func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, fla
 	conn.state.Store(int32(TCPStateNew))
 
 	t.logger.Trace("New %s TCP connection: %s", direction, key)
-	t.updateState(key, conn, flags, direction == nftypes.Egress, direction, size)
+	t.updateState(key, conn, flags, direction, size)
 
 	t.mutex.Lock()
 	t.connections[key] = conn
@@ -248,16 +248,17 @@ func (t *TCPTracker) IsValidInbound(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 		return false
 	}
 
-	t.updateState(key, conn, flags, false, nftypes.Ingress, size)
+	t.updateState(key, conn, flags, nftypes.Ingress, size)
 	return true
 }
 
 // updateState updates the TCP connection state based on flags
-func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, isOutbound bool, direction nftypes.Direction, size int) {
+func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, direction nftypes.Direction, size int) {
 	conn.UpdateLastSeen()
 	conn.UpdateCounters(direction, size)
 
 	currentState := conn.GetState()
+	isOutbound := conn.Direction == nftypes.Egress
 
 	if flags&TCPRst != 0 {
 		if conn.CompareAndSwapState(currentState, TCPStateClosed) {
