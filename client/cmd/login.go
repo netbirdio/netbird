@@ -26,125 +26,123 @@ func init() {
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login to the Netbird Management Service (first run)",
-	RunE:  loginFunc,
-}
+	RunE: func(cmd *cobra.Command, args []string) error {
+		SetFlagsFromEnvVars(rootCmd)
 
-func loginFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
+		cmd.SetOut(cmd.OutOrStdout())
 
-	cmd.SetOut(cmd.OutOrStdout())
+		err := util.InitLog(logLevel, "console")
+		if err != nil {
+			return fmt.Errorf("failed initializing log %v", err)
+		}
 
-	err := util.InitLog(logLevel, "console")
-	if err != nil {
-		return fmt.Errorf("failed initializing log %v", err)
-	}
+		ctx := internal.CtxInitState(context.Background())
 
-	ctx := internal.CtxInitState(context.Background())
+		if hostName != "" {
+			// nolint
+			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
+		}
 
-	if hostName != "" {
-		// nolint
-		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
-	}
-
-	providedSetupKey, err := getSetupKey()
-	if err != nil {
-		return err
-	}
-
-	// workaround to run without service
-	if logFile == "console" {
-		err = handleRebrand(cmd)
+		providedSetupKey, err := getSetupKey()
 		if err != nil {
 			return err
 		}
 
-		ic := internal.ConfigInput{
-			ManagementURL: managementURL,
-			AdminURL:      adminURL,
-			ConfigPath:    configPath,
-		}
-		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-			ic.PreSharedKey = &preSharedKey
-		}
+		// workaround to run without service
+		if logFile == "console" {
+			err = handleRebrand(cmd)
+			if err != nil {
+				return err
+			}
 
-		config, err := internal.UpdateOrCreateConfig(ic)
-		if err != nil {
-			return fmt.Errorf("get config file: %v", err)
-		}
+			ic := internal.ConfigInput{
+				ManagementURL: managementURL,
+				AdminURL:      adminURL,
+				ConfigPath:    configPath,
+			}
+			if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+				ic.PreSharedKey = &preSharedKey
+			}
 
-		config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
+			config, err := internal.UpdateOrCreateConfig(ic)
+			if err != nil {
+				return fmt.Errorf("get config file: %v", err)
+			}
 
-		err = foregroundLogin(ctx, cmd, config, providedSetupKey)
-		if err != nil {
-			return fmt.Errorf("foreground login failed: %v", err)
-		}
-		cmd.Println("Logging successfully")
-		return nil
-	}
+			config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
 
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
-	}
-	defer conn.Close()
-
-	client := proto.NewDaemonServiceClient(conn)
-
-	var dnsLabelsReq []string
-	if dnsLabelsValidated != nil {
-		dnsLabelsReq = dnsLabelsValidated.ToSafeStringList()
-	}
-
-	loginRequest := proto.LoginRequest{
-		SetupKey:             providedSetupKey,
-		ManagementUrl:        managementURL,
-		IsLinuxDesktopClient: isLinuxRunningDesktop(),
-		Hostname:             hostName,
-		DnsLabels:            dnsLabelsReq,
-	}
-
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-		loginRequest.OptionalPreSharedKey = &preSharedKey
-	}
-
-	var loginErr error
-
-	var loginResp *proto.LoginResponse
-
-	err = WithBackOff(func() error {
-		var backOffErr error
-		loginResp, backOffErr = client.Login(ctx, &loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
-			loginErr = backOffErr
+			err = foregroundLogin(ctx, cmd, config, providedSetupKey)
+			if err != nil {
+				return fmt.Errorf("foreground login failed: %v", err)
+			}
+			cmd.Println("Logging successfully")
 			return nil
 		}
-		return backOffErr
-	})
-	if err != nil {
-		return fmt.Errorf("login backoff cycle failed: %v", err)
-	}
 
-	if loginErr != nil {
-		return fmt.Errorf("login failed: %v", loginErr)
-	}
-
-	if loginResp.NeedsSSOLogin {
-		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
-
-		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
+		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
-			return fmt.Errorf("waiting sso login failed with: %v", err)
+			return fmt.Errorf("failed to connect to daemon error: %v\n"+
+				"If the daemon is not running please run: "+
+				"\nnetbird service install \nnetbird service start\n", err)
 		}
-	}
+		defer conn.Close()
 
-	cmd.Println("Logging successfully")
+		client := proto.NewDaemonServiceClient(conn)
 
-	return nil
+		var dnsLabelsReq []string
+		if dnsLabelsValidated != nil {
+			dnsLabelsReq = dnsLabelsValidated.ToSafeStringList()
+		}
+
+		loginRequest := proto.LoginRequest{
+			SetupKey:             providedSetupKey,
+			ManagementUrl:        managementURL,
+			IsLinuxDesktopClient: isLinuxRunningDesktop(),
+			Hostname:             hostName,
+			DnsLabels:            dnsLabelsReq,
+		}
+
+		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+			loginRequest.OptionalPreSharedKey = &preSharedKey
+		}
+
+		var loginErr error
+
+		var loginResp *proto.LoginResponse
+
+		err = WithBackOff(func() error {
+			var backOffErr error
+			loginResp, backOffErr = client.Login(ctx, &loginRequest)
+			if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
+				s.Code() == codes.PermissionDenied ||
+				s.Code() == codes.NotFound ||
+				s.Code() == codes.Unimplemented) {
+				loginErr = backOffErr
+				return nil
+			}
+			return backOffErr
+		})
+		if err != nil {
+			return fmt.Errorf("login backoff cycle failed: %v", err)
+		}
+
+		if loginErr != nil {
+			return fmt.Errorf("login failed: %v", loginErr)
+		}
+
+		if loginResp.NeedsSSOLogin {
+			openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
+
+			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
+			if err != nil {
+				return fmt.Errorf("waiting sso login failed with: %v", err)
+			}
+		}
+
+		cmd.Println("Logging successfully")
+
+		return nil
+	},
 }
 
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.Config, setupKey string) error {
