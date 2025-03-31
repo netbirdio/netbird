@@ -147,16 +147,13 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	d.mu.RUnlock()
 
 	if peerKey == "" {
-		log.Tracef("no current peer key set, letting next handler try for domain=%s", r.Question[0].Name)
-
-		d.continueToNextHandler(w, r, "no current peer key")
+		d.writeDNSError(w, r, "no current peer key")
 		return
 	}
 
 	upstreamIP, err := d.getUpstreamIP(peerKey)
 	if err != nil {
-		log.Errorf("failed to get upstream IP: %v", err)
-		d.continueToNextHandler(w, r, fmt.Sprintf("failed to get upstream IP: %v", err))
+		d.writeDNSError(w, r, fmt.Sprintf("get upstream IP: %v", err))
 		return
 	}
 
@@ -193,16 +190,13 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 }
 
-// continueToNextHandler signals the handler chain to try the next handler
-func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, reason string) {
-	log.Tracef("continuing to next handler for domain=%s reason=%s", r.Question[0].Name, reason)
+func (d *DnsInterceptor) writeDNSError(w dns.ResponseWriter, r *dns.Msg, reason string) {
+	log.Warnf("failed to query upstream for domain=%s: %s", r.Question[0].Name, reason)
 
 	resp := new(dns.Msg)
-	resp.SetRcode(r, dns.RcodeNameError)
-	// Set Zero bit to signal handler chain to continue
-	resp.MsgHdr.Zero = true
+	resp.SetRcode(r, dns.RcodeServerFailure)
 	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("failed writing DNS continue response: %v", err)
+		log.Errorf("failed to write DNS error response: %v", err)
 	}
 }
 
