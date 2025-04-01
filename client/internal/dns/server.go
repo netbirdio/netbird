@@ -465,14 +465,24 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 func (s *DefaultServer) applyHostConfig() {
 	config := s.currentConfig
 
-	for domain, _ := range s.extraDomains {
-		config.Domains = append(config.Domains, DomainConfig{
-			Domain:    domain.PunycodeString(),
-			MatchOnly: true,
-		})
+	existingDomains := make(map[string]struct{})
+	for _, d := range config.Domains {
+		existingDomains[strings.ToLower(dns.Fqdn(d.Domain))] = struct{}{}
 	}
 
-	log.Debugf("added extra match domains: %v", s.extraDomains)
+	// add extra domains only if they're not already in the config
+	for domain := range s.extraDomains {
+		domainStr := domain.PunycodeString()
+
+		if _, exists := existingDomains[domainStr]; !exists {
+			config.Domains = append(config.Domains, DomainConfig{
+				Domain:    domainStr,
+				MatchOnly: true,
+			})
+		}
+	}
+
+	log.Debugf("extra match domains: %v", s.extraDomains)
 
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
