@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
@@ -32,8 +33,8 @@ type IosDnsManager interface {
 
 // Server is a dns server interface
 type Server interface {
-	RegisterHandler(domains []string, handler dns.Handler, priority int)
-	DeregisterHandler(domains []string, priority int)
+	RegisterHandler(domains domain.List, handler dns.Handler, priority int)
+	DeregisterHandler(domains domain.List, priority int)
 	Initialize() error
 	Stop()
 	DnsIP() string
@@ -186,11 +187,11 @@ func newDefaultServer(
 
 // RegisterHandler registers a handler for the given domains with the given priority.
 // Any previously registered handler for the same domain and priority will be replaced.
-func (s *DefaultServer) RegisterHandler(domains []string, handler dns.Handler, priority int) {
+func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler, priority int) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	s.registerHandler(domains, handler, priority)
+	s.registerHandler(domains.ToPunycodeList(), handler, priority)
 }
 
 func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
@@ -209,11 +210,11 @@ func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, p
 }
 
 // DeregisterHandler deregisters the handler for the given domains with the given priority.
-func (s *DefaultServer) DeregisterHandler(domains []string, priority int) {
+func (s *DefaultServer) DeregisterHandler(domains domain.List, priority int) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	s.deregisterHandler(domains, priority)
+	s.deregisterHandler(domains.ToPunycodeList(), priority)
 }
 
 func (s *DefaultServer) deregisterHandler(domains []string, priority int) {

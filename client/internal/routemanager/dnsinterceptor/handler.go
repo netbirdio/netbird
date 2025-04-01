@@ -59,7 +59,7 @@ func (d *DnsInterceptor) String() string {
 }
 
 func (d *DnsInterceptor) AddRoute(context.Context) error {
-	d.dnsServer.RegisterHandler(d.route.Domains.ToPunycodeList(), d, nbdns.PriorityDNSRoute)
+	d.dnsServer.RegisterHandler(d.route.Domains, d, nbdns.PriorityDNSRoute)
 	return nil
 }
 
@@ -88,7 +88,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 	clear(d.interceptedDomains)
 	d.mu.Unlock()
 
-	d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList(), nbdns.PriorityDNSRoute)
+	d.dnsServer.DeregisterHandler(d.route.Domains, nbdns.PriorityDNSRoute)
 
 	return nberrors.FormatErrorOrNil(merr)
 }

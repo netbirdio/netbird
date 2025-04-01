@@ -6,6 +6,7 @@ import (
 	"github.com/miekg/dns"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 // MockServer is the mock instance of a dns server
@@ -17,13 +18,13 @@ type MockServer struct {
 	DeregisterHandlerFunc func([]string, int)
 }
 
-func (m *MockServer) RegisterHandler(domains []string, handler dns.Handler, priority int) {
+func (m *MockServer) RegisterHandler(domains domain.List, handler dns.Handler, priority int) {
 	if m.RegisterHandlerFunc != nil {
 		m.RegisterHandlerFunc(domains, handler, priority)
 	}
 }
 
-func (m *MockServer) DeregisterHandler(domains []string, priority int) {
+func (m *MockServer) DeregisterHandler(domains domain.List, priority int) {
 	if m.DeregisterHandlerFunc != nil {
 		m.DeregisterHandlerFunc(domains, priority)
 	}
