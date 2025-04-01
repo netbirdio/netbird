@@ -137,13 +137,6 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		return nil, err
 	}
 
-	// Do not allow non-Linux peers
-	if peer := account.GetPeer(peerID); peer != nil {
-		if peer.Meta.GoOS != "linux" {
-			return nil, status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
-		}
-	}
-
 	if len(domains) > 0 && prefix.IsValid() {
 		return nil, status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
 	}
@@ -261,13 +254,6 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
-	}
-
-	// Do not allow non-Linux peers
-	if peer := account.GetPeer(routeToSave.Peer); peer != nil {
-		if peer.Meta.GoOS != "linux" {
-			return status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
-		}
 	}
 
 	if len(routeToSave.Domains) > 0 && routeToSave.Network.IsValid() {
