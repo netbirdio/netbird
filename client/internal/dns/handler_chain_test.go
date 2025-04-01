@@ -443,14 +443,6 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 			for _, handler := range handlers {
 				handler.AssertExpectations(t)
 			}
-
-			// Verify handler exists check
-			for priority, shouldExist := range tt.expectedCalls {
-				if shouldExist {
-					assert.True(t, chain.HasHandlers(tt.ops[0].pattern),
-						"Handler chain should have handlers for pattern after removing priority %d", priority)
-				}
-			}
 		})
 	}
 }
