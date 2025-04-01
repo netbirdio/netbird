@@ -12,8 +12,8 @@ import (
 var ErrRouteAllWithoutNameserverGroup = fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
 
 const (
-	ipv4ReverseZone = ".in-addr.arpa"
-	ipv6ReverseZone = ".ip6.arpa"
+	ipv4ReverseZone = ".in-addr.arpa."
+	ipv6ReverseZone = ".ip6.arpa."
 )
 
 type hostManager interface {
