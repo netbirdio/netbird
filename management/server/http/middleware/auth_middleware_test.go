@@ -239,16 +239,9 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			},
 		},
 		{
-			name:       "Valid PAT Token ignores child",
+			name:       "Valid PAT Token returns forbidden for child",
 			path:       "/test?account=xyz",
 			authHeader: "Token " + PAT,
-			expectedUserAuth: &nbcontext.UserAuth{
-				AccountId:      accountID,
-				UserId:         userID,
-				Domain:         testAccount.Domain,
-				DomainCategory: testAccount.DomainCategory,
-				IsPAT:          true,
-			},
 		},
 		{
 			name:       "Valid JWT Token",
