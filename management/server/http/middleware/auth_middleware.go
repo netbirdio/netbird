@@ -142,6 +142,12 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, auth []string) (*h
 		return r, fmt.Errorf("token expired")
 	}
 
+	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
+		if user.AccountID != impersonate[0] {
+			return r, fmt.Errorf("token is not valid for this account")
+		}
+	}
+
 	err = m.authManager.MarkPATUsed(ctx, pat.ID)
 	if err != nil {
 		return r, err
