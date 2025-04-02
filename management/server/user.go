@@ -805,7 +805,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, false); err != nil {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, initiatorUser, true); err != nil {
 		return nil, err
 	}
 
