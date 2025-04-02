@@ -5,15 +5,16 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"time"
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
-	dns2 "github.com/netbirdio/netbird/client/internal/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 const errResolveFailed = "failed to resolve query for domain=%s: %v"
+const upstreamTimeout = 15 * time.Second
 
 type DNSForwarder struct {
 	listenAddress string
@@ -97,7 +98,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), dns2.UpstreamTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), upstreamTimeout)
 	defer cancel()
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, network, domain)
 	if err != nil {
