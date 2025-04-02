@@ -23,9 +23,10 @@ import (
 )
 
 const (
+	UpstreamTimeout = 15 * time.Second
+
 	failsTillDeact   = int32(5)
 	reactivatePeriod = 30 * time.Second
-	upstreamTimeout  = 15 * time.Second
 	probeTimeout     = 2 * time.Second
 )
 
@@ -66,7 +67,7 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, d
 		ctx:              ctx,
 		cancel:           cancel,
 		domain:           domain,
-		upstreamTimeout:  upstreamTimeout,
+		upstreamTimeout:  UpstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
 		failsTillDeact:   failsTillDeact,
 		statusRecorder:   statusRecorder,
