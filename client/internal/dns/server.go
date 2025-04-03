@@ -463,6 +463,10 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 }
 
 func (s *DefaultServer) applyHostConfig() {
+	if s.hostManager == nil {
+		return
+	}
+
 	config := s.currentConfig
 
 	existingDomains := make(map[string]struct{})
@@ -739,10 +743,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			}
 		}
 
-		if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
-			s.handleErrNoGroupaAll(err)
-			l.Errorf("Failed to apply nameserver deactivation on the host: %v", err)
-		}
+		s.applyHostConfig()
 
 		go func() {
 			if err := s.stateManager.PersistState(s.ctx); err != nil {
@@ -777,12 +778,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			s.registerHandler([]string{nbdns.RootZone}, handler, priority)
 		}
 
-		if s.hostManager != nil {
-			if err := s.hostManager.applyDNSConfig(s.currentConfig, s.stateManager); err != nil {
-				s.handleErrNoGroupaAll(err)
-				l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
-			}
-		}
+		s.applyHostConfig()
 
 		s.updateNSState(nsGroup, nil, true)
 	}
