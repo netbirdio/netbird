@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -111,7 +110,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 			continue
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
-			Domain:    dns.Fqdn(dConf.Domain),
+			Domain:    dConf.Domain,
 			MatchOnly: dConf.MatchOnly,
 		})
 
