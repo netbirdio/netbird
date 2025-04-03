@@ -467,7 +467,7 @@ func (s *DefaultServer) applyHostConfig() {
 
 	existingDomains := make(map[string]struct{})
 	for _, d := range config.Domains {
-		existingDomains[strings.ToLower(dns.Fqdn(d.Domain))] = struct{}{}
+		existingDomains[d.Domain] = struct{}{}
 	}
 
 	// add extra domains only if they're not already in the config

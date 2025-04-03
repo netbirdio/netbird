@@ -5,6 +5,8 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/miekg/dns"
+
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
@@ -103,7 +105,7 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 
 		for _, domain := range nsConfig.Domains {
 			config.Domains = append(config.Domains, DomainConfig{
-				Domain:    strings.TrimSuffix(domain, "."),
+				Domain:    strings.ToLower(dns.Fqdn(domain)),
 				MatchOnly: !nsConfig.SearchDomainsEnabled,
 			})
 		}
@@ -112,7 +114,7 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 	for _, customZone := range dnsConfig.CustomZones {
 		matchOnly := strings.HasSuffix(customZone.Domain, ipv4ReverseZone) || strings.HasSuffix(customZone.Domain, ipv6ReverseZone)
 		config.Domains = append(config.Domains, DomainConfig{
-			Domain:    strings.TrimSuffix(customZone.Domain, "."),
+			Domain:    strings.ToLower(dns.Fqdn(customZone.Domain)),
 			MatchOnly: matchOnly,
 		})
 	}
