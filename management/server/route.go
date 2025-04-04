@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -20,17 +21,12 @@ import (
 
 // GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Routes, permissions.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if !user.IsAdminOrServiceUser() {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetRouteByID(ctx, store.LockingStrengthShare, string(routeID), accountID)
@@ -123,13 +119,12 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Routes, permissions.Write)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -242,13 +237,12 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Routes, permissions.Write)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -318,13 +312,12 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Routes, permissions.Write)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -354,17 +347,12 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 // ListRoutes returns a list of routes from account
 func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Routes, permissions.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if !user.IsAdminOrServiceUser() {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetAccountRoutes(ctx, store.LockingStrengthShare, accountID)

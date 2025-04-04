@@ -1021,13 +1021,12 @@ func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID strin
 
 // GetAccountByID returns an account associated with this account ID.
 func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Accounts, permissions.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetAccount(ctx, accountID)
@@ -1060,8 +1059,12 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return accountID, user.Id, nil
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return "", "", err
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, user.Id, permissions.Accounts, permissions.Read)
+	if err != nil {
+		return "", "", status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return "", "", status.NewPermissionDeniedError()
 	}
 
 	if !user.IsServiceUser && userAuth.Invited {
@@ -1515,19 +1518,13 @@ func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, s store.St
 }
 
 func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Settings, permissions.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
-
-	if !user.HasAdminPower() && !user.IsServiceUser {
-		return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
-	}
-
 	return am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 }
 

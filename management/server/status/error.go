@@ -98,6 +98,11 @@ func NewUserNotFoundError(userKey string) error {
 	return Errorf(NotFound, "user: %s not found", userKey)
 }
 
+// NewUserBlockedError creates a new Error with PermissionDenied type for a blocked user
+func NewUserBlockedError() error {
+	return Errorf(PermissionDenied, "user is blocked")
+}
+
 // NewPeerNotRegisteredError creates a new Error with NotFound type for a missing peer
 func NewPeerNotRegisteredError() error {
 	return Errorf(Unauthenticated, "peer is not registered")
