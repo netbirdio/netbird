@@ -610,6 +610,17 @@ func (d *Status) RemoveLocalPeerStateRoute(route string) {
 	delete(d.localPeer.Routes, route)
 }
 
+// AddResolvedIPLookupEntry adds a resolved IP lookup entry
+func (d *Status) AddResolvedIPLookupEntry(route, resourceId string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	pref, err := netip.ParsePrefix(route)
+	if err == nil {
+		d.routeIDLookup.AddResolvedIP(resourceId, pref)
+	}
+}
+
 // CleanLocalPeerStateRoutes cleans all routes from the local peer state
 func (d *Status) CleanLocalPeerStateRoutes() {
 	d.mux.Lock()
