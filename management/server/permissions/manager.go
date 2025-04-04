@@ -6,39 +6,17 @@ import (
 	"fmt"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-type Module string
-
-const (
-	Networks    Module = "networks"
-	Peers       Module = "peers"
-	Groups      Module = "groups"
-	Settings    Module = "settings"
-	Accounts    Module = "accounts"
-	Dns         Module = "dns"
-	Nameservers Module = "nameservers"
-	Events      Module = "events"
-	Policies    Module = "policies"
-	Routes      Module = "routes"
-	Users       Module = "users"
-	SetupKeys   Module = "setup_keys"
-	Pats        Module = "pats"
-)
-
-type Operation string
-
-const (
-	Read  Operation = "read"
-	Write Operation = "write"
-)
-
 type Manager interface {
-	ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error)
-	ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module Module, operation Operation) (bool, bool, error)
+	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
+	ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module modules.Module, operation operations.Operation) (bool, bool, error)
 }
 
 type managerImpl struct {
@@ -54,7 +32,7 @@ func NewManager(store store.Store) Manager {
 	}
 }
 
-func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
+func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error) {
 	if userID != activity.SystemInitiator {
 		return true, nil
 	}
@@ -80,48 +58,44 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 	return allowed, err
 }
 
-func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module Module, operation Operation) (bool, bool, error) {
+func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID string, role types.UserRole, module modules.Module, operation operations.Operation) (bool, bool, error) {
+	permissions, ok := roles.RolesMap[role]
+	if !ok {
+		return false, false, status.NewUserRoleNotFoundError(string(role))
+	}
+
+	operations, ok := permissions[module]
+	if !ok {
+		return false, false, status.NewModuleNotFoundError(module)
+	}
+
+	allowed, ok := operations[operation]
+	if !ok {
+		return false, false, status.NewOperationNotFoundError(operation)
+	}
+
+	skipGroups := false
 	switch module {
-	case Accounts:
-		if operation == Write && userRole != types.UserRoleOwner {
-			return false, false, nil
+	case modules.Peers:
+		if role == types.UserRoleOwner || role == types.UserRoleAdmin {
+			skipGroups = true
+			break
 		}
-		return true, false, nil
-	case Peers:
-		if userRole == types.UserRoleOwner || userRole == types.UserRoleAdmin {
-			return true, true, nil
+		if allowed {
+			settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+			if err != nil {
+				return false, false, fmt.Errorf("failed to get settings: %w", err)
+			}
+			allowed = !settings.RegularUsersViewBlocked
 		}
-		return m.validateRegularUserPermissions(ctx, accountID, module, operation)
-	case Networks, Groups, Settings, Dns, Nameservers, Events, Policies, Routes, Users, SetupKeys:
-		if userRole == types.UserRoleOwner || userRole == types.UserRoleAdmin {
-			return true, false, nil
-		}
-		return false, false, nil
-	case Pats:
-		return true, false, nil
+	case modules.Accounts, modules.Networks, modules.Groups, modules.Settings, modules.Pats, modules.Dns,
+		modules.Nameservers, modules.Events, modules.Policies, modules.Routes, modules.Users, modules.SetupKeys:
+
 	default:
 		return false, false, errors.New("unknown module")
 	}
-}
 
-func (m *managerImpl) validateRegularUserPermissions(ctx context.Context, accountID string, module Module, operation Operation) (bool, bool, error) {
-	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return false, false, fmt.Errorf("failed to get settings: %w", err)
-	}
-	if settings.RegularUsersViewBlocked {
-		return false, false, nil
-	}
-
-	if operation == Write {
-		return false, false, nil
-	}
-
-	if module == Peers {
-		return true, false, nil
-	}
-
-	return false, false, nil
+	return allowed, skipGroups, nil
 }
 
 func (m *managerImpl) validateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
@@ -135,7 +109,7 @@ func NewManagerMock() Manager {
 	return &managerMock{}
 }
 
-func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, userID string, module Module, operation Operation) (bool, error) {
+func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error) {
 	switch userID {
 	case "a23efe53-63fb-11ec-90d6-0242ac120003", "allowedUser", "testingUser", "account_creator", "serviceUserID", "test_user":
 		return true, nil
@@ -144,6 +118,6 @@ func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, us
 	}
 }
 
-func (m *managerMock) ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module Module, operation Operation) (bool, bool, error) {
+func (m *managerMock) ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module modules.Module, operation operations.Operation) (bool, bool, error) {
 	return true, false, nil
 }

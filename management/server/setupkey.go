@@ -8,7 +8,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -57,7 +58,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.SetupKeys, permissions.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Write)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -109,7 +110,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.SetupKeys, permissions.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Write)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -166,7 +167,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 
 // ListSetupKeys returns a list of all setup keys of the account
 func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.SetupKeys, permissions.Read)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -179,7 +180,7 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
 func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.SetupKeys, permissions.Read)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -202,7 +203,7 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 
 // DeleteSetupKey removes the setup key from the account
 func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.SetupKeys, permissions.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Write)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
