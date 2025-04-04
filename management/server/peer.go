@@ -17,6 +17,8 @@ import (
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -37,16 +39,11 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if user.IsRegularUser() && settings.RegularUsersViewBlocked {
+	if !allowed {
 		return []*nbpeer.Peer{}, nil
 	}
 
@@ -183,13 +180,12 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Write)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	var peer *nbpeer.Peer
@@ -315,15 +311,12 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	if userID != activity.SystemInitiator {
-		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
-		if err != nil {
-			return err
-		}
-
-		if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-			return err
-		}
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Write)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthShare, peerID)
@@ -1094,22 +1087,17 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 
 // GetPeer for a given accountID, peerID and userID error if not found.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
-	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	if user.IsRegularUser() && settings.RegularUsersViewBlocked {
-		return nil, status.Errorf(status.Internal, "user %s has no access to his own peer %s under account %s", userID, peerID, accountID)
 	}
 
 	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthShare, accountID, peerID)

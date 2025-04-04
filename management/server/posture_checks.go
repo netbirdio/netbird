@@ -10,6 +10,8 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -17,17 +19,12 @@ import (
 )
 
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetPostureChecksByID(ctx, store.LockingStrengthShare, accountID, postureChecksID)
@@ -38,17 +35,12 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Write)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	var updateAccountPeers bool
@@ -94,17 +86,12 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
-	}
-
-	if !user.HasAdminPower() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var postureChecks *posture.Checks
@@ -136,17 +123,12 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 
 // ListPostureChecks returns a list of posture checks.
 func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if !user.HasAdminPower() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetAccountPostureChecks(ctx, store.LockingStrengthShare, accountID)
