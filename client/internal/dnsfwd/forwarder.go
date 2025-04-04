@@ -61,6 +61,7 @@ func (f *DNSForwarder) UpdateDomains(domains []string, resIds map[string]string)
 
 	for _, d := range f.domains {
 		f.mux.HandleRemove(d)
+		f.statusRecorder.RemoveResolvedIPLookupEntry(d)
 	}
 	f.resId.Clear()
 
