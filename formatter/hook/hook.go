@@ -3,6 +3,7 @@ package hook
 import (
 	"fmt"
 	"path"
+	"runtime"
 	"runtime/debug"
 	"strings"
 
@@ -40,8 +41,12 @@ func (hook ContextHook) Levels() []logrus.Level {
 
 // Fire extend with the source information the entry.Data
 func (hook ContextHook) Fire(entry *logrus.Entry) error {
-	src := hook.parseSrc(entry.Caller.File)
-	entry.Data[EntryKeySource] = fmt.Sprintf("%s:%v", src, entry.Caller.Line)
+	caller := &runtime.Frame{Line: 0, File: "caller_not_available"}
+	if entry.Caller != nil {
+		caller = entry.Caller
+	}
+	src := hook.parseSrc(caller.File)
+	entry.Data[EntryKeySource] = fmt.Sprintf("%s:%v", src, caller.Line)
 	additionalEntries(entry)
 
 	if entry.Context == nil {
