@@ -1092,8 +1092,12 @@ func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) ([]string, m
 		}
 		if protoRoute.Peer == myPubKey {
 			dnsRoutes = append(dnsRoutes, protoRoute.Domains...)
+			// resource ID is the first part of the ID
+			resId := strings.Split(protoRoute.ID, ":")
 			for _, domain := range protoRoute.Domains {
-				resIds[domain] = protoRoute.ID
+				if len(resId) > 0 {
+					resIds[domain] = resId[0]
+				}
 			}
 		}
 	}

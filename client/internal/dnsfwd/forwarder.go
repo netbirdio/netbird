@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -121,7 +122,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 		return
 	}
 
-	resId, ok := f.resId.Load(domain)
+	resId, ok := f.resId.Load(strings.TrimSuffix(domain, "."))
 	if ok {
 		for _, ip := range ips {
 			var ipWithSuffix string

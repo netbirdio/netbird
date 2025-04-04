@@ -86,18 +86,18 @@ func (l *Logger) startReceiver() {
 				Timestamp:   time.Now().UTC(),
 			}
 
-			var isExitNode bool
-			if event.Direction == types.Ingress {
-				if !l.wgIfaceIPNet.Contains(net.IP(event.SourceIP.AsSlice())) {
-					event.SourceResourceID, isExitNode = l.statusRecorder.CheckRoutes(event.SourceIP)
-				}
-			} else if event.Direction == types.Egress {
-				if !l.wgIfaceIPNet.Contains(net.IP(event.DestIP.AsSlice())) {
-					event.DestResourceID, isExitNode = l.statusRecorder.CheckRoutes(event.DestIP)
-				}
+			var isSrcExitNode bool
+			var isDestExitNode bool
+
+			if !l.wgIfaceIPNet.Contains(net.IP(event.SourceIP.AsSlice())) {
+				event.SourceResourceID, isSrcExitNode = l.statusRecorder.CheckRoutes(event.SourceIP)
 			}
 
-			if l.shouldStore(eventFields, isExitNode) {
+			if !l.wgIfaceIPNet.Contains(net.IP(event.DestIP.AsSlice())) {
+				event.DestResourceID, isDestExitNode = l.statusRecorder.CheckRoutes(event.DestIP)
+			}
+
+			if l.shouldStore(eventFields, isSrcExitNode || isDestExitNode) {
 				l.Store.StoreEvent(&event)
 			}
 		}
