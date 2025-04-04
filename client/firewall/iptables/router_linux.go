@@ -118,7 +118,7 @@ func (r *router) init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := r.setupDataPlaneMark(); err != nil {
-		log.Errorf("failed to set up data blane mark: %v", err)
+		log.Errorf("failed to set up data plane mark: %v", err)
 	}
 
 	r.updateState()
