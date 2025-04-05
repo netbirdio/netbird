@@ -9,5 +9,5 @@ import (
 )
 
 func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
-	return net.LookupIP(string(domain))
+	return net.LookupIP(domain.PunycodeString())
 }

@@ -23,7 +23,7 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 	}
 
 	msg := new(dns.Msg)
-	msg.SetQuestion(dns.Fqdn(string(domain)), dns.TypeA)
+	msg.SetQuestion(dns.Fqdn(domain.PunycodeString()), dns.TypeA)
 
 	startTime := time.Now()
 

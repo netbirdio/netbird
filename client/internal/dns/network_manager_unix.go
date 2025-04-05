@@ -13,7 +13,6 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/hashicorp/go-version"
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -126,10 +125,10 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, st
 			continue
 		}
 		if dConf.MatchOnly {
-			matchDomains = append(matchDomains, "~."+dns.Fqdn(dConf.Domain))
+			matchDomains = append(matchDomains, "~."+dConf.Domain)
 			continue
 		}
-		searchDomains = append(searchDomains, dns.Fqdn(dConf.Domain))
+		searchDomains = append(searchDomains, dConf.Domain)
 	}
 
 	newDomainList := append(searchDomains, matchDomains...) //nolint:gocritic

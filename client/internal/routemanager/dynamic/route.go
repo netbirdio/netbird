@@ -235,7 +235,7 @@ func (r *Route) resolve(results chan resolveResult) {
 			ips, err := r.getIPsFromResolver(domain)
 			if err != nil {
 				log.Tracef("Failed to resolve domain %s with private resolver: %v", domain.SafeString(), err)
-				ips, err = net.LookupIP(string(domain))
+				ips, err = net.LookupIP(domain.PunycodeString())
 				if err != nil {
 					results <- resolveResult{domain: domain, err: fmt.Errorf("resolve d %s: %w", domain.SafeString(), err)}
 					return

@@ -24,6 +24,11 @@ func (d Domain) SafeString() string {
 	return str
 }
 
+// PunycodeString returns the punycode representation of the Domain.
+func (d Domain) PunycodeString() string {
+	return string(d)
+}
+
 // FromString creates a Domain from a string, converting it to punycode.
 func FromString(s string) (Domain, error) {
 	ascii, err := idna.ToASCII(s)

@@ -52,7 +52,7 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 		return nil, 0, fmt.Errorf("error while parsing upstream host: %s", err)
 	}
 
-	timeout := upstreamTimeout
+	timeout := UpstreamTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout = time.Until(deadline)
 	}
