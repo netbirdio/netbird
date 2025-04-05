@@ -32,6 +32,9 @@ const (
 
 const (
 	dnsLabelsFlag = "extra-dns-labels"
+
+	noBrowserFlag = "no-browser"
+	noBrowserDesc = "do not open the browser for SSO login"
 )
 
 var (
@@ -67,7 +70,7 @@ func init() {
 			`or --extra-dns-labels ""`,
 	)
 
-	upCmd.PersistentFlags().BoolVar(&noBrowser, "no-browser", false, "do not open the browser for SSO login")
+	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 
 }
 

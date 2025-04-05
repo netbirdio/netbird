@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	loginCmd.PersistentFlags().BoolVar(&noBrowser, "no-browser", false, "do not open the browser for SSO login")
+	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 }
 
 var loginCmd = &cobra.Command{
