@@ -51,5 +51,5 @@ func setRawSocketMark(conn syscall.RawConn) error {
 }
 
 func setSocketOptInt(fd int) error {
-	return syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, NetbirdFwmark)
+	return syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, ControlPlaneMark)
 }

@@ -357,7 +357,7 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 
 func getFwmark() int {
 	if nbnet.AdvancedRouting() {
-		return nbnet.NetbirdFwmark
+		return nbnet.ControlPlaneMark
 	}
 	return 0
 }

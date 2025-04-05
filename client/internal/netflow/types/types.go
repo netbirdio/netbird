@@ -10,6 +10,8 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
+const ZoneID = 0x1BD0
+
 type Protocol uint8
 
 const (
