@@ -952,11 +952,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
-	// Apply ACLs in the beginning to avoid security leaks
-	if e.acl != nil {
-		e.acl.ApplyFiltering(networkMap)
-	}
-
 	if e.firewall != nil {
 		if localipfw, ok := e.firewall.(localIpUpdater); ok {
 			if err := localipfw.UpdateLocalIPs(); err != nil {
@@ -973,6 +968,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	routes := toRoutes(networkMap.GetRoutes())
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
+	}
+
+	// acls might need routing to be enabled, so we apply after routes
+	if e.acl != nil {
+		e.acl.ApplyFiltering(networkMap)
 	}
 
 	// Ingress forward rules

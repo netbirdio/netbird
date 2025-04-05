@@ -678,7 +678,7 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 		return m.handleLocalTraffic(d, srcIP, dstIP, packetData, size)
 	}
 
-	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData)
+	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData, size)
 }
 
 // handleLocalTraffic handles local traffic.
@@ -739,7 +739,7 @@ func (m *Manager) handleNetstackLocalTraffic(packetData []byte) bool {
 
 // handleRoutedTraffic handles routed traffic.
 // If it returns true, the packet should be dropped.
-func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte) bool {
+func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	// Drop if routing is disabled
 	if !m.routingEnabled.Load() {
 		m.logger.Trace("Dropping routed packet (routing disabled): src=%s dst=%s",
@@ -749,6 +749,7 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 
 	// Pass to native stack if native router is enabled or forced
 	if m.nativeRouter.Load() {
+		m.trackInbound(d, srcIP, dstIP, nil, size)
 		return false
 	}
 
@@ -770,6 +771,8 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 			// TODO: icmp type/code
+			RxPackets: 1,
+			RxBytes:   uint64(size),
 		})
 		return true
 	}
