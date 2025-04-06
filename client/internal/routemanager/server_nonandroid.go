@@ -105,7 +105,11 @@ func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
 
 	delete(m.routes, route.ID)
 
-	m.statusRecorder.RemoveLocalPeerStateRoute(route.Network.String())
+	routeStr := route.Network.String()
+	if route.IsDynamic() {
+		routeStr = route.Domains.SafeString()
+	}
+	m.statusRecorder.RemoveLocalPeerStateRoute(routeStr)
 
 	return nil
 }
