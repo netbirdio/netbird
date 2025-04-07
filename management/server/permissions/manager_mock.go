@@ -11,7 +11,7 @@ import (
 	gomock "github.com/golang/mock/gomock"
 	modules "github.com/netbirdio/netbird/management/server/permissions/modules"
 	operations "github.com/netbirdio/netbird/management/server/permissions/operations"
-	types "github.com/netbirdio/netbird/management/server/types"
+	roles "github.com/netbirdio/netbird/management/server/permissions/roles"
 )
 
 // MockManager is a mock of Manager interface.
@@ -38,18 +38,18 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // ValidateRoleModuleAccess mocks base method.
-func (m *MockManager) ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module modules.Module, operation operations.Operation) (bool, error) {
+func (m *MockManager) ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateRoleModuleAccess", ctx, accountID, userRole, module, operation)
+	ret := m.ctrl.Call(m, "ValidateRoleModuleAccess", ctx, accountID, role, module, operation)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ValidateRoleModuleAccess indicates an expected call of ValidateRoleModuleAccess.
-func (mr *MockManagerMockRecorder) ValidateRoleModuleAccess(ctx, accountID, userRole, module, operation interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) ValidateRoleModuleAccess(ctx, accountID, role, module, operation interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateRoleModuleAccess", reflect.TypeOf((*MockManager)(nil).ValidateRoleModuleAccess), ctx, accountID, userRole, module, operation)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateRoleModuleAccess", reflect.TypeOf((*MockManager)(nil).ValidateRoleModuleAccess), ctx, accountID, role, module, operation)
 }
 
 // ValidateUserPermissions mocks base method.
