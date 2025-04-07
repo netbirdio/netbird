@@ -38,13 +38,12 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // ValidateRoleModuleAccess mocks base method.
-func (m *MockManager) ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module modules.Module, operation operations.Operation) (bool, bool, error) {
+func (m *MockManager) ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module modules.Module, operation operations.Operation) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateRoleModuleAccess", ctx, accountID, userRole, module, operation)
 	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(bool)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // ValidateRoleModuleAccess indicates an expected call of ValidateRoleModuleAccess.
