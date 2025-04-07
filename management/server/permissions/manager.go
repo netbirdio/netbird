@@ -5,7 +5,6 @@ package permissions
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	log "github.com/sirupsen/logrus"
 
@@ -88,12 +87,10 @@ func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID st
 
 	switch module {
 	case modules.Peers:
-		if allowed && role == types.UserRoleUser {
-			settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-			if err != nil {
-				return false, fmt.Errorf("failed to get settings: %w", err)
+		if allowed && (role == types.UserRoleUser || role == types.UserRoleBillingAdmin) {
+			if settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID); err == nil {
+				return !settings.RegularUsersViewBlocked, nil
 			}
-			allowed = !settings.RegularUsersViewBlocked
 		}
 	case modules.Accounts, modules.Networks, modules.Groups, modules.Settings, modules.Pats, modules.Dns,
 		modules.Nameservers, modules.Events, modules.Policies, modules.Routes, modules.Users, modules.SetupKeys:
