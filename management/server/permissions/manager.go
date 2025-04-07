@@ -20,7 +20,7 @@ import (
 
 type Manager interface {
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
-	ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module modules.Module, operation operations.Operation) (bool, bool, error)
+	ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module modules.Module, operation operations.Operation) (bool, error)
 }
 
 type managerImpl struct {
@@ -59,14 +59,14 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 		return true, nil // this should be replaced by proper granular access role
 	}
 
-	allowed, _, err := m.ValidateRoleModuleAccess(ctx, accountID, user.Role, module, operation)
+	allowed, err := m.ValidateRoleModuleAccess(ctx, accountID, user.Role, module, operation)
 	return allowed, err
 }
 
-func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID string, role types.UserRole, module modules.Module, operation operations.Operation) (bool, bool, error) {
+func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID string, role types.UserRole, module modules.Module, operation operations.Operation) (bool, error) {
 	permissions, ok := roles.RolesMap[role]
 	if !ok {
-		return false, false, status.NewUserRoleNotFoundError(string(role))
+		return false, status.NewUserRoleNotFoundError(string(role))
 	}
 
 	var allowed bool
@@ -75,28 +75,23 @@ func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID st
 		allowed, ok = operations[operation]
 		if !ok {
 			log.WithContext(ctx).Tracef("operation %s not found on module %s for role %s", operation, module, role)
-			return false, false, nil
+			return false, nil
 		}
 	} else {
 		if permissions.AutoAllowNew[operation] {
 			allowed = true
 		} else {
 			log.WithContext(ctx).Tracef("permission %s is not allowed on module %s for role %s", operation, module, role)
-			return false, false, nil
+			return false, nil
 		}
 	}
 
-	skipGroups := false
 	switch module {
 	case modules.Peers:
-		if role == types.UserRoleOwner || role == types.UserRoleAdmin {
-			skipGroups = true
-			break
-		}
 		if allowed {
 			settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 			if err != nil {
-				return false, false, fmt.Errorf("failed to get settings: %w", err)
+				return false, fmt.Errorf("failed to get settings: %w", err)
 			}
 			allowed = !settings.RegularUsersViewBlocked
 		}
@@ -104,10 +99,10 @@ func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID st
 		modules.Nameservers, modules.Events, modules.Policies, modules.Routes, modules.Users, modules.SetupKeys:
 
 	default:
-		return false, false, errors.New("unknown module")
+		return false, errors.New("unknown module")
 	}
 
-	return allowed, skipGroups, nil
+	return allowed, nil
 }
 
 func (m *managerImpl) validateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
