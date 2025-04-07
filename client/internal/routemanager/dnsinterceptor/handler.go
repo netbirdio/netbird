@@ -141,6 +141,12 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Tracef("received DNS request for domain=%s type=%v class=%v",
 		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 
+	// pass if non A/AAAA query
+	if r.Question[0].Qtype != dns.TypeA && r.Question[0].Qtype != dns.TypeAAAA {
+		d.continueToNextHandler(w, r, "non A/AAAA query")
+		return
+	}
+
 	d.mu.RLock()
 	peerKey := d.currentPeerKey
 	d.mu.RUnlock()
@@ -195,6 +201,19 @@ func (d *DnsInterceptor) writeDNSError(w dns.ResponseWriter, r *dns.Msg, reason 
 	resp.SetRcode(r, dns.RcodeServerFailure)
 	if err := w.WriteMsg(resp); err != nil {
 		log.Errorf("failed to write DNS error response: %v", err)
+	}
+}
+
+// continueToNextHandler signals the handler chain to try the next handler
+func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, reason string) {
+	log.Tracef("continuing to next handler for domain=%s reason=%s", r.Question[0].Name, reason)
+
+	resp := new(dns.Msg)
+	resp.SetRcode(r, dns.RcodeNameError)
+	// Set Zero bit to signal handler chain to continue
+	resp.MsgHdr.Zero = true
+	if err := w.WriteMsg(resp); err != nil {
+		log.Errorf("failed writing DNS continue response: %v", err)
 	}
 }
 
