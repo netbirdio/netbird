@@ -27,7 +27,7 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 
 	startTime := time.Now()
 
-	response, _, err := privateClient.Exchange(msg, r.resolverAddr)
+	response, _, err := nbdns.ExchangeWithFallback(nil, privateClient, msg, r.resolverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("DNS query for %s failed after %s: %s ", domain.SafeString(), time.Since(startTime), err)
 	}

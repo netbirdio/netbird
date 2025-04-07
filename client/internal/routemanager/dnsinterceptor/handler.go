@@ -160,9 +160,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// set the AuthenticatedData flag and the EDNS0 buffer size to 4096 bytes to support larger dns records
 	if r.Extra == nil {
-		r.SetEdns0(4096, false)
 		r.MsgHdr.AuthenticatedData = true
 	}
 
@@ -171,7 +169,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		Net:     "udp",
 	}
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
-	reply, _, err := client.ExchangeContext(context.Background(), r, upstream)
+	reply, _, err := nbdns.ExchangeWithFallback(context.TODO(), client, r, upstream)
 
 	var answer []dns.RR
 	if reply != nil {
