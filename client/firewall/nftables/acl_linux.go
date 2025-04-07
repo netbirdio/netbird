@@ -25,9 +25,10 @@ const (
 	chainNameInputRules = "netbird-acl-input-rules"
 
 	// filter chains contains the rules that jump to the rules chains
-	chainNameInputFilter   = "netbird-acl-input-filter"
-	chainNameForwardFilter = "netbird-acl-forward-filter"
-	chainNamePrerouting    = "netbird-rt-prerouting"
+	chainNameInputFilter       = "netbird-acl-input-filter"
+	chainNameForwardFilter     = "netbird-acl-forward-filter"
+	chainNameManglePrerouting  = "netbird-mangle-prerouting"
+	chainNameManglePostrouting = "netbird-mangle-postrouting"
 
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
@@ -462,13 +463,15 @@ func (m *AclManager) createDefaultChains() (err error) {
 // go through the input filter as well. This will enable e.g. Docker services to keep working by accessing the
 // netbird peer IP.
 func (m *AclManager) allowRedirectedTraffic(chainFwFilter *nftables.Chain) error {
-	m.chainPrerouting = m.rConn.AddChain(&nftables.Chain{
-		Name:     chainNamePrerouting,
+	// Chain is created by route manager
+	// TODO: move creation to a common place
+	m.chainPrerouting = &nftables.Chain{
+		Name:     chainNameManglePrerouting,
 		Table:    m.workTable,
 		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookPrerouting,
 		Priority: nftables.ChainPriorityMangle,
-	})
+	}
 
 	m.addFwmarkToForward(chainFwFilter)
 

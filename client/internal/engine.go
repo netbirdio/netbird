@@ -952,11 +952,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
-	// Apply ACLs in the beginning to avoid security leaks
-	if e.acl != nil {
-		e.acl.ApplyFiltering(networkMap)
-	}
-
 	if e.firewall != nil {
 		if localipfw, ok := e.firewall.(localIpUpdater); ok {
 			if err := localipfw.UpdateLocalIPs(); err != nil {
@@ -967,12 +962,17 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// DNS forwarder
 	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
-	dnsRouteDomains := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), networkMap.GetRoutes())
-	e.updateDNSForwarder(dnsRouteFeatureFlag, dnsRouteDomains)
+	dnsRouteDomains, resourceIds := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), networkMap.GetRoutes())
+	e.updateDNSForwarder(dnsRouteFeatureFlag, dnsRouteDomains, resourceIds)
 
 	routes := toRoutes(networkMap.GetRoutes())
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
+	}
+
+	// acls might need routing to be enabled, so we apply after routes
+	if e.acl != nil {
+		e.acl.ApplyFiltering(networkMap)
 	}
 
 	// Ingress forward rules
@@ -1079,21 +1079,29 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	return routes
 }
 
-func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) []string {
+func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) ([]string, map[string]string) {
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
 	}
 
 	var dnsRoutes []string
+	resIds := make(map[string]string)
 	for _, protoRoute := range protoRoutes {
 		if len(protoRoute.Domains) == 0 {
 			continue
 		}
 		if protoRoute.Peer == myPubKey {
 			dnsRoutes = append(dnsRoutes, protoRoute.Domains...)
+			// resource ID is the first part of the ID
+			resId := strings.Split(protoRoute.ID, ":")
+			for _, domain := range protoRoute.Domains {
+				if len(resId) > 0 {
+					resIds[domain] = resId[0]
+				}
+			}
 		}
 	}
-	return dnsRoutes
+	return dnsRoutes, resIds
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network *net.IPNet) nbdns.Config {
@@ -1760,7 +1768,7 @@ func (e *Engine) GetWgAddr() net.IP {
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
-func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
+func (e *Engine) updateDNSForwarder(enabled bool, domains []string, resIds map[string]string) {
 	if !enabled {
 		if e.dnsForwardMgr == nil {
 			return
@@ -1774,15 +1782,15 @@ func (e *Engine) updateDNSForwarder(enabled bool, domains []string) {
 	if len(domains) > 0 {
 		log.Infof("enable domain router service for domains: %v", domains)
 		if e.dnsForwardMgr == nil {
-			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall)
+			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder)
 
-			if err := e.dnsForwardMgr.Start(domains); err != nil {
+			if err := e.dnsForwardMgr.Start(domains, resIds); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
 				e.dnsForwardMgr = nil
 			}
 		} else {
 			log.Infof("update domain router service for domains: %v", domains)
-			e.dnsForwardMgr.UpdateDomains(domains)
+			e.dnsForwardMgr.UpdateDomains(domains, resIds)
 		}
 	} else if e.dnsForwardMgr != nil {
 		log.Infof("disable domain router service")

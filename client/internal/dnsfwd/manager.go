@@ -10,6 +10,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 const (
@@ -19,19 +20,21 @@ const (
 )
 
 type Manager struct {
-	firewall firewall.Manager
+	firewall       firewall.Manager
+	statusRecorder *peer.Status
 
 	fwRules      []firewall.Rule
 	dnsForwarder *DNSForwarder
 }
 
-func NewManager(fw firewall.Manager) *Manager {
+func NewManager(fw firewall.Manager, statusRecorder *peer.Status) *Manager {
 	return &Manager{
-		firewall: fw,
+		firewall:       fw,
+		statusRecorder: statusRecorder,
 	}
 }
 
-func (m *Manager) Start(domains []string) error {
+func (m *Manager) Start(domains []string, resIds map[string]string) error {
 	log.Infof("starting DNS forwarder")
 	if m.dnsForwarder != nil {
 		return nil
@@ -41,9 +44,9 @@ func (m *Manager) Start(domains []string) error {
 		return err
 	}
 
-	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL)
+	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, m.statusRecorder)
 	go func() {
-		if err := m.dnsForwarder.Listen(domains); err != nil {
+		if err := m.dnsForwarder.Listen(domains, resIds); err != nil {
 			// todo handle close error if it is exists
 			log.Errorf("failed to start DNS forwarder, err: %v", err)
 		}
@@ -52,12 +55,12 @@ func (m *Manager) Start(domains []string) error {
 	return nil
 }
 
-func (m *Manager) UpdateDomains(domains []string) {
+func (m *Manager) UpdateDomains(domains []string, resIds map[string]string) {
 	if m.dnsForwarder == nil {
 		return
 	}
 
-	m.dnsForwarder.UpdateDomains(domains)
+	m.dnsForwarder.UpdateDomains(domains, resIds)
 }
 
 func (m *Manager) Stop(ctx context.Context) error {

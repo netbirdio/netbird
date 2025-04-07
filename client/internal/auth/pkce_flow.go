@@ -99,6 +99,7 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
+		oauth2.SetAuthURLParam("prompt", "login"),
 	)
 
 	return AuthFlowInfo{

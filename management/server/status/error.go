@@ -183,7 +183,7 @@ func NewPermissionDeniedError() error {
 }
 
 func NewPermissionValidationError(err error) error {
-	return Errorf(PermissionDenied, "failed to vlidate user permissions: %s", err)
+	return Errorf(PermissionDenied, "failed to validate user permissions: %s", err)
 }
 
 func NewResourceNotPartOfNetworkError(resourceID, networkID string) error {

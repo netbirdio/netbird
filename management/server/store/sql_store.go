@@ -586,6 +586,19 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 	return users, nil
 }
 
+func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error) {
+	var user types.User
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).First(&user, "account_id = ? AND role = ?", accountID, types.UserRoleOwner)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account owner not found: index lookup failed")
+		}
+		return nil, status.Errorf(status.Internal, "failed to get account owner from the store")
+	}
+
+	return &user, nil
+}
+
 func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error) {
 	var groups []*types.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountIDCondition, accountID)
@@ -2193,4 +2206,18 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 	}
 
 	return &peer, nil
+}
+
+func (s *SqlStore) CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error) {
+	var count int64
+	result := s.db.Model(&types.Account{}).
+		Where("domain = ? AND domain_category = ?",
+			strings.ToLower(domain), types.PrivateCategory,
+		).Count(&count)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to count accounts by private domain %s: %s", domain, result.Error)
+		return 0, status.Errorf(status.Internal, "failed to count accounts by private domain")
+	}
+
+	return count, nil
 }

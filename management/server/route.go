@@ -25,7 +25,11 @@ func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string,
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdminOrServiceUser() {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 
@@ -119,16 +123,18 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Do not allow non-Linux peers
-	if peer := account.GetPeer(peerID); peer != nil {
-		if peer.Meta.GoOS != "linux" {
-			return nil, status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
-		}
+	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
+	}
+
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(domains) > 0 && prefix.IsValid() {
@@ -236,16 +242,18 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return err
 	}
 
-	// Do not allow non-Linux peers
-	if peer := account.GetPeer(routeToSave.Peer); peer != nil {
-		if peer.Meta.GoOS != "linux" {
-			return status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
-		}
+	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return err
+	}
+
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return err
 	}
 
 	if len(routeToSave.Domains) > 0 && routeToSave.Network.IsValid() {
@@ -310,6 +318,15 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return err
+	}
+
+	if err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return err
+	}
+
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
@@ -342,7 +359,11 @@ func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, user
 		return nil, err
 	}
 
-	if !user.IsAdminOrServiceUser() || user.AccountID != accountID {
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdminOrServiceUser() {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 

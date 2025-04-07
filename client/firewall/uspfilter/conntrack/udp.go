@@ -165,7 +165,7 @@ func (t *UDPTracker) cleanup() {
 		if conn.timeoutExceeded(t.timeout) {
 			delete(t.connections, key)
 
-			t.logger.Trace("Removed UDP connection %s (timeout) [in: %d Pkts/%d B out: %d Pkts/%d B]",
+			t.logger.Trace("Removed UDP connection %s (timeout) [in: %d Pkts/%d B, out: %d Pkts/%d B]",
 				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}

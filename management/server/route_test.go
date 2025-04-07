@@ -21,6 +21,7 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -1116,14 +1117,14 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	peer2RoutesAfterDelete, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
-	assert.Len(t, peer2RoutesAfterDelete.Routes, 2, "after peer deletion group should have 2 client routes")
+	assert.Len(t, peer2RoutesAfterDelete.Routes, 3, "after peer deletion group should have 3 client routes")
 
 	err = am.GroupDeletePeer(context.Background(), account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
 
 	peer2RoutesAfterDelete, err = am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
-	assert.Len(t, peer2RoutesAfterDelete.Routes, 1, "after peer deletion group should have only 1 route")
+	assert.Len(t, peer2RoutesAfterDelete.Routes, 2, "after peer deletion group should have only 2 routes")
 
 	err = am.GroupAddPeer(context.Background(), account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
@@ -1134,7 +1135,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	peer2RoutesAfterAdd, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
-	assert.Len(t, peer2RoutesAfterAdd.Routes, 2, "HA route should have 2 client routes")
+	assert.Len(t, peer2RoutesAfterAdd.Routes, 3, "HA route should have 3 client routes")
 
 	err = am.DeleteRoute(context.Background(), account.Id, newRoute.ID, userID)
 	require.NoError(t, err)
@@ -1259,6 +1260,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
+	permissionsManagerMock := permissions.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
@@ -1281,7 +1283,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 		AnyTimes().
 		Return(&types.ExtraSettings{}, nil)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
 }
 
 func createRouterStore(t *testing.T) (store.Store, error) {
@@ -1492,7 +1494,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 		{
 			ID:    routeGroupHA1,
 			Name:  routeGroupHA1,
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID}, // we have one non Linux peer, see peer3
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 		},
 		{
 			ID:    routeGroupHA2,
