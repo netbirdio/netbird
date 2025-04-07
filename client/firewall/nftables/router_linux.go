@@ -242,6 +242,7 @@ func (r *router) setupDataPlaneMark() error {
 		return errors.New("no mangle chains found")
 	}
 
+	ctNew := getCtNewExprs()
 	preExprs := []expr.Any{
 		&expr.Meta{
 			Key:      expr.MetaKeyIIFNAME,
@@ -252,6 +253,9 @@ func (r *router) setupDataPlaneMark() error {
 			Register: 1,
 			Data:     ifname(r.wgIface.Name()),
 		},
+	}
+	preExprs = append(preExprs, ctNew...)
+	preExprs = append(preExprs,
 		&expr.Immediate{
 			Register: 1,
 			Data:     binaryutil.NativeEndian.PutUint32(nbnet.DataPlaneMarkIn),
@@ -261,7 +265,7 @@ func (r *router) setupDataPlaneMark() error {
 			Register:       1,
 			SourceRegister: true,
 		},
-	}
+	)
 
 	preNftRule := &nftables.Rule{
 		Table: r.workTable,
@@ -280,6 +284,9 @@ func (r *router) setupDataPlaneMark() error {
 			Register: 1,
 			Data:     ifname(r.wgIface.Name()),
 		},
+	}
+	postExprs = append(postExprs, ctNew...)
+	postExprs = append(postExprs,
 		&expr.Immediate{
 			Register: 1,
 			Data:     binaryutil.NativeEndian.PutUint32(nbnet.DataPlaneMarkOut),
@@ -289,7 +296,7 @@ func (r *router) setupDataPlaneMark() error {
 			Register:       1,
 			SourceRegister: true,
 		},
-	}
+	)
 
 	postNftRule := &nftables.Rule{
 		Table: r.workTable,
@@ -301,6 +308,7 @@ func (r *router) setupDataPlaneMark() error {
 	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
+
 	return nil
 }
 
@@ -594,26 +602,10 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 		op = expr.CmpOpNeq
 	}
 
-	exprs := []expr.Any{
-		// We only care about NEW connections to mark them and later identify them in the postrouting chain for masquerading.
-		// Masquerading will take care of the conntrack state, which means we won't need to mark established connections.
-		&expr.Ct{
-			Key:      expr.CtKeySTATE,
-			Register: 1,
-		},
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            4,
-			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitNEW),
-			Xor:            binaryutil.NativeEndian.PutUint32(0),
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpNeq,
-			Register: 1,
-			Data:     []byte{0, 0, 0, 0},
-		},
-
+	// We only care about NEW connections to mark them and later identify them in the postrouting chain for masquerading.
+	// Masquerading will take care of the conntrack state, which means we won't need to mark established connections.
+	exprs := getCtNewExprs()
+	exprs = append(exprs,
 		// interface matching
 		&expr.Meta{
 			Key:      expr.MetaKeyIIFNAME,
@@ -624,7 +616,7 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 			Register: 1,
 			Data:     ifname(r.wgIface.Name()),
 		},
-	}
+	)
 
 	exprs = append(exprs, sourceExp...)
 	exprs = append(exprs, destExp...)
@@ -1401,4 +1393,25 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 	}
 
 	return exprs
+}
+
+func getCtNewExprs() []expr.Any {
+	return []expr.Any{
+		&expr.Ct{
+			Key:      expr.CtKeySTATE,
+			Register: 1,
+		},
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            4,
+			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitNEW),
+			Xor:            binaryutil.NativeEndian.PutUint32(0),
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     []byte{0, 0, 0, 0},
+		},
+	}
 }

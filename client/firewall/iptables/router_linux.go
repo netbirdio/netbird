@@ -438,6 +438,7 @@ func (r *router) setupDataPlaneMark() error {
 	var merr *multierror.Error
 	preRule := []string{
 		"-i", r.wgIface.Name(),
+		"-m", "conntrack", "--ctstate", "NEW",
 		"-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x", nbnet.DataPlaneMarkIn),
 	}
 
@@ -449,6 +450,7 @@ func (r *router) setupDataPlaneMark() error {
 
 	postRule := []string{
 		"-o", r.wgIface.Name(),
+		"-m", "conntrack", "--ctstate", "NEW",
 		"-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x", nbnet.DataPlaneMarkOut),
 	}
 
