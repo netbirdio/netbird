@@ -83,7 +83,7 @@ func (m *managerImpl) ValidateRoleModuleAccess(
 		if allowed, exists := permissions[operation]; exists {
 			return m.validateModuleRestrictions(ctx, accountID, role, module, allowed)
 		}
-		log.WithContext(ctx).Tracef("operation %s not found on module %s for role %s", operation, module, role)
+		log.WithContext(ctx).Tracef("operation %s not found on module %s for role %s", operation, module, role.Role)
 		return false, nil
 	}
 
