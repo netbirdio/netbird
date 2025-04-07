@@ -88,7 +88,7 @@ func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID st
 
 	switch module {
 	case modules.Peers:
-		if allowed {
+		if allowed && role == types.UserRoleUser {
 			settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 			if err != nil {
 				return false, fmt.Errorf("failed to get settings: %w", err)
