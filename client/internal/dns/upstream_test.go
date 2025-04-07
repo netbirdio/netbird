@@ -26,7 +26,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			name:           "Should Resolve A Record",
 			inputMSG:       new(dns.Msg).SetQuestion("one.one.one.one.", dns.TypeA),
 			InputServers:   []string{"8.8.8.8:53", "8.8.4.4:53"},
-			timeout:        upstreamTimeout,
+			timeout:        UpstreamTimeout,
 			expectedAnswer: "1.1.1.1",
 		},
 		{
@@ -48,7 +48,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			inputMSG:            new(dns.Msg).SetQuestion("one.one.one.one.", dns.TypeA),
 			InputServers:        []string{"8.0.0.0:53", "8.8.4.4:53"},
 			cancelCTX:           true,
-			timeout:             upstreamTimeout,
+			timeout:             UpstreamTimeout,
 			responseShouldBeNil: true,
 		},
 	}
@@ -122,7 +122,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 			r:   new(dns.Msg),
 			rtt: time.Millisecond,
 		},
-		upstreamTimeout:  upstreamTimeout,
+		upstreamTimeout:  UpstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
 		failsTillDeact:   failsTillDeact,
 	}
