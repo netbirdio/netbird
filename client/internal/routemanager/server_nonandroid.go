@@ -55,6 +55,18 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 		delete(m.routes, routeID)
 	}
 
+	// If routing is to be disabled, do it after routes have been removed
+	// If routing is to be enabled, do it before adding new routes; addToServerNetwork needs routing to be enabled
+	if len(routesMap) > 0 {
+		if err := m.firewall.EnableRouting(); err != nil {
+			return fmt.Errorf("enable routing: %w", err)
+		}
+	} else {
+		if err := m.firewall.DisableRouting(); err != nil {
+			return fmt.Errorf("disable routing: %w", err)
+		}
+	}
+
 	for id, newRoute := range routesMap {
 		_, found := m.routes[id]
 		if found {
@@ -67,16 +79,6 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 			continue
 		}
 		m.routes[id] = newRoute
-	}
-
-	if len(m.routes) > 0 {
-		if err := m.firewall.EnableRouting(); err != nil {
-			return fmt.Errorf("enable routing: %w", err)
-		}
-	} else {
-		if err := m.firewall.DisableRouting(); err != nil {
-			return fmt.Errorf("disable routing: %w", err)
-		}
 	}
 
 	return nil
@@ -103,7 +105,11 @@ func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
 
 	delete(m.routes, route.ID)
 
-	m.statusRecorder.RemoveLocalPeerStateRoute(route.Network.String())
+	routeStr := route.Network.String()
+	if route.IsDynamic() {
+		routeStr = route.Domains.SafeString()
+	}
+	m.statusRecorder.RemoveLocalPeerStateRoute(routeStr)
 
 	return nil
 }

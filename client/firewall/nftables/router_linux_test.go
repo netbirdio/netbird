@@ -100,7 +100,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				natRuleKey := firewall.GenKey(firewall.PreroutingFormat, testCase.InputPair)
 				found := 0
 				for _, chain := range rtr.chains {
-					if chain.Name == chainNamePrerouting {
+					if chain.Name == chainNameManglePrerouting {
 						rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
 						require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
 						for _, rule := range rules {
@@ -141,7 +141,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			// Verify the rule was added
 			natRuleKey := firewall.GenKey(firewall.PreroutingFormat, testCase.InputPair)
 			found := false
-			rules, err := rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNamePrerouting])
+			rules, err := rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNameManglePrerouting])
 			require.NoError(t, err, "should list rules")
 			for _, rule := range rules {
 				if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
@@ -157,7 +157,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 
 			// Verify the rule was removed
 			found = false
-			rules, err = rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNamePrerouting])
+			rules, err = rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNameManglePrerouting])
 			require.NoError(t, err, "should list rules after removal")
 			for _, rule := range rules {
 				if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
