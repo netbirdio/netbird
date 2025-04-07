@@ -7,6 +7,7 @@ import (
 )
 
 type RolePermissions struct {
+	Role         types.UserRole
 	Permissions  Permissions
 	AutoAllowNew map[operations.Operation]bool
 }
