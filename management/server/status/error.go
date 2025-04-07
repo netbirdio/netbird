@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 )
 
@@ -223,10 +222,6 @@ func NewExtraSettingsNotFoundError() error {
 
 func NewUserRoleNotFoundError(role string) error {
 	return Errorf(NotFound, "user role: %s not found", role)
-}
-
-func NewModuleNotFoundError(module modules.Module) error {
-	return Errorf(NotFound, "module: %s not found", module)
 }
 
 func NewOperationNotFoundError(operation operations.Operation) error {

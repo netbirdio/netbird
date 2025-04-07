@@ -43,7 +43,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
-	if !allowed {
+	if !allowed && !user.IsServiceUser {
 		return []*nbpeer.Peer{}, nil
 	}
 
@@ -1087,7 +1087,7 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 
 // GetPeer for a given accountID, peerID and userID error if not found.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}

@@ -6,7 +6,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-type RolePermissions map[modules.Module]map[operations.Operation]bool
+type RolePermissions struct {
+	Permissions  Permissions
+	AutoAllowNew map[operations.Operation]bool
+}
+
+type Permissions map[modules.Module]map[operations.Operation]bool
 
 var RolesMap = map[types.UserRole]RolePermissions{
 	types.UserRoleOwner: Owner,

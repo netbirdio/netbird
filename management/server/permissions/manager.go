@@ -1,9 +1,13 @@
 package permissions
 
+//go:generate go run github.com/golang/mock/mockgen -package permissions -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+
 import (
 	"context"
 	"errors"
 	"fmt"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -23,9 +27,6 @@ type managerImpl struct {
 	store store.Store
 }
 
-type managerMock struct {
-}
-
 func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store: store,
@@ -33,7 +34,7 @@ func NewManager(store store.Store) Manager {
 }
 
 func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error) {
-	if userID != activity.SystemInitiator {
+	if userID == activity.SystemInitiator {
 		return true, nil
 	}
 
@@ -64,14 +65,22 @@ func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID st
 		return false, false, status.NewUserRoleNotFoundError(string(role))
 	}
 
-	operations, ok := permissions[module]
-	if !ok {
-		return false, false, status.NewModuleNotFoundError(module)
-	}
+	allowed := false
 
-	allowed, ok := operations[operation]
-	if !ok {
-		return false, false, status.NewOperationNotFoundError(operation)
+	operations, ok := permissions.Permissions[module]
+	if ok {
+		allowed, ok = operations[operation]
+		if !ok {
+			log.WithContext(ctx).Tracef("operation %s not found on module %s for role %s", operation, module, role)
+			return false, false, nil
+		}
+	} else {
+		if permissions.AutoAllowNew[operation] {
+			allowed = true
+		} else {
+			log.WithContext(ctx).Tracef("permission %s is not allowed on module %s for role %s", operation, module, role)
+			return false, false, nil
+		}
 	}
 
 	skipGroups := false
@@ -103,21 +112,4 @@ func (m *managerImpl) validateAccountAccess(ctx context.Context, accountID strin
 		return status.NewUserNotPartOfAccountError()
 	}
 	return nil
-}
-
-func NewManagerMock() Manager {
-	return &managerMock{}
-}
-
-func (m *managerMock) ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error) {
-	switch userID {
-	case "a23efe53-63fb-11ec-90d6-0242ac120003", "allowedUser", "testingUser", "account_creator", "serviceUserID", "test_user":
-		return true, nil
-	default:
-		return false, nil
-	}
-}
-
-func (m *managerMock) ValidateRoleModuleAccess(ctx context.Context, accountID string, userRole types.UserRole, module modules.Module, operation operations.Operation) (bool, bool, error) {
-	return true, false, nil
 }

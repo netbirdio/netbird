@@ -423,7 +423,7 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 
 // GetPAT returns a specific PAT from a user
 func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
