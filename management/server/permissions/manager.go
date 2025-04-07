@@ -55,6 +55,10 @@ func (m *managerImpl) ValidateUserPermissions(ctx context.Context, accountID, us
 		return false, err
 	}
 
+	if operation == operations.Read && user.IsServiceUser {
+		return true, nil // this should be replaced by proper granular access role
+	}
+
 	allowed, _, err := m.ValidateRoleModuleAccess(ctx, accountID, user.Role, module, operation)
 	return allowed, err
 }
@@ -65,8 +69,7 @@ func (m *managerImpl) ValidateRoleModuleAccess(ctx context.Context, accountID st
 		return false, false, status.NewUserRoleNotFoundError(string(role))
 	}
 
-	allowed := false
-
+	var allowed bool
 	operations, ok := permissions.Permissions[module]
 	if ok {
 		allowed, ok = operations[operation]

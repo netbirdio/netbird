@@ -2829,15 +2829,6 @@ func createManager(t testing.TB) (*DefaultAccountManager, error) {
 		Return(false, nil).
 		AnyTimes()
 
-	// permissionsManagerMock := permissions.NewMockManager(ctrl)
-	// permissionsManagerMock.EXPECT().
-	// 	ValidateUserPermissions(gomock.Any(), gomock.Any(), regularUserID, gomock.Any(), gomock.Any()).
-	// 	Return(false, nil).
-	// 	AnyTimes()
-	// permissionsManagerMock.EXPECT().
-	// 	ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-	// 	Return(true, nil).
-	// 	AnyTimes()
 	permissionsManager := permissions.NewManager(store)
 
 	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)

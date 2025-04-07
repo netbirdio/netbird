@@ -1131,6 +1131,8 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	am := DefaultAccountManager{
 		Store:              store,
 		eventStore:         &activity.InMemoryEventStore{},
+		idpManager:         &idp.GoogleWorkspaceManager{}, // empty manager
+		cacheLoading:       map[string]chan struct{}{},
 		permissionsManager: permissionsManager,
 	}
 

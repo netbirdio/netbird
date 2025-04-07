@@ -43,7 +43,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
-	if !allowed && !user.IsServiceUser {
+	if !allowed {
 		return []*nbpeer.Peer{}, nil
 	}
 
