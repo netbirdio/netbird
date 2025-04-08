@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -93,6 +95,8 @@ type DefaultAccountManager struct {
 	metrics telemetry.AppMetrics
 
 	permissionsManager permissions.Manager
+
+	updateAccountPeersBufferInterval time.Duration
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -167,25 +171,32 @@ func BuildManager(
 		log.WithContext(ctx).Debugf("took %v to instantiate account manager", time.Since(start))
 	}()
 
+	intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
+	interval, err := strconv.Atoi(intervalStr)
+	if err != nil {
+		interval = 1
+	}
+
 	am := &DefaultAccountManager{
-		Store:                    store,
-		geo:                      geo,
-		peersUpdateManager:       peersUpdateManager,
-		idpManager:               idpManager,
-		ctx:                      context.Background(),
-		cacheMux:                 sync.Mutex{},
-		cacheLoading:             map[string]chan struct{}{},
-		dnsDomain:                dnsDomain,
-		eventStore:               eventStore,
-		peerLoginExpiry:          NewDefaultScheduler(),
-		peerInactivityExpiry:     NewDefaultScheduler(),
-		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
-		integratedPeerValidator:  integratedPeerValidator,
-		metrics:                  metrics,
-		requestBuffer:            NewAccountRequestBuffer(ctx, store),
-		proxyController:          proxyController,
-		settingsManager:          settingsManager,
-		permissionsManager:       permissionsManager,
+		Store:                            store,
+		geo:                              geo,
+		peersUpdateManager:               peersUpdateManager,
+		idpManager:                       idpManager,
+		ctx:                              context.Background(),
+		cacheMux:                         sync.Mutex{},
+		cacheLoading:                     map[string]chan struct{}{},
+		dnsDomain:                        dnsDomain,
+		eventStore:                       eventStore,
+		peerLoginExpiry:                  NewDefaultScheduler(),
+		peerInactivityExpiry:             NewDefaultScheduler(),
+		userDeleteFromIDPEnabled:         userDeleteFromIDPEnabled,
+		integratedPeerValidator:          integratedPeerValidator,
+		metrics:                          metrics,
+		requestBuffer:                    NewAccountRequestBuffer(ctx, store),
+		proxyController:                  proxyController,
+		settingsManager:                  settingsManager,
+		permissionsManager:               permissionsManager,
+		updateAccountPeersBufferInterval: time.Duration(interval) * time.Millisecond,
 	}
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
