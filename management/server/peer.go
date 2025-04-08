@@ -304,7 +304,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	if peerLabelChanged || requiresPeerUpdates {
-		am.BufferUpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID)
 	} else if sshChanged {
 		am.UpdateAccountPeer(ctx, accountID, peer.ID)
 	}
