@@ -22,7 +22,7 @@ jobs:
         with:
           usesh: true
           copyback: false
-          release: "14.1"
+          release: "14.2"
           prepare: |
             pkg install -y go pkgconf xorg
 
