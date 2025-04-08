@@ -162,9 +162,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// set the AuthenticatedData flag and the EDNS0 buffer size to 4096 bytes to support larger dns records
 	if r.Extra == nil {
-		r.SetEdns0(4096, false)
 		r.MsgHdr.AuthenticatedData = true
 	}
 	client := &dns.Client{
@@ -172,7 +170,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		Net:     "udp",
 	}
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
-	reply, _, err := client.ExchangeContext(context.Background(), r, upstream)
+	reply, _, err := nbdns.ExchangeWithFallback(context.TODO(), client, r, upstream)
 	if err != nil {
 		log.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
 		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {

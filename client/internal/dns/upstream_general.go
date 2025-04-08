@@ -34,6 +34,5 @@ func newUpstreamResolver(
 }
 
 func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	upstreamExchangeClient := &dns.Client{}
-	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
+	return ExchangeWithFallback(ctx, &dns.Client{}, r, upstream)
 }
