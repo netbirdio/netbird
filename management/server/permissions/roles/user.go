@@ -54,7 +54,7 @@ var User = RolePermissions{
 			operations.Write: false,
 		},
 		modules.Users: {
-			operations.Read:  false,
+			operations.Read:  true,
 			operations.Write: false,
 		},
 		modules.SetupKeys: {
