@@ -658,7 +658,7 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
-	valid, fragement := m.isValidPacket(d, packetData)
+	valid, fragment := m.isValidPacket(d, packetData)
 	if !valid {
 		return true
 	}
@@ -670,7 +670,7 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 	}
 
 	// TODO: pass fragments of routed packets to forwarder
-	if fragement {
+	if fragment {
 		m.logger.Trace("packet is a fragment: src=%v dst=%v id=%v flags=%v",
 			srcIP, dstIP, d.ip4.Id, d.ip4.Flags)
 		return false
