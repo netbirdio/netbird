@@ -19,6 +19,7 @@ import (
 type Manager interface {
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) (bool, error)
+	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
 }
 
 type managerImpl struct {
@@ -55,7 +56,7 @@ func (m *managerImpl) ValidateUserPermissions(
 		return false, status.NewUserBlockedError()
 	}
 
-	if err := m.validateAccountAccess(ctx, accountID, user, false); err != nil {
+	if err := m.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return false, err
 	}
 
@@ -93,7 +94,7 @@ func (m *managerImpl) ValidateRoleModuleAccess(
 	return false, status.NewOperationNotFoundError(operation)
 }
 
-func (m *managerImpl) validateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
+func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
 	if user.AccountID != accountID {
 		return status.NewUserNotPartOfAccountError()
 	}

@@ -12,6 +12,7 @@ import (
 	modules "github.com/netbirdio/netbird/management/server/permissions/modules"
 	operations "github.com/netbirdio/netbird/management/server/permissions/operations"
 	roles "github.com/netbirdio/netbird/management/server/permissions/roles"
+	types "github.com/netbirdio/netbird/management/server/types"
 )
 
 // MockManager is a mock of Manager interface.
@@ -35,6 +36,20 @@ func NewMockManager(ctrl *gomock.Controller) *MockManager {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
+}
+
+// ValidateAccountAccess mocks base method.
+func (m *MockManager) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateAccountAccess", ctx, accountID, user, allowOwnerAndAdmin)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ValidateAccountAccess indicates an expected call of ValidateAccountAccess.
+func (mr *MockManagerMockRecorder) ValidateAccountAccess(ctx, accountID, user, allowOwnerAndAdmin interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateAccountAccess", reflect.TypeOf((*MockManager)(nil).ValidateAccountAccess), ctx, accountID, user, allowOwnerAndAdmin)
 }
 
 // ValidateRoleModuleAccess mocks base method.

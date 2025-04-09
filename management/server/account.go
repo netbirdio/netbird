@@ -1061,12 +1061,8 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return accountID, user.Id, nil
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, user.Id, modules.Accounts, operations.Read)
-	if err != nil {
-		return "", "", status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return "", "", status.NewPermissionDeniedError()
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return "", "", err
 	}
 
 	if !user.IsServiceUser && userAuth.Invited {

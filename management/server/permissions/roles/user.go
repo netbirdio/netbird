@@ -14,7 +14,7 @@ var User = RolePermissions{
 	},
 	Permissions: Permissions{
 		modules.Accounts: {
-			operations.Read:  true,
+			operations.Read:  false,
 			operations.Write: false,
 		},
 		modules.Networks: {
