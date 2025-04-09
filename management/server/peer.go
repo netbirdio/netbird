@@ -43,15 +43,6 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
-	if !allowed {
-		if settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID); err == nil {
-			if settings.RegularUsersViewBlocked {
-				return []*nbpeer.Peer{}, nil
-			}
-			return am.Store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, userID)
-		}
-		return nil, status.NewPermissionDeniedError()
-	}
 
 	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, nameFilter, ipFilter)
 	if err != nil {
@@ -70,8 +61,17 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		peersMap[peer.ID] = peer
 	}
 
-	if user.IsAdminOrServiceUser() {
+	if allowed {
 		return peers, nil
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account settings: %w", err)
+	}
+
+	if settings.RegularUsersViewBlocked {
+		return []*nbpeer.Peer{}, nil
 	}
 
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
@@ -1102,17 +1102,18 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
-	if !allowed {
-		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
-		if err != nil {
-			return nil, err
-		}
+	if allowed {
+		return peer, nil
+	}
 
-		// if admin or user owns this peer, return peer
-		if user.IsAdminOrServiceUser() || peer.UserID == userID {
-			return peer, nil
-		}
-		return nil, status.NewPermissionDeniedError()
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// if admin or user owns this peer, return peer
+	if user.IsAdminOrServiceUser() || peer.UserID == userID {
+		return peer, nil
 	}
 
 	// it is also possible that user doesn't own the peer but some of his peers have access to it,
