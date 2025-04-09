@@ -1093,27 +1093,26 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 
 // GetPeer for a given accountID, peerID and userID error if not found.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
-	if err != nil {
-		return nil, err
-	}
-
 	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthShare, accountID, peerID)
 	if err != nil {
 		return nil, err
 	}
 
-	// if admin or user owns this peer, return peer
-	if user.IsAdminOrServiceUser() || peer.UserID == userID {
-		return peer, nil
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+		if err != nil {
+			return nil, err
+		}
+
+		// if admin or user owns this peer, return peer
+		if user.IsAdminOrServiceUser() || peer.UserID == userID {
+			return peer, nil
+		}
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	// it is also possible that user doesn't own the peer but some of his peers have access to it,
