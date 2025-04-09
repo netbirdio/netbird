@@ -824,13 +824,17 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return nil, err
+	accountUsers := []*types.User{user}
+	if allowed {
+		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
