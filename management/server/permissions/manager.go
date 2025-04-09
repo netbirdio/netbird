@@ -18,7 +18,7 @@ import (
 
 type Manager interface {
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
-	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) (bool, error)
+	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
 }
 
@@ -69,7 +69,7 @@ func (m *managerImpl) ValidateUserPermissions(
 		return false, status.NewUserRoleNotFoundError(string(user.Role))
 	}
 
-	return m.ValidateRoleModuleAccess(ctx, accountID, role, module, operation)
+	return m.ValidateRoleModuleAccess(ctx, accountID, role, module, operation), nil
 }
 
 func (m *managerImpl) ValidateRoleModuleAccess(
@@ -78,20 +78,16 @@ func (m *managerImpl) ValidateRoleModuleAccess(
 	role roles.RolePermissions,
 	module modules.Module,
 	operation operations.Operation,
-) (bool, error) {
+) bool {
 	if permissions, ok := role.Permissions[module]; ok {
 		if allowed, exists := permissions[operation]; exists {
-			return allowed, nil
+			return allowed
 		}
 		log.WithContext(ctx).Tracef("operation %s not found on module %s for role %s", operation, module, role.Role)
-		return false, nil
+		return false
 	}
 
-	if role.AutoAllowNew[operation] {
-		return true, nil
-	}
-
-	return false, status.NewOperationNotFoundError(operation)
+	return role.AutoAllowNew[operation]
 }
 
 func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
