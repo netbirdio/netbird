@@ -22,11 +22,11 @@ var User = RolePermissions{
 			operations.Read:  false,
 		},
 		modules.Peers: {
-			operations.Read:  true,
+			operations.Read:  false,
 			operations.Write: false,
 		},
 		modules.Groups: {
-			operations.Read:  true,
+			operations.Read:  false,
 			operations.Write: false,
 		},
 		modules.Settings: {

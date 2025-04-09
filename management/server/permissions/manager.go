@@ -4,7 +4,6 @@ package permissions
 
 import (
 	"context"
-	"errors"
 
 	log "github.com/sirupsen/logrus"
 
@@ -81,47 +80,17 @@ func (m *managerImpl) ValidateRoleModuleAccess(
 ) (bool, error) {
 	if permissions, ok := role.Permissions[module]; ok {
 		if allowed, exists := permissions[operation]; exists {
-			return m.validateModuleRestrictions(ctx, accountID, role, module, allowed)
+			return allowed, nil
 		}
 		log.WithContext(ctx).Tracef("operation %s not found on module %s for role %s", operation, module, role.Role)
 		return false, nil
 	}
 
 	if role.AutoAllowNew[operation] {
-		return m.validateModuleRestrictions(ctx, accountID, role, module, true)
+		return true, nil
 	}
 
 	return false, status.NewOperationNotFoundError(operation)
-}
-
-func (m *managerImpl) validateModuleRestrictions(
-	ctx context.Context,
-	accountID string,
-	role roles.RolePermissions,
-	module modules.Module,
-	allowed bool,
-) (bool, error) {
-	if !allowed {
-		return false, nil
-	}
-
-	switch module {
-	case modules.Peers:
-		if role.Role == types.UserRoleUser || role.Role == types.UserRoleBillingAdmin {
-			if settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID); err == nil {
-				return !settings.RegularUsersViewBlocked, nil
-			}
-		}
-	case modules.Accounts, modules.Networks, modules.Groups, modules.Settings, modules.Pats,
-		modules.Dns, modules.Nameservers, modules.Events, modules.Policies, modules.Routes,
-		modules.Users, modules.SetupKeys:
-		// known valid modules, nothing extra to do
-		return true, nil
-	default:
-		return false, errors.New("unknown module")
-	}
-
-	return true, nil
 }
 
 func (m *managerImpl) validateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {

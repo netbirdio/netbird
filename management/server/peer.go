@@ -44,7 +44,13 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, status.NewPermissionValidationError(err)
 	}
 	if !allowed {
-		return []*nbpeer.Peer{}, nil
+		if settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID); err == nil {
+			if settings.RegularUsersViewBlocked {
+				return []*nbpeer.Peer{}, nil
+			}
+			return am.Store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, userID)
+		}
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, nameFilter, ipFilter)
