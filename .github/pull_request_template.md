@@ -2,6 +2,10 @@
 
 ## Issue ticket number and link
 
+## Stack
+
+<!-- branch-stack -->
+
 ### Checklist
 - [ ] Is it a bug fix
 - [ ] Is a typo/documentation fix
