@@ -1,13 +1,14 @@
 package forwarder
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/netip"
+	"sync"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -23,11 +24,11 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 
 	flowID := uuid.New()
 
-	f.sendTCPEvent(nftypes.TypeStart, flowID, id, nil)
+	f.sendTCPEvent(nftypes.TypeStart, flowID, id, nil, 0, 0)
 	var success bool
 	defer func() {
 		if !success {
-			f.sendTCPEvent(nftypes.TypeEnd, flowID, id, nil)
+			f.sendTCPEvent(nftypes.TypeEnd, flowID, id, nil, 0, 0)
 		}
 	}()
 
@@ -65,48 +66,51 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 }
 
 func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn, outConn net.Conn, ep tcpip.Endpoint, flowID uuid.UUID) {
-	defer func() {
-		if err := inConn.Close(); err != nil {
-			f.logger.Debug("forwarder: inConn close error: %v", err)
-		}
-		if err := outConn.Close(); err != nil {
-			f.logger.Debug("forwarder: outConn close error: %v", err)
-		}
-		ep.Close()
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-		f.sendTCPEvent(nftypes.TypeEnd, flowID, id, ep)
-	}()
-
-	// Create context for managing the proxy goroutines
-	ctx, cancel := context.WithCancel(f.ctx)
-	defer cancel()
-
-	errChan := make(chan error, 2)
+	var (
+		bytesFromInToOut int64 // bytes from client to server (tx for client)
+		bytesFromOutToIn int64 // bytes from server to client (rx for client)
+		errInToOut       error
+		errOutToIn       error
+	)
 
 	go func() {
-		_, err := io.Copy(outConn, inConn)
-		errChan <- err
+		defer wg.Done()
+		var n int64
+		n, errInToOut = io.Copy(outConn, inConn)
+		bytesFromInToOut = n
 	}()
 
 	go func() {
-		_, err := io.Copy(inConn, outConn)
-		errChan <- err
+		defer wg.Done()
+		var n int64
+		n, errOutToIn = io.Copy(inConn, outConn)
+		bytesFromOutToIn = n
 	}()
 
-	select {
-	case <-ctx.Done():
-		f.logger.Trace("forwarder: tearing down TCP connection %v due to context done", epID(id))
-		return
-	case err := <-errChan:
-		if err != nil && !isClosedError(err) {
-			f.logger.Error("proxyTCP: copy error: %v", err)
-		}
-		f.logger.Trace("forwarder: tearing down TCP connection %v", epID(id))
-		return
+	wg.Wait()
+
+	if errInToOut != nil && !isClosedError(errInToOut) {
+		f.logger.Error("proxyTCP: copy error (in -> out): %v", errInToOut)
 	}
-}
+	if errOutToIn != nil && !isClosedError(errOutToIn) {
+		f.logger.Error("proxyTCP: copy error (out -> in): %v", errOutToIn)
+	}
 
-func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint) {
+	// Close connections and endpoint.
+	if err := inConn.Close(); err != nil {
+		f.logger.Debug("forwarder: inConn close error: %v", err)
+	}
+	if err := outConn.Close(); err != nil {
+		f.logger.Debug("forwarder: outConn close error: %v", err)
+	}
+	ep.Close()
+
+	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, ep, uint64(bytesFromOutToIn), uint64(bytesFromInToOut))
+}
+func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint, rxBytes, txBytes uint64) {
 	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
@@ -117,7 +121,11 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		DestIP:     netip.AddrFrom4(id.LocalAddress.As4()),
 		SourcePort: id.RemotePort,
 		DestPort:   id.LocalPort,
+		RxBytes:    rxBytes,
+		TxBytes:    txBytes,
 	}
+
+	log.Infof("=======TCP EVENT: %+v", fields)
 
 	if ep != nil {
 		if tcpStats, ok := ep.Stats().(*tcp.Stats); ok {
