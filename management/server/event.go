@@ -9,6 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -21,17 +23,12 @@ func isEnabled() bool {
 
 // GetEvents returns a list of activity events of an account
 func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Events, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if !(user.HasAdminPower() || user.IsServiceUser) {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view events")
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	events, err := am.eventStore.Get(ctx, accountID, 0, 10000, true)
@@ -56,7 +53,7 @@ func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userI
 		filtered = append(filtered, event)
 	}
 
-	err = am.fillEventsWithUserInfo(ctx, events, accountID, user)
+	err = am.fillEventsWithUserInfo(ctx, events, accountID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +86,8 @@ type eventUserInfo struct {
 	accountId string
 }
 
-func (am *DefaultAccountManager) fillEventsWithUserInfo(ctx context.Context, events []*activity.Event, accountId string, user *types.User) error {
-	eventUserInfo, err := am.getEventsUserInfo(ctx, events, accountId, user)
+func (am *DefaultAccountManager) fillEventsWithUserInfo(ctx context.Context, events []*activity.Event, accountId string, userId string) error {
+	eventUserInfo, err := am.getEventsUserInfo(ctx, events, accountId, userId)
 	if err != nil {
 		return err
 	}
@@ -105,14 +102,14 @@ func (am *DefaultAccountManager) fillEventsWithUserInfo(ctx context.Context, eve
 	return nil
 }
 
-func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events []*activity.Event, accountId string, user *types.User) (map[string]eventUserInfo, error) {
+func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events []*activity.Event, accountId string, userId string) (map[string]eventUserInfo, error) {
 	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountId)
 	if err != nil {
 		return nil, err
 	}
 
 	// @note check whether using a external initiator user here is an issue
-	userInfos, err := am.BuildUserInfosForAccount(ctx, accountId, user.Id, accountUsers)
+	userInfos, err := am.BuildUserInfosForAccount(ctx, accountId, userId, accountUsers)
 	if err != nil {
 		return nil, err
 	}
@@ -146,10 +143,10 @@ func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events [
 		return eventUserInfos, nil
 	}
 
-	return am.getEventsExternalUserInfo(ctx, externalUserIds, eventUserInfos, user)
+	return am.getEventsExternalUserInfo(ctx, externalUserIds, eventUserInfos, userId)
 }
 
-func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, externalUserIds []string, eventUserInfos map[string]eventUserInfo, user *types.User) (map[string]eventUserInfo, error) {
+func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, externalUserIds []string, eventUserInfos map[string]eventUserInfo, userId string) (map[string]eventUserInfo, error) {
 	externalAccountId := ""
 	fetched := make(map[string]struct{})
 	externalUsers := []*types.User{}
@@ -182,7 +179,7 @@ func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, 
 		return eventUserInfos, nil
 	}
 
-	externalUserInfos, err := am.BuildUserInfosForAccount(ctx, externalAccountId, user.Id, externalUsers)
+	externalUserInfos, err := am.BuildUserInfosForAccount(ctx, externalAccountId, userId, externalUsers)
 	if err != nil {
 		return nil, err
 	}

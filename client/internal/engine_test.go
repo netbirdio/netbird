@@ -1439,8 +1439,6 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	permissionsManagerMock := permissions.NewManagerMock()
-
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
@@ -1449,7 +1447,9 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		Return(&types.Settings{}, nil).
 		AnyTimes()
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
+	permissionsManager := permissions.NewManager(store)
+
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 	if err != nil {
 		return nil, "", err
 	}
