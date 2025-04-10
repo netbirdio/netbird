@@ -13,6 +13,7 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -1606,4 +1607,176 @@ func TestSaveOrAddUser_PreventAccountSwitch(t *testing.T) {
 	assert.Equal(t, account1.Users[targetId].Id, user.Id)
 	assert.Equal(t, account1.Users[targetId].AccountID, user.AccountID)
 	assert.Equal(t, account1.Users[targetId].AutoGroups, user.AutoGroups)
+}
+
+func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account1 := newAccountWithId(context.Background(), "account1", "account1Owner", "")
+	account1.Settings.RegularUsersViewBlocked = false
+	account1.Users["blocked-user"] = &types.User{
+		Id:        "blocked-user",
+		AccountID: account1.Id,
+		Blocked:   true,
+	}
+	account1.Users["service-user"] = &types.User{
+		Id:              "service-user",
+		IsServiceUser:   true,
+		ServiceUserName: "service-user",
+	}
+	account1.Users["regular-user"] = &types.User{
+		Id:   "regular-user",
+		Role: types.UserRoleUser,
+	}
+	account1.Users["admin-user"] = &types.User{
+		Id:   "admin-user",
+		Role: types.UserRoleAdmin,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account1))
+
+	account2 := newAccountWithId(context.Background(), "account2", "account2Owner", "")
+	account2.Users["settings-blocked-user"] = &types.User{
+		Id:   "settings-blocked-user",
+		Role: types.UserRoleUser,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account2))
+
+	permissionsManager := permissions.NewManager(store)
+	am := DefaultAccountManager{
+		Store:              store,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
+	}
+
+	tt := []struct {
+		name           string
+		accountId      string
+		userId         string
+		expectedErr    error
+		expectedResult *types.UserInfo
+	}{
+		{
+			name:        "not found",
+			accountId:   account1.Id,
+			userId:      "not-found",
+			expectedErr: status.NewUserNotFoundError("not-found"),
+		},
+		{
+			name:        "not part of account",
+			accountId:   account1.Id,
+			userId:      "account2Owner",
+			expectedErr: status.NewUserNotPartOfAccountError(),
+		},
+		{
+			name:        "blocked",
+			accountId:   account1.Id,
+			userId:      "blocked-user",
+			expectedErr: status.NewUserBlockedError(),
+		},
+		{
+			name:        "service user",
+			accountId:   account1.Id,
+			userId:      "service-user",
+			expectedErr: status.NewPermissionDeniedError(),
+		},
+		{
+			name:      "owner user",
+			accountId: account1.Id,
+			userId:    "account1Owner",
+			expectedResult: &types.UserInfo{
+				ID:                   "account1Owner",
+				Name:                 "",
+				Role:                 "owner",
+				AutoGroups:           []string{},
+				Status:               "active",
+				IsServiceUser:        false,
+				IsBlocked:            false,
+				NonDeletable:         false,
+				LastLogin:            time.Time{},
+				Issued:               "api",
+				IntegrationReference: integration_reference.IntegrationReference{},
+				Permissions: types.UserPermissions{
+					DashboardView: "full",
+				},
+			},
+		},
+		{
+			name:      "regular user",
+			accountId: account1.Id,
+			userId:    "regular-user",
+			expectedResult: &types.UserInfo{
+				ID:                   "regular-user",
+				Name:                 "",
+				Role:                 "user",
+				Status:               "active",
+				IsServiceUser:        false,
+				IsBlocked:            false,
+				NonDeletable:         false,
+				LastLogin:            time.Time{},
+				Issued:               "api",
+				IntegrationReference: integration_reference.IntegrationReference{},
+				Permissions: types.UserPermissions{
+					DashboardView: "limited",
+				},
+			},
+		},
+		{
+			name:      "admin user",
+			accountId: account1.Id,
+			userId:    "admin-user",
+			expectedResult: &types.UserInfo{
+				ID:                   "admin-user",
+				Name:                 "",
+				Role:                 "admin",
+				Status:               "active",
+				IsServiceUser:        false,
+				IsBlocked:            false,
+				NonDeletable:         false,
+				LastLogin:            time.Time{},
+				Issued:               "api",
+				IntegrationReference: integration_reference.IntegrationReference{},
+				Permissions: types.UserPermissions{
+					DashboardView: "full",
+				},
+			},
+		},
+		{
+			name:      "settings blocked regular user",
+			accountId: account2.Id,
+			userId:    "settings-blocked-user",
+			expectedResult: &types.UserInfo{
+				ID:                   "settings-blocked-user",
+				Name:                 "",
+				Role:                 "user",
+				Status:               "active",
+				IsServiceUser:        false,
+				IsBlocked:            false,
+				NonDeletable:         false,
+				LastLogin:            time.Time{},
+				Issued:               "api",
+				IntegrationReference: integration_reference.IntegrationReference{},
+				Permissions: types.UserPermissions{
+					DashboardView: "blocked",
+				},
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := am.GetCurrentUserInfo(context.Background(), tc.accountId, tc.userId)
+
+			if tc.expectedErr != nil {
+				assert.Equal(t, err, tc.expectedErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.EqualValues(t, tc.expectedResult, result)
+		})
+	}
 }

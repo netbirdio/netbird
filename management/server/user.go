@@ -1241,3 +1241,30 @@ func validateUserInvite(invite *types.UserInfo) error {
 
 	return nil
 }
+
+// GetCurrentUserInfo retrieves the account's current user info
+func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.IsBlocked() {
+		return nil, status.NewUserBlockedError()
+	}
+
+	if user.IsServiceUser {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
+	}
+
+	userInfo, err := am.getUserInfo(ctx, user, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return userInfo, nil
+}
