@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
@@ -69,8 +70,7 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  geolocation.Geolocation
 
-	accountUpdateLocks sync.Map
-	requestBuffer      *AccountRequestBuffer
+	requestBuffer *AccountRequestBuffer
 
 	proxyController port_forwarding.Controller
 	settingsManager settings.Manager
@@ -96,7 +96,8 @@ type DefaultAccountManager struct {
 
 	permissionsManager permissions.Manager
 
-	updateAccountPeersBufferInterval time.Duration
+	accountUpdateLocks               sync.Map
+	updateAccountPeersBufferInterval atomic.Int64
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -178,26 +179,32 @@ func BuildManager(
 	}
 
 	am := &DefaultAccountManager{
-		Store:                            store,
-		geo:                              geo,
-		peersUpdateManager:               peersUpdateManager,
-		idpManager:                       idpManager,
-		ctx:                              context.Background(),
-		cacheMux:                         sync.Mutex{},
-		cacheLoading:                     map[string]chan struct{}{},
-		dnsDomain:                        dnsDomain,
-		eventStore:                       eventStore,
-		peerLoginExpiry:                  NewDefaultScheduler(),
-		peerInactivityExpiry:             NewDefaultScheduler(),
-		userDeleteFromIDPEnabled:         userDeleteFromIDPEnabled,
-		integratedPeerValidator:          integratedPeerValidator,
-		metrics:                          metrics,
-		requestBuffer:                    NewAccountRequestBuffer(ctx, store),
-		proxyController:                  proxyController,
-		settingsManager:                  settingsManager,
-		permissionsManager:               permissionsManager,
-		updateAccountPeersBufferInterval: time.Duration(interval) * time.Millisecond,
+		Store:                    store,
+		geo:                      geo,
+		peersUpdateManager:       peersUpdateManager,
+		idpManager:               idpManager,
+		ctx:                      context.Background(),
+		cacheMux:                 sync.Mutex{},
+		cacheLoading:             map[string]chan struct{}{},
+		dnsDomain:                dnsDomain,
+		eventStore:               eventStore,
+		peerLoginExpiry:          NewDefaultScheduler(),
+		peerInactivityExpiry:     NewDefaultScheduler(),
+		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
+		integratedPeerValidator:  integratedPeerValidator,
+		metrics:                  metrics,
+		requestBuffer:            NewAccountRequestBuffer(ctx, store),
+		proxyController:          proxyController,
+		settingsManager:          settingsManager,
+		permissionsManager:       permissionsManager,
 	}
+
+	am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond * 10))
+	go func() {
+		time.Sleep(30 * time.Second)
+		am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
+	}()
+
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
 		log.WithContext(ctx).Error(err)

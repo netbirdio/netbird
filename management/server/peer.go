@@ -1235,7 +1235,7 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 	}
 
 	go func() {
-		time.Sleep(am.updateAccountPeersBufferInterval)
+		time.Sleep(time.Duration(am.updateAccountPeersBufferInterval.Load()))
 		lock.Unlock()
 		am.UpdateAccountPeers(ctx, accountID)
 	}()
