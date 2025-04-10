@@ -467,6 +467,11 @@ func (s *DefaultServer) applyHostConfig() {
 		return
 	}
 
+	// prevent reapplying config if we're shutting down
+	if s.ctx.Err() != nil {
+		return
+	}
+
 	config := s.currentConfig
 
 	existingDomains := make(map[string]struct{})
