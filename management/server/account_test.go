@@ -2794,13 +2794,13 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 	})
 }
 
-//type TB interface {
+// type TB interface {
 //	Cleanup(func())
 //	Helper()
 //	TempDir() string
 //	Errorf(format string, args ...interface{})
 //	Fatalf(format string, args ...interface{})
-//}
+// }
 
 func createManager(t testing.TB) (*DefaultAccountManager, error) {
 	t.Helper()
@@ -2816,8 +2816,6 @@ func createManager(t testing.TB) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 
-	permissionsManagerMock := permissions.NewManagerMock()
-
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
@@ -2831,7 +2829,9 @@ func createManager(t testing.TB) (*DefaultAccountManager, error) {
 		Return(false, nil).
 		AnyTimes()
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
+	permissionsManager := permissions.NewManager(store)
+
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 	if err != nil {
 		return nil, err
 	}
