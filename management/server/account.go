@@ -172,12 +172,6 @@ func BuildManager(
 		log.WithContext(ctx).Debugf("took %v to instantiate account manager", time.Since(start))
 	}()
 
-	intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
-	interval, err := strconv.Atoi(intervalStr)
-	if err != nil {
-		interval = 1
-	}
-
 	am := &DefaultAccountManager{
 		Store:                    store,
 		geo:                      geo,
@@ -199,11 +193,21 @@ func BuildManager(
 		permissionsManager:       permissionsManager,
 	}
 
-	am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond * 10))
-	go func() {
-		time.Sleep(30 * time.Second)
-		am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
-	}()
+	var initialInterval int64
+	intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
+	interval, err := strconv.Atoi(intervalStr)
+	if err != nil {
+		initialInterval = 1
+	} else {
+		initialInterval = int64(interval) * 10
+		go func() {
+			time.Sleep(30 * time.Second)
+			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
+			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
+		}()
+	}
+	am.updateAccountPeersBufferInterval.Store(initialInterval)
+	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
 
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
