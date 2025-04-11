@@ -28,7 +28,6 @@ func AddEndpoints(accountManager account.Manager, locationManager geolocation.Ge
 	router.HandleFunc("/policies/{policyId}", policiesHandler.updatePolicy).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/policies/{policyId}", policiesHandler.getPolicy).Methods("GET", "OPTIONS")
 	router.HandleFunc("/policies/{policyId}", policiesHandler.deletePolicy).Methods("DELETE", "OPTIONS")
-	addPostureCheckEndpoint(accountManager, locationManager, router)
 }
 
 // newHandler creates a new policies handler

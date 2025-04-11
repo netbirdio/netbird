@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -22,19 +23,21 @@ var (
 type geolocationsHandler struct {
 	accountManager     account.Manager
 	geolocationManager geolocation.Geolocation
+	permissionsManager permissions.Manager
 }
 
-func addLocationsEndpoint(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
-	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager)
+func AddLocationsEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, permissionsManager permissions.Manager, router *mux.Router) {
+	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager, permissionsManager)
 	router.HandleFunc("/locations/countries", locationHandler.getAllCountries).Methods("GET", "OPTIONS")
 	router.HandleFunc("/locations/countries/{country}/cities", locationHandler.getCitiesByCountry).Methods("GET", "OPTIONS")
 }
 
 // newGeolocationsHandlerHandler creates a new Geolocations handler
-func newGeolocationsHandlerHandler(accountManager account.Manager, geolocationManager geolocation.Geolocation) *geolocationsHandler {
+func newGeolocationsHandlerHandler(accountManager account.Manager, geolocationManager geolocation.Geolocation, permissionsManager permissions.Manager) *geolocationsHandler {
 	return &geolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,
+		permissionsManager: permissionsManager,
 	}
 }
 
@@ -98,15 +101,21 @@ func (l *geolocationsHandler) getCitiesByCountry(w http.ResponseWriter, r *http.
 }
 
 func (l *geolocationsHandler) authenticateUser(r *http.Request) error {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	ctx := r.Context()
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	_, userID := userAuth.AccountId, userAuth.UserId
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	user, err := l.accountManager.GetUserByID(r.Context(), userID)
+	user, err := l.accountManager.GetUserByID(ctx, userID)
 	if err != nil {
+		return err
+	}
+
+	if err := l.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
 		return err
 	}
 
