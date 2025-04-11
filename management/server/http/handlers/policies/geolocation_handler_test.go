@@ -19,6 +19,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
@@ -47,8 +49,8 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
 	permissionsManagerMock.
 		EXPECT().
-		ValidateAccountAccess(gomock.Any(), gomock.Any(), gomock.Any(), false).
-		Return(nil).
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), modules.Policies, operations.Read).
+		Return(true, nil).
 		AnyTimes()
 
 	return &geolocationsHandler{
