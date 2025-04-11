@@ -831,14 +831,15 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	}
 
 	accountUsers := []*types.User{}
-	if allowed {
+	switch {
+	case allowed:
 		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return nil, err
 		}
-	} else if user.AccountID == accountID {
+	case user.AccountID == accountID:
 		accountUsers = append(accountUsers, user)
-	} else {
+	default:
 		return map[string]*types.UserInfo{}, nil
 	}
 
