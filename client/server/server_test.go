@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -200,10 +201,10 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	permissionsManagerMock := permissions.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
 
 	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
 	if err != nil {

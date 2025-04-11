@@ -9,6 +9,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -44,7 +46,7 @@ func (m *managerImpl) GetExtraSettingsManager() extra_settings.Manager {
 
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
 	if userID != activity.SystemInitiator {
-		ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, permissions.Settings, permissions.Read)
+		ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
 		if err != nil {
 			return nil, status.NewPermissionValidationError(err)
 		}

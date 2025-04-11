@@ -432,8 +432,6 @@ func startManagementForTest(t *testing.T, testFile string, config *types.Config)
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	permissionsManagerMock := permissions.NewManagerMock()
-
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
@@ -443,8 +441,10 @@ func startManagementForTest(t *testing.T, testFile string, config *types.Config)
 		AnyTimes().
 		Return(&types.Settings{}, nil)
 
+	permissionsManager := permissions.NewManager(store)
+
 	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
+		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 
 	if err != nil {
 		cleanup()
