@@ -71,6 +71,10 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return peers, nil
 	}
 
+	return am.getUserAccessiblePeers(ctx, accountID, peersMap, peers)
+}
+
+func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, accountID string, peersMap map[string]*nbpeer.Peer, peers []*nbpeer.Peer) ([]*nbpeer.Peer, error) {
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -1122,13 +1126,10 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return peer, nil
 	}
 
-	// it is also possible that user doesn't own the peer but some of his peers have access to it,
-	// this is a valid case, show the peer as well.
-	userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, userID)
-	if err != nil {
-		return nil, err
-	}
+	return am.checkIfUserOwnsPeer(ctx, accountID, userID, peer)
+}
 
+func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -1139,16 +1140,23 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
+	// it is also possible that user doesn't own the peer but some of his peers have access to it,
+	// this is a valid case, show the peer as well.
+	userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, userID)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, p := range userPeers {
 		aclPeers, _ := account.GetPeerConnectionResources(ctx, p.ID, approvedPeersMap)
 		for _, aclPeer := range aclPeers {
-			if aclPeer.ID == peerID {
+			if aclPeer.ID == peer.ID {
 				return peer, nil
 			}
 		}
 	}
 
-	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
+	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peer.ID, accountID)
 }
 
 // UpdateAccountPeers updates all peers that belong to an account.
