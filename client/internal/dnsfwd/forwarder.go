@@ -91,11 +91,11 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 	if len(query.Question) == 0 {
 		return
 	}
-	log.Tracef("received DNS request for DNS forwarder: domain=%v type=%v class=%v",
-		query.Question[0].Name, query.Question[0].Qtype, query.Question[0].Qclass)
-
 	question := query.Question[0]
-	domain := question.Name
+	log.Tracef("received DNS request for DNS forwarder: domain=%v type=%v class=%v",
+		question.Name, question.Qtype, question.Qclass)
+
+	domain := strings.ToLower(question.Name)
 
 	resp := query.SetReply(query)
 	var network string
@@ -125,15 +125,11 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 	resId := f.getResIdForDomain(strings.TrimSuffix(domain, "."))
 	if resId != "" {
 		for _, ip := range ips {
-			var ipWithSuffix string
 			if ip.Is4() {
-				ipWithSuffix = ip.String() + "/32"
-				log.Tracef("resolved domain=%s to IPv4=%s", domain, ipWithSuffix)
+				f.statusRecorder.AddResolvedIPLookupEntry(netip.PrefixFrom(ip, 32), resId)
 			} else {
-				ipWithSuffix = ip.String() + "/128"
-				log.Tracef("resolved domain=%s to IPv6=%s", domain, ipWithSuffix)
+				f.statusRecorder.AddResolvedIPLookupEntry(netip.PrefixFrom(ip, 128), resId)
 			}
-			f.statusRecorder.AddResolvedIPLookupEntry(ipWithSuffix, resId)
 		}
 	}
 

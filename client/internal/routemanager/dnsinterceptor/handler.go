@@ -234,7 +234,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 			origPattern = writer.GetOrigPattern()
 		}
 
-		resolvedDomain := domain.Domain(r.Question[0].Name)
+		resolvedDomain := domain.Domain(strings.ToLower(r.Question[0].Name))
 
 		// already punycode via RegisterHandler()
 		originalDomain := domain.Domain(origPattern)
