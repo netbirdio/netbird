@@ -178,6 +178,7 @@ jobs:
           grep -A 10 'relay:' docker-compose.yml | egrep 'NB_AUTH_SECRET=.+$'
           grep -A 7 Relay management.json | grep "rel://$CI_NETBIRD_DOMAIN:33445"
           grep -A 7 Relay management.json | egrep '"Secret": ".+"'
+          grep DisablePromptLogin management.json | grep 'true'
 
       - name: Install modules
         run: go mod tidy
