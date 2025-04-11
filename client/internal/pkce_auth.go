@@ -39,6 +39,8 @@ type PKCEAuthProviderConfig struct {
 	UseIDToken bool
 	// ClientCertPair is used for mTLS authentication to the IDP
 	ClientCertPair *tls.Certificate
+	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
+	DisablePromptLogin bool
 }
 
 // GetPKCEAuthorizationFlowInfo initialize a PKCEAuthorizationFlow instance and return with it
