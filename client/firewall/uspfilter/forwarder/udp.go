@@ -149,11 +149,11 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 
 	flowID := uuid.New()
 
-	f.sendUDPEvent(nftypes.TypeStart, flowID, id, nil)
+	f.sendUDPEvent(nftypes.TypeStart, flowID, id, nil, 0, 0)
 	var success bool
 	defer func() {
 		if !success {
-			f.sendUDPEvent(nftypes.TypeEnd, flowID, id, nil)
+			f.sendUDPEvent(nftypes.TypeEnd, flowID, id, nil, 0, 0)
 		}
 	}()
 
@@ -199,7 +199,6 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
-
 		return
 	}
 	f.udpForwarder.conns[id] = pConn
@@ -212,49 +211,53 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 }
 
 func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack.TransportEndpointID, ep tcpip.Endpoint) {
-	defer func() {
-		pConn.cancel()
-		if err := pConn.conn.Close(); err != nil {
-			f.logger.Debug("forwarder: UDP inConn close error for %v: %v", epID(id), err)
-		}
-		if err := pConn.outConn.Close(); err != nil {
-			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
-		}
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-		ep.Close()
+	var txBytes, rxBytes int64
+	var outboundErr, inboundErr error
 
-		f.udpForwarder.Lock()
-		delete(f.udpForwarder.conns, id)
-		f.udpForwarder.Unlock()
-
-		f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id, ep)
-	}()
-
-	errChan := make(chan error, 2)
-
+	// outbound->inbound: copy from pConn.conn to pConn.outConn
 	go func() {
-		errChan <- pConn.copy(ctx, pConn.conn, pConn.outConn, &f.udpForwarder.bufPool, "outbound->inbound")
+		defer wg.Done()
+		txBytes, outboundErr = pConn.copy(ctx, pConn.conn, pConn.outConn, &f.udpForwarder.bufPool, "outbound->inbound")
 	}()
 
+	// inbound->outbound: copy from pConn.outConn to pConn.conn
 	go func() {
-		errChan <- pConn.copy(ctx, pConn.outConn, pConn.conn, &f.udpForwarder.bufPool, "inbound->outbound")
+		defer wg.Done()
+		rxBytes, inboundErr = pConn.copy(ctx, pConn.outConn, pConn.conn, &f.udpForwarder.bufPool, "inbound->outbound")
 	}()
 
-	select {
-	case <-ctx.Done():
-		f.logger.Trace("forwarder: tearing down UDP connection %v due to context done", epID(id))
-		return
-	case err := <-errChan:
-		if err != nil && !isClosedError(err) {
-			f.logger.Error("proxyUDP: copy error: %v", err)
-		}
-		f.logger.Trace("forwarder: tearing down UDP connection %v", epID(id))
-		return
+	wg.Wait()
+
+	if outboundErr != nil && !isClosedError(outboundErr) {
+		f.logger.Error("proxyUDP: copy error (outbound->inbound): %v", outboundErr)
 	}
+	if inboundErr != nil && !isClosedError(inboundErr) {
+		f.logger.Error("proxyUDP: copy error (inbound->outbound): %v", inboundErr)
+	}
+
+	f.logger.Trace("proxyUDP: bytes transferred for connection %v: inbound bytes: %d, outbound bytes: %d", epID(id), rxBytes, txBytes)
+
+	pConn.cancel()
+	if err := pConn.conn.Close(); err != nil {
+		f.logger.Debug("forwarder: UDP inConn close error for %v: %v", epID(id), err)
+	}
+	if err := pConn.outConn.Close(); err != nil {
+		f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
+	}
+	ep.Close()
+
+	f.udpForwarder.Lock()
+	delete(f.udpForwarder.conns, id)
+	f.udpForwarder.Unlock()
+
+	f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id, ep, uint64(rxBytes), uint64(txBytes))
 }
 
 // sendUDPEvent stores flow events for UDP connections
-func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint) {
+func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint, rxBytes, txBytes uint64) {
 	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
@@ -265,12 +268,13 @@ func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		DestIP:     netip.AddrFrom4(id.LocalAddress.As4()),
 		SourcePort: id.RemotePort,
 		DestPort:   id.LocalPort,
+		RxBytes:    rxBytes,
+		TxBytes:    txBytes,
 	}
 
 	if ep != nil {
 		if tcpStats, ok := ep.Stats().(*tcpip.TransportEndpointStats); ok {
 			// fields are flipped since this is the in conn
-			// TODO: get bytes
 			fields.RxPackets = tcpStats.PacketsSent.Value()
 			fields.TxPackets = tcpStats.PacketsReceived.Value()
 		}
@@ -288,18 +292,20 @@ func (c *udpPacketConn) getIdleDuration() time.Duration {
 	return time.Since(lastSeen)
 }
 
-func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bufPool *sync.Pool, direction string) error {
+// copy reads from src and writes to dst.
+func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bufPool *sync.Pool, direction string) (int64, error) {
 	bufp := bufPool.Get().(*[]byte)
 	defer bufPool.Put(bufp)
 	buffer := *bufp
+	var totalBytes int64 = 0
 
 	for {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return totalBytes, ctx.Err()
 		}
 
 		if err := src.SetDeadline(time.Now().Add(udpTimeout)); err != nil {
-			return fmt.Errorf("set read deadline: %w", err)
+			return totalBytes, fmt.Errorf("set read deadline: %w", err)
 		}
 
 		n, err := src.Read(buffer)
@@ -307,14 +313,15 @@ func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bu
 			if isTimeout(err) {
 				continue
 			}
-			return fmt.Errorf("read from %s: %w", direction, err)
+			return totalBytes, fmt.Errorf("read from %s: %w", direction, err)
 		}
 
-		_, err = dst.Write(buffer[:n])
+		nWritten, err := dst.Write(buffer[:n])
 		if err != nil {
-			return fmt.Errorf("write to %s: %w", direction, err)
+			return totalBytes, fmt.Errorf("write to %s: %w", direction, err)
 		}
 
+		totalBytes += int64(nWritten)
 		c.updateLastSeen()
 	}
 }
