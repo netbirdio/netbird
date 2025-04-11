@@ -110,7 +110,7 @@ add_apt_repo() {
     | ${SUDO} gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
 
     # Explicitly set the file permission
-    chmod 0644 /usr/share/keyrings/netbird-archive-keyring.gpg
+    ${SUDO} chmod 0644 /usr/share/keyrings/netbird-archive-keyring.gpg
 
     echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
     | ${SUDO} tee /etc/apt/sources.list.d/netbird.list
