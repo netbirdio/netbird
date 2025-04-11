@@ -12,6 +12,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -110,17 +112,13 @@ func (l *geolocationsHandler) authenticateUser(r *http.Request) error {
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	user, err := l.accountManager.GetUserByID(ctx, userID)
+	allowed, err := l.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
 
-	if err := l.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
-	}
-
-	if !user.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "user is not allowed to perform this action")
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 	return nil
 }
