@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
@@ -94,6 +97,9 @@ type DefaultAccountManager struct {
 	metrics telemetry.AppMetrics
 
 	permissionsManager permissions.Manager
+
+	accountUpdateLocks               sync.Map
+	updateAccountPeersBufferInterval atomic.Int64
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -188,6 +194,23 @@ func BuildManager(
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
 	}
+
+	var initialInterval int64
+	intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
+	interval, err := strconv.Atoi(intervalStr)
+	if err != nil {
+		initialInterval = 1
+	} else {
+		initialInterval = int64(interval) * 10
+		go func() {
+			time.Sleep(30 * time.Second)
+			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
+			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
+		}()
+	}
+	am.updateAccountPeersBufferInterval.Store(initialInterval)
+	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
+
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
 		log.WithContext(ctx).Error(err)
@@ -1224,7 +1247,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-			am.UpdateAccountPeers(ctx, userAuth.AccountId)
+			am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
 		}
 	}
 
@@ -1463,7 +1486,7 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	am.UpdateAccountPeers(ctx, accountID)
+	am.BufferUpdateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
