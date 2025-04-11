@@ -66,15 +66,13 @@ func NewAPIHandler(
 
 	corsMiddleware := cors.AllowAll()
 
-	acMiddleware := middleware.NewAccessControl(accountManager.GetUserFromUserAuth)
-
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()
 
 	prefix := apiPrefix
 	router := rootRouter.PathPrefix(prefix).Subrouter()
 
-	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
+	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
 
 	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController, settingsManager); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
