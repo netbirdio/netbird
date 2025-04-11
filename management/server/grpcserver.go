@@ -828,6 +828,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
 			RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
 			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
+			DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
 		},
 	}
 

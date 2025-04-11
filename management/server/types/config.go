@@ -154,6 +154,8 @@ type ProviderConfig struct {
 	UseIDToken bool
 	// RedirectURL handles authorization code from IDP manager
 	RedirectURLs []string
+	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
+	DisablePromptLogin bool
 }
 
 // StoreConfig contains Store configuration
