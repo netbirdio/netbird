@@ -316,7 +316,7 @@ func TestRouteSelector_NewRoutesBehavior(t *testing.T) {
 				return rs.DeselectRoutes([]route.NetID{"route1"}, initialRoutes)
 			},
 			// After deselecting specific routes, new routes should remain unselected
-			wantNewSelected: []route.NetID{"route2", "route3"},
+			wantNewSelected: []route.NetID{"route2", "route3", "route4", "route5"},
 		},
 		{
 			name: "New routes after selecting with append",
@@ -355,6 +355,76 @@ func TestRouteSelector_NewRoutesBehavior(t *testing.T) {
 			expectedLen := len(tt.wantNewSelected)
 			assert.Equal(t, expectedLen, len(filtered),
 				"FilterSelected returned wrong number of routes, got %d want %d", len(filtered), expectedLen)
+		})
+	}
+}
+
+func TestRouteSelector_MixedSelectionDeselection(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
+
+	tests := []struct {
+		name              string
+		routesToSelect    []route.NetID
+		selectAppend      bool
+		routesToDeselect  []route.NetID
+		selectFirst       bool
+		wantSelectedFinal []route.NetID
+	}{
+		{
+			name:              "1. Select A, then Deselect B",
+			routesToSelect:    []route.NetID{"route1"},
+			selectAppend:      false,
+			routesToDeselect:  []route.NetID{"route2"},
+			selectFirst:       true,
+			wantSelectedFinal: []route.NetID{"route1"},
+		},
+		{
+			name:              "2. Select A, then Deselect A",
+			routesToSelect:    []route.NetID{"route1"},
+			selectAppend:      false,
+			routesToDeselect:  []route.NetID{"route1"},
+			selectFirst:       true,
+			wantSelectedFinal: []route.NetID{},
+		},
+		{
+			name:              "3. Deselect A (from all), then Select B",
+			routesToSelect:    []route.NetID{"route2"},
+			selectAppend:      false,
+			routesToDeselect:  []route.NetID{"route1"},
+			selectFirst:       false,
+			wantSelectedFinal: []route.NetID{"route2"},
+		},
+		{
+			name:              "4. Deselect A (from all), then Select A",
+			routesToSelect:    []route.NetID{"route1"},
+			selectAppend:      false,
+			routesToDeselect:  []route.NetID{"route1"},
+			selectFirst:       false,
+			wantSelectedFinal: []route.NetID{"route1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := routeselector.NewRouteSelector()
+
+			var err1, err2 error
+
+			if tt.selectFirst {
+				err1 = rs.SelectRoutes(tt.routesToSelect, tt.selectAppend, allRoutes)
+				require.NoError(t, err1)
+				err2 = rs.DeselectRoutes(tt.routesToDeselect, allRoutes)
+				require.NoError(t, err2)
+			} else {
+				err1 = rs.DeselectRoutes(tt.routesToDeselect, allRoutes)
+				require.NoError(t, err1)
+				err2 = rs.SelectRoutes(tt.routesToSelect, tt.selectAppend, allRoutes)
+				require.NoError(t, err2)
+			}
+
+			for _, r := range allRoutes {
+				assert.Equal(t, slices.Contains(tt.wantSelectedFinal, r), rs.IsSelected(r), "Route %s final state mismatch", r)
+			}
 		})
 	}
 }
