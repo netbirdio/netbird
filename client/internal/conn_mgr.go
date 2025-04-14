@@ -92,7 +92,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	}
 
 	if !lazyconn.IsSupported(conn.AgentVersionString()) {
-		conn.Log.Infof("peer does not support lazy connection, open permanent connection")
+		conn.Log.Warnf("peer does not support lazy connection (%s), open permanent connection", conn.AgentVersionString())
 		if err := conn.Open(e.ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
