@@ -21,14 +21,13 @@ type postureChecksHandler struct {
 	geolocationManager geolocation.Geolocation
 }
 
-func addPostureCheckEndpoint(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
+func AddPostureCheckEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
 	postureCheckHandler := newPostureChecksHandler(accountManager, locationManager)
 	router.HandleFunc("/posture-checks", postureCheckHandler.getAllPostureChecks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/posture-checks", postureCheckHandler.createPostureCheck).Methods("POST", "OPTIONS")
 	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.updatePostureCheck).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.getPostureCheck).Methods("GET", "OPTIONS")
 	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.deletePostureCheck).Methods("DELETE", "OPTIONS")
-	addLocationsEndpoint(accountManager, locationManager, router)
 }
 
 // newPostureChecksHandler creates a new PostureChecks handler
