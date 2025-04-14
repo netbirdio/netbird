@@ -16,11 +16,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 )
 
-const (
-	envEnableLazyConn      = "NB_ENABLE_EXPERIMENTAL_LAZY_CONN"
-	envInactivityThreshold = "NB_LAZY_CONN_INACTIVITY_THRESHOLD"
-)
-
 // ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
 //
 // The connection manager is responsible for:
@@ -41,7 +36,7 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 	e := &ConnMgr{
 		peerStore: peerStore,
 	}
-	if engineConfig.LazyConnectionEnabled || os.Getenv(envEnableLazyConn) == "true" {
+	if engineConfig.LazyConnectionEnabled || os.Getenv(lazyconn.EnvEnableLazyConn) == "true" {
 		cfg := manager.Config{
 			InactivityThreshold: inactivityThresholdEnv(),
 		}
@@ -200,7 +195,7 @@ func (e *ConnMgr) isStartedWithLazyMgr() bool {
 }
 
 func inactivityThresholdEnv() *time.Duration {
-	envValue := os.Getenv(envInactivityThreshold)
+	envValue := os.Getenv(lazyconn.EnvInactivityThreshold)
 	if envValue == "" {
 		return nil
 	}
