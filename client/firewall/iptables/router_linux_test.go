@@ -14,6 +14,8 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
+	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -355,15 +357,15 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 				SPort:       tt.sPort,
 				DPort:       tt.dPort,
 				Action:      tt.action,
-				SetName:     "",
+				SourceSet:   "",
 			}
 
-			expectedRule := genRouteFilteringRuleSpec(params)
+			expectedRule := genRouteFilteringRuleSpec(params, nil)
 
 			if tt.expectSet {
-				setName := firewall.GenerateSetName(tt.sources)
-				params.SetName = setName
-				expectedRule = genRouteFilteringRuleSpec(params)
+				setName := firewall.NewPrefixSet(tt.sources).HashedName()
+				params.SourceSet = setName
+				expectedRule = genRouteFilteringRuleSpec(params, nil)
 
 				// Check if the set was created
 				_, exists := r.ipsetCounter.Get(setName)
@@ -375,6 +377,65 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			// Clean up
 			err = r.DeleteRouteRule(ruleKey)
 			require.NoError(t, err, "Failed to delete rule")
+		})
+	}
+}
+
+func TestFindSetNameInRule(t *testing.T) {
+	r := &router{}
+
+	testCases := []struct {
+		name     string
+		rule     []string
+		expected []string
+	}{
+		{
+			name: "Basic rule with two sets",
+			rule: []string{
+				"-A", "NETBIRD-RT-FWD-IN", "-p", "tcp", "-m", "set", "--match-set", "nb-2e5a2a05", "src",
+				"-m", "set", "--match-set", "nb-349ae051", "dst", "-m", "tcp", "--dport", "8080", "-j", "ACCEPT",
+			},
+			expected: []string{"nb-2e5a2a05", "nb-349ae051"},
+		},
+		{
+			name:     "No sets",
+			rule:     []string{"-A", "NETBIRD-RT-FWD-IN", "-p", "tcp", "-j", "ACCEPT"},
+			expected: []string{},
+		},
+		{
+			name: "Multiple sets with different positions",
+			rule: []string{
+				"-m", "set", "--match-set", "set1", "src", "-p", "tcp",
+				"-m", "set", "--match-set", "set-abc123", "dst", "-j", "ACCEPT",
+			},
+			expected: []string{"set1", "set-abc123"},
+		},
+		{
+			name:     "Boundary case - sequence appears at end",
+			rule:     []string{"-p", "tcp", "-m", "set", "--match-set", "final-set"},
+			expected: []string{"final-set"},
+		},
+		{
+			name:     "Incomplete pattern - missing set name",
+			rule:     []string{"-p", "tcp", "-m", "set", "--match-set"},
+			expected: []string{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := r.findSets(tc.rule)
+
+			if len(result) != len(tc.expected) {
+				t.Errorf("Expected %d sets, got %d. Sets found: %v", len(tc.expected), len(result), result)
+				return
+			}
+
+			for i, set := range result {
+				if set != tc.expected[i] {
+					t.Errorf("Expected set %q at position %d, got %q", tc.expected[i], i, set)
+				}
+			}
 		})
 	}
 }

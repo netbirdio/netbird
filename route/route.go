@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -163,20 +161,22 @@ func (r *Route) IsDynamic() bool {
 }
 
 func (r *Route) GetHAUniqueID() HAUniqueID {
-	if r.IsDynamic() {
-		domains, err := r.Domains.String()
-		if err != nil {
-			log.Errorf("Failed to convert domains to string: %v", err)
-			domains = r.Domains.PunycodeString()
-		}
-		return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, domains))
-	}
-	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.Network.String()))
+	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.NetString()))
 }
 
 // GetResourceID returns the Networks Resource ID from a route ID
 func (r *Route) GetResourceID() string {
 	return strings.Split(string(r.ID), ":")[0]
+}
+
+// NetString returns the network string.
+// If the route is dynamic, it returns the domains as comma-separated punycode-encoded string.
+// If the route is not dynamic, it returns the network (prefix) string.
+func (r *Route) NetString() string {
+	if r.IsDynamic() {
+		return r.Domains.SafeString()
+	}
+	return r.Network.String()
 }
 
 // ParseNetwork Parses a network prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6

@@ -259,8 +259,6 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 		}
 	}
 
-	m.ctx = nil
-
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	m.clientRoutes = nil

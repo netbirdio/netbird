@@ -111,6 +111,5 @@ func GetParsedDomainLabel(name string) (string, error) {
 
 // NormalizeZone returns a normalized domain name without the wildcard prefix
 func NormalizeZone(domain string) string {
-	d, _ := strings.CutPrefix(domain, "*.")
-	return d
+	return strings.TrimPrefix(domain, "*.")
 }

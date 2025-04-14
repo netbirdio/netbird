@@ -79,14 +79,14 @@ func TestGetResIdForDomain(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			fwd := &DNSForwarder{
-				resId: sync.Map{},
+				fwdEntries: sync.Map{},
 			}
 
 			for domainPattern, resId := range tc.storedMappings {
-				fwd.resId.Store(domainPattern, resId)
+				fwd.fwdEntries.Store(domainPattern, resId)
 			}
 
-			got := fwd.getResIdForDomain(tc.queryDomain)
+			got := fwd.getMatchingEntries(tc.queryDomain)
 			if got != tc.expectedResId {
 				t.Errorf("For query domain %q, expected resId %q, but got %q", tc.queryDomain, tc.expectedResId, got)
 			}

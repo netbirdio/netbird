@@ -18,6 +18,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
@@ -185,7 +186,7 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) err
 		id, err := d.applyRouteACL(rule)
 		if err != nil {
 			if errors.Is(err, ErrSourceRangesEmpty) {
-				log.Debugf("skipping empty rule with destination %s: %v", rule.Destination, err)
+				log.Debugf("skipping empty sources rule with destination %s: %v", rule.Destination, err)
 			} else {
 				merr = multierror.Append(merr, fmt.Errorf("add route rule: %w", err))
 			}
@@ -222,15 +223,15 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 		sources = append(sources, source)
 	}
 
-	var destination netip.Prefix
+	var destination firewall.Network
 	if rule.IsDynamic {
-		destination = getDefault(sources[0])
+		destination.SetHash = firewall.NewDomainSet(domain.FromPunycodeList(rule.Domains))
 	} else {
-		var err error
-		destination, err = netip.ParsePrefix(rule.Destination)
+		prefix, err := netip.ParsePrefix(rule.Destination)
 		if err != nil {
 			return "", fmt.Errorf("parse destination: %w", err)
 		}
+		destination.Prefix = prefix
 	}
 
 	protocol, err := convertToFirewallProtocol(rule.Protocol)

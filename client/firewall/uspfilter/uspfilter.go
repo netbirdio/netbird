@@ -224,7 +224,7 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) error {
 	if _, err := m.AddRouteFiltering(
 		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
-		wgPrefix,
+		firewall.Network{Prefix: wgPrefix},
 		firewall.ProtocolALL,
 		nil,
 		nil,
@@ -413,10 +413,9 @@ func (m *Manager) AddPeerFiltering(
 func (m *Manager) AddRouteFiltering(
 	id []byte,
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination firewall.Network,
 	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
+	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
@@ -426,10 +425,11 @@ func (m *Manager) AddRouteFiltering(
 	ruleID := uuid.New().String()
 	rule := RouteRule{
 		// TODO: consolidate these IDs
-		id:          ruleID,
-		mgmtId:      id,
-		sources:     sources,
-		destination: destination,
+		id:      ruleID,
+		mgmtId:  id,
+		sources: sources,
+		// TODO: Fixme!
+		destination: destination.Prefix,
 		proto:       proto,
 		srcPort:     sPort,
 		dstPort:     dPort,
@@ -507,6 +507,19 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 		return errNatNotSupported
 	}
 	return m.nativeFirewall.DeleteDNATRule(rule)
+}
+
+// UpdateSet updates the set with the given prefixes
+func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	if m.nativeRouter.Load() && m.nativeFirewall != nil {
+		return m.nativeFirewall.UpdateSet(set, prefixes)
+	}
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// TODO: fixme
+	return nil
 }
 
 // DropOutgoing filter outgoing packets

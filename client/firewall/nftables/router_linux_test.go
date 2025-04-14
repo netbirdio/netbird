@@ -88,8 +88,8 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				}
 
 				// Build CIDR matching expressions
-				sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
-				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
+				sourceExp, _ := applyNetwork(testCase.InputPair.Source, true)
+				destExp, _ := applyNetwork(testCase.InputPair.Destination, false)
 
 				// Combine all expressions in the correct order
 				// nolint:gocritic
@@ -441,7 +441,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			setName := firewall.GenerateSetName(tt.sources)
+			setName := firewall.NewPrefixSet(tt.sources).HashedName()
 			set, err := r.createIpSet(setName, tt.sources)
 			if err != nil {
 				t.Logf("Failed to create IP set: %v", err)

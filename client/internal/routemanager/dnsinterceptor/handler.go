@@ -328,6 +328,10 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 
 	// Update domain prefixes using resolved domain as key
 	if len(toAdd) > 0 || len(toRemove) > 0 {
+		if d.route.KeepRoute {
+			// replace stored prefixes with old + added
+			newPrefixes = append(oldPrefixes, toAdd...)
+		}
 		d.interceptedDomains[resolvedDomain] = newPrefixes
 		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
 		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes, d.route.GetResourceID())
@@ -338,7 +342,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 				originalDomain.SafeString(),
 				toAdd)
 		}
-		if len(toRemove) > 0 {
+		if len(toRemove) > 0 && !d.route.KeepRoute {
 			log.Debugf("removed dynamic route(s) for domain=%s (pattern: domain=%s): %s",
 				resolvedDomain.SafeString(),
 				originalDomain.SafeString(),
