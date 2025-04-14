@@ -28,6 +28,16 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		return nil, err
 	}
 
+	// Get the base TLS config
+	tlsClientConfig := quictls.ClientQUICTLSConfig()
+
+	// Set ServerName to hostname if not an IP address
+	host, _, splitErr := net.SplitHostPort(quicURL)
+	if splitErr == nil && net.ParseIP(host) == nil {
+		// It's a hostname, not an IP - modify directly
+		tlsClientConfig.ServerName = host
+	}
+
 	quicConfig := &quic.Config{
 		KeepAlivePeriod:   30 * time.Second,
 		MaxIdleTimeout:    4 * time.Minute,
@@ -47,7 +57,7 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	session, err := quic.Dial(ctx, udpConn, udpAddr, quictls.ClientQUICTLSConfig(), quicConfig)
+	session, err := quic.Dial(ctx, udpConn, udpAddr, tlsClientConfig, quicConfig)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil, err
