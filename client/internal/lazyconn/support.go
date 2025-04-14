@@ -24,7 +24,7 @@ func IsSupported(agentVersion string) bool {
 		return true
 	}
 
-	// filter out like this: a6c5960, a7d5c522, d47be154
+	// filter out versions like this: a6c5960, a7d5c522, d47be154
 	if !strings.Contains(agentVersion, ".") {
 		return false
 	}

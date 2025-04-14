@@ -96,6 +96,14 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 		return
 	}
 
+	if !lazyconn.IsSupported(conn.AgentVersionString()) {
+		conn.Log.Infof("peer does not support lazy connection, open permanent connection")
+		if err := conn.Open(e.ctx); err != nil {
+			conn.Log.Errorf("failed to open connection: %v", err)
+		}
+		return
+	}
+
 	lazyPeerCfg := lazyconn.PeerConfig{
 		PublicKey:  peerKey,
 		AllowedIPs: conn.WgConfig().AllowedIps,
@@ -123,6 +131,24 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	return
 }
 
+func (e *ConnMgr) RemovePeerConn(peerKey string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	conn, ok := e.peerStore.Remove(peerKey)
+	if !ok {
+		return
+	}
+	defer conn.Close()
+
+	if !e.isStartedWithLazyMgr() {
+		return
+	}
+
+	e.lazyConnMgr.RemovePeer(peerKey)
+	conn.Log.Infof("removed peer from lazy conn manager")
+}
+
 func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -143,24 +169,6 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 		}
 	}
 	return conn, true
-}
-
-func (e *ConnMgr) RemovePeerConn(peerKey string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	conn, ok := e.peerStore.Remove(peerKey)
-	if !ok {
-		return
-	}
-	defer conn.Close()
-
-	if !e.isStartedWithLazyMgr() {
-		return
-	}
-
-	e.lazyConnMgr.RemovePeer(peerKey)
-	conn.Log.Infof("removed peer from lazy conn manager")
 }
 
 func (e *ConnMgr) Close() {
