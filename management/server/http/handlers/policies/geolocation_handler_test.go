@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
@@ -17,6 +18,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
@@ -41,6 +45,14 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	assert.NoError(t, err)
 	t.Cleanup(func() { _ = geo.Stop() })
 
+	ctrl := gomock.NewController(t)
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	permissionsManagerMock.
+		EXPECT().
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), modules.Policies, operations.Read).
+		Return(true, nil).
+		AnyTimes()
+
 	return &geolocationsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
@@ -48,6 +60,7 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 			},
 		},
 		geolocationManager: geo,
+		permissionsManager: permissionsManagerMock,
 	}
 }
 
