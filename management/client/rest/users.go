@@ -84,7 +84,7 @@ func (a *UsersAPI) ResendInvitation(ctx context.Context, userID string) error {
 // Current gets the current user info
 // See more: https://docs.netbird.io/api/resources/users#retrieve-current-user
 func (a *UsersAPI) Current(ctx context.Context) (*api.User, error) {
-	resp, err := a.c.newRequest(ctx, "POST", "/api/users/current", nil)
+	resp, err := a.c.newRequest(ctx, "GET", "/api/users/current", nil)
 	if err != nil {
 		return nil, err
 	}
