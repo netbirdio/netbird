@@ -71,12 +71,29 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 }
 
 func prepareURL(address string) (string, error) {
-	if !strings.HasPrefix(address, "rel://") && !strings.HasPrefix(address, "rels://") {
+	var host string
+	var defaultPort string
+
+	switch {
+	case strings.HasPrefix(address, "rels://"):
+		host = address[7:]
+		defaultPort = "443"
+	case strings.HasPrefix(address, "rel://"):
+		host = address[6:]
+		defaultPort = "80"
+	default:
 		return "", fmt.Errorf("unsupported scheme: %s", address)
 	}
 
-	if strings.HasPrefix(address, "rels://") {
-		return address[7:], nil
+	finalHost, finalPort, err := net.SplitHostPort(host)
+	if err != nil {
+		if strings.Contains(err.Error(), "missing port") {
+			return host + ":" + defaultPort, nil
+		}
+
+		// return any other split error as is
+		return "", err
 	}
-	return address[6:], nil
+
+	return finalHost + ":" + finalPort, nil
 }
