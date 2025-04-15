@@ -212,15 +212,15 @@ func (f *DNSForwarder) getResIdForDomain(domain string) string {
 		var score int
 		pattern := key.(string)
 
-		// for wildcard matches, use the length of the base domain as the score
-		if strings.HasPrefix(pattern, "*.") {
+		switch {
+		case strings.HasPrefix(pattern, "*."):
 			baseDomain := strings.TrimPrefix(pattern, "*.")
 			if domain == baseDomain || strings.HasSuffix(domain, "."+baseDomain) {
 				score = len(baseDomain)
 			}
-		} else if domain == pattern {
-			score = math.MaxInt // exact match
-		} else {
+		case domain == pattern:
+			score = math.MaxInt
+		default:
 			return true
 		}
 
