@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -114,5 +115,5 @@ type Manager interface {
 	CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
-	GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error)
+	GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error)
 }

@@ -31,7 +31,10 @@ var (
 		LastLogin:     &time.Time{},
 		Name:          "M. Essam",
 		Permissions: &api.UserPermissions{
-			DashboardView: ptr(api.UserPermissionsDashboardViewFull),
+			AutoAllowNew: map[string]bool{
+				"read":  true,
+				"write": true,
+			},
 		},
 		Role:   "user",
 		Status: api.UserStatusActive,
