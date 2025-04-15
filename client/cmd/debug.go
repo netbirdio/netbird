@@ -11,9 +11,12 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/debug"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
 const errCloseConnection = "Failed to close connection: %v"
@@ -325,4 +328,35 @@ func formatDuration(d time.Duration) string {
 	d %= time.Minute
 	s := d / time.Second
 	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+}
+
+func generateDebugBundle(config *internal.Config, recorder *peer.Status, connectClient *internal.ConnectClient, logFilePath string) {
+	var networkMap *mgmProto.NetworkMap
+	var err error
+
+	if connectClient != nil {
+		networkMap, err = connectClient.GetLatestNetworkMap()
+		if err != nil {
+			log.Warnf("Failed to get latest network map: %v", err)
+		}
+	}
+
+	bundleGenerator := debug.NewBundleGenerator(
+		debug.GeneratorDependencies{
+			InternalConfig: config,
+			StatusRecorder: recorder,
+			NetworkMap:     networkMap,
+			LogFile:        logFilePath,
+		},
+		debug.BundleConfig{
+			IncludeSystemInfo: true,
+		},
+	)
+
+	path, err := bundleGenerator.Generate()
+	if err != nil {
+		log.Errorf("Failed to generate debug bundle: %v", err)
+		return
+	}
+	log.Infof("Generated debug bundle from SIGUSR1 at: %s", path)
 }

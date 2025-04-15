@@ -102,23 +102,10 @@ func (s *Server) SetNetworkMapPersistence(_ context.Context, req *proto.SetNetwo
 
 // getLatestNetworkMap returns the latest network map from the engine if network map persistence is enabled
 func (s *Server) getLatestNetworkMap() (*mgmProto.NetworkMap, error) {
-	if s.connectClient == nil {
+	cClient := s.connectClient
+	if cClient == nil {
 		return nil, errors.New("connect client is not initialized")
 	}
 
-	engine := s.connectClient.Engine()
-	if engine == nil {
-		return nil, errors.New("engine is not initialized")
-	}
-
-	networkMap, err := engine.GetLatestNetworkMap()
-	if err != nil {
-		return nil, fmt.Errorf("get latest network map: %w", err)
-	}
-
-	if networkMap == nil {
-		return nil, errors.New("network map is not available")
-	}
-
-	return networkMap, nil
+	return cClient.GetLatestNetworkMap()
 }

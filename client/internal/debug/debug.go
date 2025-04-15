@@ -311,6 +311,11 @@ func (g *BundleGenerator) addStatus() error {
 }
 
 func (g *BundleGenerator) addConfig() error {
+	if g.internalConfig == nil {
+		log.Debug("skipping empty config in debug bundle")
+		return nil
+	}
+
 	var configContent strings.Builder
 	g.addCommonConfigFields(&configContent)
 
@@ -533,6 +538,11 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 }
 
 func (g *BundleGenerator) addLogfile() error {
+	if g.logFile == "" {
+		log.Debugf("skipping empty log file in debug bundle")
+		return nil
+	}
+
 	logDir := filepath.Dir(g.logFile)
 
 	if err := g.addSingleLogfile(g.logFile, clientLogFile); err != nil {
