@@ -458,6 +458,6 @@ func newBufferHolder(size int) *bufferHolder {
 
 func getLogger() logging.LeveledLogger {
 	fac := logging.NewDefaultLoggerFactory()
-	fac.Writer = log.StandardLogger().Writer()
+	//fac.Writer = log.StandardLogger().Writer()
 	return fac.NewLogger("ice")
 }
