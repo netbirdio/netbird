@@ -185,7 +185,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 
 func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleRequest) error {
 	archive := zip.NewWriter(bundlePath)
-	if err := s.addReadme(req, archive); err != nil {
+	if err := s.addReadme(archive); err != nil {
 		return fmt.Errorf("add readme: %w", err)
 	}
 
@@ -247,7 +247,7 @@ func (s *Server) addSystemInfo(req *proto.DebugBundleRequest, anonymizer *anonym
 	}
 }
 
-func (s *Server) addReadme(req *proto.DebugBundleRequest, archive *zip.Writer) error {
+func (s *Server) addReadme(archive *zip.Writer) error {
 	readmeReader := strings.NewReader(readmeContent)
 	if err := addFileToZip(archive, readmeReader, "README.txt"); err != nil {
 		return fmt.Errorf("add README file to zip: %w", err)
