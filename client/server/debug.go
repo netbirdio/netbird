@@ -52,6 +52,8 @@ mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
 block.prof: Block profiling information.
 heap.prof: Heap profiling information (snapshot of memory allocations).
+allocs.prof: Allocations profiling information.
+threadcreate.prof: Thread creation profiling information.
 
 
 Anonymization Process
@@ -205,8 +207,8 @@ func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleReques
 		s.addSystemInfo(req, anonymizer, archive)
 	}
 
-	if err := s.addProf(req, anonymizer, archive); err != nil {
-		log.Errorf("Failed to add goroutines rules to debug bundle: %v", err)
+	if err := s.addProf(archive); err != nil {
+		log.Errorf("Failed to add profiles to debug bundle: %v", err)
 	}
 
 	if err := s.addNetworkMap(req, anonymizer, archive); err != nil {
@@ -329,7 +331,13 @@ func (s *Server) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", s.config.BlockLANAccess))
 }
 
-func (s *Server) addProf(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+func (s *Server) addProf(archive *zip.Writer) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic while profiling: %v", r)
+		}
+	}()
+
 	runtime.SetBlockProfileRate(1)
 	_ = runtime.SetMutexProfileFraction(1)
 	defer runtime.SetBlockProfileRate(0)
@@ -337,7 +345,7 @@ func (s *Server) addProf(req *proto.DebugBundleRequest, anonymizer *anonymize.An
 
 	time.Sleep(5 * time.Second)
 
-	for _, profile := range []string{"goroutine", "block", "mutex", "heap"} {
+	for _, profile := range []string{"goroutine", "block", "mutex", "heap", "allocs", "threadcreate"} {
 		var buff []byte
 		myBuff := bytes.NewBuffer(buff)
 		err := pprof.Lookup(profile).WriteTo(myBuff, 0)
