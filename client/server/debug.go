@@ -34,7 +34,8 @@ import (
 )
 
 const readmeContent = `Netbird debug bundle
-This debug bundle contains the following files:
+This debug bundle contains the following files.
+If the --anonymize flag is set, the files are anonymized to protect sensitive information.
 
 status.txt: Anonymized status information of the NetBird client.
 client.log: Most recent, anonymized client log file of the NetBird client.
@@ -247,11 +248,9 @@ func (s *Server) addSystemInfo(req *proto.DebugBundleRequest, anonymizer *anonym
 }
 
 func (s *Server) addReadme(req *proto.DebugBundleRequest, archive *zip.Writer) error {
-	if req.GetAnonymize() {
-		readmeReader := strings.NewReader(readmeContent)
-		if err := addFileToZip(archive, readmeReader, "README.txt"); err != nil {
-			return fmt.Errorf("add README file to zip: %w", err)
-		}
+	readmeReader := strings.NewReader(readmeContent)
+	if err := addFileToZip(archive, readmeReader, "README.txt"); err != nil {
+		return fmt.Errorf("add README file to zip: %w", err)
 	}
 	return nil
 }
