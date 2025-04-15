@@ -230,7 +230,7 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
-	// NetworkTrafficLogsEnabled Enables or disables network traffic logs. If enabled, all network traffic logs from peers will be stored.
+	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
 	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
 
 	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
@@ -852,23 +852,16 @@ type NetworkTrafficEvent struct {
 	// Direction Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS).
 	Direction string `json:"direction"`
 
+	// Events List of events that are correlated to this flow (e.g., start, end).
+	Events []NetworkTrafficSubEvent `json:"events"`
+
 	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
-	FlowId string `json:"flow_id"`
-
-	// IcmpCode ICMP code (if applicable).
-	IcmpCode int `json:"icmp_code"`
-
-	// IcmpType ICMP type (if applicable).
-	IcmpType int `json:"icmp_type"`
+	FlowId string             `json:"flow_id"`
+	Icmp   NetworkTrafficICMP `json:"icmp"`
 
 	// Id ID of the event. Unique.
-	Id string `json:"id"`
-
-	// PolicyId ID of the policy that allowed this event.
-	PolicyId string `json:"policy_id"`
-
-	// PolicyName Name of the policy that allowed this event.
-	PolicyName string `json:"policy_name"`
+	Id     string               `json:"id"`
+	Policy NetworkTrafficPolicy `json:"policy"`
 
 	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
 	Protocol int `json:"protocol"`
@@ -886,26 +879,21 @@ type NetworkTrafficEvent struct {
 	RxPackets int                    `json:"rx_packets"`
 	Source    NetworkTrafficEndpoint `json:"source"`
 
-	// Timestamp Timestamp of the event. Send by the peer.
-	Timestamp time.Time `json:"timestamp"`
-
 	// TxBytes Number of bytes transmitted.
 	TxBytes int `json:"tx_bytes"`
 
 	// TxPackets Number of packets transmitted.
-	TxPackets int `json:"tx_packets"`
+	TxPackets int                `json:"tx_packets"`
+	User      NetworkTrafficUser `json:"user"`
+}
 
-	// Type Type of the event (e.g. TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
-	Type string `json:"type"`
+// NetworkTrafficICMP defines model for NetworkTrafficICMP.
+type NetworkTrafficICMP struct {
+	// Code ICMP code (if applicable).
+	Code int `json:"code"`
 
-	// UserEmail Email of the user who initiated the event (if any).
-	UserEmail *string `json:"user_email"`
-
-	// UserId UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
-	UserId *string `json:"user_id"`
-
-	// UserName Name of the user who initiated the event (if any).
-	UserName *string `json:"user_name"`
+	// Type ICMP type (if applicable).
+	Type int `json:"type"`
 }
 
 // NetworkTrafficLocation defines model for NetworkTrafficLocation.
@@ -915,6 +903,36 @@ type NetworkTrafficLocation struct {
 
 	// CountryCode ISO country code (if known).
 	CountryCode string `json:"country_code"`
+}
+
+// NetworkTrafficPolicy defines model for NetworkTrafficPolicy.
+type NetworkTrafficPolicy struct {
+	// Id ID of the policy that allowed this event.
+	Id string `json:"id"`
+
+	// Name Name of the policy that allowed this event.
+	Name string `json:"name"`
+}
+
+// NetworkTrafficSubEvent defines model for NetworkTrafficSubEvent.
+type NetworkTrafficSubEvent struct {
+	// Timestamp Timestamp of the event as sent by the peer.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Type Type of the event (e.g., TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
+	Type string `json:"type"`
+}
+
+// NetworkTrafficUser defines model for NetworkTrafficUser.
+type NetworkTrafficUser struct {
+	// Email Email of the user who initiated the event (if any).
+	Email *string `json:"email"`
+
+	// Id UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
+	Id *string `json:"id"`
+
+	// Name Name of the user who initiated the event (if any).
+	Name *string `json:"name"`
 }
 
 // OSVersionCheck Posture check for the version of operating system
