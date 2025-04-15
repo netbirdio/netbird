@@ -196,8 +196,42 @@ func TestUsers_ResendInvitation_Err(t *testing.T) {
 	})
 }
 
+func TestUsers_Current_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/users/current", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(testUser)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Users.Current(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, testUser, *ret)
+	})
+}
+
+func TestUsers_Current_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/users/current", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "No", Code: 400})
+			w.WriteHeader(400)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, err := c.Users.Current(context.Background())
+		assert.Error(t, err)
+		assert.Equal(t, "No", err.Error())
+		assert.Empty(t, ret)
+	})
+}
+
 func TestUsers_Integration(t *testing.T) {
 	withBlackBoxServer(t, func(c *rest.Client) {
+		// rest client PAT is owner's
+		current, err := c.Users.Current(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, "a23efe53-63fb-11ec-90d6-0242ac120003", current.Id)
+		assert.Equal(t, "owner", current.Role)
+
 		user, err := c.Users.Create(context.Background(), api.UserCreateRequest{
 			AutoGroups:    []string{},
 			Email:         ptr("test@example.com"),
