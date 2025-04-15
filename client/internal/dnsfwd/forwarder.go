@@ -3,6 +3,7 @@ package dnsfwd
 import (
 	"context"
 	"errors"
+	"math"
 	"net"
 	"net/netip"
 	"strings"
@@ -62,7 +63,6 @@ func (f *DNSForwarder) UpdateDomains(domains []string, resIds map[string]string)
 
 	for _, d := range f.domains {
 		f.mux.HandleRemove(d)
-		f.statusRecorder.RemoveResolvedIPLookupEntry(d)
 	}
 	f.resId.Clear()
 
@@ -122,8 +122,8 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 		return
 	}
 
-	resId, ok := f.resId.Load(strings.TrimSuffix(domain, "."))
-	if ok {
+	resId := f.getResIdForDomain(strings.TrimSuffix(domain, "."))
+	if resId != "" {
 		for _, ip := range ips {
 			var ipWithSuffix string
 			if ip.Is4() {
@@ -133,7 +133,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 				ipWithSuffix = ip.String() + "/128"
 				log.Tracef("resolved domain=%s to IPv6=%s", domain, ipWithSuffix)
 			}
-			f.statusRecorder.AddResolvedIPLookupEntry(ipWithSuffix, resId.(string))
+			f.statusRecorder.AddResolvedIPLookupEntry(ipWithSuffix, resId)
 		}
 	}
 
@@ -202,6 +202,36 @@ func (f *DNSForwarder) addIPsToResponse(resp *dns.Msg, domain string, ips []neti
 		}
 		resp.Answer = append(resp.Answer, respRecord)
 	}
+}
+
+func (f *DNSForwarder) getResIdForDomain(domain string) string {
+	var selectedResId string
+	var bestScore int
+
+	f.resId.Range(func(key, value interface{}) bool {
+		var score int
+		pattern := key.(string)
+
+		switch {
+		case strings.HasPrefix(pattern, "*."):
+			baseDomain := strings.TrimPrefix(pattern, "*.")
+			if domain == baseDomain || strings.HasSuffix(domain, "."+baseDomain) {
+				score = len(baseDomain)
+			}
+		case domain == pattern:
+			score = math.MaxInt
+		default:
+			return true
+		}
+
+		if score > bestScore {
+			bestScore = score
+			selectedResId = value.(string)
+		}
+		return true
+	})
+
+	return selectedResId
 }
 
 // filterDomains returns a list of normalized domains
