@@ -106,7 +106,7 @@ func waitForEvent(
 		case windows.WAIT_OBJECT_0:
 			log.Info("Received signal on debug event. Triggering debug bundle generation.")
 
-			// reset the event so it can be triggered again later (manual reset = 1)
+			// reset the event so it can be triggered again later (manual reset == 1)
 			if err := windows.ResetEvent(eventHandle); err != nil {
 				log.Errorf("Failed to reset debug event '%s': %v", debugTriggerEventName, err)
 			}
