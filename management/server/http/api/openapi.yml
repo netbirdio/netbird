@@ -1949,10 +1949,6 @@ components:
     NetworkTrafficEvent:
       type: object
       properties:
-        id:
-          type: string
-          description: "ID of the event. Unique."
-          example: "18e204d6-f7c6-405d-8025-70becb216add"
         flow_id:
           type: string
           description: "FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection)."
@@ -1961,11 +1957,6 @@ components:
           type: string
           description: "ID of the reporter of the event (e.g., the peer that reported the event)."
           example: "ch8i4ug6lnn4g9hqv7m0"
-        receive_timestamp:
-          type: string
-          format: date-time
-          description: "Timestamp when the event was received by our API."
-          example: "2025-03-20T16:23:58.125397Z"
         source:
           $ref: '#/components/schemas/NetworkTrafficEndpoint'
         destination:

@@ -856,18 +856,12 @@ type NetworkTrafficEvent struct {
 	Events []NetworkTrafficSubEvent `json:"events"`
 
 	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
-	FlowId string             `json:"flow_id"`
-	Icmp   NetworkTrafficICMP `json:"icmp"`
-
-	// Id ID of the event. Unique.
-	Id     string               `json:"id"`
+	FlowId string               `json:"flow_id"`
+	Icmp   NetworkTrafficICMP   `json:"icmp"`
 	Policy NetworkTrafficPolicy `json:"policy"`
 
 	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
 	Protocol int `json:"protocol"`
-
-	// ReceiveTimestamp Timestamp when the event was received by our API.
-	ReceiveTimestamp time.Time `json:"receive_timestamp"`
 
 	// ReporterId ID of the reporter of the event (e.g., the peer that reported the event).
 	ReporterId string `json:"reporter_id"`
