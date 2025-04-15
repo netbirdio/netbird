@@ -25,7 +25,6 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
@@ -404,21 +403,6 @@ func (g *BundleGenerator) addProf() (err error) {
 		if err := g.addFileToZip(myBuff, profile+".prof"); err != nil {
 			return fmt.Errorf("add %s file to zip: %w", profile, err)
 		}
-	}
-	return nil
-}
-
-func (g *BundleGenerator) addRoutes() error {
-	routes, err := systemops.GetRoutesFromTable()
-	if err != nil {
-		return fmt.Errorf("get routes: %w", err)
-	}
-
-	// TODO: get routes including nexthop
-	routesContent := formatRoutes(routes, g.anonymize, g.anonymizer)
-	routesReader := strings.NewReader(routesContent)
-	if err := g.addFileToZip(routesReader, "routes.txt"); err != nil {
-		return fmt.Errorf("add routes file to zip: %w", err)
 	}
 	return nil
 }
