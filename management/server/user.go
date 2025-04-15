@@ -824,31 +824,32 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
+
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	accountUsers := []*types.User{user}
-	if allowed {
+	accountUsers := []*types.User{}
+	switch {
+	case allowed:
 		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return nil, err
 		}
+	case user.AccountID == accountID:
+		accountUsers = append(accountUsers, user)
+	default:
+		return map[string]*types.UserInfo{}, nil
 	}
 
 	return am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
 }
 
 // BuildUserInfosForAccount builds user info for the given account.
-func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
+func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, accountID, _ string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
 	var queriedUsers []*idp.UserData
 	var err error
-
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
-	if err != nil {
-		return nil, err
-	}
 
 	if !isNil(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
@@ -888,11 +889,6 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
 		for _, accountUser := range accountUsers {
-			if initiatorUser.IsRegularUser() && initiatorUser.Id != accountUser.Id {
-				// if user is not an admin then show only current user and do not show other users
-				continue
-			}
-
 			info, err := accountUser.ToUserInfo(nil, settings)
 			if err != nil {
 				return nil, err
@@ -904,11 +900,6 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	}
 
 	for _, localUser := range accountUsers {
-		if initiatorUser.IsRegularUser() && initiatorUser.Id != localUser.Id {
-			// if user is not an admin then show only current user and do not show other users
-			continue
-		}
-
 		var info *types.UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
 			info, err = localUser.ToUserInfo(queriedUser, settings)
@@ -1240,4 +1231,31 @@ func validateUserInvite(invite *types.UserInfo) error {
 	}
 
 	return nil
+}
+
+// GetCurrentUserInfo retrieves the account's current user info
+func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.IsBlocked() {
+		return nil, status.NewUserBlockedError()
+	}
+
+	if user.IsServiceUser {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
+	}
+
+	userInfo, err := am.getUserInfo(ctx, user, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return userInfo, nil
 }
