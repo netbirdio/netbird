@@ -3,6 +3,7 @@ package dnsfwd
 import (
 	"context"
 	"errors"
+	"math"
 	"net"
 	"net/netip"
 	"strings"
@@ -204,28 +205,33 @@ func (f *DNSForwarder) addIPsToResponse(resp *dns.Msg, domain string, ips []neti
 }
 
 func (f *DNSForwarder) getResIdForDomain(domain string) string {
-	var resId string
+	var selectedResId string
+	var bestScore int
 
 	f.resId.Range(func(key, value interface{}) bool {
-		keyStr := key.(string)
+		var score int
+		pattern := key.(string)
 
-		if matchesDomain(domain, keyStr) {
-			resId = value.(string)
-			return false
+		// for wildcard matches, use the length of the base domain as the score
+		if strings.HasPrefix(pattern, "*.") {
+			baseDomain := strings.TrimPrefix(pattern, "*.")
+			if domain == baseDomain || strings.HasSuffix(domain, "."+baseDomain) {
+				score = len(baseDomain)
+			}
+		} else if domain == pattern {
+			score = math.MaxInt // exact match
+		} else {
+			return true
 		}
 
+		if score > bestScore {
+			bestScore = score
+			selectedResId = value.(string)
+		}
 		return true
 	})
 
-	return resId
-}
-
-func matchesDomain(domain, pattern string) bool {
-	if strings.HasPrefix(pattern, "*.") {
-		baseDomain := strings.TrimPrefix(pattern, "*.")
-		return domain == baseDomain || strings.HasSuffix(domain, "."+baseDomain)
-	}
-	return domain == pattern
+	return selectedResId
 }
 
 // filterDomains returns a list of normalized domains

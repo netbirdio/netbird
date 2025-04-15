@@ -48,21 +48,44 @@ func TestGetResIdForDomain(t *testing.T) {
 			queryDomain:    "foo.example.com",
 			expectedResId:  "",
 		},
+		{
+			name: "Exact match over overlapping wildcard",
+			storedMappings: map[string]string{
+				"*.example.com":   "resWildcard",
+				"foo.example.com": "resExact",
+			},
+			queryDomain:   "foo.example.com",
+			expectedResId: "resExact",
+		},
+		{
+			name: "Overlapping wildcards: Select more specific wildcard",
+			storedMappings: map[string]string{
+				"*.example.com":     "resA",
+				"*.sub.example.com": "resB",
+			},
+			queryDomain:   "bar.sub.example.com",
+			expectedResId: "resB",
+		},
+		{
+			name: "Wildcard multi-level subdomain match",
+			storedMappings: map[string]string{
+				"*.example.com": "resMulti",
+			},
+			queryDomain:   "a.b.example.com",
+			expectedResId: "resMulti",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create a new DNSForwarder with an initialized sync.Map.
 			fwd := &DNSForwarder{
 				resId: sync.Map{},
 			}
 
-			// Prepopulate the resId map with the test mappings.
 			for domainPattern, resId := range tc.storedMappings {
 				fwd.resId.Store(domainPattern, resId)
 			}
 
-			// Get the result using the query domain.
 			got := fwd.getResIdForDomain(tc.queryDomain)
 			if got != tc.expectedResId {
 				t.Errorf("For query domain %q, expected resId %q, but got %q", tc.queryDomain, tc.expectedResId, got)
