@@ -50,6 +50,7 @@ state.json: Anonymized client state dump containing netbird states.
 mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
 block.prof: Block profiling information.
+heap.prof: Heap profiling information (snapshot of memory allocations).
 
 
 Anonymization Process
@@ -92,11 +93,14 @@ The state file follows the same anonymization rules as other files:
 - Domain names are consistently anonymized
 - Technical identifiers and non-sensitive data remain unchanged
 
-Mutex, Goroutines, and Block Profiling Files
-The goroutine, block, and mutex profiling files contains process information that might help the NetBird team diagnose performance issues. The information in these files don't contain personal data.
+Mutex, Goroutines, Block, and Heap Profiling Files
+The goroutine, block, mutex, and heap profiling files contain process information that might help the NetBird team diagnose performance or memory issues. The information in these files doesn't contain personal data.
 You can check each using the following go command:
 
-go tool pprof -http=:8088 mutex.prof
+go tool pprof -http=:8088 <profile_name>.prof
+
+For example, to view the heap profile:
+go tool pprof -http=:8088 heap.prof
 
 This will open a web browser tab with the profiling information.
 
@@ -334,7 +338,7 @@ func (s *Server) addProf(req *proto.DebugBundleRequest, anonymizer *anonymize.An
 
 	time.Sleep(5 * time.Second)
 
-	for _, profile := range []string{"goroutine", "block", "mutex"} {
+	for _, profile := range []string{"goroutine", "block", "mutex", "heap"} {
 		var buff []byte
 		myBuff := bytes.NewBuffer(buff)
 		err := pprof.Lookup(profile).WriteTo(myBuff, 0)
