@@ -38,6 +38,21 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
 }
 
+// GetRolePermissions mocks base method.
+func (m *MockManager) GetRolePermissions(ctx context.Context, role types.UserRole) (roles.RolePermissions, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRolePermissions", ctx, role)
+	ret0, _ := ret[0].(roles.RolePermissions)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRolePermissions indicates an expected call of GetRolePermissions.
+func (mr *MockManagerMockRecorder) GetRolePermissions(ctx, role interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRolePermissions", reflect.TypeOf((*MockManager)(nil).GetRolePermissions), ctx, role)
+}
+
 // ValidateAccountAccess mocks base method.
 func (m *MockManager) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
 	m.ctrl.T.Helper()

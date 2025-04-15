@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 )
 
 const (
@@ -107,7 +108,7 @@ func initUsersTestData() *handler {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", userID)
 				}
 
-				info, err := update.Copy().ToUserInfo(nil, &types.Settings{RegularUsersViewBlocked: false})
+				info, err := update.Copy().ToUserInfo(nil)
 				if err != nil {
 					return nil, err
 				}
@@ -124,7 +125,7 @@ func initUsersTestData() *handler {
 
 				return nil
 			},
-			GetCurrentUserInfoFunc: func(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+			GetCurrentUserInfoFunc: func(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error) {
 				switch userID {
 				case "not-found":
 					return nil, status.NewUserNotFoundError("not-found")
@@ -135,47 +136,44 @@ func initUsersTestData() *handler {
 				case "service-user":
 					return nil, status.NewPermissionDeniedError()
 				case "owner":
-					return &types.UserInfo{
-						ID:            "owner",
-						Name:          "",
-						Role:          "owner",
-						Status:        "active",
-						IsServiceUser: false,
-						IsBlocked:     false,
-						NonDeletable:  false,
-						Issued:        "api",
-						Permissions: types.UserPermissions{
-							DashboardView: "full",
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "owner",
+							Name:          "",
+							Role:          "owner",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							Issued:        "api",
 						},
 					}, nil
 				case "regular-user":
-					return &types.UserInfo{
-						ID:            "regular-user",
-						Name:          "",
-						Role:          "user",
-						Status:        "active",
-						IsServiceUser: false,
-						IsBlocked:     false,
-						NonDeletable:  false,
-						Issued:        "api",
-						Permissions: types.UserPermissions{
-							DashboardView: "limited",
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "regular-user",
+							Name:          "",
+							Role:          "user",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							Issued:        "api",
 						},
 					}, nil
 
 				case "admin-user":
-					return &types.UserInfo{
-						ID:            "admin-user",
-						Name:          "",
-						Role:          "admin",
-						Status:        "active",
-						IsServiceUser: false,
-						IsBlocked:     false,
-						NonDeletable:  false,
-						LastLogin:     time.Time{},
-						Issued:        "api",
-						Permissions: types.UserPermissions{
-							DashboardView: "full",
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "admin-user",
+							Name:          "",
+							Role:          "admin",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							LastLogin:     time.Time{},
+							Issued:        "api",
 						},
 					}, nil
 				}

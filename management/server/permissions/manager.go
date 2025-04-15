@@ -20,6 +20,8 @@ type Manager interface {
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
+
+	GetRolePermissions(ctx context.Context, role types.UserRole) (roles.RolePermissions, error)
 }
 
 type managerImpl struct {
@@ -64,9 +66,9 @@ func (m *managerImpl) ValidateUserPermissions(
 		return true, nil // this should be replaced by proper granular access role
 	}
 
-	role, ok := roles.RolesMap[user.Role]
-	if !ok {
-		return false, status.NewUserRoleNotFoundError(string(user.Role))
+	role, err := m.GetRolePermissions(ctx, user.Role)
+	if err != nil {
+		return false, err
 	}
 
 	return m.ValidateRoleModuleAccess(ctx, accountID, role, module, operation), nil
@@ -95,4 +97,13 @@ func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID strin
 		return status.NewUserNotPartOfAccountError()
 	}
 	return nil
+}
+
+func (m *managerImpl) GetRolePermissions(ctx context.Context, role types.UserRole) (roles.RolePermissions, error) {
+	permissions, ok := roles.RolesMap[role]
+	if !ok {
+		return roles.RolePermissions{}, status.NewUserRoleNotFoundError(string(role))
+	}
+
+	return permissions, nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
@@ -280,7 +281,41 @@ func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, toUserResponse(user, userID))
+	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userID))
+}
+
+func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
+	response := toUserResponse(user.UserInfo, userID)
+	if user.Permissions == nil {
+		return response
+	}
+
+	permissions := &api.UserPermissions{}
+	if len(user.Permissions.AutoAllowNew) > 0 {
+		permissions.AutoAllowNew = make(map[string]bool)
+		for k, v := range user.Permissions.AutoAllowNew {
+			permissions.AutoAllowNew[string(k)] = v
+		}
+	}
+
+	if len(user.Permissions.Permissions) > 0 {
+		permissions.Permissions = make(map[string]map[string]bool)
+		for module, operations := range user.Permissions.Permissions {
+			if len(operations) == 0 {
+				continue
+			}
+
+			access := make(map[string]bool)
+			for k, v := range operations {
+				access[string(k)] = v
+			}
+			permissions.Permissions[string(module)] = access
+		}
+	}
+
+	response.Permissions = permissions
+
+	return response
 }
 
 func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
@@ -316,8 +351,5 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 		IsBlocked:     user.IsBlocked,
 		LastLogin:     &user.LastLogin,
 		Issued:        &user.Issued,
-		Permissions: &api.UserPermissions{
-			DashboardView: (*api.UserPermissionsDashboardView)(&user.Permissions.DashboardView),
-		},
 	}
 }

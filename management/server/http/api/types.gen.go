@@ -178,13 +178,6 @@ const (
 	UserStatusInvited UserStatus = "invited"
 )
 
-// Defines values for UserPermissionsDashboardView.
-const (
-	UserPermissionsDashboardViewBlocked UserPermissionsDashboardView = "blocked"
-	UserPermissionsDashboardViewFull    UserPermissionsDashboardView = "full"
-	UserPermissionsDashboardViewLimited UserPermissionsDashboardView = "limited"
-)
-
 // AccessiblePeer defines model for AccessiblePeer.
 type AccessiblePeer struct {
 	// CityName Commonly used English name of the city
@@ -1710,12 +1703,9 @@ type UserCreateRequest struct {
 
 // UserPermissions defines model for UserPermissions.
 type UserPermissions struct {
-	// DashboardView User's permission to view the dashboard
-	DashboardView *UserPermissionsDashboardView `json:"dashboard_view,omitempty"`
+	AutoAllowNew map[string]bool            `json:"auto_allow_new"`
+	Permissions  map[string]map[string]bool `json:"permissions"`
 }
-
-// UserPermissionsDashboardView User's permission to view the dashboard
-type UserPermissionsDashboardView string
 
 // UserRequest defines model for UserRequest.
 type UserRequest struct {

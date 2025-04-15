@@ -191,11 +191,35 @@ components:
     UserPermissions:
       type: object
       properties:
-        dashboard_view:
-          description: User's permission to view the dashboard
-          type: string
-          enum: [ "limited", "blocked", "full" ]
-          example: limited
+        permissions:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: boolean
+            propertyNames:
+              type: string
+              enum:
+                - read
+                - write
+          propertyNames:
+            type: string
+            enum:
+              - read
+              - write
+          example: {"networks": { "read": true, "write": false}, "peers": { "read": false, "write": false} }
+        auto_allow_new:
+          type: object
+          additionalProperties:
+            type: boolean
+          propertyNames:
+            type: string
+            enum:
+              - read
+              - write
+      required:
+        - permissions
+        - auto_allow_new
     UserRequest:
       type: object
       properties:

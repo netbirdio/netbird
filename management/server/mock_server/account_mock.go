@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -115,7 +116,7 @@ type MockAccountManager struct {
 	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
-	GetCurrentUserInfoFunc              func(ctx context.Context, accountID, userID string) (*types.UserInfo, error)
+	GetCurrentUserInfoFunc              func(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -873,7 +874,7 @@ func (am *MockAccountManager) GetOwnerInfo(ctx context.Context, accountId string
 	return nil, status.Errorf(codes.Unimplemented, "method GetOwnerInfo is not implemented")
 }
 
-func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error) {
 	if am.GetCurrentUserInfoFunc != nil {
 		return am.GetCurrentUserInfoFunc(ctx, accountID, userID)
 	}
