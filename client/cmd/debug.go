@@ -330,6 +330,7 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
 }
 
+// nolint:unused
 func generateDebugBundle(config *internal.Config, recorder *peer.Status, connectClient *internal.ConnectClient, logFilePath string) {
 	var networkMap *mgmProto.NetworkMap
 	var err error
