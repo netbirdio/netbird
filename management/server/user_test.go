@@ -1435,7 +1435,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 			},
 		},
 	}
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)

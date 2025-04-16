@@ -84,7 +84,7 @@ func (p *postureChecksHandler) updatePostureCheck(w http.ResponseWriter, r *http
 		return
 	}
 
-	p.savePostureChecks(w, r, accountID, userID, postureChecksID)
+	p.savePostureChecks(w, r, accountID, userID, postureChecksID, false)
 }
 
 // createPostureCheck handles posture check creation request
@@ -97,7 +97,7 @@ func (p *postureChecksHandler) createPostureCheck(w http.ResponseWriter, r *http
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	p.savePostureChecks(w, r, accountID, userID, "")
+	p.savePostureChecks(w, r, accountID, userID, "", true)
 }
 
 // getPostureCheck handles a posture check Get request identified by ID
@@ -150,7 +150,7 @@ func (p *postureChecksHandler) deletePostureCheck(w http.ResponseWriter, r *http
 }
 
 // savePostureChecks handles posture checks create and update
-func (p *postureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.Request, accountID, userID, postureChecksID string) {
+func (p *postureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.Request, accountID, userID, postureChecksID string, create bool) {
 	var (
 		err error
 		req api.PostureCheckUpdate
@@ -175,7 +175,7 @@ func (p *postureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.
 		return
 	}
 
-	postureChecks, err = p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks)
+	postureChecks, err = p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks, create)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

@@ -965,7 +965,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupB",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 		},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)

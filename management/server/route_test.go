@@ -1227,7 +1227,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	newPolicy.Rules[0].Sources = []string{newGroup.ID}
 	newPolicy.Rules[0].Destinations = []string{newGroup.ID}
 
-	_, err = am.SavePolicy(context.Background(), account.Id, userID, newPolicy)
+	_, err = am.SavePolicy(context.Background(), account.Id, userID, newPolicy, true)
 	require.NoError(t, err)
 
 	err = am.DeletePolicy(context.Background(), account.Id, defaultRule.ID, userID)

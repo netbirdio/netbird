@@ -41,7 +41,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 			Name:  "group_name_2",
 			Peers: []string{},
 		},
-	})
+	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 			},
 		},
 	}
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
