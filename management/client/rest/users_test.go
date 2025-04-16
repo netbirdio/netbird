@@ -30,7 +30,7 @@ var (
 		Issued:        ptr("api"),
 		LastLogin:     &time.Time{},
 		Name:          "M. Essam",
-		Permissions: &api.UserPermissions{
+		Permissions: api.UserPermissions{
 			Default: map[string]bool{
 				"read":  false,
 				"write": false,
