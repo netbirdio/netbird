@@ -26,7 +26,7 @@ type handler struct {
 }
 
 func AddEndpoints(accountManager account.Manager, usersManager users.Manager, router *mux.Router) {
-	userHandler := newHandler(accountManager)
+	userHandler := newHandler(accountManager, usersManager)
 	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/current", userHandler.getCurrentUser).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.updateUser).Methods("PUT", "OPTIONS")
@@ -38,9 +38,10 @@ func AddEndpoints(accountManager account.Manager, usersManager users.Manager, ro
 }
 
 // newHandler creates a new UsersHandler HTTP handler
-func newHandler(accountManager account.Manager) *handler {
+func newHandler(accountManager account.Manager, usersManager users.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
+		usersManager:   usersManager,
 	}
 }
 
@@ -312,34 +313,13 @@ func (h *handler) getRoles(w http.ResponseWriter, r *http.Request) {
 
 func toRolesResponse(roles map[types.UserRole]roles.RolePermissions) []api.RolePermissions {
 	result := make([]api.RolePermissions, 0, len(roles))
+
 	for _, permissions := range roles {
 		rolePermissions := api.RolePermissions{
-			Role: string(permissions.Role),
+			Role:    string(permissions.Role),
+			Default: toOperationsMapResponse(permissions.AutoAllowNew),
+			Modules: toModulesMapResponse(permissions.Permissions),
 		}
-
-		if len(permissions.AutoAllowNew) > 0 {
-			rolePermissions.Default = make(map[string]bool)
-			for k, v := range permissions.AutoAllowNew {
-				rolePermissions.Default[string(k)] = v
-			}
-		}
-
-		if len(permissions.Permissions) > 0 {
-			modules := make(map[string]map[string]bool)
-			for module, operations := range permissions.Permissions {
-				if len(operations) == 0 {
-					continue
-				}
-
-				access := make(map[string]bool)
-				for k, v := range operations {
-					access[string(k)] = v
-				}
-				modules[string(module)] = access
-			}
-			rolePermissions.Modules = &modules
-		}
-
 		result = append(result, rolePermissions)
 	}
 	return result
@@ -348,36 +328,45 @@ func toRolesResponse(roles map[types.UserRole]roles.RolePermissions) []api.RoleP
 func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
 	response := toUserResponse(user.UserInfo, userID)
 
-	permissions := api.UserPermissions{
+	response.Permissions = api.UserPermissions{
 		IsRestricted: user.Restricted,
+		Default:      toOperationsMapResponse(user.Permissions.AutoAllowNew),
+		Modules:      toModulesMapResponse(user.Permissions.Permissions),
 	}
-
-	if len(user.Permissions.AutoAllowNew) > 0 {
-		permissions.Default = make(map[string]bool)
-		for k, v := range user.Permissions.AutoAllowNew {
-			permissions.Default[string(k)] = v
-		}
-	}
-
-	if len(user.Permissions.Permissions) > 0 {
-		modules := make(map[string]map[string]bool)
-		for module, operations := range user.Permissions.Permissions {
-			if len(operations) == 0 {
-				continue
-			}
-
-			access := make(map[string]bool)
-			for k, v := range operations {
-				access[string(k)] = v
-			}
-			modules[string(module)] = access
-		}
-		permissions.Modules = &modules
-	}
-
-	response.Permissions = permissions
 
 	return response
+}
+
+func toOperationsMapResponse[K ~string, V any](input map[K]V) map[string]V {
+	if len(input) == 0 {
+		return nil
+	}
+
+	result := make(map[string]V, len(input))
+	for k, v := range input {
+		result[string(k)] = v
+	}
+
+	return result
+}
+
+func toModulesMapResponse[K, L ~string](input map[K]map[L]bool) *map[string]map[string]bool {
+	if len(input) == 0 {
+		return nil
+	}
+
+	modules := make(map[string]map[string]bool)
+	for module, operations := range input {
+		if converted := toOperationsMapResponse(operations); len(converted) > 0 {
+			modules[string(module)] = converted
+		}
+	}
+
+	if len(modules) == 0 {
+		return nil
+	}
+
+	return &modules
 }
 
 func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
