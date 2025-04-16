@@ -1886,17 +1886,14 @@ components:
       properties:
         id:
           type: string
-          nullable: true
           description: "UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated)."
           example: "google-oauth2|123456789012345678901"
         email:
           type: string
-          nullable: true
           description: "Email of the user who initiated the event (if any)."
           example: "alice@netbird.io"
         name:
             type: string
-            nullable: true
             description: "Name of the user who initiated the event (if any)."
             example: "Alice Smith"
       required:

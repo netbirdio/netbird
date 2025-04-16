@@ -920,13 +920,13 @@ type NetworkTrafficSubEvent struct {
 // NetworkTrafficUser defines model for NetworkTrafficUser.
 type NetworkTrafficUser struct {
 	// Email Email of the user who initiated the event (if any).
-	Email *string `json:"email"`
+	Email string `json:"email"`
 
 	// Id UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
-	Id *string `json:"id"`
+	Id string `json:"id"`
 
 	// Name Name of the user who initiated the event (if any).
-	Name *string `json:"name"`
+	Name string `json:"name"`
 }
 
 // OSVersionCheck Posture check for the version of operating system
