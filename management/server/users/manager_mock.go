@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	roles "github.com/netbirdio/netbird/management/server/permissions/roles"
 	types "github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -33,6 +34,21 @@ func NewMockManager(ctrl *gomock.Controller) *MockManager {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
+}
+
+// GetRoles mocks base method.
+func (m *MockManager) GetRoles(ctx context.Context, accountId, userId string) (map[types.UserRole]roles.RolePermissions, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRoles", ctx, accountId, userId)
+	ret0, _ := ret[0].(map[types.UserRole]roles.RolePermissions)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRoles indicates an expected call of GetRoles.
+func (mr *MockManagerMockRecorder) GetRoles(ctx, accountId, userId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRoles", reflect.TypeOf((*MockManager)(nil).GetRoles), ctx, accountId, userId)
 }
 
 // GetUser mocks base method.
