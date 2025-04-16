@@ -280,6 +280,13 @@ func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		}
 	}
 
+	remoteIp, _ := netip.ParseAddr(id.RemoteAddress.String())
+	localIp, _ := netip.ParseAddr(id.LocalAddress.String())
+
+	if ruleId, ok := f.getRuleID(typ, remoteIp, localIp, id.RemotePort, id.LocalPort); ok {
+		fields.RuleID = ruleId
+	}
+
 	f.flowLogger.StoreEvent(fields)
 }
 
