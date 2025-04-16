@@ -1619,7 +1619,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: &roles.Owner,
+				Permissions: roles.Owner,
 			},
 		},
 		{
@@ -1639,7 +1639,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: &roles.User,
+				Permissions: roles.User,
 			},
 		},
 		{
@@ -1659,7 +1659,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: &roles.Admin,
+				Permissions: roles.Admin,
 			},
 		},
 		{
@@ -1679,7 +1679,8 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: nil,
+				Permissions: roles.User,
+				Restricted:  true,
 			},
 		},
 		{
@@ -1700,7 +1701,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: &roles.Owner,
+				Permissions: roles.Owner,
 			},
 		},
 	}
