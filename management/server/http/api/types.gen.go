@@ -1703,8 +1703,8 @@ type UserCreateRequest struct {
 
 // UserPermissions defines model for UserPermissions.
 type UserPermissions struct {
-	AutoAllowNew map[string]bool            `json:"auto_allow_new"`
-	Permissions  map[string]map[string]bool `json:"permissions"`
+	Default map[string]bool             `json:"default"`
+	Modules *map[string]map[string]bool `json:"modules,omitempty"`
 }
 
 // UserRequest defines model for UserRequest.
