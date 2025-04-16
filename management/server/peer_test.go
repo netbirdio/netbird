@@ -303,12 +303,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1)
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1, true)
 	if err != nil {
 		t.Errorf("expecting group1 to be added, got failure %v", err)
 		return
 	}
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2)
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2, true)
 	if err != nil {
 		t.Errorf("expecting group2 to be added, got failure %v", err)
 		return

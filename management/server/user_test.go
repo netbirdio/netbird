@@ -1420,7 +1420,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
+	}, true)
 	require.NoError(t, err)
 
 	policy := &types.Policy{

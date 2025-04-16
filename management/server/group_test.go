@@ -446,7 +446,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			ID:    "groupB",
 			Name:  "GroupB",
 			Peers: []string{peer1.ID, peer2.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -539,7 +539,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -608,7 +608,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			ID:    "groupC",
 			Name:  "GroupC",
 			Peers: []string{peer1.ID, peer3.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -649,7 +649,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -676,7 +676,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			ID:    "groupD",
 			Name:  "GroupD",
 			Peers: []string{peer1.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -723,7 +723,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			ID:    "groupE",
 			Name:  "GroupE",
 			Peers: []string{peer2.ID, peer3.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {

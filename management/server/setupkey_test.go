@@ -109,7 +109,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
-	})
+	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},
-	})
+	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	policy := &types.Policy{
