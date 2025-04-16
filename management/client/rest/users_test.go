@@ -31,9 +31,9 @@ var (
 		LastLogin:     &time.Time{},
 		Name:          "M. Essam",
 		Permissions: &api.UserPermissions{
-			AutoAllowNew: map[string]bool{
-				"read":  true,
-				"write": true,
+			Default: map[string]bool{
+				"read":  false,
+				"write": false,
 			},
 		},
 		Role:   "user",
