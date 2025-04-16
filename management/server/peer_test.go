@@ -303,12 +303,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1)
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1, true)
 	if err != nil {
 		t.Errorf("expecting group1 to be added, got failure %v", err)
 		return
 	}
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2)
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2, true)
 	if err != nil {
 		t.Errorf("expecting group2 to be added, got failure %v", err)
 		return
@@ -327,7 +327,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 			},
 		},
 	}
-	policy, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+	policy, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -375,7 +375,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	}
 
 	policy.Enabled = false
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -1478,7 +1478,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{},
 		},
-	})
+	}, true)
 	require.NoError(t, err)
 
 	// create a user with auto groups
@@ -1654,7 +1654,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		require.NoError(t, err)
 
 		done := make(chan struct{})

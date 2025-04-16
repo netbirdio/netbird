@@ -31,11 +31,15 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 }
 
 // SavePolicy in the store
-func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error) {
+func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Write)
+	operation := operations.Create
+	if !create {
+		operation = operations.Update
+	}
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -87,7 +91,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}

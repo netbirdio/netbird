@@ -190,7 +190,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -321,7 +321,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}

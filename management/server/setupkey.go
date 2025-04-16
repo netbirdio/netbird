@@ -58,7 +58,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -110,7 +110,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -203,7 +203,7 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 
 // DeleteSetupKey removes the setup key from the account
 func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}

@@ -31,11 +31,15 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 }
 
 // SavePostureChecks saves a posture check.
-func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error) {
+func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, create bool) (*posture.Checks, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Write)
+	operation := operations.Create
+	if !create {
+		operation = operations.Update
+	}
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
