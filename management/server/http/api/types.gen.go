@@ -1400,6 +1400,13 @@ type Resource struct {
 // ResourceType defines model for ResourceType.
 type ResourceType string
 
+// RolePermissions defines model for RolePermissions.
+type RolePermissions struct {
+	Default map[string]bool             `json:"default"`
+	Modules *map[string]map[string]bool `json:"modules,omitempty"`
+	Role    string                      `json:"role"`
+}
+
 // Route defines model for Route.
 type Route struct {
 	// AccessControlGroups Access control group identifier associated with route.

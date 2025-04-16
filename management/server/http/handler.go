@@ -36,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	nbpeers "github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	musers "github.com/netbirdio/netbird/management/server/users"
 )
 
 const apiPrefix = "/api"
@@ -56,6 +57,7 @@ func NewAPIHandler(
 	permissionsManager permissions.Manager,
 	peersManager nbpeers.Manager,
 	settingsManager settings.Manager,
+	usersManager musers.Manager,
 ) (http.Handler, error) {
 
 	authMiddleware := middleware.NewAuthMiddleware(
@@ -80,7 +82,7 @@ func NewAPIHandler(
 
 	accounts.AddEndpoints(accountManager, settingsManager, router)
 	peers.AddEndpoints(accountManager, router)
-	users.AddEndpoints(accountManager, router)
+	users.AddEndpoints(accountManager, usersManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)
 	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
