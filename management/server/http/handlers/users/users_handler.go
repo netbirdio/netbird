@@ -292,14 +292,14 @@ func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID s
 
 	permissions := &api.UserPermissions{}
 	if len(user.Permissions.AutoAllowNew) > 0 {
-		permissions.AutoAllowNew = make(map[string]bool)
+		permissions.Default = make(map[string]bool)
 		for k, v := range user.Permissions.AutoAllowNew {
-			permissions.AutoAllowNew[string(k)] = v
+			permissions.Default[string(k)] = v
 		}
 	}
 
 	if len(user.Permissions.Permissions) > 0 {
-		permissions.Permissions = make(map[string]map[string]bool)
+		modules := make(map[string]map[string]bool)
 		for module, operations := range user.Permissions.Permissions {
 			if len(operations) == 0 {
 				continue
@@ -309,8 +309,9 @@ func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID s
 			for k, v := range operations {
 				access[string(k)] = v
 			}
-			permissions.Permissions[string(module)] = access
+			modules[string(module)] = access
 		}
+		permissions.Modules = &modules
 	}
 
 	response.Permissions = permissions
