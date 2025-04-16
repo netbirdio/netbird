@@ -115,7 +115,7 @@ type Conn struct {
 	connIDICE            nbnet.ConnectionID
 	beforeAddPeerHooks   []nbnet.AddHookFunc
 	afterRemovePeerHooks []nbnet.RemoveHookFunc
-	// used to store the remote Rosenpass key for Relayed connection in case of conenction update from ice
+	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
 	rosenpassRemoteKey []byte
 
 	wgProxyICE   wgproxy.Proxy
