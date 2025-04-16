@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -124,8 +123,6 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		RxBytes:    rxBytes,
 		TxBytes:    txBytes,
 	}
-
-	log.Infof("=======TCP EVENT: %+v", fields)
 
 	if ep != nil {
 		if tcpStats, ok := ep.Stats().(*tcp.Stats); ok {
