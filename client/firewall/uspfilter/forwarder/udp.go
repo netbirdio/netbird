@@ -149,11 +149,11 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 
 	flowID := uuid.New()
 
-	f.sendUDPEvent(nftypes.TypeStart, flowID, id, nil, 0, 0)
+	f.sendUDPEvent(nftypes.TypeStart, flowID, id, 0, 0, 0, 0)
 	var success bool
 	defer func() {
 		if !success {
-			f.sendUDPEvent(nftypes.TypeEnd, flowID, id, nil, 0, 0)
+			f.sendUDPEvent(nftypes.TypeEnd, flowID, id, 0, 0, 0, 0)
 		}
 	}()
 
@@ -238,7 +238,14 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		f.logger.Error("proxyUDP: copy error (inbound->outbound): %v", inboundErr)
 	}
 
-	f.logger.Trace("proxyUDP: bytes transferred for connection %v: inbound bytes: %d, outbound bytes: %d", epID(id), rxBytes, txBytes)
+	var rxPackets, txPackets uint64
+	if tcpStats, ok := ep.Stats().(*tcpip.TransportEndpointStats); ok {
+		// fields are flipped since this is the in conn
+		rxPackets = tcpStats.PacketsSent.Value()
+		txPackets = tcpStats.PacketsReceived.Value()
+	}
+
+	f.logger.Trace("Removed UDP connection %s (timeout) [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
 
 	pConn.cancel()
 	if err := pConn.conn.Close(); err != nil {
@@ -253,11 +260,11 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	delete(f.udpForwarder.conns, id)
 	f.udpForwarder.Unlock()
 
-	f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id, ep, uint64(rxBytes), uint64(txBytes))
+	f.sendUDPEvent(nftypes.TypeEnd, pConn.flowID, id, uint64(rxBytes), uint64(txBytes), rxPackets, txPackets)
 }
 
 // sendUDPEvent stores flow events for UDP connections
-func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint, rxBytes, txBytes uint64) {
+func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64) {
 	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
@@ -270,14 +277,8 @@ func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		DestPort:   id.LocalPort,
 		RxBytes:    rxBytes,
 		TxBytes:    txBytes,
-	}
-
-	if ep != nil {
-		if tcpStats, ok := ep.Stats().(*tcpip.TransportEndpointStats); ok {
-			// fields are flipped since this is the in conn
-			fields.RxPackets = tcpStats.PacketsSent.Value()
-			fields.TxPackets = tcpStats.PacketsReceived.Value()
-		}
+		RxPackets:  rxPackets,
+		TxPackets:  txPackets,
 	}
 
 	remoteIp, _ := netip.ParseAddr(id.RemoteAddress.String())

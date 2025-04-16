@@ -61,7 +61,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 
 	// For Echo Requests, send and handle response
 	if header.ICMPv4Type(icmpType) == header.ICMPv4Echo {
-		rxBytes := len(payload)
+		rxBytes := pkt.Size()
 		txBytes := f.handleEchoResponse(icmpHdr, conn, id)
 		f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 	}

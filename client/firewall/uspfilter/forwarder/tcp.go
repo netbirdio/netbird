@@ -1,6 +1,7 @@
 package forwarder
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -65,6 +66,17 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 }
 
 func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn, outConn net.Conn, ep tcpip.Endpoint, flowID uuid.UUID) {
+
+	ctx, cancel := context.WithCancel(f.ctx)
+	defer cancel()
+
+	go func() {
+		<-ctx.Done()
+		inConn.Close()
+		outConn.Close()
+		ep.Close()
+	}()
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -91,11 +103,17 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 
 	wg.Wait()
 
-	if errInToOut != nil && !isClosedError(errInToOut) {
-		f.logger.Error("proxyTCP: copy error (in -> out): %v", errInToOut)
+	if errInToOut != nil {
+		if !isClosedError(errInToOut) {
+			f.logger.Error("proxyTCP: copy error (in -> out): %v", errInToOut)
+		}
+		f.logger.Trace("forwarder: tearing down TCP connection %v", epID(id))
 	}
-	if errOutToIn != nil && !isClosedError(errOutToIn) {
-		f.logger.Error("proxyTCP: copy error (out -> in): %v", errOutToIn)
+	if errOutToIn != nil {
+		if !isClosedError(errOutToIn) {
+			f.logger.Error("proxyTCP: copy error (out -> in): %v", errOutToIn)
+		}
+		f.logger.Trace("forwarder: tearing down TCP connection %v", epID(id))
 	}
 
 	// Close connections and endpoint.
@@ -109,6 +127,7 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 
 	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, ep, uint64(bytesFromOutToIn), uint64(bytesFromInToOut))
 }
+
 func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint, rxBytes, txBytes uint64) {
 	fields := nftypes.EventFields{
 		FlowID:    flowID,
