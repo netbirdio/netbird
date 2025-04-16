@@ -219,6 +219,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	r.GetFullStatus()
 
 	connectClient := internal.NewConnectClient(ctx, config, r)
+	SetupDebugHandler(ctx, config, r, connectClient, "")
+
 	return connectClient.Run(nil)
 }
 
