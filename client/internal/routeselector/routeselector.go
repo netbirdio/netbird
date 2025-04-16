@@ -41,6 +41,7 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 
 	if !appendRoute {
 		rs.selectedRoutes = map[route.NetID]struct{}{}
+		rs.knownRoutes = allRoutes
 	}
 
 	var err *multierror.Error
@@ -53,7 +54,7 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		rs.selectedRoutes[route] = struct{}{}
 	}
 	rs.selectAll = false
-	rs.includeNewRoutes = false
+	rs.includeNewRoutes = appendRoute
 
 	return errors.FormatErrorOrNil(err)
 }
@@ -78,8 +79,7 @@ func (rs *RouteSelector) DeselectRoutes(routes []route.NetID, allRoutes []route.
 	if rs.selectAll {
 		rs.selectAll = false
 		rs.includeNewRoutes = true
-		rs.knownRoutes = make([]route.NetID, len(allRoutes))
-		copy(rs.knownRoutes, allRoutes)
+		rs.knownRoutes = allRoutes
 
 		rs.selectedRoutes = map[route.NetID]struct{}{}
 		for _, route := range allRoutes {
