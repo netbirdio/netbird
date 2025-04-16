@@ -35,7 +35,7 @@ var TestPeers = map[string]*nbpeer.Peer{
 func initGroupTestData(initGroups ...*types.Group) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
-			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group) error {
+			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group, create bool) error {
 				if !strings.HasPrefix(group.ID, "id-") {
 					group.ID = "id-was-set"
 				}

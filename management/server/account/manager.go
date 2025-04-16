@@ -59,15 +59,15 @@ type Manager interface {
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
-	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group) error
-	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
+	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
+	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group, create bool) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
 	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
-	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
+	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error)
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
 	ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
@@ -93,7 +93,7 @@ type Manager interface {
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
 	GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error)
+	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, create bool) (*posture.Checks, error)
 	DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManager() idp.Manager

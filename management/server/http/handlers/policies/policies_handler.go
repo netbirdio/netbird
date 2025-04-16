@@ -95,7 +95,7 @@ func (h *handler) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.savePolicy(w, r, accountID, userID, policyID)
+	h.savePolicy(w, r, accountID, userID, policyID, false)
 }
 
 // createPolicy handles policy creation request
@@ -108,11 +108,11 @@ func (h *handler) createPolicy(w http.ResponseWriter, r *http.Request) {
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	h.savePolicy(w, r, accountID, userID, "")
+	h.savePolicy(w, r, accountID, userID, "", true)
 }
 
 // savePolicy handles policy creation and update
-func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID string, userID string, policyID string) {
+func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID string, userID string, policyID string, create bool) {
 	var req api.PutApiPoliciesPolicyIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -279,7 +279,7 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 		policy.SourcePostureChecks = *req.SourcePostureChecks
 	}
 
-	policy, err := h.accountManager.SavePolicy(r.Context(), accountID, userID, policy)
+	policy, err := h.accountManager.SavePolicy(r.Context(), accountID, userID, policy, create)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

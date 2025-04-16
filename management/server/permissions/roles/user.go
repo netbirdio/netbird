@@ -8,7 +8,9 @@ import (
 var User = RolePermissions{
 	Role: types.UserRoleUser,
 	AutoAllowNew: map[operations.Operation]bool{
-		operations.Read:  false,
-		operations.Write: false,
+		operations.Read:   false,
+		operations.Create: false,
+		operations.Update: false,
+		operations.Delete: false,
 	},
 }

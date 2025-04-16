@@ -504,7 +504,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupB",
 			Peers: []string{},
 		},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -564,7 +564,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		done := make(chan struct{})
