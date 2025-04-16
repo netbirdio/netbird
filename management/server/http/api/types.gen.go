@@ -1677,8 +1677,8 @@ type User struct {
 	LastLogin *time.Time `json:"last_login,omitempty"`
 
 	// Name User's name from idp provider
-	Name        string           `json:"name"`
-	Permissions *UserPermissions `json:"permissions,omitempty"`
+	Name        string          `json:"name"`
+	Permissions UserPermissions `json:"permissions"`
 
 	// Role User's NetBird account role
 	Role string `json:"role"`
@@ -1710,8 +1710,11 @@ type UserCreateRequest struct {
 
 // UserPermissions defines model for UserPermissions.
 type UserPermissions struct {
-	Default map[string]bool             `json:"default"`
-	Modules *map[string]map[string]bool `json:"modules,omitempty"`
+	Default map[string]bool `json:"default"`
+
+	// IsRestricted Indicates whether this User's Peers view is restricted
+	IsRestricted bool                        `json:"is_restricted"`
+	Modules      *map[string]map[string]bool `json:"modules,omitempty"`
 }
 
 // UserRequest defines model for UserRequest.

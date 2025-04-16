@@ -13,10 +13,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -147,6 +149,7 @@ func initUsersTestData() *handler {
 							NonDeletable:  false,
 							Issued:        "api",
 						},
+						Permissions: roles.Owner,
 					}, nil
 				case "regular-user":
 					return &users.UserInfoWithPermissions{
@@ -160,6 +163,7 @@ func initUsersTestData() *handler {
 							NonDeletable:  false,
 							Issued:        "api",
 						},
+						Permissions: roles.User,
 					}, nil
 
 				case "admin-user":
@@ -175,6 +179,23 @@ func initUsersTestData() *handler {
 							LastLogin:     time.Time{},
 							Issued:        "api",
 						},
+						Permissions: roles.Admin,
+					}, nil
+				case "restricted-user":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "restricted-user",
+							Name:          "",
+							Role:          "user",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							LastLogin:     time.Time{},
+							Issued:        "api",
+						},
+						Permissions: roles.User,
+						Restricted:  true,
 					}, nil
 				}
 
@@ -544,6 +565,7 @@ func TestCurrentUser(t *testing.T) {
 		name           string
 		expectedStatus int
 		requestAuth    nbcontext.UserAuth
+		expectedResult *api.User
 	}{
 		{
 			name:           "without auth",
@@ -573,16 +595,108 @@ func TestCurrentUser(t *testing.T) {
 			name:           "owner",
 			requestAuth:    nbcontext.UserAuth{UserId: "owner"},
 			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "owner",
+				Role:          "owner",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: api.UserPermissions{
+					IsRestricted: false,
+					Default: map[string]bool{
+						"read":   true,
+						"create": true,
+						"update": true,
+						"delete": true,
+					},
+				},
+			},
 		},
 		{
 			name:           "regular user",
 			requestAuth:    nbcontext.UserAuth{UserId: "regular-user"},
 			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "regular-user",
+				Role:          "user",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: api.UserPermissions{
+					Default: map[string]bool{
+						"read":   false,
+						"create": false,
+						"update": false,
+						"delete": false,
+					},
+				},
+			},
 		},
 		{
 			name:           "admin user",
 			requestAuth:    nbcontext.UserAuth{UserId: "admin-user"},
 			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "admin-user",
+				Role:          "admin",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: api.UserPermissions{
+					IsRestricted: false,
+					Default: map[string]bool{
+						"read":   true,
+						"create": true,
+						"update": true,
+						"delete": true,
+					},
+					Modules: ptr(map[string]map[string]bool{
+						"accounts": {
+							"read":   true,
+							"create": false,
+							"update": false,
+							"delete": false,
+						},
+					}),
+				},
+			},
+		},
+		{
+			name:           "restricted user",
+			requestAuth:    nbcontext.UserAuth{UserId: "restricted-user"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "restricted-user",
+				Role:          "user",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: api.UserPermissions{
+					IsRestricted: true,
+					Default: map[string]bool{
+						"read":   false,
+						"create": false,
+						"update": false,
+						"delete": false,
+					},
+				},
+			},
 		},
 	}
 
@@ -601,10 +715,17 @@ func TestCurrentUser(t *testing.T) {
 			res := rr.Result()
 			defer res.Body.Close()
 
-			if status := rr.Code; status != tc.expectedStatus {
-				t.Fatalf("handler returned wrong status code: got %v want %v",
-					status, tc.expectedStatus)
+			assert.Equal(t, tc.expectedStatus, rr.Code, "handler returned wrong status code")
+
+			if tc.expectedResult != nil {
+				var result api.User
+				require.NoError(t, json.NewDecoder(res.Body).Decode(&result))
+				assert.EqualValues(t, *tc.expectedResult, result)
 			}
 		})
 	}
+}
+
+func ptr[T any, PT *T](x T) PT {
+	return &x
 }
