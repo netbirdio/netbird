@@ -3,6 +3,8 @@ package operations
 type Operation string
 
 const (
-	Read  Operation = "read"
-	Write Operation = "write"
+	Create Operation = "create"
+	Read   Operation = "read"
+	Update Operation = "update"
+	Delete Operation = "delete"
 )
