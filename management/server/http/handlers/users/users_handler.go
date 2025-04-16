@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -21,9 +22,10 @@ import (
 // handler is a handler that returns users of the account
 type handler struct {
 	accountManager account.Manager
+	usersManager   users.Manager
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, usersManager users.Manager, router *mux.Router) {
 	userHandler := newHandler(accountManager)
 	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/current", userHandler.getCurrentUser).Methods("GET", "OPTIONS")
@@ -31,6 +33,7 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/users/{userId}", userHandler.deleteUser).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users", userHandler.createUser).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/invite", userHandler.inviteUser).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/roles", userHandler.getRoles).Methods("GET", "OPTIONS")
 	addUsersTokensEndpoint(accountManager, router)
 }
 
@@ -282,6 +285,64 @@ func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userID))
+}
+
+func (h *handler) getRoles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	accountID, userID := userAuth.AccountId, userAuth.UserId
+
+	roles, err := h.usersManager.GetRoles(ctx, accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toRolesResponse(roles))
+}
+
+func toRolesResponse(roles map[types.UserRole]roles.RolePermissions) []api.RolePermissions {
+	result := make([]api.RolePermissions, 0, len(roles))
+	for _, permissions := range roles {
+		rolePermissions := api.RolePermissions{
+			Role: string(permissions.Role),
+		}
+
+		if len(permissions.AutoAllowNew) > 0 {
+			rolePermissions.Default = make(map[string]bool)
+			for k, v := range permissions.AutoAllowNew {
+				rolePermissions.Default[string(k)] = v
+			}
+		}
+
+		if len(permissions.Permissions) > 0 {
+			modules := make(map[string]map[string]bool)
+			for module, operations := range permissions.Permissions {
+				if len(operations) == 0 {
+					continue
+				}
+
+				access := make(map[string]bool)
+				for k, v := range operations {
+					access[string(k)] = v
+				}
+				modules[string(module)] = access
+			}
+			rolePermissions.Modules = &modules
+		}
+
+		result = append(result, rolePermissions)
+	}
+	return result
 }
 
 func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {

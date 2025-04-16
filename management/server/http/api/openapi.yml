@@ -2013,6 +2013,41 @@ components:
         - policy_name
         - icmp_type
         - icmp_code
+    RolePermissions:
+      type: object
+      properties:
+        role:
+          type: string
+          example: admin
+        modules:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: boolean
+            propertyNames:
+              type: string
+              enum:
+                - read
+                - write
+          propertyNames:
+            type: string
+            enum:
+              - read
+              - write
+          example: {"networks": { "read": true, "write": false}, "peers": { "read": false, "write": false} }
+        default:
+          type: object
+          additionalProperties:
+            type: boolean
+          propertyNames:
+            type: string
+            enum:
+              - read
+              - write
+      required:
+        - default
+        - role
   responses:
     not_found:
       description: Resource not found
@@ -2435,6 +2470,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/roles:
+    get:
+      summary: Retrieves user roles and permissions
+      description: Get permissions for user roles
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of RolePermissions objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RolePermissions'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
