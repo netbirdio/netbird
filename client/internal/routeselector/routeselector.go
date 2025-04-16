@@ -53,7 +53,7 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		rs.selectedRoutes[route] = struct{}{}
 	}
 	rs.selectAll = false
-	rs.includeNewRoutes = false
+	rs.includeNewRoutes = appendRoute
 
 	return errors.FormatErrorOrNil(err)
 }

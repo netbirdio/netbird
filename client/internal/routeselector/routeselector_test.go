@@ -315,7 +315,7 @@ func TestRouteSelector_NewRoutesBehavior(t *testing.T) {
 				rs.SelectAllRoutes()
 				return rs.DeselectRoutes([]route.NetID{"route1"}, initialRoutes)
 			},
-			// After deselecting specific routes, new routes should remain unselected
+			// After deselecting specific routes, new routes should be selected
 			wantNewSelected: []route.NetID{"route2", "route3", "route4", "route5"},
 		},
 		{
@@ -323,8 +323,8 @@ func TestRouteSelector_NewRoutesBehavior(t *testing.T) {
 			initialState: func(rs *routeselector.RouteSelector) error {
 				return rs.SelectRoutes([]route.NetID{"route1"}, true, initialRoutes)
 			},
-			// When routes were appended, new routes should remain unselected
-			wantNewSelected: []route.NetID{"route1"},
+			// When routes were appended, new routes should be selected
+			wantNewSelected: []route.NetID{"route1", "route2", "route3", "route4", "route5"},
 		},
 	}
 
