@@ -66,17 +66,21 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 }
 
 // SaveGroup object of the peers
-func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
+func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, create bool) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
-	return am.SaveGroups(ctx, accountID, userID, []*types.Group{newGroup})
+	return am.SaveGroups(ctx, accountID, userID, []*types.Group{newGroup}, create)
 }
 
 // SaveGroups adds new groups to the account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
-func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Write)
+func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group, create bool) error {
+	operation := operations.Create
+	if !create {
+		operation = operations.Update
+	}
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operation)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -203,7 +207,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 // If an error occurs while deleting a group, the function skips it and continues deleting other groups.
 // Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, userID string, groupIDs []string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
