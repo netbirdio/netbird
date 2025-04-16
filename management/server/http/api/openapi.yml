@@ -188,9 +188,13 @@ components:
         - auto_groups
         - status
         - is_blocked
+        - permissions
     UserPermissions:
       type: object
       properties:
+        is_restricted:
+          type: boolean
+          description: Indicates whether this User's Peers view is restricted
         modules:
           type: object
           additionalProperties:
@@ -219,6 +223,7 @@ components:
               - write
       required:
         - default
+        - is_restricted
     UserRequest:
       type: object
       properties:

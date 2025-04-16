@@ -9,5 +9,6 @@ import (
 type UserInfoWithPermissions struct {
 	*types.UserInfo
 
-	Permissions *roles.RolePermissions
+	Permissions roles.RolePermissions
+	Restricted  bool
 }

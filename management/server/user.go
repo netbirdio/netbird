@@ -1240,16 +1240,14 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, account
 	}
 
 	userWithPermissions := &users.UserInfoWithPermissions{
-		UserInfo: userInfo,
-	}
-
-	if user.Role == types.UserRoleUser && settings.RegularUsersViewBlocked {
-		return userWithPermissions, nil
+		UserInfo:   userInfo,
+		Restricted: user.IsRestrictable() && settings.RegularUsersViewBlocked,
 	}
 
 	permissions, err := am.permissionsManager.GetRolePermissions(ctx, user.Role)
 	if err == nil {
-		userWithPermissions.Permissions = &permissions
+		userWithPermissions.Permissions = permissions
 	}
+
 	return userWithPermissions, nil
 }

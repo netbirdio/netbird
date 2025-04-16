@@ -286,11 +286,11 @@ func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 
 func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
 	response := toUserResponse(user.UserInfo, userID)
-	if user.Permissions == nil {
-		return response
+
+	permissions := api.UserPermissions{
+		IsRestricted: user.Restricted,
 	}
 
-	permissions := &api.UserPermissions{}
 	if len(user.Permissions.AutoAllowNew) > 0 {
 		permissions.Default = make(map[string]bool)
 		for k, v := range user.Permissions.AutoAllowNew {

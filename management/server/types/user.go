@@ -121,6 +121,11 @@ func (u *User) IsRegularUser() bool {
 	return !u.HasAdminPower() && !u.IsServiceUser
 }
 
+// IsRestrictable checks whether a user is in a restrictable role.
+func (u *User) IsRestrictable() bool {
+	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin
+}
+
 // ToUserInfo converts a User object to a UserInfo object.
 func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
