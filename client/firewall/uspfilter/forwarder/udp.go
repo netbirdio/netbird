@@ -211,6 +211,25 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 }
 
 func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack.TransportEndpointID, ep tcpip.Endpoint) {
+
+	ctx, cancel := context.WithCancel(f.ctx)
+	defer cancel()
+
+	go func() {
+		<-ctx.Done()
+		f.logger.Trace("forwarder: tearing down UDP connection %v due to context done", epID(id))
+
+		pConn.cancel()
+		if err := pConn.conn.Close(); err != nil {
+			f.logger.Debug("forwarder: UDP inConn close error for %v: %v", epID(id), err)
+		}
+		if err := pConn.outConn.Close(); err != nil {
+			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
+		}
+
+		ep.Close()
+	}()
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -245,16 +264,7 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		txPackets = tcpStats.PacketsReceived.Value()
 	}
 
-	f.logger.Trace("Removed UDP connection %s (timeout) [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
-
-	pConn.cancel()
-	if err := pConn.conn.Close(); err != nil {
-		f.logger.Debug("forwarder: UDP inConn close error for %v: %v", epID(id), err)
-	}
-	if err := pConn.outConn.Close(); err != nil {
-		f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
-	}
-	ep.Close()
+	f.logger.Trace("Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
 
 	f.udpForwarder.Lock()
 	delete(f.udpForwarder.conns, id)
