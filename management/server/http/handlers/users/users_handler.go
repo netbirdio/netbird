@@ -314,7 +314,7 @@ func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID s
 		permissions.Modules = &modules
 	}
 
-	response.Permissions = permissions
+	response.Permissions = &permissions
 
 	return response
 }
