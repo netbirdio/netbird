@@ -398,6 +398,9 @@ jobs:
         store: [ 'sqlite', 'postgres' ]
     runs-on: ubuntu-22.04
     steps:
+      - name: Start Prometheus Pushgateway
+        run: docker run -d --name pushgateway -p 9091:9091 prom/pushgateway
+
       - name: Start Prometheus (for Pushgateway forwarding)
         run: |
           echo '
@@ -418,9 +421,6 @@ jobs:
             -v $PWD/prometheus.yml:/etc/prometheus/prometheus.yml \
             -p 9090:9090 \
             prom/prometheus
-
-      - name: Start Prometheus Pushgateway
-        run: docker run -d --name pushgateway -p 9091:9091 prom/pushgateway
 
       - name: Install Go
         uses: actions/setup-go@v5
