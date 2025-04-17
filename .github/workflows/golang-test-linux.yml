@@ -478,7 +478,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
           CI=true \
-          GIT_BRANCH=${{ github.head_ref }} \
+          GIT_BRANCH=${{ github.ref_name }} \
           go test -tags=benchmark \
             -run=^$ \
             -bench=. \
