@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
@@ -149,4 +150,21 @@ func BenchmarkDeleteUsers(b *testing.B) {
 			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationDelete)
 		})
 	}
+}
+
+func TestMain(m *testing.M) {
+	exitCode := m.Run()
+
+	if exitCode == 0 && os.Getenv("CI") == "true" {
+		runID := os.Getenv("GITHUB_RUN_ID")
+		err := push.New("http://localhost:9091", "api_benchmark").
+			Collector(testing_tools.BenchmarkDuration).
+			Grouping("ci_run", runID).
+			Push()
+		if err != nil {
+			log.Printf("Failed to push metrics: %v", err)
+		}
+	}
+
+	os.Exit(exitCode)
 }

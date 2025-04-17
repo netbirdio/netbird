@@ -16,7 +16,6 @@ import (
 
 	"github.com/golang-jwt/jwt"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -75,7 +74,7 @@ const (
 	OperationGetAll = "get_all"
 )
 
-var benchmarkDuration = prometheus.NewGaugeVec(
+var BenchmarkDuration = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "benchmark_duration_ms",
 		Help: "Benchmark duration per op in ms",
@@ -343,15 +342,8 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 
-	gauge := benchmarkDuration.WithLabelValues(storeEngine, module, operation, testCase, branch)
+	gauge := BenchmarkDuration.WithLabelValues(storeEngine, module, operation, testCase, branch)
 	gauge.Set(msPerOp)
-
-	if err := push.New("http://localhost:9091", "api_benchmark").
-		Collector(benchmarkDuration).
-		Grouping("ci_run", os.Getenv("GITHUB_RUN_ID")).
-		Push(); err != nil {
-		b.Fatalf("Could not push benchmark metric: %v", err)
-	}
 
 	b.ReportMetric(msPerOp, "ms/op")
 
