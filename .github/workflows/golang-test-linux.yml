@@ -403,19 +403,19 @@ jobs:
 
       - name: Start Prometheus (for Pushgateway forwarding)
         run: |
-          echo '
+          echo "
           global:
             scrape_interval: 15s
           scrape_configs:
-            - job_name: "pushgateway"
+            - job_name: 'pushgateway'
               static_configs:
-                - targets: ["localhost:9091"]
+                - targets: ['localhost:9091']
           remote_write:
-            - url: "${secrets.GRAFANA_URL}"
+            - url: ${{ secrets.GRAFANA_URL }}
               basic_auth:
-                username: "${secrets.GRAFANA_USER}"
-                password: "${secrets.GRAFANA_API_KEY}"
-          ' > prometheus.yml
+                username: ${{ secrets.GRAFANA_USER }}
+                password: ${{ secrets.GRAFANA_API_KEY }}
+          " > prometheus.yml
           
           docker run -d --name prometheus \
             -v $PWD/prometheus.yml:/etc/prometheus/prometheus.yml \
