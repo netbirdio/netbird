@@ -142,7 +142,7 @@ func (r *router) AddRouteFiltering(
 
 	var source firewall.Network
 	if len(sources) > 1 {
-		source.SetHash = firewall.NewPrefixSet(sources)
+		source.Set = firewall.NewPrefixSet(sources)
 	} else if len(sources) > 0 {
 		source.Prefix = sources[0]
 	}
@@ -853,11 +853,11 @@ func (r *router) applyNetwork(flag string, network firewall.Network, prefixes []
 	}
 
 	if network.IsSet() {
-		if _, err := r.ipsetCounter.Increment(network.SetHash.HashedName(), prefixes); err != nil {
+		if _, err := r.ipsetCounter.Increment(network.Set.HashedName(), prefixes); err != nil {
 			return nil, fmt.Errorf("create or get ipset: %w", err)
 		}
 
-		return []string{"-m", "set", matchSet, network.SetHash.HashedName(), direction}, nil
+		return []string{"-m", "set", matchSet, network.Set.HashedName(), direction}, nil
 	}
 	if network.IsPrefix() {
 		return []string{flag, network.Prefix.String()}, nil

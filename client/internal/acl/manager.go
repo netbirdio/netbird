@@ -225,7 +225,7 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 
 	var destination firewall.Network
 	if rule.IsDynamic {
-		destination.SetHash = firewall.NewDomainSet(domain.FromPunycodeList(rule.Domains))
+		destination.Set = firewall.NewDomainSet(domain.FromPunycodeList(rule.Domains))
 	} else {
 		prefix, err := netip.ParsePrefix(rule.Destination)
 		if err != nil {

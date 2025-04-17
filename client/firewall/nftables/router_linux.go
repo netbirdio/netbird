@@ -344,7 +344,7 @@ func (r *router) AddRouteFiltering(
 		source.Prefix = sources[0]
 	default:
 		// If there are multiple sources, use a set
-		source.SetHash = firewall.NewPrefixSet(sources)
+		source.Set = firewall.NewPrefixSet(sources)
 	}
 
 	sourceExp, err := r.applyNetwork(source, sources, true)
@@ -1356,10 +1356,11 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 }
 
 func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
-	nfset := &nftables.Set{
-		Name:  set.HashedName(),
-		Table: r.workTable,
+	nfset, err := r.conn.GetSetByName(r.workTable, set.HashedName())
+	if err != nil {
+		return fmt.Errorf("get set %s: %w", set.HashedName(), err)
 	}
+
 	elements := convertPrefixesToSet(prefixes)
 	if err := r.conn.SetAddElements(nfset, elements); err != nil {
 		return fmt.Errorf("add elements to set %s: %w", set.HashedName(), err)
@@ -1381,7 +1382,7 @@ func (r *router) applyNetwork(
 	isSource bool,
 ) ([]expr.Any, error) {
 	if network.IsSet() {
-		exprs, err := r.getIpSetExprs(network.SetHash, setPrefixes, isSource)
+		exprs, err := r.getIpSetExprs(network.Set, setPrefixes, isSource)
 		if err != nil {
 			return nil, fmt.Errorf("source: %w", err)
 		}

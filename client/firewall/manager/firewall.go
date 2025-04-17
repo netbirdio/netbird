@@ -61,8 +61,8 @@ const (
 
 // Network is a rule destination, either a set or a prefix
 type Network struct {
-	SetHash Set
-	Prefix  netip.Prefix
+	Set    Set
+	Prefix netip.Prefix
 }
 
 // String returns the string representation of the destination
@@ -71,17 +71,17 @@ func (d Network) String() string {
 		return d.Prefix.String()
 	}
 	if d.IsSet() {
-		return d.SetHash.HashedName()
+		return d.Set.HashedName()
 	}
 	return "<invalid network>"
 }
 
 // IsSet returns true if the destination is a set
 func (d Network) IsSet() bool {
-	return d.SetHash != Set{}
+	return d.Set != Set{}
 }
 
-// IsPrefix returns true if the destination is a prefix
+// IsPrefix returns true if the destination is a valid prefix
 func (d Network) IsPrefix() bool {
 	return d.Prefix.IsValid()
 }

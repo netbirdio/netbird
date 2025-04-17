@@ -139,7 +139,7 @@ func routeToRouterPair(route *route.Route) firewall.RouterPair {
 	source := getDefaultPrefix(route.Network)
 	destination := firewall.Network{}
 	if route.IsDynamic() {
-		destination.SetHash = firewall.NewDomainSet(route.Domains)
+		destination.Set = firewall.NewDomainSet(route.Domains)
 	} else {
 		destination.Prefix = route.Network.Masked()
 	}

@@ -49,10 +49,10 @@ var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
-type RouteRules []RouteRule
+type RouteRules []*RouteRule
 
 func (r RouteRules) Sort() {
-	slices.SortStableFunc(r, func(a, b RouteRule) int {
+	slices.SortStableFunc(r, func(a, b *RouteRule) int {
 		// Deny rules come first
 		if a.action == firewall.ActionDrop && b.action != firewall.ActionDrop {
 			return -1
@@ -216,7 +216,7 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, e
 	}
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
-	rule, err := m.AddRouteFiltering(
+	rule, err := m.addRouteFiltering(
 		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
 		firewall.Network{Prefix: wgPrefix},
@@ -414,6 +414,20 @@ func (m *Manager) AddRouteFiltering(
 	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.addRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
+}
+
+func (m *Manager) addRouteFiltering(
+	id []byte,
+	sources []netip.Prefix,
+	destination firewall.Network,
+	proto firewall.Protocol,
+	sPort, dPort *firewall.Port,
+	action firewall.Action,
+) (firewall.Rule, error) {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 	}
@@ -424,32 +438,36 @@ func (m *Manager) AddRouteFiltering(
 		id:      ruleID,
 		mgmtId:  id,
 		sources: sources,
-		// TODO: Fixme!
-		destination: destination.Prefix,
-		proto:       proto,
-		srcPort:     sPort,
-		dstPort:     dPort,
-		action:      action,
+		dstSet:  destination.Set,
+		proto:   proto,
+		srcPort: sPort,
+		dstPort: dPort,
+		action:  action,
+	}
+	if destination.IsPrefix() {
+		rule.destinations = []netip.Prefix{destination.Prefix}
 	}
 
-	m.mutex.Lock()
-	m.routeRules = append(m.routeRules, rule)
+	m.routeRules = append(m.routeRules, &rule)
 	m.routeRules.Sort()
-	m.mutex.Unlock()
 
 	return &rule, nil
 }
 
 func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.deleteRouteRule(rule)
+}
+
+func (m *Manager) deleteRouteRule(rule firewall.Rule) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.DeleteRouteRule(rule)
 	}
 
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	ruleID := rule.ID()
-	idx := slices.IndexFunc(m.routeRules, func(r RouteRule) bool {
+	idx := slices.IndexFunc(m.routeRules, func(r *RouteRule) bool {
 		return r.id == ruleID
 	})
 	if idx < 0 {
@@ -505,7 +523,8 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 	return m.nativeFirewall.DeleteDNATRule(rule)
 }
 
-// UpdateSet updates the set with the given prefixes
+// UpdateSet updates the rule destinations associated with the given set
+// by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.UpdateSet(set, prefixes)
@@ -514,7 +533,39 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// TODO: fixme
+	var matches []*RouteRule
+	for _, rule := range m.routeRules {
+		if rule.dstSet == set {
+			matches = append(matches, rule)
+		}
+	}
+
+	if len(matches) == 0 {
+		return fmt.Errorf("no route rule not found for set: %s", set)
+	}
+
+	destinations := matches[0].destinations
+	for _, prefix := range prefixes {
+		if prefix.Addr().Is4() {
+			destinations = append(destinations, prefix)
+		}
+	}
+
+	slices.SortFunc(destinations, func(a, b netip.Prefix) int {
+		cmp := a.Addr().Compare(b.Addr())
+		if cmp != 0 {
+			return cmp
+		}
+		return a.Bits() - b.Bits()
+	})
+
+	destinations = slices.Compact(destinations)
+
+	for _, rule := range matches {
+		rule.destinations = destinations
+	}
+	log.Debugf("updated set %s with to prefixes %v", set.HashedName(), destinations)
+
 	return nil
 }
 
@@ -997,8 +1048,15 @@ func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, proto firewall.Protocol
 	return nil, false
 }
 
-func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
-	if !rule.destination.Contains(dstAddr) {
+func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+	destMatched := false
+	for _, dst := range rule.destinations {
+		if dst.Contains(dstAddr) {
+			destMatched = true
+			break
+		}
+	}
+	if !destMatched {
 		return false
 	}
 
@@ -1141,7 +1199,7 @@ func (m *Manager) DisableRouting() error {
 	log.Debug("forwarder stopped")
 
 	if m.blockRule != nil {
-		if err := m.DeleteRouteRule(m.blockRule); err != nil {
+		if err := m.deleteRouteRule(m.blockRule); err != nil {
 			return fmt.Errorf("delete block rule: %w", err)
 		}
 		m.blockRule = nil
