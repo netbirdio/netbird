@@ -21,8 +21,8 @@ type Manager interface {
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
 
-	GetRolePermissions(ctx context.Context, role types.UserRole) (roles.Permissions, error)
-	GetPermissions(ctx context.Context) map[types.UserRole]roles.RolePermissions
+	GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error)
+	GetPermissions(ctx context.Context) []roles.RolePermissions
 }
 
 type managerImpl struct {
@@ -100,7 +100,7 @@ func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID strin
 	return nil
 }
 
-func (m *managerImpl) GetRolePermissions(ctx context.Context, role types.UserRole) (roles.Permissions, error) {
+func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error) {
 	roleMap, ok := roles.RolesMap[role]
 	if !ok {
 		return roles.Permissions{}, status.NewUserRoleNotFoundError(string(role))
@@ -119,6 +119,16 @@ func (m *managerImpl) GetRolePermissions(ctx context.Context, role types.UserRol
 	return permissions, nil
 }
 
-func (m *managerImpl) GetPermissions(ctx context.Context) map[types.UserRole]roles.RolePermissions {
-	return roles.RolesMap
+func (m *managerImpl) GetPermissions(ctx context.Context) []roles.RolePermissions {
+	permissions := make([]roles.RolePermissions, 0, len(roles.RolesMap))
+	for role, roleMap := range roles.RolesMap {
+		rolePermissions, _ := m.GetPermissionsByRole(ctx, role)
+
+		permissions = append(permissions, roles.RolePermissions{
+			Role:         role,
+			Permissions:  rolePermissions,
+			AutoAllowNew: roleMap.AutoAllowNew,
+		})
+	}
+	return permissions
 }
