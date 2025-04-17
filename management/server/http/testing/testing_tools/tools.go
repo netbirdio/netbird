@@ -99,14 +99,6 @@ type PerformanceMetrics struct {
 	MaxMsPerOpCICD  float64
 }
 
-var benchmarkDuration = prometheus.NewGaugeVec(
-	prometheus.GaugeOpts{
-		Name: "benchmark_duration_ms",
-		Help: "Benchmark duration per op in ms",
-	},
-	[]string{"store_engine", "module", "operation", "test_case", "branch"},
-)
-
 func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, account.Manager, chan struct{}) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
 	if err != nil {
@@ -343,11 +335,23 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 
-	gauge := benchmarkDuration.WithLabelValues(storeEngine, module, operation, testCase, branch)
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "benchmark_duration_ms",
+		Help: "Benchmark duration per op in ms",
+		ConstLabels: prometheus.Labels{
+			"store_engine": storeEngine,
+			"module":       module,
+			"operation":    operation,
+			"test_case":    testCase,
+			"branch":       branch,
+		},
+	})
+
 	gauge.Set(msPerOp)
 
 	if err := push.New("http://localhost:9091", "api_benchmark").
-		Collector(benchmarkDuration).
+		Collector(gauge).
+		Grouping("ci_run", os.Getenv("GITHUB_RUN_ID")).
 		Push(); err != nil {
 		b.Fatalf("Could not push benchmark metric: %v", err)
 	}
