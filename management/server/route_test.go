@@ -1850,7 +1850,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination: "192.168.0.0/16",
 				Protocol:    "all",
 				Port:        80,
-				RouteID:     "route1",
+				RouteID:     "route1:peerA",
 			},
 			{
 				SourceRanges: []string{
@@ -1862,7 +1862,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination: "192.168.0.0/16",
 				Protocol:    "all",
 				Port:        320,
-				RouteID:     "route1",
+				RouteID:     "route1:peerA",
 			},
 		}
 		additionalFirewallRule := []*types.RouteFirewallRule{
@@ -1874,7 +1874,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination: "192.168.10.0/16",
 				Protocol:    "tcp",
 				Port:        80,
-				RouteID:     "route4",
+				RouteID:     "route4:peerA",
 			},
 			{
 				SourceRanges: []string{
@@ -1883,7 +1883,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Action:      "accept",
 				Destination: "192.168.10.0/16",
 				Protocol:    "all",
-				RouteID:     "route4",
+				RouteID:     "route4:peerA",
 			},
 		}
 
@@ -1892,6 +1892,9 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		// peerD is also the routing peer for route1, should contain same routes firewall rules as peerA
 		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerD", validatedPeers)
 		assert.Len(t, routesFirewallRules, 2)
+		for _, rule := range expectedRoutesFirewallRules {
+			rule.RouteID = "route1:peerD"
+		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(expectedRoutesFirewallRules))
 
 		// peerE is a single routing peer for route 2 and route 3
@@ -1905,6 +1908,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination:  existingNetwork.String(),
 				Protocol:     "tcp",
 				PortRange:    types.RulePortRange{Start: 80, End: 350},
+				RouteID:      "route2",
 			},
 			{
 				SourceRanges: []string{"0.0.0.0/0"},
@@ -1913,6 +1917,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Protocol:     "all",
 				Domains:      domain.List{"example.com"},
 				IsDynamic:    true,
+				RouteID:      "route3",
 			},
 			{
 				SourceRanges: []string{"::/0"},
@@ -1921,6 +1926,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Protocol:     "all",
 				Domains:      domain.List{"example.com"},
 				IsDynamic:    true,
+				RouteID:      "route3",
 			},
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(expectedRoutesFirewallRules))
