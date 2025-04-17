@@ -75,6 +75,14 @@ const (
 	OperationGetAll = "get_all"
 )
 
+var benchmarkDuration = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "benchmark_duration_ms",
+		Help: "Benchmark duration per op in ms",
+	},
+	[]string{"store_engine", "module", "operation", "test_case", "branch"},
+)
+
 type TB interface {
 	Cleanup(func())
 	Helper()
@@ -335,19 +343,14 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "benchmark_duration_ms",
-		Help: "Benchmark duration per op in ms",
-		ConstLabels: prometheus.Labels{
-			"store_engine": storeEngine,
-			"module":       module,
-			"operation":    operation,
-			"test_case":    testCase,
-			"branch":       branch,
-		},
-	})
-
+	gauge := benchmarkDuration.WithLabelValues(storeEngine, module, operation, testCase, branch)
 	gauge.Set(msPerOp)
+
+	if err := push.New("http://localhost:9091", "api_benchmark").
+		Collector(benchmarkDuration).
+		Push(); err != nil {
+		fmt.Printf("Could not push benchmark metric: %v\n", err)
+	}
 
 	if err := push.New("http://localhost:9091", "api_benchmark").
 		Collector(gauge).
@@ -355,8 +358,6 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 		Push(); err != nil {
 		b.Fatalf("Could not push benchmark metric: %v", err)
 	}
-
-	b.Logf("ci_run %s", os.Getenv("GITHUB_RUN_ID"))
 
 	b.ReportMetric(msPerOp, "ms/op")
 
