@@ -1850,6 +1850,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination: "192.168.0.0/16",
 				Protocol:    "all",
 				Port:        80,
+				RouteID:     "route1",
 			},
 			{
 				SourceRanges: []string{
@@ -1861,6 +1862,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination: "192.168.0.0/16",
 				Protocol:    "all",
 				Port:        320,
+				RouteID:     "route1",
 			},
 		}
 		additionalFirewallRule := []*types.RouteFirewallRule{
@@ -1872,6 +1874,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination: "192.168.10.0/16",
 				Protocol:    "tcp",
 				Port:        80,
+				RouteID:     "route4",
 			},
 			{
 				SourceRanges: []string{
@@ -1880,6 +1883,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Action:      "accept",
 				Destination: "192.168.10.0/16",
 				Protocol:    "all",
+				RouteID:     "route4",
 			},
 		}
 
@@ -2676,6 +2680,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Destination: "192.168.0.0/16",
 				Protocol:    "all",
 				Port:        80,
+				RouteID:     "resource2:peerA",
 			},
 			{
 				SourceRanges: []string{
@@ -2687,6 +2692,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Destination: "192.168.0.0/16",
 				Protocol:    "all",
 				Port:        320,
+				RouteID:     "resource2:peerA",
 			},
 		}
 
@@ -2701,6 +2707,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Port:        80,
 				Domains:     domain.List{"example.com"},
 				IsDynamic:   true,
+				RouteID:     "resource4:peerA",
 			},
 			{
 				SourceRanges: []string{
@@ -2711,6 +2718,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Protocol:    "all",
 				Domains:     domain.List{"example.com"},
 				IsDynamic:   true,
+				RouteID:     "resource4:peerA",
 			},
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(append(expectedFirewallRules, additionalFirewallRules...)))
@@ -2719,6 +2727,9 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		_, routes, sourcePeers = account.GetNetworkResourcesRoutesToSync(context.Background(), "peerD", resourcePoliciesMap, resourceRoutersMap)
 		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerD"], validatedPeers, routes, resourcePoliciesMap)
 		assert.Len(t, firewallRules, 2)
+		for _, rule := range expectedFirewallRules {
+			rule.RouteID = "resource2:peerD"
+		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
 		assert.Len(t, sourcePeers, 3)
 
@@ -2736,6 +2747,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Destination:  "10.10.10.0/24",
 				Protocol:     "tcp",
 				PortRange:    types.RulePortRange{Start: 80, End: 350},
+				RouteID:      "resource1:peerE",
 			},
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
@@ -2758,6 +2770,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Destination:  "10.12.12.1/32",
 				Protocol:     "tcp",
 				Port:         8080,
+				RouteID:      "resource5:peerL",
 			},
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
