@@ -485,12 +485,6 @@ jobs:
             -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,GIT_BRANCH' \
             -timeout 20m ./management/...
 
-      - name: Check Pushgateway contents
-        run: curl -s http://localhost:9091/metrics
-
-      - name: Dump Prometheus targets
-        run: curl -s http://localhost:9090/api/v1/targets | jq .
-
       - name: Dump Prometheus logs
         run: docker logs prometheus
 

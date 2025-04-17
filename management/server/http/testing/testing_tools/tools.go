@@ -352,8 +352,6 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 		b.Fatalf("Could not push benchmark metric: %v", err)
 	}
 
-	b.Logf("Benchmark %s: %s took %v, %d ops, %f ms/op", testCase, module, duration, b.N, msPerOp)
-
 	b.ReportMetric(msPerOp, "ms/op")
 
 }
