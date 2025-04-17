@@ -16,7 +16,7 @@ type NetworksAPI struct {
 // List list all networks
 // See more: https://docs.netbird.io/api/resources/networks#list-all-networks
 func (a *NetworksAPI) List(ctx context.Context) ([]api.Network, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/networks", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/networks", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +28,7 @@ func (a *NetworksAPI) List(ctx context.Context) ([]api.Network, error) {
 // Get get network info
 // See more: https://docs.netbird.io/api/resources/networks#retrieve-a-network
 func (a *NetworksAPI) Get(ctx context.Context, networkID string) (*api.Network, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/networks/"+networkID, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/networks/"+networkID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (a *NetworksAPI) Create(ctx context.Context, request api.PostApiNetworksJSO
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "POST", "/api/networks", bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/networks", bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (a *NetworksAPI) Update(ctx context.Context, networkID string, request api.
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "PUT", "/api/networks/"+networkID, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/networks/"+networkID, bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (a *NetworksAPI) Update(ctx context.Context, networkID string, request api.
 // Delete delete network
 // See more: https://docs.netbird.io/api/resources/networks#delete-a-network
 func (a *NetworksAPI) Delete(ctx context.Context, networkID string) error {
-	resp, err := a.c.newRequest(ctx, "DELETE", "/api/networks/"+networkID, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/networks/"+networkID, nil)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (a *NetworksAPI) Resources(networkID string) *NetworkResourcesAPI {
 // List list all resources in networks
 // See more: https://docs.netbird.io/api/resources/networks#list-all-network-resources
 func (a *NetworkResourcesAPI) List(ctx context.Context) ([]api.NetworkResource, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/networks/"+a.networkID+"/resources", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/networks/"+a.networkID+"/resources", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func (a *NetworkResourcesAPI) List(ctx context.Context) ([]api.NetworkResource, 
 // Get get network resource info
 // See more: https://docs.netbird.io/api/resources/networks#retrieve-a-network-resource
 func (a *NetworkResourcesAPI) Get(ctx context.Context, networkResourceID string) (*api.NetworkResource, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/networks/"+a.networkID+"/resources/"+networkResourceID, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/networks/"+a.networkID+"/resources/"+networkResourceID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (a *NetworkResourcesAPI) Create(ctx context.Context, request api.PostApiNet
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "POST", "/api/networks/"+a.networkID+"/resources", bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/networks/"+a.networkID+"/resources", bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (a *NetworkResourcesAPI) Update(ctx context.Context, networkResourceID stri
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "PUT", "/api/networks/"+a.networkID+"/resources/"+networkResourceID, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/networks/"+a.networkID+"/resources/"+networkResourceID, bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (a *NetworkResourcesAPI) Update(ctx context.Context, networkResourceID stri
 // Delete delete network resource
 // See more: https://docs.netbird.io/api/resources/networks#delete-a-network-resource
 func (a *NetworkResourcesAPI) Delete(ctx context.Context, networkResourceID string) error {
-	resp, err := a.c.newRequest(ctx, "DELETE", "/api/networks/"+a.networkID+"/resources/"+networkResourceID, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/networks/"+a.networkID+"/resources/"+networkResourceID, nil)
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func (a *NetworksAPI) Routers(networkID string) *NetworkRoutersAPI {
 // List list all routers in networks
 // See more: https://docs.netbird.io/api/routers/networks#list-all-network-routers
 func (a *NetworkRoutersAPI) List(ctx context.Context) ([]api.NetworkRouter, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/networks/"+a.networkID+"/routers", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/networks/"+a.networkID+"/routers", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (a *NetworkRoutersAPI) List(ctx context.Context) ([]api.NetworkRouter, erro
 // Get get network router info
 // See more: https://docs.netbird.io/api/routers/networks#retrieve-a-network-router
 func (a *NetworkRoutersAPI) Get(ctx context.Context, networkRouterID string) (*api.NetworkRouter, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/networks/"+a.networkID+"/routers/"+networkRouterID, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/networks/"+a.networkID+"/routers/"+networkRouterID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +208,7 @@ func (a *NetworkRoutersAPI) Create(ctx context.Context, request api.PostApiNetwo
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "POST", "/api/networks/"+a.networkID+"/routers", bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/networks/"+a.networkID+"/routers", bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +224,7 @@ func (a *NetworkRoutersAPI) Update(ctx context.Context, networkRouterID string, 
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "PUT", "/api/networks/"+a.networkID+"/routers/"+networkRouterID, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/networks/"+a.networkID+"/routers/"+networkRouterID, bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func (a *NetworkRoutersAPI) Update(ctx context.Context, networkRouterID string, 
 // Delete delete network router
 // See more: https://docs.netbird.io/api/routers/networks#delete-a-network-router
 func (a *NetworkRoutersAPI) Delete(ctx context.Context, networkRouterID string) error {
-	resp, err := a.c.newRequest(ctx, "DELETE", "/api/networks/"+a.networkID+"/routers/"+networkRouterID, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/networks/"+a.networkID+"/routers/"+networkRouterID, nil)
 	if err != nil {
 		return err
 	}

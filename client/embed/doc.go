@@ -7,7 +7,7 @@ package embed
 //	client, err := embed.New(embed.Options{
 //	    DeviceName:    "my-service",
 //	    SetupKey:      os.Getenv("NB_SETUP_KEY"),
-//	    ManagementURL: os.Getenv("NB_MANAGEMENT_URL"),
+//	    managementURL: os.Getenv("NB_MANAGEMENT_URL"),
 //	})
 //	if err != nil {
 //	    log.Fatal(err)
@@ -41,7 +41,7 @@ package embed
 //	    client, err := netbird.New(netbird.Options{
 //	        DeviceName:    "http-server",
 //	        SetupKey:      os.Getenv("NB_SETUP_KEY"),
-//	        ManagementURL: os.Getenv("NB_MANAGEMENT_URL"),
+//	        managementURL: os.Getenv("NB_MANAGEMENT_URL"),
 //	        LogOutput:     io.Discard,
 //	    })
 //	    if err != nil {
@@ -113,7 +113,7 @@ package embed
 //	    client, err := netbird.New(netbird.Options{
 //	        DeviceName:    "http-client",
 //	        SetupKey:      os.Getenv("NB_SETUP_KEY"),
-//	        ManagementURL: os.Getenv("NB_MANAGEMENT_URL"),
+//	        managementURL: os.Getenv("NB_MANAGEMENT_URL"),
 //	        LogOutput:     io.Discard,
 //	    })
 //	    if err != nil {

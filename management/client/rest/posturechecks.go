@@ -16,7 +16,7 @@ type PostureChecksAPI struct {
 // List list all posture checks
 // See more: https://docs.netbird.io/api/resources/posture-checks#list-all-posture-checks
 func (a *PostureChecksAPI) List(ctx context.Context) ([]api.PostureCheck, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/posture-checks", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/posture-checks", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +28,7 @@ func (a *PostureChecksAPI) List(ctx context.Context) ([]api.PostureCheck, error)
 // Get get posture check info
 // See more: https://docs.netbird.io/api/resources/posture-checks#retrieve-a-posture-check
 func (a *PostureChecksAPI) Get(ctx context.Context, postureCheckID string) (*api.PostureCheck, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/posture-checks/"+postureCheckID, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/posture-checks/"+postureCheckID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (a *PostureChecksAPI) Create(ctx context.Context, request api.PostApiPostur
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "POST", "/api/posture-checks", bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/posture-checks", bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (a *PostureChecksAPI) Update(ctx context.Context, postureCheckID string, re
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "PUT", "/api/posture-checks/"+postureCheckID, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/posture-checks/"+postureCheckID, bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (a *PostureChecksAPI) Update(ctx context.Context, postureCheckID string, re
 // Delete delete posture check
 // See more: https://docs.netbird.io/api/resources/posture-checks#delete-a-posture-check
 func (a *PostureChecksAPI) Delete(ctx context.Context, postureCheckID string) error {
-	resp, err := a.c.newRequest(ctx, "DELETE", "/api/posture-checks/"+postureCheckID, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/posture-checks/"+postureCheckID, nil)
 	if err != nil {
 		return err
 	}
