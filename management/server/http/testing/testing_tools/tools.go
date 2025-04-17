@@ -121,9 +121,9 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	geoMock := &geolocation.Mock{}
 	validatorMock := server.MocIntegratedValidator{}
 	proxyController := integrations.NewController(store)
-	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
-	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager)
+	usersManager := users.NewManager(store, permissionsManager)
+	settingsManager := settings.NewManager(store, usersManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager)
 	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
@@ -144,7 +144,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	groupsManagerMock := groups.NewManagerMock()
 	peersManager := peers.NewManager(store, permissionsManager)
 
-	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager)
+	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, usersManager)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}

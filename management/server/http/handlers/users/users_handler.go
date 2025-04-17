@@ -11,6 +11,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -21,23 +23,26 @@ import (
 // handler is a handler that returns users of the account
 type handler struct {
 	accountManager account.Manager
+	usersManager   users.Manager
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router) {
-	userHandler := newHandler(accountManager)
+func AddEndpoints(accountManager account.Manager, usersManager users.Manager, router *mux.Router) {
+	userHandler := newHandler(accountManager, usersManager)
 	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/current", userHandler.getCurrentUser).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.updateUser).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.deleteUser).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users", userHandler.createUser).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/invite", userHandler.inviteUser).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/roles", userHandler.getRoles).Methods("GET", "OPTIONS")
 	addUsersTokensEndpoint(accountManager, router)
 }
 
 // newHandler creates a new UsersHandler HTTP handler
-func newHandler(accountManager account.Manager) *handler {
+func newHandler(accountManager account.Manager, usersManager users.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
+		usersManager:   usersManager,
 	}
 }
 
@@ -284,21 +289,66 @@ func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userID))
 }
 
+func (h *handler) getRoles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	accountID, userID := userAuth.AccountId, userAuth.UserId
+
+	roles, err := h.usersManager.GetRoles(ctx, accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toRolesResponse(roles))
+}
+
+func toRolesResponse(roles []roles.RolePermissions) []api.RolePermissions {
+	result := make([]api.RolePermissions, 0, len(roles))
+
+	for _, permissions := range roles {
+		rolePermissions := api.RolePermissions{
+			Role:    string(permissions.Role),
+			Default: toOperationsMapResponse(permissions.AutoAllowNew),
+			Modules: toModulesMapResponse(permissions.Permissions),
+		}
+		result = append(result, rolePermissions)
+	}
+	return result
+}
+
+func toOperationsMapResponse(operations map[operations.Operation]bool) map[string]bool {
+	result := make(map[string]bool)
+	for op, val := range operations {
+		result[string(op)] = val
+	}
+	return result
+}
+
+func toModulesMapResponse(permissions roles.Permissions) map[string]map[string]bool {
+	// stringify modules and operations keys
+	modules := make(map[string]map[string]bool)
+	for module, operations := range permissions {
+		modules[string(module)] = toOperationsMapResponse(operations)
+	}
+	return modules
+}
+
 func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
 	response := toUserResponse(user.UserInfo, userID)
 
-	// stringify modules and operations keys
-	modules := make(map[string]map[string]bool)
-	for module, operations := range user.Permissions {
-		modules[string(module)] = make(map[string]bool)
-		for op, val := range operations {
-			modules[string(module)][string(op)] = val
-		}
-	}
-
 	response.Permissions = &api.UserPermissions{
 		IsRestricted: user.Restricted,
-		Modules:      modules,
+		Modules:      toModulesMapResponse(user.Permissions),
 	}
 
 	return response

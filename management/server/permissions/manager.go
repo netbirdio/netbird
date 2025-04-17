@@ -22,6 +22,7 @@ type Manager interface {
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
 
 	GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error)
+	GetPermissions(ctx context.Context) []roles.RolePermissions
 }
 
 type managerImpl struct {
@@ -116,4 +117,18 @@ func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserR
 	}
 
 	return permissions, nil
+}
+
+func (m *managerImpl) GetPermissions(ctx context.Context) []roles.RolePermissions {
+	permissions := make([]roles.RolePermissions, 0, len(roles.RolesMap))
+	for role, roleMap := range roles.RolesMap {
+		rolePermissions, _ := m.GetPermissionsByRole(ctx, role)
+
+		permissions = append(permissions, roles.RolePermissions{
+			Role:         role,
+			Permissions:  rolePermissions,
+			AutoAllowNew: roleMap.AutoAllowNew,
+		})
+	}
+	return permissions
 }

@@ -203,7 +203,7 @@ var (
 			}
 
 			permissionsManager := integrations.InitPermissionsManager(store)
-			userManager := users.NewManager(store)
+			userManager := users.NewManager(store, permissionsManager)
 			extraSettingsManager := integrations.NewManager(eventStore)
 			settingsManager := settings.NewManager(store, userManager, extraSettingsManager, permissionsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
@@ -275,8 +275,9 @@ var (
 			resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, accountManager)
 			routersManager := routers.NewManager(store, permissionsManager, accountManager)
 			networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, accountManager)
+			usersManager := users.NewManager(store, permissionsManager)
 
-			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, integratedPeerValidator, proxyController, permissionsManager, peersManager, settingsManager)
+			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, integratedPeerValidator, proxyController, permissionsManager, peersManager, settingsManager, usersManager)
 
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
