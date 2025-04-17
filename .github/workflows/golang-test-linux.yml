@@ -485,9 +485,6 @@ jobs:
             -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,GIT_BRANCH' \
             -timeout 20m ./management/...
 
-      - name: Dump Prometheus logs
-        run: docker logs prometheus
-
   api_integration_test:
     name: "Management / Integration"
     needs: [ build-cache ]
