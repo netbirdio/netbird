@@ -21,7 +21,7 @@ type Manager interface {
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
 
-	GetRolePermissions(ctx context.Context, role types.UserRole) (roles.Permissions, error)
+	GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error)
 }
 
 type managerImpl struct {
@@ -99,7 +99,7 @@ func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID strin
 	return nil
 }
 
-func (m *managerImpl) GetRolePermissions(ctx context.Context, role types.UserRole) (roles.Permissions, error) {
+func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error) {
 	roleMap, ok := roles.RolesMap[role]
 	if !ok {
 		return roles.Permissions{}, status.NewUserRoleNotFoundError(string(role))
