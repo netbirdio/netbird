@@ -39,10 +39,10 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // GetPermissions mocks base method.
-func (m *MockManager) GetPermissions(ctx context.Context) map[types.UserRole]roles.RolePermissions {
+func (m *MockManager) GetPermissions(ctx context.Context) []roles.RolePermissions {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPermissions", ctx)
-	ret0, _ := ret[0].(map[types.UserRole]roles.RolePermissions)
+	ret0, _ := ret[0].([]roles.RolePermissions)
 	return ret0
 }
 
