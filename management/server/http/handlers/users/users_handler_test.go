@@ -605,7 +605,7 @@ func TestCurrentUser(t *testing.T) {
 				AutoGroups:    []string{},
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
-				Permissions: api.UserPermissions{
+				Permissions: &api.UserPermissions{
 					IsRestricted: false,
 					Default: map[string]bool{
 						"read":   true,
@@ -630,7 +630,7 @@ func TestCurrentUser(t *testing.T) {
 				AutoGroups:    []string{},
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
-				Permissions: api.UserPermissions{
+				Permissions: &api.UserPermissions{
 					Default: map[string]bool{
 						"read":   false,
 						"create": false,
@@ -654,7 +654,7 @@ func TestCurrentUser(t *testing.T) {
 				AutoGroups:    []string{},
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
-				Permissions: api.UserPermissions{
+				Permissions: &api.UserPermissions{
 					IsRestricted: false,
 					Default: map[string]bool{
 						"read":   true,
@@ -687,7 +687,7 @@ func TestCurrentUser(t *testing.T) {
 				AutoGroups:    []string{},
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
-				Permissions: api.UserPermissions{
+				Permissions: &api.UserPermissions{
 					IsRestricted: true,
 					Default: map[string]bool{
 						"read":   false,
