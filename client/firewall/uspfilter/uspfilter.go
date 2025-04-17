@@ -99,6 +99,8 @@ type Manager struct {
 	forwarder   atomic.Pointer[forwarder.Forwarder]
 	logger      *nblog.Logger
 	flowLogger  nftypes.FlowLogger
+
+	blockRule firewall.Rule
 }
 
 // decoder for packages
@@ -201,27 +203,20 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		}
 	}
 
-	if err := m.blockInvalidRouted(iface); err != nil {
-		log.Errorf("failed to block invalid routed traffic: %v", err)
-	}
-
 	if err := iface.SetFilter(m); err != nil {
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
 	return m, nil
 }
 
-func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) error {
-	if m.forwarder.Load() == nil {
-		return nil
-	}
+func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, error) {
 	wgPrefix, err := netip.ParsePrefix(iface.Address().Network.String())
 	if err != nil {
-		return fmt.Errorf("parse wireguard network: %w", err)
+		return nil, fmt.Errorf("parse wireguard network: %w", err)
 	}
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
-	if _, err := m.AddRouteFiltering(
+	rule, err := m.AddRouteFiltering(
 		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
 		firewall.Network{Prefix: wgPrefix},
@@ -229,13 +224,14 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) error {
 		nil,
 		nil,
 		firewall.ActionDrop,
-	); err != nil {
-		return fmt.Errorf("block wg nte : %w", err)
+	)
+	if err != nil {
+		return nil, fmt.Errorf("block wg nte : %w", err)
 	}
 
 	// TODO: Block networks that we're a client of
 
-	return nil
+	return rule, nil
 }
 
 func (m *Manager) determineRouting() error {
@@ -1104,7 +1100,22 @@ func (m *Manager) EnableRouting() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.determineRouting()
+	if err := m.determineRouting(); err != nil {
+		return fmt.Errorf("determine routing: %w", err)
+	}
+
+	if m.forwarder.Load() == nil {
+		return nil
+	}
+
+	rule, err := m.blockInvalidRouted(m.wgIface)
+	if err != nil {
+		return fmt.Errorf("block invalid routed: %w", err)
+	}
+
+	m.blockRule = rule
+
+	return nil
 }
 
 func (m *Manager) DisableRouting() error {
@@ -1128,6 +1139,13 @@ func (m *Manager) DisableRouting() error {
 	m.forwarder.Store(nil)
 
 	log.Debug("forwarder stopped")
+
+	if m.blockRule != nil {
+		if err := m.DeleteRouteRule(m.blockRule); err != nil {
+			return fmt.Errorf("delete block rule: %w", err)
+		}
+		m.blockRule = nil
+	}
 
 	return nil
 }
