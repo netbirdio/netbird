@@ -165,6 +165,11 @@ func TestMain(m *testing.M) {
 			Push()
 		if err != nil {
 			log.Printf("Failed to push metrics: %v", err)
+		} else {
+			_ = push.New("http://localhost:9091", "api_benchmark").
+				Grouping("ci_run", runID).
+				Grouping("store_engine", storeEngine).
+				Delete()
 		}
 	}
 
