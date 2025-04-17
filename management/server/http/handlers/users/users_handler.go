@@ -328,45 +328,21 @@ func toRolesResponse(roles map[types.UserRole]roles.RolePermissions) []api.RoleP
 func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
 	response := toUserResponse(user.UserInfo, userID)
 
-	response.Permissions = &api.UserPermissions{
-		IsRestricted: user.Restricted,
-		Default:      toOperationsMapResponse(user.Permissions.AutoAllowNew),
-		Modules:      toModulesMapResponse(user.Permissions.Permissions),
-	}
-
-	return response
-}
-
-func toOperationsMapResponse[K ~string, V any](input map[K]V) map[string]V {
-	if len(input) == 0 {
-		return nil
-	}
-
-	result := make(map[string]V, len(input))
-	for k, v := range input {
-		result[string(k)] = v
-	}
-
-	return result
-}
-
-func toModulesMapResponse[K, L ~string](input map[K]map[L]bool) *map[string]map[string]bool {
-	if len(input) == 0 {
-		return nil
-	}
-
+	// stringify modules and operations keys
 	modules := make(map[string]map[string]bool)
-	for module, operations := range input {
-		if converted := toOperationsMapResponse(operations); len(converted) > 0 {
-			modules[string(module)] = converted
+	for module, operations := range user.Permissions {
+		modules[string(module)] = make(map[string]bool)
+		for op, val := range operations {
+			modules[string(module)][string(op)] = val
 		}
 	}
 
-	if len(modules) == 0 {
-		return nil
+	response.Permissions = &api.UserPermissions{
+		IsRestricted: user.Restricted,
+		Modules:      modules,
 	}
 
-	return &modules
+	return response
 }
 
 func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
