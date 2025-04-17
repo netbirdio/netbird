@@ -356,6 +356,8 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 		b.Fatalf("Could not push benchmark metric: %v", err)
 	}
 
+	b.Logf("ci_run %s", os.Getenv("GITHUB_RUN_ID"))
+
 	b.ReportMetric(msPerOp, "ms/op")
 
 }
