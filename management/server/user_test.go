@@ -13,6 +13,7 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -1619,7 +1620,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: roles.Owner,
+				Permissions: mergeRolePermissions(roles.Owner),
 			},
 		},
 		{
@@ -1639,7 +1640,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: roles.User,
+				Permissions: mergeRolePermissions(roles.User),
 			},
 		},
 		{
@@ -1659,7 +1660,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: roles.Admin,
+				Permissions: mergeRolePermissions(roles.Admin),
 			},
 		},
 		{
@@ -1679,7 +1680,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: roles.User,
+				Permissions: mergeRolePermissions(roles.User),
 				Restricted:  true,
 			},
 		},
@@ -1701,7 +1702,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: roles.Owner,
+				Permissions: mergeRolePermissions(roles.Owner),
 			},
 		},
 	}
@@ -1719,4 +1720,18 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			assert.EqualValues(t, tc.expectedResult, result)
 		})
 	}
+}
+
+func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
+	permissions := roles.Permissions{}
+
+	for k := range modules.All {
+		if rolePermissions, ok := role.Permissions[k]; ok {
+			permissions[k] = rolePermissions
+			continue
+		}
+		permissions[k] = role.AutoAllowNew
+	}
+
+	return permissions
 }

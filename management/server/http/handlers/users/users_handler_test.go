@@ -18,6 +18,7 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -149,7 +150,7 @@ func initUsersTestData() *handler {
 							NonDeletable:  false,
 							Issued:        "api",
 						},
-						Permissions: roles.Owner,
+						Permissions: mergeRolePermissions(roles.Owner),
 					}, nil
 				case "regular-user":
 					return &users.UserInfoWithPermissions{
@@ -163,7 +164,7 @@ func initUsersTestData() *handler {
 							NonDeletable:  false,
 							Issued:        "api",
 						},
-						Permissions: roles.User,
+						Permissions: mergeRolePermissions(roles.User),
 					}, nil
 
 				case "admin-user":
@@ -179,7 +180,7 @@ func initUsersTestData() *handler {
 							LastLogin:     time.Time{},
 							Issued:        "api",
 						},
-						Permissions: roles.Admin,
+						Permissions: mergeRolePermissions(roles.Admin),
 					}, nil
 				case "restricted-user":
 					return &users.UserInfoWithPermissions{
@@ -194,7 +195,7 @@ func initUsersTestData() *handler {
 							LastLogin:     time.Time{},
 							Issued:        "api",
 						},
-						Permissions: roles.User,
+						Permissions: mergeRolePermissions(roles.User),
 						Restricted:  true,
 					}, nil
 				}
@@ -606,13 +607,7 @@ func TestCurrentUser(t *testing.T) {
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
 				Permissions: &api.UserPermissions{
-					IsRestricted: false,
-					Default: map[string]bool{
-						"read":   true,
-						"create": true,
-						"update": true,
-						"delete": true,
-					},
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.Owner)),
 				},
 			},
 		},
@@ -631,12 +626,7 @@ func TestCurrentUser(t *testing.T) {
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
 				Permissions: &api.UserPermissions{
-					Default: map[string]bool{
-						"read":   false,
-						"create": false,
-						"update": false,
-						"delete": false,
-					},
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.User)),
 				},
 			},
 		},
@@ -655,21 +645,7 @@ func TestCurrentUser(t *testing.T) {
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
 				Permissions: &api.UserPermissions{
-					IsRestricted: false,
-					Default: map[string]bool{
-						"read":   true,
-						"create": true,
-						"update": true,
-						"delete": true,
-					},
-					Modules: ptr(map[string]map[string]bool{
-						"accounts": {
-							"read":   true,
-							"create": false,
-							"update": false,
-							"delete": false,
-						},
-					}),
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.Admin)),
 				},
 			},
 		},
@@ -689,12 +665,7 @@ func TestCurrentUser(t *testing.T) {
 				LastLogin:     ptr(time.Time{}),
 				Permissions: &api.UserPermissions{
 					IsRestricted: true,
-					Default: map[string]bool{
-						"read":   false,
-						"create": false,
-						"update": false,
-						"delete": false,
-					},
+					Modules:      stringifyPermissionsKeys(mergeRolePermissions(roles.User)),
 				},
 			},
 		},
@@ -728,4 +699,29 @@ func TestCurrentUser(t *testing.T) {
 
 func ptr[T any, PT *T](x T) PT {
 	return &x
+}
+
+func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
+	permissions := roles.Permissions{}
+
+	for k := range modules.All {
+		if rolePermissions, ok := role.Permissions[k]; ok {
+			permissions[k] = rolePermissions
+			continue
+		}
+		permissions[k] = role.AutoAllowNew
+	}
+
+	return permissions
+}
+
+func stringifyPermissionsKeys(permissions roles.Permissions) map[string]map[string]bool {
+	modules := make(map[string]map[string]bool)
+	for module, operations := range permissions {
+		modules[string(module)] = make(map[string]bool)
+		for op, val := range operations {
+			modules[string(module)][string(op)] = val
+		}
+	}
+	return modules
 }
