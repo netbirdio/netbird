@@ -20,6 +20,8 @@ type Manager interface {
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
+
+	GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error)
 }
 
 type managerImpl struct {
@@ -95,4 +97,23 @@ func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID strin
 		return status.NewUserNotPartOfAccountError()
 	}
 	return nil
+}
+
+func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error) {
+	roleMap, ok := roles.RolesMap[role]
+	if !ok {
+		return roles.Permissions{}, status.NewUserRoleNotFoundError(string(role))
+	}
+
+	permissions := roles.Permissions{}
+
+	for k := range modules.All {
+		if rolePermissions, ok := roleMap.Permissions[k]; ok {
+			permissions[k] = rolePermissions
+			continue
+		}
+		permissions[k] = roleMap.AutoAllowNew
+	}
+
+	return permissions, nil
 }

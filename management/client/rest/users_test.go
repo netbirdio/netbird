@@ -30,11 +30,8 @@ var (
 		Issued:        ptr("api"),
 		LastLogin:     &time.Time{},
 		Name:          "M. Essam",
-		Permissions: &api.UserPermissions{
-			DashboardView: ptr(api.UserPermissionsDashboardViewFull),
-		},
-		Role:   "user",
-		Status: api.UserStatusActive,
+		Role:          "user",
+		Status:        api.UserStatusActive,
 	}
 )
 

@@ -59,11 +59,6 @@ type UserInfo struct {
 	LastLogin            time.Time                                  `json:"last_login"`
 	Issued               string                                     `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
-	Permissions          UserPermissions                            `json:"permissions"`
-}
-
-type UserPermissions struct {
-	DashboardView string `json:"dashboard_view"`
 }
 
 // User represents a user of the system
@@ -126,19 +121,16 @@ func (u *User) IsRegularUser() bool {
 	return !u.HasAdminPower() && !u.IsServiceUser
 }
 
+// IsRestrictable checks whether a user is in a restrictable role.
+func (u *User) IsRestrictable() bool {
+	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin
+}
+
 // ToUserInfo converts a User object to a UserInfo object.
-func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo, error) {
+func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
-	}
-
-	dashboardViewPermissions := "full"
-	if !u.HasAdminPower() {
-		dashboardViewPermissions = "limited"
-		if settings.RegularUsersViewBlocked {
-			dashboardViewPermissions = "blocked"
-		}
 	}
 
 	if userData == nil {
@@ -153,9 +145,6 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 			IsBlocked:     u.Blocked,
 			LastLogin:     u.GetLastLogin(),
 			Issued:        u.Issued,
-			Permissions: UserPermissions{
-				DashboardView: dashboardViewPermissions,
-			},
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -178,9 +167,6 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 		IsBlocked:     u.Blocked,
 		LastLogin:     u.GetLastLogin(),
 		Issued:        u.Issued,
-		Permissions: UserPermissions{
-			DashboardView: dashboardViewPermissions,
-		},
 	}, nil
 }
 

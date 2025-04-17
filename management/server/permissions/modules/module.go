@@ -17,3 +17,19 @@ const (
 	SetupKeys   Module = "setup_keys"
 	Pats        Module = "pats"
 )
+
+var All = map[Module]struct{}{
+	Networks:    {},
+	Peers:       {},
+	Groups:      {},
+	Settings:    {},
+	Accounts:    {},
+	Dns:         {},
+	Nameservers: {},
+	Events:      {},
+	Policies:    {},
+	Routes:      {},
+	Users:       {},
+	SetupKeys:   {},
+	Pats:        {},
+}
