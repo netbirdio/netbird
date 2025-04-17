@@ -328,7 +328,7 @@ func toRolesResponse(roles map[types.UserRole]roles.RolePermissions) []api.RoleP
 func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
 	response := toUserResponse(user.UserInfo, userID)
 
-	response.Permissions = api.UserPermissions{
+	response.Permissions = &api.UserPermissions{
 		IsRestricted: user.Restricted,
 		Default:      toOperationsMapResponse(user.Permissions.AutoAllowNew),
 		Modules:      toModulesMapResponse(user.Permissions.Permissions),

@@ -188,7 +188,6 @@ components:
         - auto_groups
         - status
         - is_blocked
-        - permissions
     UserPermissions:
       type: object
       properties:
