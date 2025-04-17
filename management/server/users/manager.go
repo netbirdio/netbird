@@ -14,7 +14,7 @@ import (
 
 type Manager interface {
 	GetUser(ctx context.Context, userID string) (*types.User, error)
-	GetRoles(ctx context.Context, accountId, userId string) (map[types.UserRole]roles.RolePermissions, error)
+	GetRoles(ctx context.Context, accountId, userId string) ([]roles.RolePermissions, error)
 }
 
 type managerImpl struct {
@@ -33,7 +33,7 @@ func (m *managerImpl) GetUser(ctx context.Context, userID string) (*types.User, 
 	return m.store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 }
 
-func (m *managerImpl) GetRoles(ctx context.Context, accountId, userId string) (map[types.UserRole]roles.RolePermissions, error) {
+func (m *managerImpl) GetRoles(ctx context.Context, accountId, userId string) ([]roles.RolePermissions, error) {
 	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthShare, userId)
 	if err != nil {
 		return nil, err

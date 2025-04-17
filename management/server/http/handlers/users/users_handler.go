@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -311,7 +312,7 @@ func (h *handler) getRoles(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toRolesResponse(roles))
 }
 
-func toRolesResponse(roles map[types.UserRole]roles.RolePermissions) []api.RolePermissions {
+func toRolesResponse(roles []roles.RolePermissions) []api.RolePermissions {
 	result := make([]api.RolePermissions, 0, len(roles))
 
 	for _, permissions := range roles {
@@ -325,21 +326,29 @@ func toRolesResponse(roles map[types.UserRole]roles.RolePermissions) []api.RoleP
 	return result
 }
 
+func toOperationsMapResponse(operations map[operations.Operation]bool) map[string]bool {
+	result := make(map[string]bool)
+	for op, val := range operations {
+		result[string(op)] = val
+	}
+	return result
+}
+
+func toModulesMapResponse(permissions roles.Permissions) map[string]map[string]bool {
+	// stringify modules and operations keys
+	modules := make(map[string]map[string]bool)
+	for module, operations := range permissions {
+		modules[string(module)] = toOperationsMapResponse(operations)
+	}
+	return modules
+}
+
 func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
 	response := toUserResponse(user.UserInfo, userID)
 
-	// stringify modules and operations keys
-	modules := make(map[string]map[string]bool)
-	for module, operations := range user.Permissions {
-		modules[string(module)] = make(map[string]bool)
-		for op, val := range operations {
-			modules[string(module)][string(op)] = val
-		}
-	}
-
 	response.Permissions = &api.UserPermissions{
 		IsRestricted: user.Restricted,
-		Modules:      modules,
+		Modules:      toModulesMapResponse(user.Permissions),
 	}
 
 	return response

@@ -1244,7 +1244,7 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, account
 		Restricted: user.IsRestrictable() && settings.RegularUsersViewBlocked,
 	}
 
-	permissions, err := am.permissionsManager.GetRolePermissions(ctx, user.Role)
+	permissions, err := am.permissionsManager.GetPermissionsByRole(ctx, user.Role)
 	if err == nil {
 		userWithPermissions.Permissions = permissions
 	}

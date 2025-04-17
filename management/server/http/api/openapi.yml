@@ -2042,6 +2042,7 @@ components:
               - write
       required:
         - default
+        - modules
         - role
   responses:
     not_found:
