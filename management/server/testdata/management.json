@@ -20,6 +20,11 @@
         "Secret": "c29tZV9wYXNzd29yZA==",
         "TimeBasedCredentials": true
     },
+    "Relay":{
+      "Addresses":["rel://test.com:3535"],
+      "CredentialsTTL":"2h",
+      "Secret":"netbird"
+  },
     "Signal": {
         "Proto": "http",
         "URI": "signal.netbird.io:10000",

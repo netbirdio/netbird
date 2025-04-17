@@ -365,7 +365,7 @@ func toBytes(s string) (int64, error) {
 
 func getFwmark() int {
 	if nbnet.AdvancedRouting() {
-		return nbnet.NetbirdFwmark
+		return nbnet.ControlPlaneMark
 	}
 	return 0
 }

@@ -9,7 +9,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 func isEnabled() bool {
@@ -19,21 +23,12 @@ func isEnabled() bool {
 
 // GetEvents returns a list of activity events of an account
 func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Events, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !(user.HasAdminPower() || user.IsServiceUser) {
-		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view events")
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	events, err := am.eventStore.Get(ctx, accountID, 0, 10000, true)
@@ -58,6 +53,11 @@ func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userI
 		filtered = append(filtered, event)
 	}
 
+	err = am.fillEventsWithUserInfo(ctx, events, accountID, userID)
+	if err != nil {
+		return nil, err
+	}
+
 	return filtered, nil
 }
 
@@ -78,4 +78,157 @@ func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, ta
 			}
 		}()
 	}
+}
+
+type eventUserInfo struct {
+	email     string
+	name      string
+	accountId string
+}
+
+func (am *DefaultAccountManager) fillEventsWithUserInfo(ctx context.Context, events []*activity.Event, accountId string, userId string) error {
+	eventUserInfo, err := am.getEventsUserInfo(ctx, events, accountId, userId)
+	if err != nil {
+		return err
+	}
+
+	for _, event := range events {
+		if !fillEventInitiatorInfo(eventUserInfo, event) {
+			log.WithContext(ctx).Warnf("failed to resolve user info for initiator: %s", event.InitiatorID)
+		}
+
+		fillEventTargetInfo(eventUserInfo, event)
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events []*activity.Event, accountId string, userId string) (map[string]eventUserInfo, error) {
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	// @note check whether using a external initiator user here is an issue
+	userInfos, err := am.BuildUserInfosForAccount(ctx, accountId, userId, accountUsers)
+	if err != nil {
+		return nil, err
+	}
+
+	eventUserInfos := make(map[string]eventUserInfo)
+	for i, k := range userInfos {
+		eventUserInfos[i] = eventUserInfo{
+			email:     k.Email,
+			name:      k.Name,
+			accountId: accountId,
+		}
+	}
+
+	externalUserIds := []string{}
+	for _, event := range events {
+		if _, ok := eventUserInfos[event.InitiatorID]; ok {
+			continue
+		}
+
+		if event.InitiatorID == activity.SystemInitiator ||
+			event.InitiatorID == accountId ||
+			event.Activity == activity.PeerAddedWithSetupKey {
+			// @todo other events to be excluded if never initiated by a user
+			continue
+		}
+
+		externalUserIds = append(externalUserIds, event.InitiatorID)
+	}
+
+	if len(externalUserIds) == 0 {
+		return eventUserInfos, nil
+	}
+
+	return am.getEventsExternalUserInfo(ctx, externalUserIds, eventUserInfos, userId)
+}
+
+func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, externalUserIds []string, eventUserInfos map[string]eventUserInfo, userId string) (map[string]eventUserInfo, error) {
+	externalAccountId := ""
+	fetched := make(map[string]struct{})
+	externalUsers := []*types.User{}
+	for _, id := range externalUserIds {
+		if _, ok := fetched[id]; ok {
+			continue
+		}
+
+		externalUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, id)
+		if err != nil {
+			// @todo consider logging
+			continue
+		}
+
+		if externalAccountId != "" && externalAccountId != externalUser.AccountID {
+			return nil, fmt.Errorf("multiple external user accounts in events")
+		}
+
+		if externalAccountId == "" {
+			externalAccountId = externalUser.AccountID
+		}
+
+		fetched[id] = struct{}{}
+		externalUsers = append(externalUsers, externalUser)
+	}
+
+	// if we couldn't determine an account, return what we have
+	if externalAccountId == "" {
+		log.WithContext(ctx).Warnf("failed to determine external user account from users: %v", externalUserIds)
+		return eventUserInfos, nil
+	}
+
+	externalUserInfos, err := am.BuildUserInfosForAccount(ctx, externalAccountId, userId, externalUsers)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, k := range externalUserInfos {
+		eventUserInfos[i] = eventUserInfo{
+			email:     k.Email,
+			name:      k.Name,
+			accountId: externalAccountId,
+		}
+	}
+
+	return eventUserInfos, nil
+}
+
+func fillEventTargetInfo(eventUserInfo map[string]eventUserInfo, event *activity.Event) {
+	userInfo, ok := eventUserInfo[event.TargetID]
+	if !ok {
+		return
+	}
+
+	if event.Meta == nil {
+		event.Meta = make(map[string]any)
+	}
+
+	event.Meta["email"] = userInfo.email
+	event.Meta["username"] = userInfo.name
+}
+
+func fillEventInitiatorInfo(eventUserInfo map[string]eventUserInfo, event *activity.Event) bool {
+	userInfo, ok := eventUserInfo[event.InitiatorID]
+	if !ok {
+		return false
+	}
+
+	if event.InitiatorEmail == "" {
+		event.InitiatorEmail = userInfo.email
+	}
+
+	if event.InitiatorName == "" {
+		event.InitiatorName = userInfo.name
+	}
+
+	if event.AccountID != userInfo.accountId {
+		if event.Meta == nil {
+			event.Meta = make(map[string]any)
+		}
+
+		event.Meta["external"] = true
+	}
+	return true
 }

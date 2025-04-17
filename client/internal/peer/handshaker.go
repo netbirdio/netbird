@@ -152,8 +152,8 @@ func (h *Handshaker) sendOffer() error {
 		IceCredentials:  IceCredentials{iceUFrag, icePwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassPubKey,
-		RosenpassAddr:   h.config.RosenpassAddr,
+		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
+		RosenpassAddr:   h.config.RosenpassConfig.Addr,
 	}
 
 	addr, err := h.relay.RelayInstanceAddress()
@@ -172,8 +172,8 @@ func (h *Handshaker) sendAnswer() error {
 		IceCredentials:  IceCredentials{uFrag, pwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassPubKey,
-		RosenpassAddr:   h.config.RosenpassAddr,
+		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
+		RosenpassAddr:   h.config.RosenpassConfig.Addr,
 	}
 	addr, err := h.relay.RelayInstanceAddress()
 	if err == nil {

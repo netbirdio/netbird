@@ -88,9 +88,21 @@ func CheckFwmarkSupport() bool {
 		log.Warnf("failed to dial with fwmark: %v", err)
 		return false
 	}
-	if err := conn.Close(); err != nil {
-		log.Warnf("failed to close connection: %v", err)
 
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Warnf("failed to close connection: %v", err)
+		}
+	}()
+
+	if err := conn.SetWriteDeadline(time.Now().Add(time.Millisecond * 100)); err != nil {
+		log.Warnf("failed to set write deadline: %v", err)
+		return false
+	}
+
+	if _, err := conn.Write([]byte("")); err != nil {
+		log.Warnf("failed to write to fwmark connection: %v", err)
+		return false
 	}
 
 	return true

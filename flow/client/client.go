@@ -13,10 +13,12 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/flow/proto"
 	"github.com/netbirdio/netbird/util/embeddedroots"
@@ -77,17 +79,24 @@ func (c *GRPCClient) Close() error {
 	defer c.streamMu.Unlock()
 
 	c.stream = nil
-	return c.clientConn.Close()
+	if err := c.clientConn.Close(); err != nil && !errors.Is(err, context.Canceled) {
+		return fmt.Errorf("close client connection: %w", err)
+	}
+
+	return nil
 }
 
 func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHandler func(msg *proto.FlowEventAck) error) error {
 	backOff := defaultBackoff(ctx, interval)
 	operation := func() error {
-		err := c.establishStreamAndReceive(ctx, msgHandler)
-		if err != nil {
+		if err := c.establishStreamAndReceive(ctx, msgHandler); err != nil {
+			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+				return fmt.Errorf("receive: %w: %w", err, context.Canceled)
+			}
 			log.Errorf("receive failed: %v", err)
+			return fmt.Errorf("receive: %w", err)
 		}
-		return err
+		return nil
 	}
 
 	if err := backoff.Retry(operation, backOff); err != nil {

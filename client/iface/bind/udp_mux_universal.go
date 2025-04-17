@@ -49,7 +49,7 @@ type UniversalUDPMuxParams struct {
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux
 func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDefault {
 	if params.Logger == nil {
-		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
+		params.Logger = getLogger()
 	}
 	if params.XORMappedAddrCacheTTL == 0 {
 		params.XORMappedAddrCacheTTL = time.Second * 25

@@ -75,12 +75,7 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 	}
 
 	// First remove any existing handler with same pattern (case-insensitive) and priority
-	for i := len(c.handlers) - 1; i >= 0; i-- {
-		if strings.EqualFold(c.handlers[i].OrigPattern, origPattern) && c.handlers[i].Priority == priority {
-			c.handlers = append(c.handlers[:i], c.handlers[i+1:]...)
-			break
-		}
-	}
+	c.removeEntry(origPattern, priority)
 
 	// Check if handler implements SubdomainMatcher interface
 	matchSubdomains := false
@@ -133,28 +128,18 @@ func (c *HandlerChain) RemoveHandler(pattern string, priority int) {
 
 	pattern = dns.Fqdn(pattern)
 
+	c.removeEntry(pattern, priority)
+}
+
+func (c *HandlerChain) removeEntry(pattern string, priority int) {
 	// Find and remove handlers matching both original pattern (case-insensitive) and priority
 	for i := len(c.handlers) - 1; i >= 0; i-- {
 		entry := c.handlers[i]
 		if strings.EqualFold(entry.OrigPattern, pattern) && entry.Priority == priority {
 			c.handlers = append(c.handlers[:i], c.handlers[i+1:]...)
-			return
+			break
 		}
 	}
-}
-
-// HasHandlers returns true if there are any handlers remaining for the given pattern
-func (c *HandlerChain) HasHandlers(pattern string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	pattern = strings.ToLower(dns.Fqdn(pattern))
-	for _, entry := range c.handlers {
-		if strings.EqualFold(entry.Pattern, pattern) {
-			return true
-		}
-	}
-	return false
 }
 
 func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {

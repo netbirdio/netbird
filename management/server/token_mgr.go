@@ -13,6 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/types"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	authv2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
 
@@ -32,8 +33,8 @@ type SecretsManager interface {
 // TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
 type TimeBasedAuthSecretsManager struct {
 	mux             sync.Mutex
-	turnCfg         *TURNConfig
-	relayCfg        *Relay
+	turnCfg         *types.TURNConfig
+	relayCfg        *types.Relay
 	turnHmacToken   *auth.TimedHMAC
 	relayHmacToken  *authv2.Generator
 	updateManager   *PeersUpdateManager
@@ -44,7 +45,7 @@ type TimeBasedAuthSecretsManager struct {
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *types.TURNConfig, relayCfg *types.Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,
@@ -221,7 +222,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		}
 	}
 
-	m.extendNetbirdConfig(ctx, accountID, update)
+	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
@@ -245,17 +246,18 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 		},
 	}
 
-	m.extendNetbirdConfig(ctx, accountID, update)
+	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
 }
 
-func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, accountID string, update *proto.SyncResponse) {
+func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, peerID, accountID string, update *proto.SyncResponse) {
 	extraSettings, err := m.settingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(update.NetbirdConfig, extraSettings)
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, update.NetbirdConfig, extraSettings)
+	update.NetbirdConfig = extendedConfig
 }

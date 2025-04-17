@@ -17,9 +17,12 @@ import (
 
 var (
 	userenv = syscall.NewLazyDLL("userenv.dll")
+	dnsapi  = syscall.NewLazyDLL("dnsapi.dll")
 
 	// https://learn.microsoft.com/en-us/windows/win32/api/userenv/nf-userenv-refreshpolicyex
 	refreshPolicyExFn = userenv.NewProc("RefreshPolicyEx")
+
+	dnsFlushResolverCacheFn = dnsapi.NewProc("DnsFlushResolverCache")
 )
 
 const (
@@ -97,9 +100,9 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 			continue
 		}
 		if !dConf.MatchOnly {
-			searchDomains = append(searchDomains, dConf.Domain)
+			searchDomains = append(searchDomains, strings.TrimSuffix(dConf.Domain, "."))
 		}
-		matchDomains = append(matchDomains, "."+dConf.Domain)
+		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
 	}
 
 	if len(matchDomains) != 0 {
@@ -114,6 +117,10 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 
 	if err := r.updateSearchDomains(searchDomains); err != nil {
 		return fmt.Errorf("update search domains: %w", err)
+	}
+
+	if err := r.flushDNSCache(); err != nil {
+		log.Errorf("failed to flush DNS cache: %v", err)
 	}
 
 	return nil
@@ -184,6 +191,26 @@ func (r *registryConfigurator) string() string {
 	return "registry"
 }
 
+func (r *registryConfigurator) flushDNSCache() error {
+	// dnsFlushResolverCacheFn.Call() may panic if the func is not found
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Errorf("Recovered from panic in flushDNSCache: %v", rec)
+		}
+	}()
+
+	ret, _, err := dnsFlushResolverCacheFn.Call()
+	if ret == 0 {
+		if err != nil && !errors.Is(err, syscall.Errno(0)) {
+			return fmt.Errorf("DnsFlushResolverCache failed: %w", err)
+		}
+		return fmt.Errorf("DnsFlushResolverCache failed")
+	}
+
+	log.Info("flushed DNS cache")
+	return nil
+}
+
 func (r *registryConfigurator) updateSearchDomains(domains []string) error {
 	if err := r.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, strings.Join(domains, ",")); err != nil {
 		return fmt.Errorf("update search domains: %w", err)
@@ -234,6 +261,10 @@ func (r *registryConfigurator) restoreHostDNS() error {
 
 	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey); err != nil {
 		return fmt.Errorf("remove interface registry key: %w", err)
+	}
+
+	if err := r.flushDNSCache(); err != nil {
+		log.Errorf("failed to flush DNS cache: %v", err)
 	}
 
 	return nil

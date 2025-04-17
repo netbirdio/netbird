@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net"
+	"net/url"
 	"testing"
 	"time"
 
@@ -11,19 +12,24 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	daemonProto "github.com/netbirdio/netbird/client/proto"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 )
@@ -83,6 +89,72 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	}
 }
 
+func TestServer_Up(t *testing.T) {
+	ctx := internal.CtxInitState(context.Background())
+
+	s := New(ctx, t.TempDir()+"/config.json", "console")
+
+	err := s.Start()
+	require.NoError(t, err)
+
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+	s.config = &internal.Config{
+		ManagementURL: u,
+	}
+
+	upCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	upReq := &daemonProto.UpRequest{}
+	_, err = s.Up(upCtx, upReq)
+
+	assert.Contains(t, err.Error(), "NeedsLogin")
+}
+
+type mockSubscribeEventsServer struct {
+	ctx        context.Context
+	sentEvents []*daemonProto.SystemEvent
+	grpc.ServerStream
+}
+
+func (m *mockSubscribeEventsServer) Send(event *daemonProto.SystemEvent) error {
+	m.sentEvents = append(m.sentEvents, event)
+	return nil
+}
+
+func (m *mockSubscribeEventsServer) Context() context.Context {
+	return m.ctx
+}
+
+func TestServer_SubcribeEvents(t *testing.T) {
+	ctx := internal.CtxInitState(context.Background())
+
+	s := New(ctx, t.TempDir()+"/config.json", "console")
+
+	err := s.Start()
+	require.NoError(t, err)
+
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+	s.config = &internal.Config{
+		ManagementURL: u,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	upReq := &daemonProto.SubscribeRequest{}
+	mockServer := &mockSubscribeEventsServer{
+		ctx:          ctx,
+		sentEvents:   make([]*daemonProto.SystemEvent, 0),
+		ServerStream: nil,
+	}
+	err = s.SubscribeEvents(upReq, mockServer)
+
+	assert.NoError(t, err)
+}
+
 type mockServer struct {
 	mgmtProto.ManagementServiceServer
 	counter *int
@@ -97,10 +169,10 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	t.Helper()
 	dataDir := t.TempDir()
 
-	config := &server.Config{
-		Stuns:      []*server.Host{},
-		TURNConfig: &server.TURNConfig{},
-		Signal: &server.Host{
+	config := &types.Config{
+		Stuns:      []*types.Host{},
+		TURNConfig: &types.TURNConfig{},
+		Signal: &types.Host{
 			Proto: "http",
 			URI:   signalAddr,
 		},
@@ -132,8 +204,9 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
 	if err != nil {
 		return nil, "", err
 	}

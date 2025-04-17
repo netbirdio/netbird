@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -244,13 +245,13 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, userID)
+	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	user, err := account.FindUser(userID)
+	user, err := h.accountManager.GetUserByID(r.Context(), userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -258,7 +259,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 
 	// If the user is regular user and does not own the peer
 	// with the given peerID return an empty list
-	if !user.HasAdminPower() && !user.IsServiceUser {
+	if !user.HasAdminPower() && !user.IsServiceUser && !userAuth.IsChild {
 		peer, ok := account.Peers[peerID]
 		if !ok {
 			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
