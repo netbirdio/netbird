@@ -1677,8 +1677,8 @@ type User struct {
 	LastLogin *time.Time `json:"last_login,omitempty"`
 
 	// Name User's name from idp provider
-	Name        string          `json:"name"`
-	Permissions UserPermissions `json:"permissions"`
+	Name        string           `json:"name"`
+	Permissions *UserPermissions `json:"permissions,omitempty"`
 
 	// Role User's NetBird account role
 	Role string `json:"role"`
