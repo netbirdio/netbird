@@ -33,7 +33,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 
 	t.Run("Generic posture check flow", func(t *testing.T) {
 		// regular users can not create checks
-		_, err = am.SavePostureChecks(context.Background(), account.Id, regularUserID, &posture.Checks{})
+		_, err = am.SavePostureChecks(context.Background(), account.Id, regularUserID, &posture.Checks{}, true)
 		assert.Error(t, err)
 
 		// regular users cannot list check
@@ -48,7 +48,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 					MinVersion: "0.26.0",
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		// admin users can list check
@@ -68,7 +68,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 					},
 				},
 			},
-		})
+		}, true)
 		assert.Error(t, err)
 
 		// admins can update posture checks
@@ -77,7 +77,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 				MinVersion: "0.27.0",
 			},
 		}
-		_, err = am.SavePostureChecks(context.Background(), account.Id, adminUserID, postureCheck)
+		_, err = am.SavePostureChecks(context.Background(), account.Id, adminUserID, postureCheck, true)
 		assert.NoError(t, err)
 
 		// users should not be able to delete posture checks
@@ -137,7 +137,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{},
 		},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -156,7 +156,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 			},
 		},
 	}
-	postureCheckA, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckA)
+	postureCheckA, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckA, true)
 	require.NoError(t, err)
 
 	postureCheckB := &posture.Checks{
@@ -177,7 +177,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		postureCheckB, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB)
+		postureCheckB, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB, true)
 		assert.NoError(t, err)
 
 		select {
@@ -200,7 +200,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 				MinVersion: "0.29.0",
 			},
 		}
-		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB)
+		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB, true)
 		assert.NoError(t, err)
 
 		select {
@@ -232,7 +232,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		policy, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+		policy, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 		assert.NoError(t, err)
 
 		select {
@@ -261,7 +261,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB)
+		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB, true)
 		assert.NoError(t, err)
 
 		select {
@@ -280,7 +280,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		}()
 
 		policy.SourcePostureChecks = []string{}
-		_, err := manager.SavePolicy(context.Background(), account.Id, userID, policy)
+		_, err := manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 		assert.NoError(t, err)
 
 		select {
@@ -308,7 +308,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB)
+	_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB, true)
 	assert.NoError(t, err)
 
 	// Updating linked posture check to policy with no peers should not trigger account peers update and not send peer update
@@ -325,7 +325,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 				},
 			},
 			SourcePostureChecks: []string{postureCheckB.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		done := make(chan struct{})
@@ -339,7 +339,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 				MinVersion: "0.29.0",
 			},
 		}
-		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB)
+		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB, true)
 		assert.NoError(t, err)
 
 		select {
@@ -369,7 +369,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 				},
 			},
 			SourcePostureChecks: []string{postureCheckB.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		done := make(chan struct{})
@@ -383,7 +383,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 				MinVersion: "0.29.0",
 			},
 		}
-		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB)
+		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB, true)
 		assert.NoError(t, err)
 
 		select {
@@ -408,7 +408,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 				},
 			},
 			SourcePostureChecks: []string{postureCheckB.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		done := make(chan struct{})
@@ -426,7 +426,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 				},
 			},
 		}
-		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB)
+		_, err = manager.SavePostureChecks(context.Background(), account.Id, userID, postureCheckB, true)
 		assert.NoError(t, err)
 
 		select {
@@ -465,7 +465,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 			NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.33.1"},
 		},
 	}
-	postureCheckA, err = manager.SavePostureChecks(context.Background(), account.Id, adminUserID, postureCheckA)
+	postureCheckA, err = manager.SavePostureChecks(context.Background(), account.Id, adminUserID, postureCheckA, true)
 	require.NoError(t, err, "failed to save postureCheckA")
 
 	postureCheckB := &posture.Checks{
@@ -475,7 +475,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 			NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.33.1"},
 		},
 	}
-	postureCheckB, err = manager.SavePostureChecks(context.Background(), account.Id, adminUserID, postureCheckB)
+	postureCheckB, err = manager.SavePostureChecks(context.Background(), account.Id, adminUserID, postureCheckB, true)
 	require.NoError(t, err, "failed to save postureCheckB")
 
 	policy := &types.Policy{
@@ -490,7 +490,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		SourcePostureChecks: []string{postureCheckA.ID},
 	}
 
-	policy, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy)
+	policy, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy, true)
 	require.NoError(t, err, "failed to save policy")
 
 	t.Run("posture check exists and is linked to policy with peers", func(t *testing.T) {
@@ -514,7 +514,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 	t.Run("posture check is linked to policy with no peers in source groups", func(t *testing.T) {
 		policy.Rules[0].Sources = []string{"groupB"}
 		policy.Rules[0].Destinations = []string{"groupA"}
-		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy)
+		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy, true)
 		require.NoError(t, err, "failed to update policy")
 
 		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
@@ -525,7 +525,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 	t.Run("posture check is linked to policy with no peers in destination groups", func(t *testing.T) {
 		policy.Rules[0].Sources = []string{"groupA"}
 		policy.Rules[0].Destinations = []string{"groupB"}
-		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy)
+		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy, true)
 		require.NoError(t, err, "failed to update policy")
 
 		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
@@ -546,7 +546,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 	t.Run("posture check is linked to policy with non-existent group", func(t *testing.T) {
 		policy.Rules[0].Sources = []string{"nonExistentGroup"}
 		policy.Rules[0].Destinations = []string{"nonExistentGroup"}
-		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy)
+		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy, true)
 		require.NoError(t, err, "failed to update policy")
 
 		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)

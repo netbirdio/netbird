@@ -149,11 +149,6 @@ func (a *Account) getRoutingPeerRoutes(ctx context.Context, peerID string) (enab
 		return enabledRoutes, disabledRoutes
 	}
 
-	// currently we support only linux routing peers
-	if peer.Meta.GoOS != "linux" {
-		return enabledRoutes, disabledRoutes
-	}
-
 	seenRoute := make(map[route.ID]struct{})
 
 	takeRoute := func(r *route.Route, id string) {

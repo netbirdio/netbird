@@ -52,6 +52,15 @@ type WgConfig struct {
 	PreSharedKey *wgtypes.Key
 }
 
+type RosenpassConfig struct {
+	// RosenpassPubKey is this peer's Rosenpass public key
+	PubKey []byte
+	// RosenpassPubKey is this peer's RosenpassAddr server address (IP:port)
+	Addr string
+
+	PermissiveMode bool
+}
+
 // ConnConfig is a peer Connection configuration
 type ConnConfig struct {
 	// Key is a public key of a remote peer
@@ -65,10 +74,7 @@ type ConnConfig struct {
 
 	LocalWgPort int
 
-	// RosenpassPubKey is this peer's Rosenpass public key
-	RosenpassPubKey []byte
-	// RosenpassPubKey is this peer's RosenpassAddr server address (IP:port)
-	RosenpassAddr string
+	RosenpassConfig RosenpassConfig
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
@@ -96,11 +102,14 @@ type Conn struct {
 
 	workerICE   *WorkerICE
 	workerRelay *WorkerRelay
+	wgWatcherWg sync.WaitGroup
 
 	connIDRelay          nbnet.ConnectionID
 	connIDICE            nbnet.ConnectionID
 	beforeAddPeerHooks   []nbnet.AddHookFunc
 	afterRemovePeerHooks []nbnet.RemoveHookFunc
+	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
+	rosenpassRemoteKey []byte
 
 	wgProxyICE   wgproxy.Proxy
 	wgProxyRelay wgproxy.Proxy
@@ -217,6 +226,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 // Close closes this peer Conn issuing a close event to the Conn closeCh
 func (conn *Conn) Close() {
 	conn.mu.Lock()
+	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
 
 	if !conn.opened {
@@ -376,6 +386,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	}
 
 	conn.workerRelay.DisableWgWatcher()
+	// todo consider to run conn.wgWatcherWg.Wait() here
 
 	if conn.wgProxyRelay != nil {
 		conn.wgProxyRelay.Pause()
@@ -385,7 +396,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		wgProxy.Work()
 	}
 
-	if err = conn.configureWGEndpoint(ep); err != nil {
+	if err = conn.configureWGEndpoint(ep, iceConnInfo.RosenpassPubKey); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
@@ -424,10 +435,15 @@ func (conn *Conn) onICEStateDisconnected() {
 		conn.dumpState.SwitchToRelay()
 		conn.wgProxyRelay.Work()
 
-		if err := conn.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr()); err != nil {
+		if err := conn.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), conn.rosenpassRemoteKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
-		conn.workerRelay.EnableWgWatcher(conn.ctx)
+
+		conn.wgWatcherWg.Add(1)
+		go func() {
+			defer conn.wgWatcherWg.Done()
+			conn.workerRelay.EnableWgWatcher(conn.ctx)
+		}()
 		conn.currentConnPriority = conntype.Relay
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
@@ -490,16 +506,22 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 
 	wgProxy.Work()
-	if err := conn.configureWGEndpoint(wgProxy.EndpointAddr()); err != nil {
+	if err := conn.configureWGEndpoint(wgProxy.EndpointAddr(), rci.rosenpassPubKey); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
 		conn.Log.Errorf("Failed to update WireGuard peer configuration: %v", err)
 		return
 	}
-	conn.workerRelay.EnableWgWatcher(conn.ctx)
+
+	conn.wgWatcherWg.Add(1)
+	go func() {
+		defer conn.wgWatcherWg.Done()
+		conn.workerRelay.EnableWgWatcher(conn.ctx)
+	}()
 
 	wgConfigWorkaround()
+	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy)
@@ -558,13 +580,14 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
-func (conn *Conn) configureWGEndpoint(addr *net.UDPAddr) error {
+func (conn *Conn) configureWGEndpoint(addr *net.UDPAddr, remoteRPKey []byte) error {
+	presharedKey := conn.presharedKey(remoteRPKey)
 	return conn.config.WgConfig.WgInterface.UpdatePeer(
 		conn.config.WgConfig.RemoteKey,
 		conn.config.WgConfig.AllowedIps,
 		defaultWgKeepAlive,
 		addr,
-		conn.config.WgConfig.PreSharedKey,
+		presharedKey,
 	)
 }
 
@@ -777,6 +800,44 @@ func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
 // AllowedIP returns the allowed IP of the remote peer
 func (conn *Conn) AllowedIP() netip.Addr {
 	return conn.config.WgConfig.AllowedIps[0].Addr()
+}
+
+func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
+	if conn.config.RosenpassConfig.PubKey == nil {
+		return conn.config.WgConfig.PreSharedKey
+	}
+
+	if remoteRosenpassKey == nil && conn.config.RosenpassConfig.PermissiveMode {
+		return conn.config.WgConfig.PreSharedKey
+	}
+
+	determKey, err := conn.rosenpassDetermKey()
+	if err != nil {
+		conn.Log.Errorf("failed to generate Rosenpass initial key: %v", err)
+		return conn.config.WgConfig.PreSharedKey
+	}
+
+	return determKey
+}
+
+// todo: move this logic into Rosenpass package
+func (conn *Conn) rosenpassDetermKey() (*wgtypes.Key, error) {
+	lk := []byte(conn.config.LocalKey)
+	rk := []byte(conn.config.Key) // remote key
+	var keyInput []byte
+	if string(lk) > string(rk) {
+		//nolint:gocritic
+		keyInput = append(lk[:16], rk[:16]...)
+	} else {
+		//nolint:gocritic
+		keyInput = append(rk[:16], lk[:16]...)
+	}
+
+	key, err := wgtypes.NewKey(keyInput)
+	if err != nil {
+		return nil, err
+	}
+	return &key, nil
 }
 
 func isController(config ConnConfig) bool {

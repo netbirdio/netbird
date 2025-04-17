@@ -115,6 +115,7 @@ var runCmd = &cobra.Command{
 
 		ctx, cancel := context.WithCancel(cmd.Context())
 		SetupCloseHandler(ctx, cancel)
+		SetupDebugHandler(ctx, nil, nil, nil, logFile)
 
 		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
