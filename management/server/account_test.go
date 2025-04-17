@@ -17,6 +17,7 @@ import (
 
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/util"
 
@@ -1114,7 +1115,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		Name:  "GroupA",
 		Peers: []string{},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1130,7 +1131,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -1149,7 +1150,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	}()
 
 	group.Peers = []string{peer1.ID, peer2.ID, peer3.ID}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1191,7 +1192,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1222,7 +1223,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	if err != nil {
 		t.Errorf("delete default rule: %v", err)
 		return
@@ -1239,7 +1240,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer3.ID},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1255,7 +1256,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
@@ -1294,7 +1295,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
+	}, true)
 
 	require.NoError(t, err, "failed to save group")
 
@@ -1314,7 +1315,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
@@ -2793,15 +2794,15 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 	})
 }
 
-type TB interface {
-	Cleanup(func())
-	Helper()
-	TempDir() string
-	Errorf(format string, args ...interface{})
-	Fatalf(format string, args ...interface{})
-}
+// type TB interface {
+//	Cleanup(func())
+//	Helper()
+//	TempDir() string
+//	Errorf(format string, args ...interface{})
+//	Fatalf(format string, args ...interface{})
+// }
 
-func createManager(t TB) (*DefaultAccountManager, error) {
+func createManager(t testing.TB) (*DefaultAccountManager, error) {
 	t.Helper()
 
 	store, err := createStore(t)
@@ -2828,7 +2829,9 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 		Return(false, nil).
 		AnyTimes()
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+	permissionsManager := permissions.NewManager(store)
+
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 	if err != nil {
 		return nil, err
 	}
@@ -2836,7 +2839,7 @@ func createManager(t TB) (*DefaultAccountManager, error) {
 	return manager, nil
 }
 
-func createStore(t TB) (store.Store, error) {
+func createStore(t testing.TB) (store.Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
@@ -3149,4 +3152,52 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			}
 		})
 	}
+}
+
+func Test_CreateAccountByPrivateDomain(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx := context.Background()
+	initiatorId := "test-user"
+	domain := "example.com"
+
+	account, err := manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.NoError(t, err)
+
+	assert.False(t, account.IsDomainPrimaryAccount)
+	assert.Equal(t, domain, account.Domain)
+	assert.Equal(t, types.PrivateCategory, account.DomainCategory)
+	assert.Equal(t, initiatorId, account.CreatedBy)
+	assert.Equal(t, 1, len(account.Groups))
+	assert.Equal(t, 0, len(account.Users))
+	assert.Equal(t, 0, len(account.SetupKeys))
+
+	// retry should fail
+	_, err = manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.Error(t, err)
+}
+
+func Test_UpdateToPrimaryAccount(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx := context.Background()
+	initiatorId := "test-user"
+	domain := "example.com"
+
+	account, err := manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.NoError(t, err)
+	assert.False(t, account.IsDomainPrimaryAccount)
+
+	// retry should fail
+	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	assert.NoError(t, err)
+	assert.True(t, account.IsDomainPrimaryAccount)
 }

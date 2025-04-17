@@ -349,6 +349,25 @@ func (c *ConnectClient) Engine() *Engine {
 	return e
 }
 
+// GetLatestNetworkMap returns the latest network map from the engine.
+func (c *ConnectClient) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
+	engine := c.Engine()
+	if engine == nil {
+		return nil, errors.New("engine is not initialized")
+	}
+
+	networkMap, err := engine.GetLatestNetworkMap()
+	if err != nil {
+		return nil, fmt.Errorf("get latest network map: %w", err)
+	}
+
+	if networkMap == nil {
+		return nil, errors.New("network map is not available")
+	}
+
+	return networkMap, nil
+}
+
 // Status returns the current client status
 func (c *ConnectClient) Status() StatusType {
 	if c == nil {

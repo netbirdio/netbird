@@ -150,7 +150,7 @@ func isZeros(ip net.IP) bool {
 // NewUDPMuxDefault creates an implementation of UDPMux
 func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 	if params.Logger == nil {
-		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
+		params.Logger = getLogger()
 	}
 
 	mux := &UDPMuxDefault{
@@ -454,4 +454,10 @@ func newBufferHolder(size int) *bufferHolder {
 	return &bufferHolder{
 		buf: make([]byte, size),
 	}
+}
+
+func getLogger() logging.LeveledLogger {
+	fac := logging.NewDefaultLoggerFactory()
+	//fac.Writer = log.StandardLogger().Writer()
+	return fac.NewLogger("ice")
 }

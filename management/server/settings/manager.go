@@ -8,6 +8,9 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -25,13 +28,15 @@ type managerImpl struct {
 	store                store.Store
 	extraSettingsManager extra_settings.Manager
 	userManager          users.Manager
+	permissionsManager   permissions.Manager
 }
 
-func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager) Manager {
+func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager, permissionsManager permissions.Manager) Manager {
 	return &managerImpl{
 		store:                store,
 		extraSettingsManager: extraSettingsManager,
 		userManager:          userManager,
+		permissionsManager:   permissionsManager,
 	}
 }
 
@@ -41,13 +46,12 @@ func (m *managerImpl) GetExtraSettingsManager() extra_settings.Manager {
 
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
 	if userID != activity.SystemInitiator {
-		user, err := m.userManager.GetUser(ctx, userID)
+		ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
 		if err != nil {
-			return nil, fmt.Errorf("get user: %w", err)
+			return nil, status.NewPermissionValidationError(err)
 		}
-
-		if user.AccountID != accountID || (!user.HasAdminPower() && !user.IsServiceUser) {
-			return nil, status.Errorf(status.PermissionDenied, "the user has no permission to access account data")
+		if !ok {
+			return nil, status.NewPermissionDeniedError()
 		}
 	}
 

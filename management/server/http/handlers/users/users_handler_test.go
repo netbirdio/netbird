@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -122,6 +123,64 @@ func initUsersTestData() *handler {
 				}
 
 				return nil
+			},
+			GetCurrentUserInfoFunc: func(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+				switch userID {
+				case "not-found":
+					return nil, status.NewUserNotFoundError("not-found")
+				case "not-of-account":
+					return nil, status.NewUserNotPartOfAccountError()
+				case "blocked-user":
+					return nil, status.NewUserBlockedError()
+				case "service-user":
+					return nil, status.NewPermissionDeniedError()
+				case "owner":
+					return &types.UserInfo{
+						ID:            "owner",
+						Name:          "",
+						Role:          "owner",
+						Status:        "active",
+						IsServiceUser: false,
+						IsBlocked:     false,
+						NonDeletable:  false,
+						Issued:        "api",
+						Permissions: types.UserPermissions{
+							DashboardView: "full",
+						},
+					}, nil
+				case "regular-user":
+					return &types.UserInfo{
+						ID:            "regular-user",
+						Name:          "",
+						Role:          "user",
+						Status:        "active",
+						IsServiceUser: false,
+						IsBlocked:     false,
+						NonDeletable:  false,
+						Issued:        "api",
+						Permissions: types.UserPermissions{
+							DashboardView: "limited",
+						},
+					}, nil
+
+				case "admin-user":
+					return &types.UserInfo{
+						ID:            "admin-user",
+						Name:          "",
+						Role:          "admin",
+						Status:        "active",
+						IsServiceUser: false,
+						IsBlocked:     false,
+						NonDeletable:  false,
+						LastLogin:     time.Time{},
+						Issued:        "api",
+						Permissions: types.UserPermissions{
+							DashboardView: "full",
+						},
+					}, nil
+				}
+
+				return nil, fmt.Errorf("user id %s not handled", userID)
 			},
 		},
 	}
@@ -470,6 +529,76 @@ func TestDeleteUser(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			userHandler.deleteUser(rr, req)
+
+			res := rr.Result()
+			defer res.Body.Close()
+
+			if status := rr.Code; status != tc.expectedStatus {
+				t.Fatalf("handler returned wrong status code: got %v want %v",
+					status, tc.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestCurrentUser(t *testing.T) {
+	tt := []struct {
+		name           string
+		expectedStatus int
+		requestAuth    nbcontext.UserAuth
+	}{
+		{
+			name:           "without auth",
+			expectedStatus: http.StatusInternalServerError,
+		},
+		{
+			name:           "user not found",
+			requestAuth:    nbcontext.UserAuth{UserId: "not-found"},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "not of account",
+			requestAuth:    nbcontext.UserAuth{UserId: "not-of-account"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "blocked user",
+			requestAuth:    nbcontext.UserAuth{UserId: "blocked-user"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "service user",
+			requestAuth:    nbcontext.UserAuth{UserId: "service-user"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "owner",
+			requestAuth:    nbcontext.UserAuth{UserId: "owner"},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "regular user",
+			requestAuth:    nbcontext.UserAuth{UserId: "regular-user"},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "admin user",
+			requestAuth:    nbcontext.UserAuth{UserId: "admin-user"},
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	userHandler := initUsersTestData()
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/users/current", nil)
+			if tc.requestAuth.UserId != "" {
+				req = nbcontext.SetUserAuthInRequest(req, tc.requestAuth)
+			}
+
+			rr := httptest.NewRecorder()
+
+			userHandler.getCurrentUser(rr, req)
 
 			res := rr.Result()
 			defer res.Body.Close()

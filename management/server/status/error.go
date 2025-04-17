@@ -3,6 +3,8 @@ package status
 import (
 	"errors"
 	"fmt"
+
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 )
 
 const (
@@ -98,6 +100,11 @@ func NewUserNotFoundError(userKey string) error {
 	return Errorf(NotFound, "user: %s not found", userKey)
 }
 
+// NewUserBlockedError creates a new Error with PermissionDenied type for a blocked user
+func NewUserBlockedError() error {
+	return Errorf(PermissionDenied, "user is blocked")
+}
+
 // NewPeerNotRegisteredError creates a new Error with NotFound type for a missing peer
 func NewPeerNotRegisteredError() error {
 	return Errorf(Unauthenticated, "peer is not registered")
@@ -183,7 +190,7 @@ func NewPermissionDeniedError() error {
 }
 
 func NewPermissionValidationError(err error) error {
-	return Errorf(PermissionDenied, "failed to vlidate user permissions: %s", err)
+	return Errorf(PermissionDenied, "failed to validate user permissions: %s", err)
 }
 
 func NewResourceNotPartOfNetworkError(resourceID, networkID string) error {
@@ -211,4 +218,12 @@ func NewPATNotFoundError(patID string) error {
 
 func NewExtraSettingsNotFoundError() error {
 	return ErrExtraSettingsNotFound
+}
+
+func NewUserRoleNotFoundError(role string) error {
+	return Errorf(NotFound, "user role: %s not found", role)
+}
+
+func NewOperationNotFoundError(operation operations.Operation) error {
+	return Errorf(NotFound, "operation: %s not found", operation)
 }

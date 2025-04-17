@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -143,4 +144,146 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+func TestConn_presharedKey(t *testing.T) {
+	conn1 := Conn{
+		config: ConnConfig{
+			Key:             "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			LocalKey:        "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			RosenpassConfig: RosenpassConfig{},
+		},
+	}
+	conn2 := Conn{
+		config: ConnConfig{
+			Key:             "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			LocalKey:        "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			RosenpassConfig: RosenpassConfig{},
+		},
+	}
+
+	tests := []struct {
+		conn1Permissive         bool
+		conn1RosenpassEnabled   bool
+		conn2Permissive         bool
+		conn2RosenpassEnabled   bool
+		conn1ExpectedInitialKey bool
+		conn2ExpectedInitialKey bool
+	}{
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   false,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   false,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: false,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: true,
+			conn2ExpectedInitialKey: true,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   false,
+			conn1ExpectedInitialKey: true,
+			conn2ExpectedInitialKey: false,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   false,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: true,
+		},
+		{
+			conn1Permissive:         true,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   false,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: false,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   false,
+			conn2Permissive:         true,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: false,
+		},
+		{
+			conn1Permissive:         true,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         true,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: true,
+			conn2ExpectedInitialKey: true,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   false,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: true,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         true,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: true,
+			conn2ExpectedInitialKey: true,
+		},
+	}
+
+	conn1.config.RosenpassConfig.PermissiveMode = true
+	for i, test := range tests {
+		tcase := i + 1
+		t.Run(fmt.Sprintf("Rosenpass test case %d", tcase), func(t *testing.T) {
+			conn1.config.RosenpassConfig = RosenpassConfig{}
+			conn2.config.RosenpassConfig = RosenpassConfig{}
+
+			if test.conn1RosenpassEnabled {
+				conn1.config.RosenpassConfig.PubKey = []byte("dummykey")
+			}
+			conn1.config.RosenpassConfig.PermissiveMode = test.conn1Permissive
+
+			if test.conn2RosenpassEnabled {
+				conn2.config.RosenpassConfig.PubKey = []byte("dummykey")
+			}
+			conn2.config.RosenpassConfig.PermissiveMode = test.conn2Permissive
+
+			conn1PresharedKey := conn1.presharedKey(conn2.config.RosenpassConfig.PubKey)
+			conn2PresharedKey := conn2.presharedKey(conn1.config.RosenpassConfig.PubKey)
+
+			if test.conn1ExpectedInitialKey {
+				if conn1PresharedKey == nil {
+					t.Errorf("Case %d: Expected conn1 to have a non-nil key, but got nil", tcase)
+				}
+			} else {
+				if conn1PresharedKey != nil {
+					t.Errorf("Case %d: Expected conn1 to have a nil key, but got %v", tcase, conn1PresharedKey)
+				}
+			}
+
+			// Assert conn2's key expectation
+			if test.conn2ExpectedInitialKey {
+				if conn2PresharedKey == nil {
+					t.Errorf("Case %d: Expected conn2 to have a non-nil key, but got nil", tcase)
+				}
+			} else {
+				if conn2PresharedKey != nil {
+					t.Errorf("Case %d: Expected conn2 to have a nil key, but got %v", tcase, conn2PresharedKey)
+				}
+			}
+		})
+	}
 }

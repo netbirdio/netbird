@@ -25,6 +25,7 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -93,21 +94,21 @@ func getServerKey(client mgmtProto.ManagementServiceClient) (*wgtypes.Key, error
 
 func Test_SyncProtocol(t *testing.T) {
 	dir := t.TempDir()
-	mgmtServer, _, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &Config{
-		Stuns: []*Host{{
+	mgmtServer, _, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &types.Config{
+		Stuns: []*types.Host{{
 			Proto: "udp",
 			URI:   "stun:stun.netbird.io:3468",
 		}},
-		TURNConfig: &TURNConfig{
+		TURNConfig: &types.TURNConfig{
 			TimeBasedCredentials: false,
 			CredentialsTTL:       util.Duration{},
 			Secret:               "whatever",
-			Turns: []*Host{{
+			Turns: []*types.Host{{
 				Proto: "udp",
 				URI:   "turn:stun.netbird.io:3468",
 			}},
 		},
-		Signal: &Host{
+		Signal: &types.Host{
 			Proto: "http",
 			URI:   "signal.netbird.io:10000",
 		},
@@ -330,7 +331,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	testCases := []struct {
 		name                   string
-		inputFlow              *DeviceAuthorizationFlow
+		inputFlow              *types.DeviceAuthorizationFlow
 		expectedFlow           *mgmtProto.DeviceAuthorizationFlow
 		expectedErrFunc        require.ErrorAssertionFunc
 		expectedErrMSG         string
@@ -345,9 +346,9 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 		},
 		{
 			name: "Testing Invalid Device Flow Provider Config",
-			inputFlow: &DeviceAuthorizationFlow{
+			inputFlow: &types.DeviceAuthorizationFlow{
 				Provider: "NoNe",
-				ProviderConfig: ProviderConfig{
+				ProviderConfig: types.ProviderConfig{
 					ClientID: "test",
 				},
 			},
@@ -356,9 +357,9 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 		},
 		{
 			name: "Testing Full Device Flow Config",
-			inputFlow: &DeviceAuthorizationFlow{
+			inputFlow: &types.DeviceAuthorizationFlow{
 				Provider: "hosted",
-				ProviderConfig: ProviderConfig{
+				ProviderConfig: types.ProviderConfig{
 					ClientID: "test",
 				},
 			},
@@ -379,7 +380,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			mgmtServer := &GRPCServer{
 				wgKey: testingServerKey,
-				config: &Config{
+				config: &types.Config{
 					DeviceAuthorizationFlow: testCase.inputFlow,
 				},
 			}
@@ -410,7 +411,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 }
 
-func startManagementForTest(t *testing.T, testFile string, config *Config) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
+func startManagementForTest(t *testing.T, testFile string, config *types.Config) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -440,8 +441,10 @@ func startManagementForTest(t *testing.T, testFile string, config *Config) (*grp
 		AnyTimes().
 		Return(&types.Settings{}, nil)
 
+	permissionsManager := permissions.NewManager(store)
+
 	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 
 	if err != nil {
 		cleanup()
@@ -506,21 +509,21 @@ func testSyncStatusRace(t *testing.T) {
 	t.Skip()
 	dir := t.TempDir()
 
-	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &Config{
-		Stuns: []*Host{{
+	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &types.Config{
+		Stuns: []*types.Host{{
 			Proto: "udp",
 			URI:   "stun:stun.netbird.io:3468",
 		}},
-		TURNConfig: &TURNConfig{
+		TURNConfig: &types.TURNConfig{
 			TimeBasedCredentials: false,
 			CredentialsTTL:       util.Duration{},
 			Secret:               "whatever",
-			Turns: []*Host{{
+			Turns: []*types.Host{{
 				Proto: "udp",
 				URI:   "turn:stun.netbird.io:3468",
 			}},
 		},
-		Signal: &Host{
+		Signal: &types.Host{
 			Proto: "http",
 			URI:   "signal.netbird.io:10000",
 		},
@@ -678,21 +681,21 @@ func Test_LoginPerformance(t *testing.T) {
 			t.Helper()
 			dir := t.TempDir()
 
-			mgmtServer, am, _, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &Config{
-				Stuns: []*Host{{
+			mgmtServer, am, _, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &types.Config{
+				Stuns: []*types.Host{{
 					Proto: "udp",
 					URI:   "stun:stun.netbird.io:3468",
 				}},
-				TURNConfig: &TURNConfig{
+				TURNConfig: &types.TURNConfig{
 					TimeBasedCredentials: false,
 					CredentialsTTL:       util.Duration{},
 					Secret:               "whatever",
-					Turns: []*Host{{
+					Turns: []*types.Host{{
 						Proto: "udp",
 						URI:   "turn:stun.netbird.io:3468",
 					}},
 				},
-				Signal: &Host{
+				Signal: &types.Host{
 					Proto: "http",
 					URI:   "signal.netbird.io:10000",
 				},

@@ -1,10 +1,9 @@
-package server
+package types
 
 import (
 	"net/netip"
 
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -29,6 +28,8 @@ const (
 	// DefaultDeviceAuthFlowScope defines the bare minimum scope to request in the device authorization flow
 	DefaultDeviceAuthFlowScope string = "openid"
 )
+
+var MgmtConfigPath string
 
 // Config of the Management service
 type Config struct {
@@ -76,6 +77,7 @@ type TURNConfig struct {
 	Turns                []*Host
 }
 
+// Relay configuration type
 type Relay struct {
 	Addresses      []string
 	CredentialsTTL util.Duration
@@ -152,11 +154,13 @@ type ProviderConfig struct {
 	UseIDToken bool
 	// RedirectURL handles authorization code from IDP manager
 	RedirectURLs []string
+	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
+	DisablePromptLogin bool
 }
 
 // StoreConfig contains Store configuration
 type StoreConfig struct {
-	Engine store.Engine
+	Engine Engine
 }
 
 // ReverseProxy contains reverse proxy configuration in front of management.

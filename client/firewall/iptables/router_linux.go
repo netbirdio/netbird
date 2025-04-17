@@ -38,10 +38,12 @@ const (
 	routingFinalForwardJump = "ACCEPT"
 	routingFinalNatJump     = "MASQUERADE"
 
-	jumpManglePre = "jump-mangle-pre"
-	jumpNatPre    = "jump-nat-pre"
-	jumpNatPost   = "jump-nat-post"
-	matchSet      = "--match-set"
+	jumpManglePre  = "jump-mangle-pre"
+	jumpNatPre     = "jump-nat-pre"
+	jumpNatPost    = "jump-nat-post"
+	markManglePre  = "mark-mangle-pre"
+	markManglePost = "mark-mangle-post"
+	matchSet       = "--match-set"
 
 	dnatSuffix = "_dnat"
 	snatSuffix = "_snat"
@@ -113,6 +115,10 @@ func (r *router) init(stateManager *statemanager.Manager) error {
 
 	if err := r.createContainers(); err != nil {
 		return fmt.Errorf("create containers: %w", err)
+	}
+
+	if err := r.setupDataPlaneMark(); err != nil {
+		log.Errorf("failed to set up data plane mark: %v", err)
 	}
 
 	r.updateState()
@@ -348,12 +354,16 @@ func (r *router) Reset() error {
 	if err := r.cleanUpDefaultForwardRules(); err != nil {
 		merr = multierror.Append(merr, err)
 	}
-	r.rules = make(map[string][]string)
 
 	if err := r.ipsetCounter.Flush(); err != nil {
 		merr = multierror.Append(merr, err)
 	}
 
+	if err := r.cleanupDataPlaneMark(); err != nil {
+		merr = multierror.Append(merr, err)
+	}
+
+	r.rules = make(map[string][]string)
 	r.updateState()
 
 	return nberrors.FormatErrorOrNil(merr)
@@ -423,6 +433,57 @@ func (r *router) createContainers() error {
 	return nil
 }
 
+// setupDataPlaneMark configures the fwmark for the data plane
+func (r *router) setupDataPlaneMark() error {
+	var merr *multierror.Error
+	preRule := []string{
+		"-i", r.wgIface.Name(),
+		"-m", "conntrack", "--ctstate", "NEW",
+		"-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x", nbnet.DataPlaneMarkIn),
+	}
+
+	if err := r.iptablesClient.AppendUnique(tableMangle, chainPREROUTING, preRule...); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("add mangle prerouting rule: %w", err))
+	} else {
+		r.rules[markManglePre] = preRule
+	}
+
+	postRule := []string{
+		"-o", r.wgIface.Name(),
+		"-m", "conntrack", "--ctstate", "NEW",
+		"-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x", nbnet.DataPlaneMarkOut),
+	}
+
+	if err := r.iptablesClient.AppendUnique(tableMangle, chainPOSTROUTING, postRule...); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("add mangle postrouting rule: %w", err))
+	} else {
+		r.rules[markManglePost] = postRule
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *router) cleanupDataPlaneMark() error {
+	var merr *multierror.Error
+	if preRule, exists := r.rules[markManglePre]; exists {
+		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainPREROUTING, preRule...); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove mangle prerouting rule: %w", err))
+		} else {
+			delete(r.rules, markManglePre)
+		}
+	}
+
+	if postRule, exists := r.rules[markManglePost]; exists {
+		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainPOSTROUTING, postRule...); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove mangle postrouting rule: %w", err))
+		} else {
+			delete(r.rules, markManglePost)
+		}
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
 func (r *router) addPostroutingRules() error {
 	// First rule for outbound masquerade
 	rule1 := []string{
@@ -464,7 +525,7 @@ func (r *router) insertEstablishedRule(chain string) error {
 }
 
 func (r *router) addJumpRules() error {
-	// Jump to NAT chain
+	// Jump to nat chain
 	natRule := []string{"-j", chainRTNAT}
 	if err := r.iptablesClient.Insert(tableNat, chainPOSTROUTING, 1, natRule...); err != nil {
 		return fmt.Errorf("add nat postrouting jump rule: %v", err)

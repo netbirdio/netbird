@@ -589,9 +589,8 @@ func (d *Status) AddLocalPeerStateRoute(route, resourceId string) {
 	defer d.mux.Unlock()
 
 	pref, err := netip.ParsePrefix(route)
-	if err != nil {
-		log.Errorf("failed to parse prefix %s: %v", route, err)
-		return
+	if err == nil {
+		d.routeIDLookup.AddLocalRouteID(resourceId, pref)
 	}
 
 	if d.localPeer.Routes == nil {
@@ -599,8 +598,6 @@ func (d *Status) AddLocalPeerStateRoute(route, resourceId string) {
 	}
 
 	d.localPeer.Routes[route] = struct{}{}
-
-	d.routeIDLookup.AddLocalRouteID(resourceId, pref)
 }
 
 // RemoveLocalPeerStateRoute removes a route from the local peer state
@@ -609,14 +606,33 @@ func (d *Status) RemoveLocalPeerStateRoute(route string) {
 	defer d.mux.Unlock()
 
 	pref, err := netip.ParsePrefix(route)
-	if err != nil {
-		log.Errorf("failed to parse prefix %s: %v", route, err)
-		return
+	if err == nil {
+		d.routeIDLookup.RemoveLocalRouteID(pref)
 	}
 
 	delete(d.localPeer.Routes, route)
+}
 
-	d.routeIDLookup.RemoveLocalRouteID(pref)
+// AddResolvedIPLookupEntry adds a resolved IP lookup entry
+func (d *Status) AddResolvedIPLookupEntry(route, resourceId string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	pref, err := netip.ParsePrefix(route)
+	if err == nil {
+		d.routeIDLookup.AddResolvedIP(resourceId, pref)
+	}
+}
+
+// RemoveResolvedIPLookupEntry removes a resolved IP lookup entry
+func (d *Status) RemoveResolvedIPLookupEntry(route string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	pref, err := netip.ParsePrefix(route)
+	if err == nil {
+		d.routeIDLookup.RemoveResolvedIP(pref)
+	}
 }
 
 // CleanLocalPeerStateRoutes cleans all routes from the local peer state

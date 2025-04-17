@@ -29,16 +29,17 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
-var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
+var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 type mocWGIface struct {
 	filter device.PacketFilter
 }
 
 func (w *mocWGIface) Name() string {
-	panic("implement me")
+	return "utun2301"
 }
 
 func (w *mocWGIface) Address() wgaddr.Address {
@@ -1447,4 +1448,498 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtraDomains(t *testing.T) {
+	tests := []struct {
+		name                string
+		initialConfig       nbdns.Config
+		registerDomains     []domain.List
+		deregisterDomains   []domain.List
+		finalConfig         nbdns.Config
+		expectedDomains     []string
+		expectedMatchOnly   []string
+		applyHostConfigCall int
+	}{
+		{
+			name: "Register domains before config update",
+			registerDomains: []domain.List{
+				{"extra1.example.com", "extra2.example.com"},
+			},
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"extra1.example.com.",
+				"extra2.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra1.example.com.",
+				"extra2.example.com.",
+			},
+			applyHostConfigCall: 2,
+		},
+		{
+			name: "Register domains after config update",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra1.example.com", "extra2.example.com"},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"extra1.example.com.",
+				"extra2.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra1.example.com.",
+				"extra2.example.com.",
+			},
+			applyHostConfigCall: 2,
+		},
+		{
+			name: "Register overlapping domains",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+					{Domain: "overlap.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "overlap.example.com"},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"overlap.example.com.",
+				"extra.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra.example.com.",
+			},
+			applyHostConfigCall: 2,
+		},
+		{
+			name: "Register and deregister domains",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra1.example.com", "extra2.example.com"},
+				{"extra3.example.com", "extra4.example.com"},
+			},
+			deregisterDomains: []domain.List{
+				{"extra1.example.com", "extra3.example.com"},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"extra2.example.com.",
+				"extra4.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra2.example.com.",
+				"extra4.example.com.",
+			},
+			applyHostConfigCall: 4,
+		},
+		{
+			name: "Register domains with ref counter",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "duplicate.example.com"},
+				{"other.example.com", "duplicate.example.com"},
+			},
+			deregisterDomains: []domain.List{
+				{"duplicate.example.com"},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"extra.example.com.",
+				"other.example.com.",
+				"duplicate.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra.example.com.",
+				"other.example.com.",
+				"duplicate.example.com.",
+			},
+			applyHostConfigCall: 4,
+		},
+		{
+			name: "Config update with new domains after registration",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "duplicate.example.com"},
+			},
+			finalConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+					{Domain: "newconfig.example.com"},
+				},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"newconfig.example.com.",
+				"extra.example.com.",
+				"duplicate.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra.example.com.",
+				"duplicate.example.com.",
+			},
+			applyHostConfigCall: 3,
+		},
+		{
+			name: "Deregister domain that is part of customZones",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+					{Domain: "protected.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "protected.example.com"},
+			},
+			deregisterDomains: []domain.List{
+				{"protected.example.com"},
+			},
+			expectedDomains: []string{
+				"extra.example.com.",
+				"config.example.com.",
+				"protected.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra.example.com.",
+			},
+			applyHostConfigCall: 3,
+		},
+		{
+			name: "Register domain that is part of nameserver group",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{
+						Domains: []string{"ns.example.com", "overlap.ns.example.com"},
+						NameServers: []nbdns.NameServer{
+							{
+								IP:     netip.MustParseAddr("8.8.8.8"),
+								NSType: nbdns.UDPNameServerType,
+								Port:   53,
+							},
+						},
+					},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "overlap.ns.example.com"},
+			},
+			expectedDomains: []string{
+				"ns.example.com.",
+				"overlap.ns.example.com.",
+				"extra.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"ns.example.com.",
+				"overlap.ns.example.com.",
+				"extra.example.com.",
+			},
+			applyHostConfigCall: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedConfigs []HostDNSConfig
+			mockHostConfig := &mockHostConfigurator{
+				applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+					capturedConfigs = append(capturedConfigs, config)
+					return nil
+				},
+				restoreHostDNSFunc: func() error {
+					return nil
+				},
+				supportCustomPortFunc: func() bool {
+					return true
+				},
+				stringFunc: func() string {
+					return "mock"
+				},
+			}
+
+			mockSvc := &mockService{}
+
+			server := &DefaultServer{
+				ctx:            context.Background(),
+				handlerChain:   NewHandlerChain(),
+				wgInterface:    &mocWGIface{},
+				hostManager:    mockHostConfig,
+				localResolver:  &localResolver{},
+				service:        mockSvc,
+				statusRecorder: peer.NewRecorder("test"),
+				extraDomains:   make(map[domain.Domain]int),
+			}
+
+			// Apply initial configuration
+			if tt.initialConfig.ServiceEnable {
+				err := server.applyConfiguration(tt.initialConfig)
+				assert.NoError(t, err)
+			}
+
+			// Register domains
+			for _, domains := range tt.registerDomains {
+				server.RegisterHandler(domains, &MockHandler{}, PriorityDefault)
+			}
+
+			// Deregister domains if specified
+			for _, domains := range tt.deregisterDomains {
+				server.DeregisterHandler(domains, PriorityDefault)
+			}
+
+			// Apply final configuration if specified
+			if tt.finalConfig.ServiceEnable {
+				err := server.applyConfiguration(tt.finalConfig)
+				assert.NoError(t, err)
+			}
+
+			// Verify number of calls
+			assert.Equal(t, tt.applyHostConfigCall, len(capturedConfigs),
+				"Expected %d calls to applyDNSConfig, got %d", tt.applyHostConfigCall, len(capturedConfigs))
+
+			// Get the last applied config
+			lastConfig := capturedConfigs[len(capturedConfigs)-1]
+
+			// Check all expected domains are present
+			domainMap := make(map[string]bool)
+			matchOnlyMap := make(map[string]bool)
+
+			for _, d := range lastConfig.Domains {
+				domainMap[d.Domain] = true
+				if d.MatchOnly {
+					matchOnlyMap[d.Domain] = true
+				}
+			}
+
+			// Verify expected domains
+			for _, d := range tt.expectedDomains {
+				assert.True(t, domainMap[d], "Expected domain %s not found in final config", d)
+			}
+
+			// Verify match-only domains
+			for _, d := range tt.expectedMatchOnly {
+				assert.True(t, matchOnlyMap[d], "Expected match-only domain %s not found in final config", d)
+			}
+
+			// Verify no unexpected domains
+			assert.Equal(t, len(tt.expectedDomains), len(domainMap), "Unexpected number of domains in final config")
+			assert.Equal(t, len(tt.expectedMatchOnly), len(matchOnlyMap), "Unexpected number of match-only domains in final config")
+		})
+	}
+}
+
+func TestExtraDomainsRefCounting(t *testing.T) {
+	mockHostConfig := &mockHostConfigurator{
+		applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+			return nil
+		},
+		restoreHostDNSFunc: func() error {
+			return nil
+		},
+		supportCustomPortFunc: func() bool {
+			return true
+		},
+		stringFunc: func() string {
+			return "mock"
+		},
+	}
+
+	mockSvc := &mockService{}
+
+	server := &DefaultServer{
+		ctx:            context.Background(),
+		handlerChain:   NewHandlerChain(),
+		hostManager:    mockHostConfig,
+		localResolver:  &localResolver{},
+		service:        mockSvc,
+		statusRecorder: peer.NewRecorder("test"),
+		extraDomains:   make(map[domain.Domain]int),
+	}
+
+	// Register domains from different handlers with same domain
+	server.RegisterHandler(domain.List{"*.shared.example.com"}, &MockHandler{}, PriorityDNSRoute)
+	server.RegisterHandler(domain.List{"shared.example.com."}, &MockHandler{}, PriorityMatchDomain)
+
+	// Verify refcount is 2
+	zoneKey := toZone("shared.example.com")
+	assert.Equal(t, 2, server.extraDomains[zoneKey], "Refcount should be 2 after registering same domain twice")
+
+	// Deregister one handler
+	server.DeregisterHandler(domain.List{"shared.example.com"}, PriorityMatchDomain)
+
+	// Verify refcount is 1
+	assert.Equal(t, 1, server.extraDomains[zoneKey], "Refcount should be 1 after deregistering one handler")
+
+	// Deregister the other handler
+	server.DeregisterHandler(domain.List{"shared.example.com"}, PriorityDNSRoute)
+
+	// Verify domain is removed
+	_, exists := server.extraDomains[zoneKey]
+	assert.False(t, exists, "Domain should be removed after deregistering all handlers")
+}
+
+func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
+	var capturedConfig HostDNSConfig
+	mockHostConfig := &mockHostConfigurator{
+		applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+			capturedConfig = config
+			return nil
+		},
+		restoreHostDNSFunc: func() error {
+			return nil
+		},
+		supportCustomPortFunc: func() bool {
+			return true
+		},
+		stringFunc: func() string {
+			return "mock"
+		},
+	}
+
+	mockSvc := &mockService{}
+
+	server := &DefaultServer{
+		ctx:            context.Background(),
+		handlerChain:   NewHandlerChain(),
+		hostManager:    mockHostConfig,
+		localResolver:  &localResolver{},
+		service:        mockSvc,
+		statusRecorder: peer.NewRecorder("test"),
+		extraDomains:   make(map[domain.Domain]int),
+	}
+
+	server.RegisterHandler(domain.List{"extra.example.com"}, &MockHandler{}, PriorityDefault)
+
+	initialConfig := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{Domain: "config.example.com"},
+		},
+	}
+	err := server.applyConfiguration(initialConfig)
+	assert.NoError(t, err)
+
+	var domains []string
+	for _, d := range capturedConfig.Domains {
+		domains = append(domains, d.Domain)
+	}
+	assert.Contains(t, domains, "config.example.com.")
+	assert.Contains(t, domains, "extra.example.com.")
+
+	// Now apply a new configuration with overlapping domain
+	updatedConfig := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{Domain: "config.example.com"},
+			{Domain: "extra.example.com"},
+		},
+	}
+	err = server.applyConfiguration(updatedConfig)
+	assert.NoError(t, err)
+
+	// Verify both domains are in config, but no duplicates
+	domains = []string{}
+	matchOnlyCount := 0
+	for _, d := range capturedConfig.Domains {
+		domains = append(domains, d.Domain)
+		if d.MatchOnly {
+			matchOnlyCount++
+		}
+	}
+
+	assert.Contains(t, domains, "config.example.com.")
+	assert.Contains(t, domains, "extra.example.com.")
+	assert.Equal(t, 2, len(domains), "Should have exactly 2 domains with no duplicates")
+
+	// Extra domain should no longer be marked as match-only when in config
+	matchOnlyDomain := ""
+	for _, d := range capturedConfig.Domains {
+		if d.Domain == "extra.example.com." && d.MatchOnly {
+			matchOnlyDomain = d.Domain
+			break
+		}
+	}
+	assert.Empty(t, matchOnlyDomain, "Domain should not be match-only when included in config")
+}
+
+func TestDomainCaseHandling(t *testing.T) {
+	var capturedConfig HostDNSConfig
+	mockHostConfig := &mockHostConfigurator{
+		applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+			capturedConfig = config
+			return nil
+		},
+		restoreHostDNSFunc: func() error {
+			return nil
+		},
+		supportCustomPortFunc: func() bool {
+			return true
+		},
+		stringFunc: func() string {
+			return "mock"
+		},
+	}
+
+	mockSvc := &mockService{}
+	server := &DefaultServer{
+		ctx:            context.Background(),
+		handlerChain:   NewHandlerChain(),
+		hostManager:    mockHostConfig,
+		localResolver:  &localResolver{},
+		service:        mockSvc,
+		statusRecorder: peer.NewRecorder("test"),
+		extraDomains:   make(map[domain.Domain]int),
+	}
+
+	server.RegisterHandler(domain.List{"MIXED.example.com"}, &MockHandler{}, PriorityDefault)
+	server.RegisterHandler(domain.List{"mixed.EXAMPLE.com"}, &MockHandler{}, PriorityMatchDomain)
+
+	assert.Equal(t, 1, len(server.extraDomains), "Case differences should be normalized")
+
+	config := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{Domain: "config.example.com"},
+		},
+	}
+	err := server.applyConfiguration(config)
+	assert.NoError(t, err)
+
+	var domains []string
+	for _, d := range capturedConfig.Domains {
+		domains = append(domains, d.Domain)
+	}
+	assert.Contains(t, domains, "config.example.com.", "Mixed case domain should be normalized and pre.sent")
+	assert.Contains(t, domains, "mixed.example.com.", "Mixed case domain should be normalized and present")
 }

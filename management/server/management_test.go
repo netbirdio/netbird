@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -58,7 +59,7 @@ func setupTest(t *testing.T) *testSuite {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
 
-	config := &server.Config{}
+	config := &types.Config{}
 	_, err = util.ReadJson("testdata/management.json", config)
 	if err != nil {
 		t.Fatalf("failed to read management.json: %v", err)
@@ -156,7 +157,7 @@ func createRawClient(t *testing.T, addr string) (mgmtProto.ManagementServiceClie
 
 func startServer(
 	t *testing.T,
-	config *server.Config,
+	config *types.Config,
 	dataDir string,
 	testFile string,
 ) (*grpc.Server, net.Listener) {
@@ -194,6 +195,7 @@ func startServer(
 		Return(&types.Settings{}, nil).
 		AnyTimes()
 
+	permissionsManager := permissions.NewManager(str)
 	accountManager, err := server.BuildManager(
 		context.Background(),
 		str,
@@ -208,6 +210,7 @@ func startServer(
 		metrics,
 		port_forwarding.NewControllerMock(),
 		settingsMockManager,
+		permissionsManager,
 	)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
@@ -300,6 +303,10 @@ func TestSyncNewPeerConfiguration(t *testing.T) {
 		Protocol: mgmtProto.HostConfig_UDP,
 	}
 
+	expectedRelayHost := &mgmtProto.RelayConfig{
+		Urls: []string{"rel://test.com:3535"},
+	}
+
 	assert.NotNil(t, resp.NetbirdConfig)
 	assert.Equal(t, resp.NetbirdConfig.Signal, expectedSignalConfig)
 	assert.Contains(t, resp.NetbirdConfig.Stuns, expectedStunsConfig)
@@ -307,6 +314,8 @@ func TestSyncNewPeerConfiguration(t *testing.T) {
 	actualTURN := resp.NetbirdConfig.Turns[0]
 	assert.Greater(t, len(actualTURN.User), 0)
 	assert.Equal(t, actualTURN.HostConfig, expectedTRUNHost)
+	assert.Equal(t, len(resp.NetbirdConfig.Relay.Urls), 1)
+	assert.Equal(t, resp.NetbirdConfig.Relay.Urls, expectedRelayHost.Urls)
 	assert.Equal(t, len(resp.NetworkMap.OfflinePeers), 0)
 }
 

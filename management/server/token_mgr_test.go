@@ -19,8 +19,8 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-var TurnTestHost = &Host{
-	Proto:    UDP,
+var TurnTestHost = &types.Host{
+	Proto:    types.UDP,
 	URI:      "turn:turn.netbird.io:77777",
 	Username: "username",
 	Password: "",
@@ -31,7 +31,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	secret := "some_secret"
 	peersManager := NewPeersUpdateManager(nil)
 
-	rc := &Relay{
+	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
@@ -41,10 +41,10 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager)
 
@@ -81,7 +81,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(context.Background(), peer)
 
-	rc := &Relay{
+	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
@@ -92,10 +92,10 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), "someAccountID").Return(&types.ExtraSettings{}, nil).AnyTimes()
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager)
 
@@ -184,7 +184,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
 
-	rc := &Relay{
+	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
@@ -194,10 +194,10 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager)
 

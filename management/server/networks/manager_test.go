@@ -18,7 +18,7 @@ import (
 func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../testdata/networks.sql", t.TempDir())
 	if err != nil {
@@ -26,7 +26,7 @@ func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -41,7 +41,7 @@ func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 func Test_GetAllNetworksReturnsPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../testdata/networks.sql", t.TempDir())
 	if err != nil {
@@ -49,7 +49,7 @@ func Test_GetAllNetworksReturnsPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -63,7 +63,7 @@ func Test_GetAllNetworksReturnsPermissionDenied(t *testing.T) {
 func Test_GetNetworkReturnsNetwork(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../testdata/networks.sql", t.TempDir())
@@ -72,7 +72,7 @@ func Test_GetNetworkReturnsNetwork(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -86,7 +86,7 @@ func Test_GetNetworkReturnsNetwork(t *testing.T) {
 func Test_GetNetworkReturnsPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../testdata/networks.sql", t.TempDir())
@@ -95,7 +95,7 @@ func Test_GetNetworkReturnsPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -108,7 +108,7 @@ func Test_GetNetworkReturnsPermissionDenied(t *testing.T) {
 
 func Test_CreateNetworkSuccessfully(t *testing.T) {
 	ctx := context.Background()
-	userID := "allowedUser"
+	userID := "testAdminId"
 	network := &types.Network{
 		AccountID: "testAccountId",
 		Name:      "new-network",
@@ -120,7 +120,7 @@ func Test_CreateNetworkSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -133,7 +133,7 @@ func Test_CreateNetworkSuccessfully(t *testing.T) {
 
 func Test_CreateNetworkFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
-	userID := "invalidUser"
+	userID := "testUserId"
 	network := &types.Network{
 		AccountID: "testAccountId",
 		Name:      "new-network",
@@ -145,7 +145,7 @@ func Test_CreateNetworkFailsWithPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -159,7 +159,7 @@ func Test_CreateNetworkFailsWithPermissionDenied(t *testing.T) {
 func Test_DeleteNetworkSuccessfully(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../testdata/networks.sql", t.TempDir())
@@ -168,7 +168,7 @@ func Test_DeleteNetworkSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -181,7 +181,7 @@ func Test_DeleteNetworkSuccessfully(t *testing.T) {
 func Test_DeleteNetworkFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../testdata/networks.sql", t.TempDir())
@@ -190,7 +190,7 @@ func Test_DeleteNetworkFailsWithPermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -202,7 +202,7 @@ func Test_DeleteNetworkFailsWithPermissionDenied(t *testing.T) {
 
 func Test_UpdateNetworkSuccessfully(t *testing.T) {
 	ctx := context.Background()
-	userID := "allowedUser"
+	userID := "testAdminId"
 	network := &types.Network{
 		AccountID: "testAccountId",
 		ID:        "testNetworkId",
@@ -215,7 +215,7 @@ func Test_UpdateNetworkSuccessfully(t *testing.T) {
 	}
 	t.Cleanup(cleanUp)
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
@@ -228,7 +228,7 @@ func Test_UpdateNetworkSuccessfully(t *testing.T) {
 
 func Test_UpdateNetworkFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
-	userID := "invalidUser"
+	userID := "testUserId"
 	network := &types.Network{
 		AccountID: "testAccountId",
 		ID:        "testNetworkId",
@@ -242,7 +242,7 @@ func Test_UpdateNetworkFailsWithPermissionDenied(t *testing.T) {
 	t.Cleanup(cleanUp)
 
 	am := mock_server.MockAccountManager{}
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
 	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)

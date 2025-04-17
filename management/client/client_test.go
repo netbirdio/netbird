@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -50,7 +51,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
-	config := &mgmt.Config{}
+	config := &types.Config{}
 	_, err := util.ReadJson("../server/testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
@@ -86,8 +87,20 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		).
 		Return(&types.Settings{}, nil).
 		AnyTimes()
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	permissionsManagerMock.
+		EXPECT().
+		ValidateUserPermissions(
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Any(),
+		).
+		Return(true, nil).
+		AnyTimes()
 
-	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
 	if err != nil {
 		t.Fatal(err)
 	}

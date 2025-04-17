@@ -71,6 +71,12 @@ func (d *localResolver) lookupRecords(r *dns.Msg) []dns.RR {
 
 	value, found := d.records.Load(key)
 	if !found {
+		// alternatively check if we have a cname
+		if question.Qtype != dns.TypeCNAME {
+			r.Question[0].Qtype = dns.TypeCNAME
+			return d.lookupRecords(r)
+		}
+
 		return nil
 	}
 

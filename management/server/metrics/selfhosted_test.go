@@ -10,7 +10,6 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
@@ -205,8 +204,8 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 }
 
 // GetStoreEngine returns FileStoreEngine
-func (mockDatasource) GetStoreEngine() store.Engine {
-	return store.FileStoreEngine
+func (mockDatasource) GetStoreEngine() types.Engine {
+	return types.FileStoreEngine
 }
 
 // TestGenerateProperties tests and validate the properties generation by using the mockDatasource for the Worker.generateProperties
@@ -304,7 +303,7 @@ func TestGenerateProperties(t *testing.T) {
 		t.Errorf("expected 2 user_peers, got %d", properties["user_peers"])
 	}
 
-	if properties["store_engine"] != store.FileStoreEngine {
+	if properties["store_engine"] != types.FileStoreEngine {
 		t.Errorf("expected JsonFile, got %s", properties["store_engine"])
 	}
 

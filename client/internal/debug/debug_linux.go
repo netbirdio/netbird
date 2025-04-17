@@ -1,9 +1,8 @@
 //go:build linux && !android
 
-package server
+package debug
 
 import (
-	"archive/zip"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -14,36 +13,31 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/anonymize"
-	"github.com/netbirdio/netbird/client/proto"
 )
 
 // addFirewallRules collects and adds firewall rules to the archive
-func (s *Server) addFirewallRules(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+func (g *BundleGenerator) addFirewallRules() error {
 	log.Info("Collecting firewall rules")
-	// Collect and add iptables rules
 	iptablesRules, err := collectIPTablesRules()
 	if err != nil {
 		log.Warnf("Failed to collect iptables rules: %v", err)
 	} else {
-		if req.GetAnonymize() {
-			iptablesRules = anonymizer.AnonymizeString(iptablesRules)
+		if g.anonymize {
+			iptablesRules = g.anonymizer.AnonymizeString(iptablesRules)
 		}
-		if err := addFileToZip(archive, strings.NewReader(iptablesRules), "iptables.txt"); err != nil {
+		if err := g.addFileToZip(strings.NewReader(iptablesRules), "iptables.txt"); err != nil {
 			log.Warnf("Failed to add iptables rules to bundle: %v", err)
 		}
 	}
 
-	// Collect and add nftables rules
 	nftablesRules, err := collectNFTablesRules()
 	if err != nil {
 		log.Warnf("Failed to collect nftables rules: %v", err)
 	} else {
-		if req.GetAnonymize() {
-			nftablesRules = anonymizer.AnonymizeString(nftablesRules)
+		if g.anonymize {
+			nftablesRules = g.anonymizer.AnonymizeString(nftablesRules)
 		}
-		if err := addFileToZip(archive, strings.NewReader(nftablesRules), "nftables.txt"); err != nil {
+		if err := g.addFileToZip(strings.NewReader(nftablesRules), "nftables.txt"); err != nil {
 			log.Warnf("Failed to add nftables rules to bundle: %v", err)
 		}
 	}
@@ -65,16 +59,13 @@ func collectIPTablesRules() (string, error) {
 		builder.WriteString("\n")
 	}
 
-	// Then get verbose statistics for each table
 	builder.WriteString("=== iptables -v -n -L output ===\n")
 
-	// Get list of tables
 	tables := []string{"filter", "nat", "mangle", "raw", "security"}
 
 	for _, table := range tables {
 		builder.WriteString(fmt.Sprintf("*%s\n", table))
 
-		// Get verbose statistics for the entire table
 		stats, err := getTableStatistics(table)
 		if err != nil {
 			log.Warnf("Failed to get statistics for table %s: %v", table, err)
@@ -182,12 +173,10 @@ func formatTables(conn *nftables.Conn, tables []*nftables.Table) string {
 			continue
 		}
 
-		// Format chains
 		for _, chain := range chains {
 			formatChain(conn, table, chain, &builder)
 		}
 
-		// Format sets
 		if sets, err := conn.GetSets(table); err != nil {
 			log.Warnf("Failed to get sets for table %s: %v", table.Name, err)
 		} else if len(sets) > 0 {

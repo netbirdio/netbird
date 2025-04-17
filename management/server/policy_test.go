@@ -883,7 +883,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupD",
 			Peers: []string{peer1.ID, peer2.ID},
 		},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -915,7 +915,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -947,7 +947,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -979,7 +979,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -1010,7 +1010,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -1030,7 +1030,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}()
 
 		policyWithSourceAndDestinationPeers.Enabled = false
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers)
+		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
 		assert.NoError(t, err)
 
 		select {
@@ -1051,7 +1051,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		policyWithSourceAndDestinationPeers.Description = "updated description"
 		policyWithSourceAndDestinationPeers.Rules[0].Destinations = []string{"groupA"}
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers)
+		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
 		assert.NoError(t, err)
 
 		select {
@@ -1071,7 +1071,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}()
 
 		policyWithSourceAndDestinationPeers.Enabled = true
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers)
+		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
 		assert.NoError(t, err)
 
 		select {
