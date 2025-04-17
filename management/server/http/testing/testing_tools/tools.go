@@ -348,12 +348,6 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 
 	if err := push.New("http://localhost:9091", "api_benchmark").
 		Collector(benchmarkDuration).
-		Push(); err != nil {
-		fmt.Printf("Could not push benchmark metric: %v\n", err)
-	}
-
-	if err := push.New("http://localhost:9091", "api_benchmark").
-		Collector(gauge).
 		Grouping("ci_run", os.Getenv("GITHUB_RUN_ID")).
 		Push(); err != nil {
 		b.Fatalf("Could not push benchmark metric: %v", err)
