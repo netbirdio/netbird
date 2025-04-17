@@ -12,6 +12,8 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -30,17 +32,13 @@ func (e *GroupLinkError) Error() string {
 
 // CheckGroupPermissions validates if a user has the necessary permissions to view groups
 func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
 	if err != nil {
 		return err
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	return nil
@@ -68,27 +66,26 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 }
 
 // SaveGroup object of the peers
-func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
+func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, create bool) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
-	return am.SaveGroups(ctx, accountID, userID, []*types.Group{newGroup})
+	return am.SaveGroups(ctx, accountID, userID, []*types.Group{newGroup}, create)
 }
 
 // SaveGroups adds new groups to the account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
-func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group, create bool) error {
+	operation := operations.Create
+	if !create {
+		operation = operations.Update
+	}
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operation)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var eventsToStore []func()
@@ -210,17 +207,12 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 // If an error occurs while deleting a group, the function skips it and continues deleting other groups.
 // Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, userID string, groupIDs []string) error {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Delete)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var allErrors error

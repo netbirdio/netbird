@@ -368,6 +368,8 @@ message ProviderConfig {
   string AuthorizationEndpoint = 9;
   // RedirectURLs handles authorization code from IDP manager
   repeated string RedirectURLs = 10;
+  // DisablePromptLogin makes the PKCE flow to not prompt the user for login
+  bool DisablePromptLogin = 11;
 }
 
 // Route represents a route.Route object

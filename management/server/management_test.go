@@ -195,7 +195,7 @@ func startServer(
 		Return(&types.Settings{}, nil).
 		AnyTimes()
 
-	permissionsManagerMock := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(str)
 	accountManager, err := server.BuildManager(
 		context.Background(),
 		str,
@@ -210,7 +210,7 @@ func startServer(
 		metrics,
 		port_forwarding.NewControllerMock(),
 		settingsMockManager,
-		permissionsManagerMock,
+		permissionsManager,
 	)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)

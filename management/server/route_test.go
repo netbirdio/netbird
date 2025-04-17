@@ -1215,7 +1215,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		Name:  "peer1 group",
 		Peers: []string{peer1ID},
 	}
-	err = am.SaveGroup(context.Background(), account.Id, userID, newGroup)
+	err = am.SaveGroup(context.Background(), account.Id, userID, newGroup, true)
 	require.NoError(t, err)
 
 	rules, err := am.ListPolicies(context.Background(), account.Id, "testingUser")
@@ -1227,7 +1227,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	newPolicy.Rules[0].Sources = []string{newGroup.ID}
 	newPolicy.Rules[0].Destinations = []string{newGroup.ID}
 
-	_, err = am.SavePolicy(context.Background(), account.Id, userID, newPolicy)
+	_, err = am.SavePolicy(context.Background(), account.Id, userID, newPolicy, true)
 	require.NoError(t, err)
 
 	err = am.DeletePolicy(context.Background(), account.Id, defaultRule.ID, userID)
@@ -1260,7 +1260,6 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	permissionsManagerMock := permissions.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
@@ -1283,7 +1282,9 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 		AnyTimes().
 		Return(&types.ExtraSettings{}, nil)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
+	permissionsManager := permissions.NewManager(store)
+
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 }
 
 func createRouterStore(t *testing.T) (store.Store, error) {
@@ -1504,7 +1505,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	}
 
 	for _, group := range newGroup {
-		err = am.SaveGroup(context.Background(), accountID, userID, group)
+		err = am.SaveGroup(context.Background(), accountID, userID, group, true)
 		if err != nil {
 			return nil, err
 		}
@@ -1958,7 +1959,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{},
 		},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
@@ -2142,7 +2143,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			ID:    "groupB",
 			Name:  "GroupB",
 			Peers: []string{peer1ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -2182,7 +2183,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			ID:    "groupC",
 			Name:  "GroupC",
 			Peers: []string{peer1ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {

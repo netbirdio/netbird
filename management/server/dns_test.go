@@ -211,14 +211,13 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
-	permissionsManagerMock := permissions.NewManagerMock()
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
 	settingsMockManager := settings.NewMockManager(ctrl)
-
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
+	permissionsManager := permissions.NewManager(store)
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 }
 
 func createDNSStore(t *testing.T) (store.Store, error) {
@@ -505,7 +504,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupB",
 			Peers: []string{},
 		},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -565,7 +564,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		done := make(chan struct{})

@@ -7,6 +7,8 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -17,38 +19,32 @@ import (
 
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policyID)
 }
 
 // SavePolicy in the store
-func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error) {
+func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	operation := operations.Create
+	if !create {
+		operation = operations.Update
+	}
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	var isUpdate = policy.ID != ""
@@ -95,17 +91,12 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var policy *types.Policy
@@ -143,17 +134,12 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 // ListPolicies from the store.
 func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthShare, accountID)

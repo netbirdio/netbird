@@ -10,6 +10,8 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -62,17 +64,12 @@ func (c *DNSConfigCache) SetNameServerGroup(key string, value *proto.NameServerG
 
 // GetDNSSettings validates a user role and returns the DNS settings for the provided account ID
 func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetAccountDNSSettings(ctx, store.LockingStrengthShare, accountID)
@@ -84,17 +81,12 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Update)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return err
-	}
-
-	if !user.HasAdminPower() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var updateAccountPeers bool

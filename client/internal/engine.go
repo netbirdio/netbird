@@ -1231,36 +1231,19 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix) (*peer
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
-	if e.config.RosenpassEnabled && !e.config.RosenpassPermissive {
-		lk := []byte(e.config.WgPrivateKey.PublicKey().String())
-		rk := []byte(wgConfig.RemoteKey)
-		var keyInput []byte
-		if string(lk) > string(rk) {
-			//nolint:gocritic
-			keyInput = append(lk[:16], rk[:16]...)
-		} else {
-			//nolint:gocritic
-			keyInput = append(rk[:16], lk[:16]...)
-		}
-
-		key, err := wgtypes.NewKey(keyInput)
-		if err != nil {
-			return nil, err
-		}
-
-		wgConfig.PreSharedKey = &key
-	}
-
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
-		Key:             pubKey,
-		LocalKey:        e.config.WgPrivateKey.PublicKey().String(),
-		Timeout:         timeout,
-		WgConfig:        wgConfig,
-		LocalWgPort:     e.config.WgPort,
-		RosenpassPubKey: e.getRosenpassPubKey(),
-		RosenpassAddr:   e.getRosenpassAddr(),
+		Key:         pubKey,
+		LocalKey:    e.config.WgPrivateKey.PublicKey().String(),
+		Timeout:     timeout,
+		WgConfig:    wgConfig,
+		LocalWgPort: e.config.WgPort,
+		RosenpassConfig: peer.RosenpassConfig{
+			PubKey:         e.getRosenpassPubKey(),
+			Addr:           e.getRosenpassAddr(),
+			PermissiveMode: e.config.RosenpassPermissive,
+		},
 		ICEConfig: icemaker.Config{
 			StunTurn:             &e.stunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,

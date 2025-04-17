@@ -94,13 +94,17 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 	p.codeVerifier = codeVerifier
 
 	codeChallenge := createCodeChallenge(codeVerifier)
-	authURL := p.oAuthConfig.AuthCodeURL(
-		state,
+
+	params := []oauth2.AuthCodeOption{
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
-		oauth2.SetAuthURLParam("prompt", "login"),
-	)
+	}
+	if !p.providerConfig.DisablePromptLogin {
+		params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
+	}
+
+	authURL := p.oAuthConfig.AuthCodeURL(state, params...)
 
 	return AuthFlowInfo{
 		VerificationURIComplete: authURL,
