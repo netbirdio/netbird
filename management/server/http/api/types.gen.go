@@ -1703,11 +1703,9 @@ type UserCreateRequest struct {
 
 // UserPermissions defines model for UserPermissions.
 type UserPermissions struct {
-	Default map[string]bool `json:"default"`
-
 	// IsRestricted Indicates whether this User's Peers view is restricted
-	IsRestricted bool                        `json:"is_restricted"`
-	Modules      *map[string]map[string]bool `json:"modules,omitempty"`
+	IsRestricted bool                       `json:"is_restricted"`
+	Modules      map[string]map[string]bool `json:"modules"`
 }
 
 // UserRequest defines model for UserRequest.

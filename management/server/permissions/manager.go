@@ -21,7 +21,7 @@ type Manager interface {
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
 
-	GetRolePermissions(ctx context.Context, role types.UserRole) (roles.RolePermissions, error)
+	GetRolePermissions(ctx context.Context, role types.UserRole) (roles.Permissions, error)
 }
 
 type managerImpl struct {
@@ -66,9 +66,9 @@ func (m *managerImpl) ValidateUserPermissions(
 		return true, nil // this should be replaced by proper granular access role
 	}
 
-	role, err := m.GetRolePermissions(ctx, user.Role)
-	if err != nil {
-		return false, err
+	role, ok := roles.RolesMap[user.Role]
+	if !ok {
+		return false, status.NewUserRoleNotFoundError(string(user.Role))
 	}
 
 	return m.ValidateRoleModuleAccess(ctx, accountID, role, module, operation), nil
@@ -99,10 +99,20 @@ func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID strin
 	return nil
 }
 
-func (m *managerImpl) GetRolePermissions(ctx context.Context, role types.UserRole) (roles.RolePermissions, error) {
-	permissions, ok := roles.RolesMap[role]
+func (m *managerImpl) GetRolePermissions(ctx context.Context, role types.UserRole) (roles.Permissions, error) {
+	roleMap, ok := roles.RolesMap[role]
 	if !ok {
-		return roles.RolePermissions{}, status.NewUserRoleNotFoundError(string(role))
+		return roles.Permissions{}, status.NewUserRoleNotFoundError(string(role))
+	}
+
+	permissions := roles.Permissions{}
+
+	for k := range modules.All {
+		if rolePermissions, ok := roleMap.Permissions[k]; ok {
+			permissions[k] = rolePermissions
+			continue
+		}
+		permissions[k] = roleMap.AutoAllowNew
 	}
 
 	return permissions, nil

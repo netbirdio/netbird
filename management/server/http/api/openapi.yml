@@ -211,17 +211,8 @@ components:
               - read
               - write
           example: {"networks": { "read": true, "write": false}, "peers": { "read": false, "write": false} }
-        default:
-          type: object
-          additionalProperties:
-            type: boolean
-          propertyNames:
-            type: string
-            enum:
-              - read
-              - write
       required:
-        - default
+        - modules
         - is_restricted
     UserRequest:
       type: object

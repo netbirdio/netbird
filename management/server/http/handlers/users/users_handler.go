@@ -287,34 +287,19 @@ func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
 	response := toUserResponse(user.UserInfo, userID)
 
-	permissions := api.UserPermissions{
+	// stringify modules and operations keys
+	modules := make(map[string]map[string]bool)
+	for module, operations := range user.Permissions {
+		modules[string(module)] = make(map[string]bool)
+		for op, val := range operations {
+			modules[string(module)][string(op)] = val
+		}
+	}
+
+	response.Permissions = &api.UserPermissions{
 		IsRestricted: user.Restricted,
+		Modules:      modules,
 	}
-
-	if len(user.Permissions.AutoAllowNew) > 0 {
-		permissions.Default = make(map[string]bool)
-		for k, v := range user.Permissions.AutoAllowNew {
-			permissions.Default[string(k)] = v
-		}
-	}
-
-	if len(user.Permissions.Permissions) > 0 {
-		modules := make(map[string]map[string]bool)
-		for module, operations := range user.Permissions.Permissions {
-			if len(operations) == 0 {
-				continue
-			}
-
-			access := make(map[string]bool)
-			for k, v := range operations {
-				access[string(k)] = v
-			}
-			modules[string(module)] = access
-		}
-		permissions.Modules = &modules
-	}
-
-	response.Permissions = &permissions
 
 	return response
 }
