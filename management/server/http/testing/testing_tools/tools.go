@@ -79,7 +79,7 @@ var BenchmarkDuration = prometheus.NewGaugeVec(
 		Name: "benchmark_duration_ms",
 		Help: "Benchmark duration per op in ms",
 	},
-	[]string{"store_engine", "module", "operation", "test_case", "branch"},
+	[]string{"module", "operation", "test_case", "branch"},
 )
 
 type TB interface {
@@ -331,18 +331,13 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 		b.Fatalf("environment variable GIT_BRANCH is not set")
 	}
 
-	storeEngine := os.Getenv("NETBIRD_STORE_ENGINE")
-	if storeEngine == "" {
-		b.Fatalf("environment variable NETBIRD_STORE_ENGINE is not set")
-	}
-
 	if recorder.Code != http.StatusOK {
 		b.Fatalf("Benchmark %s failed: unexpected status code %d", testCase, recorder.Code)
 	}
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 
-	gauge := BenchmarkDuration.WithLabelValues(storeEngine, module, operation, testCase, branch)
+	gauge := BenchmarkDuration.WithLabelValues(module, operation, testCase, branch)
 	gauge.Set(msPerOp)
 
 	b.ReportMetric(msPerOp, "ms/op")
