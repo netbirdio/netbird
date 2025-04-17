@@ -870,6 +870,11 @@ func (r *router) applyNetwork(flag string, network firewall.Network, prefixes []
 func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	var merr *multierror.Error
 	for _, prefix := range prefixes {
+		// TODO: Implement IPv6 support
+		if prefix.Addr().Is6() {
+			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
+			continue
+		}
 		if err := ipset.AddPrefix(set.HashedName(), prefix); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("increment ipset counter: %w", err))
 		}

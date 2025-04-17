@@ -506,7 +506,7 @@ func convertPrefixesToSet(prefixes []netip.Prefix) []nftables.SetElement {
 	for _, prefix := range prefixes {
 		// TODO: Implement IPv6 support
 		if prefix.Addr().Is6() {
-			log.Printf("Skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
+			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
 			continue
 		}
 
@@ -1369,7 +1369,7 @@ func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 		return fmt.Errorf(flushError, err)
 	}
 
-	log.Debugf("Updated set %s with prefixes %v", set.HashedName(), prefixes)
+	log.Debugf("updated set %s with prefixes %v", set.HashedName(), prefixes)
 
 	return nil
 }
