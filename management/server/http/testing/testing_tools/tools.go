@@ -15,11 +15,12 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/management-integrations/integrations"
-
 	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -66,6 +67,12 @@ const (
 	ExpiredKeyId = "expiredKeyId"
 
 	ExistingKeyName = "existingKey"
+
+	OperationCreate = "create"
+	OperationUpdate = "update"
+	OperationDelete = "delete"
+	OperationGetOne = "get_one"
+	OperationGetAll = "get_all"
 )
 
 type TB interface {
@@ -91,6 +98,14 @@ type PerformanceMetrics struct {
 	MinMsPerOpCICD  float64
 	MaxMsPerOpCICD  float64
 }
+
+var benchmarkDuration = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "benchmark_duration_ms",
+		Help: "Benchmark duration per op in ms",
+	},
+	[]string{"module", "operation", "testCase", "branch"},
+)
 
 func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, account.Manager, chan struct{}) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
@@ -309,30 +324,30 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 
 }
 
-func EvaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics, recorder *httptest.ResponseRecorder) {
+func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Duration, recorder *httptest.ResponseRecorder, module string, operation string) {
 	b.Helper()
 
+	branch := os.Getenv("GIT_BRANCH")
+	if branch == "" {
+		b.Fatalf("environment variable GIT_BRANCH is not set")
+	}
+
 	if recorder.Code != http.StatusOK {
-		b.Fatalf("Benchmark %s failed: unexpected status code %d", name, recorder.Code)
+		b.Fatalf("Benchmark %s failed: unexpected status code %d", testCase, recorder.Code)
 	}
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 	b.ReportMetric(msPerOp, "ms/op")
 
-	minExpected := perfMetrics.MinMsPerOpLocal
-	maxExpected := perfMetrics.MaxMsPerOpLocal
-	if os.Getenv("CI") == "true" {
-		minExpected = perfMetrics.MinMsPerOpCICD
-		maxExpected = perfMetrics.MaxMsPerOpCICD
+	gauge := benchmarkDuration.WithLabelValues(module, operation, testCase, branch)
+	gauge.Set(msPerOp)
+
+	if err := push.New("http://localhost:9091", "api_benchmark").
+		Collector(benchmarkDuration).
+		Push(); err != nil {
+		b.Fatalf("Could not push benchmark metric: %v", err)
 	}
 
-	if msPerOp < minExpected {
-		b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", name, msPerOp, minExpected)
-	}
-
-	if msPerOp > maxExpected {
-		b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", name, msPerOp, maxExpected)
-	}
 }
 
 func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {
