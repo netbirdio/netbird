@@ -7,7 +7,7 @@ import (
 )
 
 var NetworkAdmin = RolePermissions{
-	Role: types.UserRoleAdmin,
+	Role: types.UserRoleNetworkAdmin,
 	AutoAllowNew: map[operations.Operation]bool{
 		operations.Read:   false,
 		operations.Create: false,
