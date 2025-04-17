@@ -1219,6 +1219,7 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 		Protocol:     string(PolicyRuleProtocolALL),
 		Domains:      route.Domains,
 		IsDynamic:    route.IsDynamic(),
+		RouteID:      route.ID,
 	}
 
 	rules = append(rules, &rule)
