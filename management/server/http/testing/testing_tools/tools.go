@@ -342,7 +342,6 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 	}
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
-	b.ReportMetric(msPerOp, "ms/op")
 
 	gauge := benchmarkDuration.WithLabelValues(storeEngine, module, operation, testCase, branch)
 	gauge.Set(msPerOp)
@@ -352,6 +351,10 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 		Push(); err != nil {
 		b.Fatalf("Could not push benchmark metric: %v", err)
 	}
+
+	b.Logf("Benchmark %s: %s took %v, %d ops, %f ms/op", testCase, module, duration, b.N, msPerOp)
+
+	b.ReportMetric(msPerOp, "ms/op")
 
 }
 
