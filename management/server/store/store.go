@@ -415,16 +415,16 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 }
 
 func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
+	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok || dsn == "" {
 		var err error
-		_, err = testutil.CreatePostgresTestContainer()
+		_, dsn, err = testutil.CreatePostgresTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	dsn, ok := os.LookupEnv(postgresDsnEnv)
-	if !ok {
+	if dsn == "" {
 		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
 
@@ -447,16 +447,16 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 }
 
 func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
+	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	if !ok || dsn == "" {
 		var err error
-		_, err = testutil.CreateMysqlTestContainer()
+		_, dsn, err = testutil.CreateMysqlTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	dsn, ok := os.LookupEnv(mysqlDsnEnv)
-	if !ok {
+	if dsn == "" {
 		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 	}
 

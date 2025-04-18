@@ -5,7 +5,6 @@ package testutil
 
 import (
 	"context"
-	"os"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -16,7 +15,7 @@ import (
 )
 
 // CreateMysqlTestContainer creates a new MySQL container for testing.
-func CreateMysqlTestContainer() (func(), error) {
+func CreateMysqlTestContainer() (func(), string, error) {
 	ctx := context.Background()
 
 	myContainer, err := mysql.RunContainer(ctx,
@@ -30,11 +29,10 @@ func CreateMysqlTestContainer() (func(), error) {
 		),
 	)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	cleanup := func() {
-		os.Unsetenv("NETBIRD_STORE_ENGINE_MYSQL_DSN")
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
 		defer cancelFunc()
 		if err = myContainer.Terminate(timeoutCtx); err != nil {
@@ -44,14 +42,14 @@ func CreateMysqlTestContainer() (func(), error) {
 
 	talksConn, err := myContainer.ConnectionString(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_MYSQL_DSN", talksConn)
+	return cleanup, talksConn, nil
 }
 
 // CreatePostgresTestContainer creates a new PostgreSQL container for testing.
-func CreatePostgresTestContainer() (func(), error) {
+func CreatePostgresTestContainer() (func(), string, error) {
 	ctx := context.Background()
 
 	pgContainer, err := postgres.RunContainer(ctx,
@@ -65,11 +63,10 @@ func CreatePostgresTestContainer() (func(), error) {
 		),
 	)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	cleanup := func() {
-		os.Unsetenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN")
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
 		defer cancelFunc()
 		if err = pgContainer.Terminate(timeoutCtx); err != nil {
@@ -79,8 +76,8 @@ func CreatePostgresTestContainer() (func(), error) {
 
 	talksConn, err := pgContainer.ConnectionString(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
+	return cleanup, talksConn, nil
 }
