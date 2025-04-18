@@ -545,7 +545,7 @@ jobs:
   test_client_on_docker:
     name: "Client (Docker) / Unit"
     needs: [ build-cache ]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
