@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"runtime"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -29,8 +31,10 @@ const (
 )
 
 type Forwarder struct {
-	logger       *nblog.Logger
-	flowLogger   nftypes.FlowLogger
+	logger     *nblog.Logger
+	flowLogger nftypes.FlowLogger
+	// ruleIdMap is used to store the rule ID for a given connection
+	ruleIdMap    sync.Map
 	stack        *stack.Stack
 	endpoint     *endpoint
 	udpForwarder *udpForwarder
@@ -166,4 +170,32 @@ func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {
 		return net.IPv4(127, 0, 0, 1)
 	}
 	return addr.AsSlice()
+}
+
+func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, ruleID []byte) {
+	key := buildKey(srcIP, dstIP, srcPort, dstPort)
+	f.ruleIdMap.Store(key, ruleID)
+}
+
+func (f *Forwarder) getRuleID(eventType nftypes.Type, srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ([]byte, bool) {
+	if eventType == nftypes.TypeStart {
+		if value, ok := f.ruleIdMap.Load(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
+			return value.([]byte), true
+		} else if value, ok := f.ruleIdMap.Load(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
+			return value.([]byte), true
+		}
+
+	} else {
+		if value, ok := f.ruleIdMap.LoadAndDelete(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
+			return value.([]byte), true
+		} else if value, ok := f.ruleIdMap.LoadAndDelete(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
+			return value.([]byte), true
+		}
+	}
+
+	return nil, false
+}
+
+func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) string {
+	return fmt.Sprintf("%s:%d-%s:%d", srcIP, srcPort, dstIP, dstPort)
 }
