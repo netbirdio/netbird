@@ -2,12 +2,16 @@ package types
 
 import (
 	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/route"
 )
 
 // RouteFirewallRule a firewall rule applicable for a routed network.
 type RouteFirewallRule struct {
 	// PolicyID is the ID of the policy this rule is derived from
 	PolicyID string
+
+	// RouteID is the ID of the route this rule belongs to.
+	RouteID route.ID
 
 	// SourceRanges IP ranges of the routing peers.
 	SourceRanges []string
