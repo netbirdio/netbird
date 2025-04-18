@@ -482,7 +482,7 @@ jobs:
           go test -tags=benchmark \
             -run=^$ \
             -bench=. \
-            -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,GIT_BRANCH' \
+            -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,GIT_BRANCH,GITHUB_RUN_ID' \
             -timeout 20m ./management/...
 
   api_integration_test:
