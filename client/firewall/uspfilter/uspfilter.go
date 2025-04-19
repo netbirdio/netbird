@@ -564,7 +564,7 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	for _, rule := range matches {
 		rule.destinations = destinations
 	}
-	log.Debugf("updated set %s with to prefixes %v", set.HashedName(), destinations)
+	log.Debugf("updated set %s to prefixes %v", set.HashedName(), destinations)
 
 	return nil
 }
