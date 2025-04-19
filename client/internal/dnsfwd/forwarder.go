@@ -158,15 +158,19 @@ func (f *DNSForwarder) updateInternalState(domain string, ips []netip.Addr) {
 	}
 
 	if f.firewall != nil {
-		var merr *multierror.Error
-		for _, entry := range matchingEntries {
-			if err := f.firewall.UpdateSet(entry.DomainHash, prefixes); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("update set for domain=%s: %w", entry.Domain, err))
-			}
+		f.updateFirewall(matchingEntries, prefixes)
+	}
+}
+
+func (f *DNSForwarder) updateFirewall(matchingEntries []*ForwarderEntry, prefixes []netip.Prefix) {
+	var merr *multierror.Error
+	for _, entry := range matchingEntries {
+		if err := f.firewall.UpdateSet(entry.DomainHash, prefixes); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("update set for domain=%s: %w", entry.Domain, err))
 		}
-		if merr != nil {
-			log.Errorf("failed to update firewall sets (%d/%d): %v", len(merr.Errors), len(matchingEntries), merr)
-		}
+	}
+	if merr != nil {
+		log.Errorf("failed to update firewall sets (%d/%d): %v", len(merr.Errors), len(matchingEntries), merr)
 	}
 }
 
