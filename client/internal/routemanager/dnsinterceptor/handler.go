@@ -330,6 +330,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 	if len(toAdd) > 0 || len(toRemove) > 0 {
 		if d.route.KeepRoute {
 			// replace stored prefixes with old + added
+			// nolint:gocritic
 			newPrefixes = append(oldPrefixes, toAdd...)
 		}
 		d.interceptedDomains[resolvedDomain] = newPrefixes

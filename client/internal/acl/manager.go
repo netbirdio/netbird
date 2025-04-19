@@ -580,10 +580,3 @@ func convertPortInfo(portInfo *mgmProto.PortInfo) *firewall.Port {
 
 	return nil
 }
-
-func getDefault(prefix netip.Prefix) netip.Prefix {
-	if prefix.Addr().Is6() {
-		return netip.PrefixFrom(netip.IPv6Unspecified(), 0)
-	}
-	return netip.PrefixFrom(netip.IPv4Unspecified(), 0)
-}

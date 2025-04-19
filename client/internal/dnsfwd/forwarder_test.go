@@ -10,7 +10,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-func TestGetResIdForDomain(t *testing.T) {
+func Test_getMatchingEntries(t *testing.T) {
 	testCases := []struct {
 		name           string
 		storedMappings map[string]route.ID // key: domain pattern, value: resId
