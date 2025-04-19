@@ -102,7 +102,7 @@ func FromStringList(s []string) (List, error) {
 func FromPunycodeList(s []string) List {
 	var dl List
 	for _, domain := range s {
-		dl = append(dl, Domain(domain))
+		dl = append(dl, Domain(strings.ToLower(domain)))
 	}
 	return dl
 }

@@ -244,7 +244,8 @@ func (f *DNSForwarder) getMatchingEntries(domain string) (route.ID, []*Forwarder
 		switch {
 		case strings.HasPrefix(pattern, "*."):
 			baseDomain := strings.TrimPrefix(pattern, "*.")
-			if domain == baseDomain || strings.HasSuffix(domain, "."+baseDomain) {
+
+			if strings.EqualFold(domain, baseDomain) || strings.HasSuffix(domain, "."+baseDomain) {
 				score = len(baseDomain)
 				matches = append(matches, entry)
 			}

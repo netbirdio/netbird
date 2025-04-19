@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"strings"
+
 	"golang.org/x/net/idna"
 )
 
@@ -39,5 +41,5 @@ func FromString(s string) (Domain, error) {
 	if err != nil {
 		return "", err
 	}
-	return Domain(ascii), nil
+	return Domain(strings.ToLower(ascii)), nil
 }
