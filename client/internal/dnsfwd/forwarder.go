@@ -133,6 +133,15 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 		return
 	}
 
+	f.updateInternalState(domain, ips)
+	f.addIPsToResponse(resp, domain, ips)
+
+	if err := w.WriteMsg(resp); err != nil {
+		log.Errorf("failed to write DNS response: %v", err)
+	}
+}
+
+func (f *DNSForwarder) updateInternalState(domain string, ips []netip.Addr) {
 	var prefixes []netip.Prefix
 	mostSpecificResId, matchingEntries := f.getMatchingEntries(strings.TrimSuffix(domain, "."))
 	if mostSpecificResId != "" {
@@ -158,12 +167,6 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) {
 		if merr != nil {
 			log.Errorf("failed to update firewall sets (%d/%d): %v", len(merr.Errors), len(matchingEntries), merr)
 		}
-	}
-
-	f.addIPsToResponse(resp, domain, ips)
-
-	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("failed to write DNS response: %v", err)
 	}
 }
 
