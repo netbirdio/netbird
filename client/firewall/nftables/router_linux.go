@@ -412,7 +412,7 @@ func (r *router) AddRouteFiltering(
 	return ruleKey, nil
 }
 
-func (r *router) getIpSetExprs(set firewall.Set, prefixes []netip.Prefix, isSource bool) ([]expr.Any, error) {
+func (r *router) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bool) ([]expr.Any, error) {
 	ref, err := r.ipsetCounter.Increment(set.HashedName(), setInput{
 		set:      set,
 		prefixes: prefixes,
@@ -421,26 +421,7 @@ func (r *router) getIpSetExprs(set firewall.Set, prefixes []netip.Prefix, isSour
 		return nil, fmt.Errorf("create or get ipset: %w", err)
 	}
 
-	// dst offset
-	offset := uint32(16)
-	if isSource {
-		// src offset
-		offset = 12
-	}
-
-	return []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       offset,
-			Len:          4,
-		},
-		&expr.Lookup{
-			SourceRegister: 1,
-			SetName:        ref.Out.Name,
-			SetID:          ref.Out.ID,
-		},
-	}, nil
+	return getIpSetExprs(ref, isSource)
 }
 
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
@@ -1382,7 +1363,7 @@ func (r *router) applyNetwork(
 	isSource bool,
 ) ([]expr.Any, error) {
 	if network.IsSet() {
-		exprs, err := r.getIpSetExprs(network.Set, setPrefixes, isSource)
+		exprs, err := r.getIpSet(network.Set, setPrefixes, isSource)
 		if err != nil {
 			return nil, fmt.Errorf("source: %w", err)
 		}
@@ -1509,4 +1490,28 @@ func getCtNewExprs() []expr.Any {
 			Data:     []byte{0, 0, 0, 0},
 		},
 	}
+}
+
+func getIpSetExprs(ref refcounter.Ref[*nftables.Set], isSource bool) ([]expr.Any, error) {
+
+	// dst offset
+	offset := uint32(16)
+	if isSource {
+		// src offset
+		offset = 12
+	}
+
+	return []expr.Any{
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       offset,
+			Len:          4,
+		},
+		&expr.Lookup{
+			SourceRegister: 1,
+			SetName:        ref.Out.Name,
+			SetID:          ref.Out.ID,
+		},
+	}, nil
 }

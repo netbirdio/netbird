@@ -88,8 +88,8 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				}
 
 				// Build CIDR matching expressions
-				sourceExp, _ := applyNetwork(testCase.InputPair.Source, true)
-				destExp, _ := applyNetwork(testCase.InputPair.Destination, false)
+				sourceExp := applyPrefix(testCase.InputPair.Source.Prefix, true)
+				destExp := applyPrefix(testCase.InputPair.Destination.Prefix, false)
 
 				// Combine all expressions in the correct order
 				// nolint:gocritic
@@ -311,7 +311,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ruleKey, err := r.AddRouteFiltering(nil, tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.action)
+			ruleKey, err := r.AddRouteFiltering(nil, tt.sources, firewall.Network{Prefix: tt.destination}, tt.proto, tt.sPort, tt.dPort, tt.action)
 			require.NoError(t, err, "AddRouteFiltering failed")
 
 			t.Cleanup(func() {
@@ -442,7 +442,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			setName := firewall.NewPrefixSet(tt.sources).HashedName()
-			set, err := r.createIpSet(setName, tt.sources)
+			set, err := r.createIpSet(setName, setInput{prefixes: tt.sources})
 			if err != nil {
 				t.Logf("Failed to create IP set: %v", err)
 				printNftSets()

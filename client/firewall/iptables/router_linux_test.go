@@ -14,8 +14,6 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
-	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
-	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -62,8 +60,8 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 
 	pair := firewall.RouterPair{
 		ID:          "abc",
-		Source:      netip.MustParsePrefix("100.100.100.1/32"),
-		Destination: netip.MustParsePrefix("100.100.100.0/24"),
+		Source:      firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.1/32")},
+		Destination: firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.0/24")},
 		Masquerade:  true,
 	}
 
@@ -334,7 +332,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ruleKey, err := r.AddRouteFiltering(nil, tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.action)
+			ruleKey, err := r.AddRouteFiltering(nil, tt.sources, firewall.Network{Prefix: tt.destination}, tt.proto, tt.sPort, tt.dPort, tt.action)
 			require.NoError(t, err, "AddRouteFiltering failed")
 
 			// Check if the rule is in the internal map
@@ -349,23 +347,29 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			assert.NoError(t, err, "Failed to check rule existence")
 			assert.True(t, exists, "Rule not found in iptables")
 
+			var source firewall.Network
+			if len(tt.sources) > 1 {
+				source.Set = firewall.NewPrefixSet(tt.sources)
+			} else if len(tt.sources) > 0 {
+				source.Prefix = tt.sources[0]
+			}
 			// Verify rule content
 			params := routeFilteringRuleParams{
-				Sources:     tt.sources,
-				Destination: tt.destination,
+				Source:      source,
+				Destination: firewall.Network{Prefix: tt.destination},
 				Proto:       tt.proto,
 				SPort:       tt.sPort,
 				DPort:       tt.dPort,
 				Action:      tt.action,
-				SourceSet:   "",
 			}
 
-			expectedRule := genRouteFilteringRuleSpec(params, nil)
+			expectedRule, err := r.genRouteRuleSpec(params, nil)
+			require.NoError(t, err, "Failed to generate expected rule spec")
 
 			if tt.expectSet {
 				setName := firewall.NewPrefixSet(tt.sources).HashedName()
-				params.SourceSet = setName
-				expectedRule = genRouteFilteringRuleSpec(params, nil)
+				expectedRule, err = r.genRouteRuleSpec(params, nil)
+				require.NoError(t, err, "Failed to generate expected rule spec with set")
 
 				// Check if the set was created
 				_, exists := r.ipsetCounter.Get(setName)

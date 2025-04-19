@@ -805,7 +805,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			rule, err := manager.AddRouteFiltering(
 				nil,
 				tc.rule.sources,
-				tc.rule.dest,
+				fw.Network{Prefix: tc.rule.dest},
 				tc.rule.proto,
 				tc.rule.srcPort,
 				tc.rule.dstPort,
@@ -988,7 +988,7 @@ func TestRouteACLOrder(t *testing.T) {
 				rule, err := manager.AddRouteFiltering(
 					nil,
 					r.sources,
-					r.dest,
+					fw.Network{Prefix: r.dest},
 					r.proto,
 					r.srcPort,
 					r.dstPort,
