@@ -225,7 +225,13 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 
 	var destination firewall.Network
 	if rule.IsDynamic {
-		destination.Set = firewall.NewDomainSet(domain.FromPunycodeList(rule.Domains))
+		if len(rule.Domains) > 0 {
+			destination.Set = firewall.NewDomainSet(domain.FromPunycodeList(rule.Domains))
+		} else {
+			// isDynamic is set but no domains = outdated management server
+			log.Warn("connected to an older version of management server (no domains in rules), using default destination")
+			destination.Prefix = getDefault(sources[0])
+		}
 	} else {
 		prefix, err := netip.ParsePrefix(rule.Destination)
 		if err != nil {
@@ -579,4 +585,11 @@ func convertPortInfo(portInfo *mgmProto.PortInfo) *firewall.Port {
 	}
 
 	return nil
+}
+
+func getDefault(prefix netip.Prefix) netip.Prefix {
+	if prefix.Addr().Is6() {
+		return netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+	}
+	return netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 }
