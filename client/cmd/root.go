@@ -39,6 +39,9 @@ const (
 	dnsRouteIntervalFlag    = "dns-router-interval"
 	systemInfoFlag          = "system-info"
 	blockLANAccessFlag      = "block-lan-access"
+	uploadBundle            = "upload-bundle"
+	uploadBundleURL         = "upload-bundle-url"
+	defaultBundleURL        = "http://localhost:8080/upload-url"
 )
 
 var (
@@ -75,6 +78,8 @@ var (
 	debugSystemInfoFlag     bool
 	dnsRouteInterval        time.Duration
 	blockLANAccess          bool
+	debugUploadBundle       bool
+	debugUploadBundleURL    string
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
@@ -181,6 +186,8 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 
 	debugCmd.PersistentFlags().BoolVarP(&debugSystemInfoFlag, systemInfoFlag, "S", true, "Adds system information to the debug bundle")
+	debugCmd.PersistentFlags().BoolVarP(&debugUploadBundle, uploadBundle, "U", false, fmt.Sprintf("Uploads the debug bundle to a server from URL defined by %s", uploadBundleURL))
+	debugCmd.PersistentFlags().StringVar(&debugUploadBundleURL, uploadBundleURL, defaultBundleURL, "Service URL to get an URL to upload the debug bundle")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success

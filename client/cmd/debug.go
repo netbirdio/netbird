@@ -87,16 +87,25 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	}()
 
 	client := proto.NewDaemonServiceClient(conn)
-	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
+	request := &proto.DebugBundleRequest{
 		Anonymize:  anonymizeFlag,
 		Status:     getStatusOutput(cmd, anonymizeFlag),
 		SystemInfo: debugSystemInfoFlag,
-	})
+	}
+	if debugUploadBundle {
+		request.UploadURL = debugUploadBundleURL
+	}
+	resp, err := client.DebugBundle(cmd.Context(), request)
+	if resp.GetPath() != "" {
+		cmd.Printf("Local file: %s\n", resp.GetPath())
+	}
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
 
-	cmd.Println(resp.GetPath())
+	if debugUploadBundle {
+		cmd.Printf("Upload file key: %s\n", resp.GetUploadedKey())
+	}
 
 	return nil
 }
