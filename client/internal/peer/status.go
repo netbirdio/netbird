@@ -611,14 +611,11 @@ func (d *Status) RemoveLocalPeerStateRoute(route string) {
 }
 
 // AddResolvedIPLookupEntry adds a resolved IP lookup entry
-func (d *Status) AddResolvedIPLookupEntry(route, resourceId string) {
+func (d *Status) AddResolvedIPLookupEntry(prefix netip.Prefix, resourceId string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	pref, err := netip.ParsePrefix(route)
-	if err == nil {
-		d.routeIDLookup.AddResolvedIP(resourceId, pref)
-	}
+	d.routeIDLookup.AddResolvedIP(resourceId, prefix)
 }
 
 // RemoveResolvedIPLookupEntry removes a resolved IP lookup entry

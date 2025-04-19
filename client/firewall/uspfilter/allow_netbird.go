@@ -12,7 +12,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-// Reset firewall to the default state
+// Close cleans up the firewall manager by removing all rules and closing trackers
 func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

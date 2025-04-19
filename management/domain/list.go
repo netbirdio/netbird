@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// List is a slice of punycode-encoded domain strings.
 type List []Domain
 
 // ToStringList converts a List to a slice of string.
@@ -53,7 +54,7 @@ func (d List) String() (string, error) {
 func (d List) SafeString() string {
 	str, err := d.String()
 	if err != nil {
-		return strings.Join(d.ToPunycodeList(), ", ")
+		return d.PunycodeString()
 	}
 	return str
 }
@@ -101,7 +102,7 @@ func FromStringList(s []string) (List, error) {
 func FromPunycodeList(s []string) List {
 	var dl List
 	for _, domain := range s {
-		dl = append(dl, Domain(domain))
+		dl = append(dl, Domain(strings.ToLower(domain)))
 	}
 	return dl
 }

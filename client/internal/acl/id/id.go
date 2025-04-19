@@ -18,7 +18,7 @@ func (r RuleID) ID() string {
 
 func GenerateRouteRuleKey(
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination manager.Network,
 	proto manager.Protocol,
 	sPort *manager.Port,
 	dPort *manager.Port,

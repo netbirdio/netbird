@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -414,7 +415,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		signalConnString,
 		relaysString,
 		dnsServersString,
-		overview.FQDN,
+		domain.Domain(overview.FQDN).SafeString(),
 		interfaceIP,
 		interfaceTypeString,
 		rosenpassEnabledStatus,
@@ -508,7 +509,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Quantum resistance: %s\n"+
 				"  Networks: %s\n"+
 				"  Latency: %s\n",
-			peerState.FQDN,
+			domain.Domain(peerState.FQDN).SafeString(),
 			peerState.IP,
 			peerState.PubKey,
 			peerState.Status,

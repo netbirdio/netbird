@@ -10,7 +10,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -22,7 +21,7 @@ const (
 	firewallRuleName        = "Netbird"
 )
 
-// Reset firewall to the default state
+// Close cleans up the firewall manager by removing all rules and closing trackers
 func (m *Manager) Close(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -32,17 +31,14 @@ func (m *Manager) Close(*statemanager.Manager) error {
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
-		m.udpTracker = conntrack.NewUDPTracker(conntrack.DefaultUDPTimeout, m.logger, m.flowLogger)
 	}
 
 	if m.icmpTracker != nil {
 		m.icmpTracker.Close()
-		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, m.flowLogger)
 	}
 
 	if m.tcpTracker != nil {
 		m.tcpTracker.Close()
-		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, m.flowLogger)
 	}
 
 	if fwder := m.forwarder.Load(); fwder != nil {

@@ -22,8 +22,6 @@ func ValidateDomains(domains []string) (List, error) {
 	var domainList List
 
 	for _, d := range domains {
-		d := strings.ToLower(d)
-
 		// handles length and idna conversion
 		punycode, err := FromString(d)
 		if err != nil {

@@ -20,8 +20,8 @@ func TestGenerateSetName(t *testing.T) {
 			netip.MustParsePrefix("192.168.1.0/24"),
 		}
 
-		result1 := manager.GenerateSetName(prefixes1)
-		result2 := manager.GenerateSetName(prefixes2)
+		result1 := manager.NewPrefixSet(prefixes1)
+		result2 := manager.NewPrefixSet(prefixes2)
 
 		if result1 != result2 {
 			t.Errorf("Different orders produced different hashes: %s != %s", result1, result2)
@@ -34,9 +34,9 @@ func TestGenerateSetName(t *testing.T) {
 			netip.MustParsePrefix("10.0.0.0/8"),
 		}
 
-		result := manager.GenerateSetName(prefixes)
+		result := manager.NewPrefixSet(prefixes)
 
-		matched, err := regexp.MatchString(`^nb-[0-9a-f]{8}$`, result)
+		matched, err := regexp.MatchString(`^nb-[0-9a-f]{8}$`, result.HashedName())
 		if err != nil {
 			t.Fatalf("Error matching regex: %v", err)
 		}
@@ -46,8 +46,8 @@ func TestGenerateSetName(t *testing.T) {
 	})
 
 	t.Run("Empty input produces consistent result", func(t *testing.T) {
-		result1 := manager.GenerateSetName([]netip.Prefix{})
-		result2 := manager.GenerateSetName([]netip.Prefix{})
+		result1 := manager.NewPrefixSet([]netip.Prefix{})
+		result2 := manager.NewPrefixSet([]netip.Prefix{})
 
 		if result1 != result2 {
 			t.Errorf("Empty input produced inconsistent results: %s != %s", result1, result2)
@@ -64,8 +64,8 @@ func TestGenerateSetName(t *testing.T) {
 			netip.MustParsePrefix("192.168.1.0/24"),
 		}
 
-		result1 := manager.GenerateSetName(prefixes1)
-		result2 := manager.GenerateSetName(prefixes2)
+		result1 := manager.NewPrefixSet(prefixes1)
+		result2 := manager.NewPrefixSet(prefixes2)
 
 		if result1 != result2 {
 			t.Errorf("Different orders of IPv4 and IPv6 produced different hashes: %s != %s", result1, result2)
