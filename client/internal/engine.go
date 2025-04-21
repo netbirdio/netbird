@@ -969,7 +969,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	if e.acl != nil {
-		e.acl.ApplyFiltering(networkMap)
+		e.acl.ApplyFiltering(networkMap, dnsRouteFeatureFlag)
 	}
 
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), networkMap.GetRoutes())

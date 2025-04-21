@@ -35,7 +35,7 @@ func newServerRouter(ctx context.Context, wgInterface iface.WGIface, firewall fi
 	}, nil
 }
 
-func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
+func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRoute bool) error {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
@@ -76,7 +76,7 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 			continue
 		}
 
-		err := m.addToServerNetwork(newRoute)
+		err := m.addToServerNetwork(newRoute, useNewDNSRoute)
 		if err != nil {
 			log.Errorf("Unable to add route %s from server, got: %v", newRoute.ID, err)
 			continue
@@ -93,7 +93,7 @@ func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
 		return m.ctx.Err()
 	}
 
-	routerPair := routeToRouterPair(route)
+	routerPair := routeToRouterPair(route, false)
 	if err := m.firewall.RemoveNatRule(routerPair); err != nil {
 		return fmt.Errorf("remove routing rules: %w", err)
 	}
@@ -104,13 +104,13 @@ func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
 	return nil
 }
 
-func (m *serverRouter) addToServerNetwork(route *route.Route) error {
+func (m *serverRouter) addToServerNetwork(route *route.Route, useNewDNSRoute bool) error {
 	if m.ctx.Err() != nil {
 		log.Infof("Not adding to server network because context is done")
 		return m.ctx.Err()
 	}
 
-	routerPair := routeToRouterPair(route)
+	routerPair := routeToRouterPair(route, useNewDNSRoute)
 	if err := m.firewall.AddNatRule(routerPair); err != nil {
 		return fmt.Errorf("insert routing rules: %w", err)
 	}
@@ -126,7 +126,7 @@ func (m *serverRouter) cleanUp() {
 	defer m.mux.Unlock()
 
 	for _, r := range m.routes {
-		routerPair := routeToRouterPair(r)
+		routerPair := routeToRouterPair(r, false)
 		if err := m.firewall.RemoveNatRule(routerPair); err != nil {
 			log.Errorf("Failed to remove cleanup route: %v", err)
 		}
@@ -135,11 +135,16 @@ func (m *serverRouter) cleanUp() {
 	m.statusRecorder.CleanLocalPeerStateRoutes()
 }
 
-func routeToRouterPair(route *route.Route) firewall.RouterPair {
+func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterPair {
 	source := getDefaultPrefix(route.Network)
 	destination := firewall.Network{}
 	if route.IsDynamic() {
-		destination.Set = firewall.NewDomainSet(route.Domains)
+		if useNewDNSRoute {
+			destination.Set = firewall.NewDomainSet(route.Domains)
+		} else {
+			// TODO: add ipv6 additionally
+			destination = getDefaultPrefix(destination.Prefix)
+		}
 	} else {
 		destination.Prefix = route.Network.Masked()
 	}
