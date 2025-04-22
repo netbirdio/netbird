@@ -105,5 +105,6 @@ func CreatePostgresTestContainer() (func(), string, error) {
 	return cleanup, talksConn, nil
 }
 
-// noOpCleanup does nothing, used when the container is reused
-func noOpCleanup() {}
+func noOpCleanup() {
+	// no-op
+}
