@@ -435,12 +435,12 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	return store, cleanup, nil
@@ -467,7 +467,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine
 
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
