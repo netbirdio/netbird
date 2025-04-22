@@ -14,23 +14,15 @@ import (
 )
 
 type RouteSelector struct {
-	mu             sync.RWMutex
-	selectedRoutes map[route.NetID]struct{}
-	selectAll      bool
-
-	// Indicates if new routes should be automatically selected
-	includeNewRoutes bool
-
-	// All known routes at the time of deselection
-	knownRoutes []route.NetID
+	mu               sync.RWMutex
+	deselectedRoutes map[route.NetID]struct{}
+	deselectAll      bool
 }
 
 func NewRouteSelector() *RouteSelector {
 	return &RouteSelector{
-		selectedRoutes:   map[route.NetID]struct{}{},
-		selectAll:        true,
-		includeNewRoutes: false,
-		knownRoutes:      []route.NetID{},
+		deselectedRoutes: map[route.NetID]struct{}{},
+		deselectAll:      false,
 	}
 }
 
@@ -39,9 +31,11 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	if !appendRoute {
-		rs.selectedRoutes = map[route.NetID]struct{}{}
-		rs.knownRoutes = allRoutes
+	if !appendRoute || rs.deselectAll {
+		maps.Clear(rs.deselectedRoutes)
+		for _, r := range allRoutes {
+			rs.deselectedRoutes[r] = struct{}{}
+		}
 	}
 
 	var err *multierror.Error
@@ -50,11 +44,10 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", route))
 			continue
 		}
-
-		rs.selectedRoutes[route] = struct{}{}
+		delete(rs.deselectedRoutes, route)
 	}
-	rs.selectAll = false
-	rs.includeNewRoutes = appendRoute
+
+	rs.deselectAll = false
 
 	return errors.FormatErrorOrNil(err)
 }
@@ -64,37 +57,26 @@ func (rs *RouteSelector) SelectAllRoutes() {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	rs.selectAll = true
-	rs.selectedRoutes = map[route.NetID]struct{}{}
-	rs.includeNewRoutes = false
+	rs.deselectAll = false
+	maps.Clear(rs.deselectedRoutes)
 }
 
 // DeselectRoutes removes specific routes from the selection.
-// If the selector is in "select all" mode, it will transition to "select specific" mode
-// but will keep new routes selected.
 func (rs *RouteSelector) DeselectRoutes(routes []route.NetID, allRoutes []route.NetID) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	if rs.selectAll {
-		rs.selectAll = false
-		rs.includeNewRoutes = true
-		rs.knownRoutes = allRoutes
-
-		rs.selectedRoutes = map[route.NetID]struct{}{}
-		for _, route := range allRoutes {
-			rs.selectedRoutes[route] = struct{}{}
-		}
+	if rs.deselectAll {
+		return nil
 	}
 
 	var err *multierror.Error
-
 	for _, route := range routes {
 		if !slices.Contains(allRoutes, route) {
 			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", route))
 			continue
 		}
-		delete(rs.selectedRoutes, route)
+		rs.deselectedRoutes[route] = struct{}{}
 	}
 
 	return errors.FormatErrorOrNil(err)
@@ -105,9 +87,8 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	rs.selectAll = false
-	rs.includeNewRoutes = false
-	rs.selectedRoutes = map[route.NetID]struct{}{}
+	rs.deselectAll = true
+	maps.Clear(rs.deselectedRoutes)
 }
 
 // IsSelected checks if a specific route is selected.
@@ -115,23 +96,12 @@ func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	if rs.selectAll {
-		return true
+	if rs.deselectAll {
+		return false
 	}
 
-	// Check if the route exists in selectedRoutes
-	_, selected := rs.selectedRoutes[routeID]
-	if selected {
-		return true
-	}
-
-	// If includeNewRoutes is true and this is a new route (not in knownRoutes),
-	// then it should be selected
-	if rs.includeNewRoutes && !slices.Contains(rs.knownRoutes, routeID) {
-		return true
-	}
-
-	return false
+	_, deselected := rs.deselectedRoutes[routeID]
+	return !deselected
 }
 
 // FilterSelected removes unselected routes from the provided map.
@@ -139,17 +109,15 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	if rs.selectAll {
-		return maps.Clone(routes)
+	if rs.deselectAll {
+		return route.HAMap{}
 	}
 
 	filtered := route.HAMap{}
 	for id, rt := range routes {
 		netID := id.NetID()
-		_, selected := rs.selectedRoutes[netID]
-
-		// Include if directly selected or if it's a new route and includeNewRoutes is true
-		if selected || (rs.includeNewRoutes && !slices.Contains(rs.knownRoutes, netID)) {
+		_, deselected := rs.deselectedRoutes[netID]
+		if !deselected {
 			filtered[id] = rt
 		}
 	}
@@ -162,15 +130,11 @@ func (rs *RouteSelector) MarshalJSON() ([]byte, error) {
 	defer rs.mu.RUnlock()
 
 	return json.Marshal(struct {
-		SelectedRoutes   map[route.NetID]struct{} `json:"selected_routes"`
-		SelectAll        bool                     `json:"select_all"`
-		IncludeNewRoutes bool                     `json:"include_new_routes"`
-		KnownRoutes      []route.NetID            `json:"known_routes"`
+		DeselectedRoutes map[route.NetID]struct{} `json:"deselected_routes"`
+		DeselectAll      bool                     `json:"deselect_all"`
 	}{
-		SelectAll:        rs.selectAll,
-		SelectedRoutes:   rs.selectedRoutes,
-		IncludeNewRoutes: rs.includeNewRoutes,
-		KnownRoutes:      rs.knownRoutes,
+		DeselectedRoutes: rs.deselectedRoutes,
+		DeselectAll:      rs.deselectAll,
 	})
 }
 
@@ -182,34 +146,25 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 
 	// Check for null or empty JSON
 	if len(data) == 0 || string(data) == "null" {
-		rs.selectedRoutes = map[route.NetID]struct{}{}
-		rs.selectAll = true
-		rs.includeNewRoutes = false
-		rs.knownRoutes = []route.NetID{}
+		rs.deselectedRoutes = map[route.NetID]struct{}{}
+		rs.deselectAll = false
 		return nil
 	}
 
 	var temp struct {
-		SelectedRoutes   map[route.NetID]struct{} `json:"selected_routes"`
-		SelectAll        bool                     `json:"select_all"`
-		IncludeNewRoutes bool                     `json:"include_new_routes"`
-		KnownRoutes      []route.NetID            `json:"known_routes"`
+		DeselectedRoutes map[route.NetID]struct{} `json:"deselected_routes"`
+		DeselectAll      bool                     `json:"deselect_all"`
 	}
 
 	if err := json.Unmarshal(data, &temp); err != nil {
 		return err
 	}
 
-	rs.selectedRoutes = temp.SelectedRoutes
-	rs.selectAll = temp.SelectAll
-	rs.includeNewRoutes = temp.IncludeNewRoutes
-	rs.knownRoutes = temp.KnownRoutes
+	rs.deselectedRoutes = temp.DeselectedRoutes
+	rs.deselectAll = temp.DeselectAll
 
-	if rs.selectedRoutes == nil {
-		rs.selectedRoutes = map[route.NetID]struct{}{}
-	}
-	if rs.knownRoutes == nil {
-		rs.knownRoutes = []route.NetID{}
+	if rs.deselectedRoutes == nil {
+		rs.deselectedRoutes = map[route.NetID]struct{}{}
 	}
 
 	return nil

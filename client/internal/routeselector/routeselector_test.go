@@ -66,12 +66,10 @@ func TestRouteSelector_SelectRoutes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rs := routeselector.NewRouteSelector()
 
-			if tt.initialSelected != nil {
-				err := rs.SelectRoutes(tt.initialSelected, false, allRoutes)
-				require.NoError(t, err)
-			}
+			err := rs.SelectRoutes(tt.initialSelected, false, allRoutes)
+			require.NoError(t, err)
 
-			err := rs.SelectRoutes(tt.selectRoutes, tt.append, allRoutes)
+			err = rs.SelectRoutes(tt.selectRoutes, tt.append, allRoutes)
 			if tt.wantError {
 				assert.Error(t, err)
 			} else {
@@ -251,7 +249,8 @@ func TestRouteSelector_IsSelected(t *testing.T) {
 	assert.True(t, rs.IsSelected("route1"))
 	assert.True(t, rs.IsSelected("route2"))
 	assert.False(t, rs.IsSelected("route3"))
-	assert.False(t, rs.IsSelected("route4"))
+	// Unknown route is selected by default
+	assert.True(t, rs.IsSelected("route4"))
 }
 
 func TestRouteSelector_FilterSelected(t *testing.T) {
@@ -297,8 +296,8 @@ func TestRouteSelector_NewRoutesBehavior(t *testing.T) {
 			initialState: func(rs *routeselector.RouteSelector) error {
 				return rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, initialRoutes)
 			},
-			// When specific routes were selected, new routes should remain unselected
-			wantNewSelected: []route.NetID{"route1", "route2"},
+			// When specific routes were selected, new routes should be selected
+			wantNewSelected: []route.NetID{"route1", "route2", "route4", "route5"},
 		},
 		{
 			name: "New routes after deselect all",
@@ -425,6 +424,216 @@ func TestRouteSelector_MixedSelectionDeselection(t *testing.T) {
 			for _, r := range allRoutes {
 				assert.Equal(t, slices.Contains(tt.wantSelectedFinal, r), rs.IsSelected(r), "Route %s final state mismatch", r)
 			}
+		})
+	}
+}
+
+func TestRouteSelector_AfterDeselectAll(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
+
+	tests := []struct {
+		name          string
+		initialAction func(rs *routeselector.RouteSelector) error
+		secondAction  func(rs *routeselector.RouteSelector) error
+		wantSelected  []route.NetID
+		wantError     bool
+	}{
+		{
+			name: "Deselect all -> select specific routes",
+			initialAction: func(rs *routeselector.RouteSelector) error {
+				rs.DeselectAllRoutes()
+				return nil
+			},
+			secondAction: func(rs *routeselector.RouteSelector) error {
+				return rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, allRoutes)
+			},
+			wantSelected: []route.NetID{"route1", "route2"},
+		},
+		{
+			name: "Deselect all -> select with append",
+			initialAction: func(rs *routeselector.RouteSelector) error {
+				rs.DeselectAllRoutes()
+				return nil
+			},
+			secondAction: func(rs *routeselector.RouteSelector) error {
+				return rs.SelectRoutes([]route.NetID{"route1"}, true, allRoutes)
+			},
+			wantSelected: []route.NetID{"route1"},
+		},
+		{
+			name: "Deselect all -> deselect specific",
+			initialAction: func(rs *routeselector.RouteSelector) error {
+				rs.DeselectAllRoutes()
+				return nil
+			},
+			secondAction: func(rs *routeselector.RouteSelector) error {
+				return rs.DeselectRoutes([]route.NetID{"route1"}, allRoutes)
+			},
+			wantSelected: []route.NetID{},
+		},
+		{
+			name: "Deselect all -> select all",
+			initialAction: func(rs *routeselector.RouteSelector) error {
+				rs.DeselectAllRoutes()
+				return nil
+			},
+			secondAction: func(rs *routeselector.RouteSelector) error {
+				rs.SelectAllRoutes()
+				return nil
+			},
+			wantSelected: []route.NetID{"route1", "route2", "route3"},
+		},
+		{
+			name: "Deselect all -> deselect non-existent route",
+			initialAction: func(rs *routeselector.RouteSelector) error {
+				rs.DeselectAllRoutes()
+				return nil
+			},
+			secondAction: func(rs *routeselector.RouteSelector) error {
+				return rs.DeselectRoutes([]route.NetID{"route4"}, allRoutes)
+			},
+			wantSelected: []route.NetID{},
+			wantError:    false,
+		},
+		{
+			name: "Select specific -> deselect all -> select different",
+			initialAction: func(rs *routeselector.RouteSelector) error {
+				err := rs.SelectRoutes([]route.NetID{"route1"}, false, allRoutes)
+				if err != nil {
+					return err
+				}
+				rs.DeselectAllRoutes()
+				return nil
+			},
+			secondAction: func(rs *routeselector.RouteSelector) error {
+				return rs.SelectRoutes([]route.NetID{"route2", "route3"}, false, allRoutes)
+			},
+			wantSelected: []route.NetID{"route2", "route3"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := routeselector.NewRouteSelector()
+
+			err := tt.initialAction(rs)
+			require.NoError(t, err)
+
+			err = tt.secondAction(rs)
+			if tt.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			for _, id := range allRoutes {
+				expected := slices.Contains(tt.wantSelected, id)
+				assert.Equal(t, expected, rs.IsSelected(id),
+					"Route %s selection state incorrect, expected %v", id, expected)
+			}
+
+			routes := route.HAMap{
+				"route1|10.0.0.0/8":     {},
+				"route2|192.168.0.0/16": {},
+				"route3|172.16.0.0/12":  {},
+			}
+
+			filtered := rs.FilterSelected(routes)
+			assert.Equal(t, len(tt.wantSelected), len(filtered),
+				"FilterSelected returned wrong number of routes")
+		})
+	}
+}
+
+func TestRouteSelector_ComplexScenarios(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2", "route3", "route4"}
+
+	tests := []struct {
+		name         string
+		actions      []func(rs *routeselector.RouteSelector) error
+		wantSelected []route.NetID
+	}{
+		{
+			name: "Select all -> deselect specific -> select different with append",
+			actions: []func(rs *routeselector.RouteSelector) error{
+				func(rs *routeselector.RouteSelector) error {
+					rs.SelectAllRoutes()
+					return nil
+				},
+				func(rs *routeselector.RouteSelector) error {
+					return rs.DeselectRoutes([]route.NetID{"route1", "route2"}, allRoutes)
+				},
+				func(rs *routeselector.RouteSelector) error {
+					return rs.SelectRoutes([]route.NetID{"route1"}, true, allRoutes)
+				},
+			},
+			wantSelected: []route.NetID{"route1", "route3", "route4"},
+		},
+		{
+			name: "Deselect all -> select specific -> deselect one -> select different with append",
+			actions: []func(rs *routeselector.RouteSelector) error{
+				func(rs *routeselector.RouteSelector) error {
+					rs.DeselectAllRoutes()
+					return nil
+				},
+				func(rs *routeselector.RouteSelector) error {
+					return rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, allRoutes)
+				},
+				func(rs *routeselector.RouteSelector) error {
+					return rs.DeselectRoutes([]route.NetID{"route2"}, allRoutes)
+				},
+				func(rs *routeselector.RouteSelector) error {
+					return rs.SelectRoutes([]route.NetID{"route3"}, true, allRoutes)
+				},
+			},
+			wantSelected: []route.NetID{"route1", "route3"},
+		},
+		{
+			name: "Select specific -> deselect specific -> select all -> deselect different",
+			actions: []func(rs *routeselector.RouteSelector) error{
+				func(rs *routeselector.RouteSelector) error {
+					return rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, allRoutes)
+				},
+				func(rs *routeselector.RouteSelector) error {
+					return rs.DeselectRoutes([]route.NetID{"route2"}, allRoutes)
+				},
+				func(rs *routeselector.RouteSelector) error {
+					rs.SelectAllRoutes()
+					return nil
+				},
+				func(rs *routeselector.RouteSelector) error {
+					return rs.DeselectRoutes([]route.NetID{"route3", "route4"}, allRoutes)
+				},
+			},
+			wantSelected: []route.NetID{"route1", "route2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := routeselector.NewRouteSelector()
+
+			for i, action := range tt.actions {
+				err := action(rs)
+				require.NoError(t, err, "Action %d failed", i)
+			}
+
+			for _, id := range allRoutes {
+				expected := slices.Contains(tt.wantSelected, id)
+				assert.Equal(t, expected, rs.IsSelected(id),
+					"Route %s selection state incorrect", id)
+			}
+
+			routes := route.HAMap{
+				"route1|10.0.0.0/8":     {},
+				"route2|192.168.0.0/16": {},
+				"route3|172.16.0.0/12":  {},
+				"route4|10.10.0.0/16":   {},
+			}
+
+			filtered := rs.FilterSelected(routes)
+			assert.Equal(t, len(tt.wantSelected), len(filtered),
+				"FilterSelected returned wrong number of routes")
 		})
 	}
 }
