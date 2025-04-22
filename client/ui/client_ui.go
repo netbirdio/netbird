@@ -520,7 +520,9 @@ func (s *serviceClient) updateStatus() error {
 		}
 
 		var systrayIconState bool
-		if status.Status == string(internal.StatusConnected) {
+
+		switch {
+		case status.Status == string(internal.StatusConnected):
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -535,9 +537,9 @@ func (s *serviceClient) updateStatus() error {
 			s.mNetworks.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
-		} else if status.Status == string(internal.StatusConnecting) {
+		case status.Status == string(internal.StatusConnecting):
 			s.setConnectingStatus()
-		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
+		case status.Status != string(internal.StatusConnected) && s.mUp.Disabled():
 			s.setDisconnectedStatus()
 			systrayIconState = false
 		}
