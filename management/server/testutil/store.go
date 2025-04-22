@@ -14,11 +14,25 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+var (
+	pgContainer    *postgres.PostgresContainer
+	mysqlContainer *mysql.MySQLContainer
+)
+
 // CreateMysqlTestContainer creates a new MySQL container for testing.
 func CreateMysqlTestContainer() (func(), string, error) {
 	ctx := context.Background()
 
-	myContainer, err := mysql.RunContainer(ctx,
+	if mysqlContainer != nil {
+		connStr, err := mysqlContainer.ConnectionString(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		return noOpCleanup, connStr, nil
+	}
+
+	var err error
+	mysqlContainer, err = mysql.RunContainer(ctx,
 		testcontainers.WithImage("mlsmaycon/warmed-mysql:8"),
 		mysql.WithDatabase("testing"),
 		mysql.WithUsername("root"),
@@ -35,12 +49,12 @@ func CreateMysqlTestContainer() (func(), string, error) {
 	cleanup := func() {
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
 		defer cancelFunc()
-		if err = myContainer.Terminate(timeoutCtx); err != nil {
-			log.WithContext(ctx).Warnf("failed to stop mysql container %s: %s", myContainer.GetContainerID(), err)
+		if err = mysqlContainer.Terminate(timeoutCtx); err != nil {
+			log.WithContext(ctx).Warnf("failed to stop mysql container %s: %s", mysqlContainer.GetContainerID(), err)
 		}
 	}
 
-	talksConn, err := myContainer.ConnectionString(ctx)
+	talksConn, err := mysqlContainer.ConnectionString(ctx)
 	if err != nil {
 		return nil, "", err
 	}
@@ -52,7 +66,16 @@ func CreateMysqlTestContainer() (func(), string, error) {
 func CreatePostgresTestContainer() (func(), string, error) {
 	ctx := context.Background()
 
-	pgContainer, err := postgres.RunContainer(ctx,
+	if pgContainer != nil {
+		connStr, err := pgContainer.ConnectionString(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		return noOpCleanup, connStr, nil
+	}
+
+	var err error
+	pgContainer, err = postgres.RunContainer(ctx,
 		testcontainers.WithImage("postgres:16-alpine"),
 		postgres.WithDatabase("netbird"),
 		postgres.WithUsername("root"),
@@ -81,3 +104,6 @@ func CreatePostgresTestContainer() (func(), string, error) {
 
 	return cleanup, talksConn, nil
 }
+
+// noOpCleanup does nothing, used when the container is reused
+func noOpCleanup() {}

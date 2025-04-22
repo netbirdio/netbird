@@ -353,11 +353,14 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
+	var sqlStore Store
+	var cleanup func()
+
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
-		sqlStore, cleanUp, err := getSqlStoreEngine(ctx, store, kind)
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind)
 		if err == nil {
-			return sqlStore, cleanUp, nil
+			return sqlStore, cleanup, nil
 		}
 		if i < maxRetries-1 {
 			time.Sleep(100 * time.Millisecond)
