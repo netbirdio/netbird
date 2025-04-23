@@ -20,8 +20,7 @@ import (
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
-// const maxBundleUploadSize = 50 * 1024 * 1024
-const maxBundleUploadSize = 50 * 1024 // 50MB
+const maxBundleUploadSize = 50 * 1024 * 1024
 
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
