@@ -172,6 +172,9 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				_, ok := statuses[peerID]
 				return ok
 			},
+			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
+				return account.Settings, nil
+			},
 		},
 	}
 }
