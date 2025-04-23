@@ -223,9 +223,20 @@ type AccessiblePeer struct {
 
 // Account defines model for Account.
 type Account struct {
+	// CreatedAt Account creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy Account creator
+	CreatedBy string `json:"created_by"`
+
+	// Domain Account domain
+	Domain string `json:"domain"`
+
+	// DomainCategory Account domain category
+	DomainCategory string `json:"domain_category"`
+
 	// Id Account ID
 	Id       string          `json:"id"`
-	Meta     AccountMeta     `json:"meta"`
 	Settings AccountSettings `json:"settings"`
 }
 
@@ -239,21 +250,6 @@ type AccountExtraSettings struct {
 
 	// PeerApprovalEnabled (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
 	PeerApprovalEnabled bool `json:"peer_approval_enabled"`
-}
-
-// AccountMeta defines model for AccountMeta.
-type AccountMeta struct {
-	// CreatedAt Account creation date (UTC)
-	CreatedAt time.Time `json:"created_at"`
-
-	// CreatedBy Account creator
-	CreatedBy string `json:"created_by"`
-
-	// Domain Account domain
-	Domain string `json:"domain"`
-
-	// DomainCategory Account domain category
-	DomainCategory string `json:"domain_category"`
 }
 
 // AccountRequest defines model for AccountRequest.

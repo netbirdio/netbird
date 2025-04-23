@@ -43,15 +43,6 @@ components:
           example: ch8i4ug6lnn4g9hqv7l0
         settings:
           $ref: '#/components/schemas/AccountSettings'
-        meta:
-          $ref: '#/components/schemas/AccountMeta'
-      required:
-        - id
-        - settings
-        - meta
-    AccountMeta:
-      type: object
-      properties:
         domain:
           description: Account domain
           type: string
@@ -70,10 +61,12 @@ components:
           type: string
           example: google-oauth2|277474792786460067937
       required:
-          - domain
-          - domain_category
-          - created_at
-          - created_by
+        - id
+        - settings
+        - domain
+        - domain_category
+        - created_at
+        - created_by
     AccountSettings:
       type: object
       properties:

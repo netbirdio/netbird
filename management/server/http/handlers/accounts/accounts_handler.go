@@ -180,13 +180,6 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
 	}
 
-	apiMeta := api.AccountMeta{
-		CreatedAt:      meta.CreatedAt,
-		CreatedBy:      meta.CreatedBy,
-		Domain:         meta.Domain,
-		DomainCategory: meta.DomainCategory,
-	}
-
 	if settings.Extra != nil {
 		apiSettings.Extra = &api.AccountExtraSettings{
 			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
@@ -196,8 +189,11 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 	}
 
 	return &api.Account{
-		Id:       accountID,
-		Settings: apiSettings,
-		Meta:     apiMeta,
+		Id:             accountID,
+		Settings:       apiSettings,
+		CreatedAt:      meta.CreatedAt,
+		CreatedBy:      meta.CreatedBy,
+		Domain:         meta.Domain,
+		DomainCategory: meta.DomainCategory,
 	}
 }
