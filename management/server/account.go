@@ -1057,6 +1057,19 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 	return am.Store.GetAccount(ctx, accountID)
 }
 
+// GetAccountMeta returns the account metadata associated with this account ID.
+func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	return am.Store.GetAccount(ctx, accountID)
+}
+
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
 	if userAuth.UserId == "" {
 		return "", "", errors.New(emptyUserID)

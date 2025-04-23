@@ -43,6 +43,11 @@ components:
           example: ch8i4ug6lnn4g9hqv7l0
         settings:
           $ref: '#/components/schemas/AccountSettings'
+        created_at:
+          description: Account creation date (UTC)
+          type: string
+          format: date-time
+          example: "2023-05-05T09:00:35.477782Z"
       required:
         - id
         - settings

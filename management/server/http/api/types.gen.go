@@ -223,6 +223,9 @@ type AccessiblePeer struct {
 
 // Account defines model for Account.
 type Account struct {
+	// CreatedAt Account creation date (UTC)
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
 	// Id Account ID
 	Id       string          `json:"id"`
 	Settings AccountSettings `json:"settings"`

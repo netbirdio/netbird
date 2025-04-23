@@ -40,6 +40,17 @@ const (
 
 type LookupMap map[string]struct{}
 
+// AccountMeta is a struct that contains a stripped down version of the Account object.
+// It doesn't carry any peers, groups, policies, or routes, etc. Just some metadata (e.g. ID, created by, created at, etc).
+type AccountMeta struct {
+	// AccountId is the unique identifier of the account
+	AccountID      string
+	CreatedAt      time.Time
+	CreatedBy      string
+	Domain         string
+	DomainCategory string
+}
+
 // Account represents a unique account of the system
 type Account struct {
 	// we have to name column to aid as it collides with Network.Id when work with associations

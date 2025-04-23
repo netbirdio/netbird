@@ -47,6 +47,8 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
+	h.accountManager.GetAccountByID(r.Context(), accountID, userID)
+
 	settings, err := h.settingsManager.GetSettings(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -177,7 +179,8 @@ func toAccountResponse(accountID string, settings *types.Settings) *api.Account 
 	}
 
 	return &api.Account{
-		Id:       accountID,
-		Settings: apiSettings,
+		Id:        accountID,
+		Settings:  apiSettings,
+		CreatedAt: ac
 	}
 }
