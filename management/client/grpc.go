@@ -128,7 +128,13 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 			return err
 		}
 
-		return c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
+		streamErr := c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
+		if c.conn.GetState() != connectivity.Shutdown {
+			if err := c.conn.Close(); err != nil {
+				log.Warnf("failed closing connection to Management service: %s", err)
+			}
+		}
+		return streamErr
 	}
 
 	err := backoff.Retry(operation, defaultBackoff(ctx))
@@ -159,6 +165,7 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 	// blocking until error
 	err = c.receiveEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
+		c.notifyDisconnected(err)
 		s, _ := gstatus.FromError(err)
 		switch s.Code() {
 		case codes.PermissionDenied:
@@ -167,7 +174,6 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
 			return nil
 		default:
-			c.notifyDisconnected(err)
 			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 			return err
 		}
@@ -258,11 +264,12 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 			return err
 		}
 
-		err = msgHandler(decryptedResp)
-		if err != nil {
+		if err := msgHandler(decryptedResp); err != nil {
 			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
-			return err
+			// hide any grpc error code that is not relevant for management
+			return fmt.Errorf("%v", err.Error())
 		}
+		return nil
 	}
 }
 
