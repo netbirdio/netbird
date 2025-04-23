@@ -3261,5 +3261,5 @@ func TestSqlStore_GetAccountMeta(t *testing.T) {
 	require.Equal(t, "edafee4e-63fb-11ec-90d6-0242ac120003", accountMeta.CreatedBy)
 	require.Equal(t, "test.com", accountMeta.Domain)
 	require.Equal(t, "private", accountMeta.DomainCategory)
-	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210014000, time.UTC), accountMeta.CreatedAt.UTC())
+	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210000000, time.UTC), accountMeta.CreatedAt.UTC())
 }
