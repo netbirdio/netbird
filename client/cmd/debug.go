@@ -96,11 +96,13 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 		request.UploadURL = debugUploadBundleURL
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
-	if resp.GetPath() != "" {
-		cmd.Printf("Local file: %s\n", resp.GetPath())
-	}
 	if err != nil {
-		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+		return fmt.Errorf("failed to bundle debugxx: %v", status.Convert(err).Message())
+	}
+	cmd.Printf("Local file: %s\n", resp.GetPath())
+
+	if resp.GetUploadFailureReason() != "" {
+		return fmt.Errorf("Upload failed with error: %s", resp.GetUploadFailureReason())
 	}
 
 	if debugUploadBundle {

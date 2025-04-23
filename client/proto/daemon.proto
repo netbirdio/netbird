@@ -342,6 +342,7 @@ message DebugBundleRequest {
 message DebugBundleResponse {
   string path = 1;
   string uploadedKey = 2;
+  string uploadFailureReason = 3;
 }
 
 enum LogLevel {
