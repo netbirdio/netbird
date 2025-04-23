@@ -868,6 +868,7 @@ func (a *Account) Copy() *Account {
 
 func (a *Account) GetMeta() *AccountMeta {
 	return &AccountMeta{
+		AccountID:      a.Id,
 		CreatedBy:      a.CreatedBy,
 		CreatedAt:      a.CreatedAt,
 		Domain:         a.Domain,
