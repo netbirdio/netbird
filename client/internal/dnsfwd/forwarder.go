@@ -15,6 +15,7 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -170,7 +171,10 @@ func (f *DNSForwarder) updateFirewall(matchingEntries []*ForwarderEntry, prefixe
 		}
 	}
 	if merr != nil {
-		log.Errorf("failed to update firewall sets (%d/%d): %v", len(merr.Errors), len(matchingEntries), merr)
+		log.Errorf("failed to update firewall sets (%d/%d): %v",
+			len(merr.Errors),
+			len(matchingEntries),
+			nberrors.FormatErrorOrNil(merr))
 	}
 }
 
