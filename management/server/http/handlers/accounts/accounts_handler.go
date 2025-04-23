@@ -47,7 +47,11 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	h.accountManager.GetAccountByID(r.Context(), accountID, userID)
+	meta, err := h.accountManager.GetAccountMeta(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
 
 	settings, err := h.settingsManager.GetSettings(r.Context(), accountID, userID)
 	if err != nil {
@@ -55,7 +59,7 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, settings)
+	resp := toAccountResponse(accountID, settings, meta)
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
@@ -122,7 +126,13 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(updatedAccount.Id, updatedAccount.Settings)
+	meta, err := h.accountManager.GetAccountMeta(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	resp := toAccountResponse(updatedAccount.Id, updatedAccount.Settings, meta)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
@@ -151,7 +161,7 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func toAccountResponse(accountID string, settings *types.Settings) *api.Account {
+func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta) *api.Account {
 	jwtAllowGroups := settings.JWTAllowGroups
 	if jwtAllowGroups == nil {
 		jwtAllowGroups = []string{}
@@ -170,6 +180,13 @@ func toAccountResponse(accountID string, settings *types.Settings) *api.Account 
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
 	}
 
+	apiMeta := api.AccountMeta{
+		CreatedAt:      meta.CreatedAt,
+		CreatedBy:      meta.CreatedBy,
+		Domain:         meta.Domain,
+		DomainCategory: meta.DomainCategory,
+	}
+
 	if settings.Extra != nil {
 		apiSettings.Extra = &api.AccountExtraSettings{
 			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
@@ -179,8 +196,8 @@ func toAccountResponse(accountID string, settings *types.Settings) *api.Account 
 	}
 
 	return &api.Account{
-		Id:        accountID,
-		Settings:  apiSettings,
-		CreatedAt: ac
+		Id:       accountID,
+		Settings: apiSettings,
+		Meta:     apiMeta,
 	}
 }

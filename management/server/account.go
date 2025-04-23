@@ -1067,7 +1067,7 @@ func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID s
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetAccount(ctx, accountID)
+	return am.Store.GetAccountMeta(ctx, store.LockingStrengthShare, accountID)
 }
 
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {

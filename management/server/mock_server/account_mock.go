@@ -116,6 +116,7 @@ type MockAccountManager struct {
 	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
 	GetCurrentUserInfoFunc              func(ctx context.Context, accountID, userID string) (*types.UserInfo, error)
+	GetAccountMetaFunc                  func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -806,7 +807,7 @@ func (am *MockAccountManager) GetAccountByID(ctx context.Context, accountID stri
 // GetAccountByID mocks GetAccountByID of the AccountManager interface
 func (am *MockAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
 	if am.GetAccountByIDFunc != nil {
-		return am.GetAccountByIDFunc(ctx, accountID, userID)
+		return am.GetAccountMetaFunc(ctx, accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByID is not implemented")
 }

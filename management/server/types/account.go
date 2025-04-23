@@ -44,7 +44,7 @@ type LookupMap map[string]struct{}
 // It doesn't carry any peers, groups, policies, or routes, etc. Just some metadata (e.g. ID, created by, created at, etc).
 type AccountMeta struct {
 	// AccountId is the unique identifier of the account
-	AccountID      string
+	AccountID      string `gorm:"column:id"`
 	CreatedAt      time.Time
 	CreatedBy      string
 	Domain         string

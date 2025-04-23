@@ -658,27 +658,19 @@ func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	return all
 }
 
-func (s *SqlStore) GetAccountMeta(ctx context.Context, accountID string) (*types.AccountMeta, error) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		if elapsed > 1*time.Second {
-			log.WithContext(ctx).Tracef("GetAccountMeta for account %s exceeded 1s, took: %v", accountID, elapsed)
-		}
-	}()
-
-	var account types.AccountMeta
-	result := s.db.Model(&account).
-		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
-		Preload(clause.Associations).
-		First(&account, idQueryCondition, accountID)
+func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error) {
+	var accountMeta types.AccountMeta
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&types.Account{}).
+		First(&accountMeta, idQueryCondition, accountID)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
+		log.WithContext(ctx).Errorf("error when getting account meta %s from the store: %s", accountID, result.Error)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewAccountNotFoundError(accountID)
 		}
 		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
+
+	return &accountMeta, nil
 }
 
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
