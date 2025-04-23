@@ -866,6 +866,15 @@ func (a *Account) Copy() *Account {
 	}
 }
 
+func (a *Account) GetMeta() *AccountMeta {
+	return &AccountMeta{
+		CreatedBy:      a.CreatedBy,
+		CreatedAt:      a.CreatedAt,
+		Domain:         a.Domain,
+		DomainCategory: a.DomainCategory,
+	}
+}
+
 func (a *Account) GetGroupAll() (*Group, error) {
 	for _, g := range a.Groups {
 		if g.Name == "All" {
