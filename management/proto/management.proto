@@ -509,6 +509,9 @@ message RouteFirewallRule {
 
   // PolicyID is the ID of the policy that this rule belongs to
   bytes PolicyID = 9;
+
+  // RouteID is the ID of the route that this rule belongs to
+  string RouteID = 10;
 }
 
 message ForwardingRule {
