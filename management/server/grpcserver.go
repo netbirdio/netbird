@@ -488,10 +488,16 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed getting settings for peer %s: %s", peerKey, err)
+		return nil, status.Errorf(codes.Internal, "failed getting settings")
+	}
+
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
+		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(settings), false),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
@@ -712,7 +718,7 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled, settings.Extra)
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled, settings.Extra)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

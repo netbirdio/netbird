@@ -91,6 +91,10 @@ components:
           description: Enables or disables DNS resolution on the routing peers
           type: boolean
           example: true
+        dns_domain:
+          description: Allows to define a custom dns domain for the account
+          type: string
+          example: my-organization.org
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
       required:
