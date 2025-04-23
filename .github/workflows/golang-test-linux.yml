@@ -586,9 +586,10 @@ jobs:
       - name: Generate RouteManager Test bin
         run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin ./client/internal/routemanager
 
-      - name: Generate SystemOps Test bin (static via Alpine, no systemd)
+      - name: Generate SystemOps Test bin (static via Alpine)
         run: |
           docker run --rm -v $PWD:/app -w /app \
+            --user $(id -u):$(id -g) \
             -e CGO_ENABLED=1 -e GOOS=linux -e GOARCH=amd64 \
             alpine:latest \
             sh -c "
