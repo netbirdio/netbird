@@ -50,6 +50,12 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 				accCopy.UpdateSettings(newSettings)
 				return accCopy, nil
 			},
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+				return account.Copy(), nil
+			},
+			GetAccountMetaFunc: func(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+				return account.GetMeta(), nil
+			},
 		},
 		settingsManager: settingsMockManager,
 	}
