@@ -75,7 +75,7 @@ require (
 	github.com/pion/turn/v3 v3.0.1
 	github.com/prometheus/client_golang v1.22.0
 	github.com/quic-go/quic-go v0.48.2
-	github.com/redis/go-redis/v9 v9.7.1
+	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/xid v1.3.0
 	github.com/shirou/gopsutil/v3 v3.24.4
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
@@ -100,7 +100,7 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a
-	golang.org/x/net v0.36.0
+	golang.org/x/net v0.38.0
 	golang.org/x/oauth2 v0.24.0
 	golang.org/x/sync v0.12.0
 	golang.org/x/term v0.30.0

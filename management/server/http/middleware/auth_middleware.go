@@ -15,16 +15,20 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 type EnsureAccountFunc func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
 type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth nbcontext.UserAuth) error
 
+type GetUserFromUserAuthFunc func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
+
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
-	authManager       auth.Manager
-	ensureAccount     EnsureAccountFunc
-	syncUserJWTGroups SyncUserJWTGroupsFunc
+	authManager         auth.Manager
+	ensureAccount       EnsureAccountFunc
+	getUserFromUserAuth GetUserFromUserAuthFunc
+	syncUserJWTGroups   SyncUserJWTGroupsFunc
 }
 
 // NewAuthMiddleware instance constructor
@@ -32,11 +36,13 @@ func NewAuthMiddleware(
 	authManager auth.Manager,
 	ensureAccount EnsureAccountFunc,
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
+	getUserFromUserAuth GetUserFromUserAuthFunc,
 ) *AuthMiddleware {
 	return &AuthMiddleware{
-		authManager:       authManager,
-		ensureAccount:     ensureAccount,
-		syncUserJWTGroups: syncUserJWTGroups,
+		authManager:         authManager,
+		ensureAccount:       ensureAccount,
+		syncUserJWTGroups:   syncUserJWTGroups,
+		getUserFromUserAuth: getUserFromUserAuth,
 	}
 }
 
@@ -121,6 +127,12 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, auth []string) (*h
 	err = m.syncUserJWTGroups(ctx, userAuth)
 	if err != nil {
 		log.WithContext(ctx).Errorf("HTTP server failed to sync user JWT groups: %s", err)
+	}
+
+	_, err = m.getUserFromUserAuth(ctx, userAuth)
+	if err != nil {
+		log.WithContext(ctx).Errorf("HTTP server failed to update user from user auth: %s", err)
+		return r, err
 	}
 
 	return nbcontext.SetUserAuthInRequest(r, userAuth), nil
