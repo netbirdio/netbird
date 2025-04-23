@@ -62,6 +62,7 @@ func NewAPIHandler(
 		authManager,
 		accountManager.GetAccountIDFromUserAuth,
 		accountManager.SyncUserJWTGroups,
+		accountManager.GetUserFromUserAuth,
 	)
 
 	corsMiddleware := cors.AllowAll()
