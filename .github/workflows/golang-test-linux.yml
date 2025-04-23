@@ -589,15 +589,18 @@ jobs:
       - name: Generate SystemOps Test bin (static via Alpine)
         run: |
           docker run --rm -v $PWD:/app -w /app \
-            --user $(id -u):$(id -g) \
-            -e CGO_ENABLED=1 -e GOOS=linux -e GOARCH=amd64 \
             alpine:latest \
             sh -c "
-              apk add --no-cache go gcc musl-dev libpcap-dev dbus-dev &&
-              go test -c -o /app/systemops-testing.bin \
-                -tags netgo \
-                -ldflags='-w -extldflags \"-static -ldbus-1 -lpcap\"' \
-                ./client/internal/routemanager/systemops
+              apk add --no-cache go gcc musl-dev libpcap-dev dbus-dev && \
+              adduser -D -u $(id -u) builder && \
+              su builder -c '\
+                cd /app && \
+                CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+                go test -c -o /app/systemops-testing.bin \
+                  -tags netgo \
+                  -ldflags=\"-w -extldflags \\\"-static -ldbus-1 -lpcap\\\"\" \
+                  ./client/internal/routemanager/systemops \
+              '
             "
 
       - name: Generate nftables Manager Test bin
