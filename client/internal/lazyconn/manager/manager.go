@@ -54,7 +54,7 @@ type Manager struct {
 }
 
 func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
-	log.Infof("setup lazy connetion service")
+	log.Infof("setup lazy connection service")
 	m := &Manager{
 		connStateDispatcher:  connStateDispatcher,
 		inactivityThreshold:  inactivity.DefaultInactivityThreshold,
