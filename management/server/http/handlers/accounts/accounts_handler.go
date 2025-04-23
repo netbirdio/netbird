@@ -119,6 +119,9 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Settings.RoutingPeerDnsResolutionEnabled != nil {
 		settings.RoutingPeerDNSResolutionEnabled = *req.Settings.RoutingPeerDnsResolutionEnabled
 	}
+	if req.Settings.DnsDomain != nil {
+		settings.DNSDomain = *req.Settings.DnsDomain
+	}
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
@@ -178,6 +181,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		JwtAllowGroups:                  &jwtAllowGroups,
 		RegularUsersViewBlocked:         settings.RegularUsersViewBlocked,
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
+		DnsDomain:                       &settings.DNSDomain,
 	}
 
 	if settings.Extra != nil {
