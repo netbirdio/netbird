@@ -3,7 +3,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -18,7 +17,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/proto"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/upload-server/types"
 )
+
+// const maxBundleUploadSize = 50 * 1024 * 1024
+const maxBundleUploadSize = 50 * 1024 // 50MB
 
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
@@ -54,60 +57,86 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	}
 	key, err := uploadDebugBundle(context.Background(), req.GetUploadURL(), s.config.ManagementURL.String(), path)
 	if err != nil {
-		return &proto.DebugBundleResponse{Path: path}, fmt.Errorf("upload debug bundle: %w", err)
+		return &proto.DebugBundleResponse{Path: path, UploadFailureReason: err.Error()}, nil
 	}
 
 	return &proto.DebugBundleResponse{Path: path, UploadedKey: key}, nil
 }
 
-type GetURLResponse struct {
-	URL string `json:"url"`
-	Key string `json:"key"`
+func uploadDebugBundle(ctx context.Context, url, managementURL, filePath string) (key string, err error) {
+	response, err := getUploadURL(ctx, url, managementURL, err)
+	if err != nil {
+		return "", err
+	}
+
+	err = upload(ctx, err, filePath, response)
+	if err != nil {
+		return "", err
+	}
+	return response.Key, nil
 }
 
-func uploadDebugBundle(ctx context.Context, url, managementURL, filePath string) (key string, err error) {
-	id := fmt.Sprintf("%x", sha256.Sum256([]byte(managementURL)))
-	// Step 1: Request a presigned URL from the server
-	resp, err := http.Get(url + "?id=" + id)
+func upload(ctx context.Context, err error, filePath string, response *types.GetURLResponse) error {
+	fileData, err := os.Open(filePath)
 	if err != nil {
-		return "", fmt.Errorf("Failed to get presigned URL: %v", err)
-	}
-	defer resp.Body.Close()
-
-	urlBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		return fmt.Errorf("Failed to open file: %v", err)
 	}
 
-	var response GetURLResponse
-	if err := json.Unmarshal(urlBytes, &response); err != nil {
-		return "", fmt.Errorf("Failed to unmarshal response: %v", err)
+	defer fileData.Close()
+
+	stat, err := fileData.Stat()
+	if err != nil {
+		return fmt.Errorf("Failed to stat file: %v", err)
 	}
 
-	// Step 2: Read the file
-	fileData, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("Failed to read file: %v", err)
+	if stat.Size() > maxBundleUploadSize {
+		return fmt.Errorf("File size exceeds maximum limit of %d bytes", maxBundleUploadSize)
 	}
 
-	// Step 3: PUT the file to S3 using the presigned URL
-	req, err := http.NewRequest("PUT", response.URL, bytes.NewReader(fileData))
+	req, err := http.NewRequestWithContext(ctx, "PUT", response.URL, fileData)
 	if err != nil {
-		return "", fmt.Errorf("Failed to create PUT request: %v", err)
+		return fmt.Errorf("Failed to create PUT request: %v", err)
 	}
+
 	req.Header.Set("Content-Type", "application/octet-stream")
 
 	putResp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Upload failed: %v", err)
+		return fmt.Errorf("Upload failed: %v", err)
 	}
 	defer putResp.Body.Close()
 
 	if putResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(putResp.Body)
-		return "", fmt.Errorf("Upload failed with status %d: %s", putResp.StatusCode, string(body))
+		return fmt.Errorf("Upload failed with status %d: %s", putResp.StatusCode, string(body))
 	}
-	return response.Key, nil
+	return nil
+}
+
+func getUploadURL(ctx context.Context, url string, managementURL string, err error) (*types.GetURLResponse, error) {
+	id := fmt.Sprintf("%x", sha256.Sum256([]byte(managementURL)))
+	getReq, err := http.NewRequestWithContext(ctx, "GET", url+"?id="+id, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GET request: %v", err)
+	}
+
+	getReq.Header.Set(types.ClientHeader, types.ClientHeaderValue)
+
+	resp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get presigned URL: %v", err)
+	}
+	defer resp.Body.Close()
+
+	urlBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	var response types.GetURLResponse
+	if err := json.Unmarshal(urlBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
+	}
+	return &response, nil
 }
 
 // GetLogLevel gets the current logging level for the server.
