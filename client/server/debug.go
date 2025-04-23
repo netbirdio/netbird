@@ -78,36 +78,37 @@ func uploadDebugBundle(ctx context.Context, url, managementURL, filePath string)
 func upload(ctx context.Context, err error, filePath string, response *types.GetURLResponse) error {
 	fileData, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("Failed to open file: %v", err)
+		return fmt.Errorf("failed to open file: %v", err)
 	}
 
 	defer fileData.Close()
 
 	stat, err := fileData.Stat()
 	if err != nil {
-		return fmt.Errorf("Failed to stat file: %v", err)
+		return fmt.Errorf("failed to stat file: %v", err)
 	}
 
 	if stat.Size() > maxBundleUploadSize {
-		return fmt.Errorf("File size exceeds maximum limit of %d bytes", maxBundleUploadSize)
+		return fmt.Errorf("file size exceeds maximum limit of %d bytes", maxBundleUploadSize)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", response.URL, fileData)
 	if err != nil {
-		return fmt.Errorf("Failed to create PUT request: %v", err)
+		return fmt.Errorf("failed to create PUT request: %v", err)
 	}
 
+	req.ContentLength = stat.Size()
 	req.Header.Set("Content-Type", "application/octet-stream")
 
 	putResp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("Upload failed: %v", err)
+		return fmt.Errorf("upload failed: %v", err)
 	}
 	defer putResp.Body.Close()
 
 	if putResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(putResp.Body)
-		return fmt.Errorf("Upload failed with status %d: %s", putResp.StatusCode, string(body))
+		return fmt.Errorf("upload failed with status %d: %s", putResp.StatusCode, string(body))
 	}
 	return nil
 }
