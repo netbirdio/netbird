@@ -269,7 +269,6 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 			// hide any grpc error code that is not relevant for management
 			return fmt.Errorf("msg handler error: %v", err.Error())
 		}
-		return nil
 	}
 }
 
