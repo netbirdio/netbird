@@ -572,7 +572,7 @@ jobs:
             ${{ runner.os }}-gotest-cache-
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev libdbus-1-dev libsystemd-dev
 
       - name: Install modules
         run: go mod tidy
@@ -587,7 +587,7 @@ jobs:
         run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin  ./client/internal/routemanager
 
       - name: Generate SystemOps Test bin
-        run: CGO_ENABLED=1 go test -c -o systemops-testing.bin -tags netgo -ldflags '-w -extldflags "-static -ldbus-1 -lpcap"' ./client/internal/routemanager/systemops
+        run: CGO_ENABLED=1 go test -c -o systemops-testing.bin -tags netgo -ldflags '-w -extldflags "-static -ldbus-1 -lpcap -lsystemd"' ./client/internal/routemanager/systemops
 
       - name: Generate nftables Manager Test bin
         run: CGO_ENABLED=0 go test -c -o nftablesmanager-testing.bin ./client/firewall/nftables/...
