@@ -259,7 +259,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
-	Extra *AccountExtraSettings `json:"extra,omitempty"`
+	// DnsDomain Allows to define a custom dns domain for the account
+	DnsDomain *string               `json:"dns_domain,omitempty"`
+	Extra     *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
