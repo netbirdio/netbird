@@ -267,7 +267,7 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 		if err := msgHandler(decryptedResp); err != nil {
 			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
 			// hide any grpc error code that is not relevant for management
-			return fmt.Errorf("%v", err.Error())
+			return fmt.Errorf("msg handler error: %v", err.Error())
 		}
 		return nil
 	}
