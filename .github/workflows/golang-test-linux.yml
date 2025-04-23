@@ -559,7 +559,7 @@ jobs:
       - name: Get Go environment
         run: |
           echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
-          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV     
+          echo "modcache=$(go env.GOMODCACHE)" >> $GITHUB_ENV     
 
       - name: Cache Go modules
         uses: actions/cache/restore@v4
@@ -572,28 +572,38 @@ jobs:
             ${{ runner.os }}-gotest-cache-
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev libdbus-1-dev libsystemd-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
 
       - name: Install modules
         run: go mod tidy
 
-      - name: check git status
+      - name: Check git status
         run: git --no-pager diff --exit-code
 
       - name: Generate Shared Sock Test bin
         run: CGO_ENABLED=0 go test -c -o sharedsock-testing.bin ./sharedsock
 
       - name: Generate RouteManager Test bin
-        run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin  ./client/internal/routemanager
+        run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin ./client/internal/routemanager
 
-      - name: Generate SystemOps Test bin
-        run: CGO_ENABLED=1 go test -c -o systemops-testing.bin -tags netgo -ldflags '-w -extldflags "-ldbus-1 -lpcap -lsystemd"' ./client/internal/routemanager/systemops
+      - name: Generate SystemOps Test bin (fully static via Alpine)
+        run: |
+          docker run --rm -v $PWD:/app -w /app \
+            -e CGO_ENABLED=1 -e GOOS=linux -e GOARCH=amd64 \
+            alpine:latest \
+            sh -c "
+              apk add --no-cache go gcc musl-dev libpcap-dev dbus-dev systemd-dev &&
+              go test -c -o /app/systemops-testing.bin \
+                -tags netgo \
+                -ldflags='-w -extldflags \"-static -ldbus-1 -lpcap -lsystemd\"' \
+                ./client/internal/routemanager/systemops
+            "
 
       - name: Generate nftables Manager Test bin
         run: CGO_ENABLED=0 go test -c -o nftablesmanager-testing.bin ./client/firewall/nftables/...
 
       - name: Generate Engine Test bin
-        run: CGO_ENABLED=1 go test -c -o engine-testing.bin ./client/internal
+        run: CGO_ENABLED=0 go test -c -o engine-testing.bin ./client/internal
 
       - name: Generate Peer Test bin
         run: CGO_ENABLED=0 go test -c -o peer-testing.bin ./client/internal/peer/
@@ -601,25 +611,25 @@ jobs:
       - run: chmod +x *testing.bin
 
       - name: Run Shared Sock tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/sharedsock --entrypoint /busybox/sh debian:bullseye-slim -c /ci/sharedsock-testing.bin -test.timeout 5m -test.parallel 1
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/sharedsock --entrypoint /ci/sharedsock-testing.bin gcr.io/distroless/base:debug -test.timeout 5m -test.parallel 1
 
       - name: Run Iface tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/netbird -v /tmp/cache:/tmp/cache -v /tmp/modcache:/tmp/modcache -w /netbird -e GOCACHE=/tmp/cache -e GOMODCACHE=/tmp/modcache -e CGO_ENABLED=0 golang:1.23-alpine go test  -test.timeout 5m -test.parallel 1 ./client/iface/...
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/netbird -v /tmp/cache:/tmp/cache -v /tmp/modcache:/tmp/modcache -w /netbird -e GOCACHE=/tmp/cache -e GOMODCACHE=/tmp/modcache -e CGO_ENABLED=0 golang:1.23-alpine go test -test.timeout 5m -test.parallel 1 ./client/iface/...
 
       - name: Run RouteManager tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /busybox/sh debian:bullseye-slim -c /ci/routemanager-testing.bin  -test.timeout 5m -test.parallel 1
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /ci/routemanager-testing.bin gcr.io/distroless/base:debug -test.timeout 5m -test.parallel 1
 
       - name: Run SystemOps tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager/systemops --entrypoint /busybox/sh debian:bullseye-slim -c /ci/systemops-testing.bin  -test.timeout 5m -test.parallel 1
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager/systemops --entrypoint /ci/systemops-testing.bin gcr.io/distroless/base:debug -test.timeout 5m -test.parallel 1
 
       - name: Run nftables Manager tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/firewall --entrypoint /busybox/sh debian:bullseye-slim -c /ci/nftablesmanager-testing.bin  -test.timeout 5m -test.parallel 1
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/firewall --entrypoint /ci/nftablesmanager-testing.bin gcr.io/distroless/base:debug -test.timeout 5m -test.parallel 1
 
       - name: Run Engine tests in docker with file store
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal -e NETBIRD_STORE_ENGINE="jsonfile" --entrypoint /busybox/sh debian:bullseye-slim -c /ci/engine-testing.bin  -test.timeout 5m -test.parallel 1
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal -e NETBIRD_STORE_ENGINE="jsonfile" --entrypoint /ci/engine-testing.bin gcr.io/distroless/base:debug -test.timeout 5m -test.parallel 1
 
       - name: Run Engine tests in docker with sqlite store
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal -e NETBIRD_STORE_ENGINE="sqlite" --entrypoint /busybox/sh debian:bullseye-slim -c /ci/engine-testing.bin  -test.timeout 5m -test.parallel 1
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal -e NETBIRD_STORE_ENGINE="sqlite" --entrypoint /ci/engine-testing.bin gcr.io/distroless/base:debug -test.timeout 5m -test.parallel 1
 
       - name: Run Peer tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/peer  --entrypoint /busybox/sh debian:bullseye-slim -c /ci/peer-testing.bin  -test.timeout 5m -test.parallel 1
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/peer --entrypoint /ci/peer-testing.bin gcr.io/distroless/base:debug -test.timeout 5m -test.parallel 1
