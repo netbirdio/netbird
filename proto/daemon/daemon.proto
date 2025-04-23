@@ -1,12 +1,12 @@
 syntax = "proto3";
 
-import "google/protobuf/descriptor.proto";
-import "google/protobuf/timestamp.proto";
-import "google/protobuf/duration.proto";
-
-option go_package = "/proto";
-
 package daemon;
+
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "client/proto";
 
 message EmptyRequest {}
 
@@ -68,7 +68,6 @@ service DaemonService {
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
 }
-
 
 message LoginRequest {
   // setupKey netbird setup key.
@@ -133,11 +132,10 @@ message LoginRequest {
   // This is needed because the generated code
   // omits initialized empty slices due to omitempty tags
   bool cleanDNSLabels = 27;
-
 }
 
 message LoginResponse {
-  bool   needsSSOLogin = 1;
+  bool needsSSOLogin = 1;
   string userCode = 2;
   string verificationURI = 3;
   string verificationURIComplete = 4;
@@ -154,11 +152,11 @@ message UpRequest {}
 
 message UpResponse {}
 
-message StatusRequest{
+message StatusRequest {
   bool getFullPeerStatus = 1;
 }
 
-message StatusResponse{
+message StatusResponse {
   // status of the server.
   string status = 1;
   FullStatus fullStatus = 2;
@@ -228,7 +226,7 @@ message PeerState {
 message LocalPeerState {
   string IP = 1;
   string pubKey = 2;
-  bool  kernelInterface = 3;
+  bool kernelInterface = 3;
   string fqdn = 4;
   bool rosenpassEnabled = 5;
   bool rosenpassPermissive = 6;
@@ -266,8 +264,8 @@ message NSGroupState {
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
   ManagementState managementState = 1;
-  SignalState     signalState = 2;
-  LocalPeerState  localPeerState = 3;
+  SignalState signalState = 2;
+  LocalPeerState localPeerState = 3;
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
   repeated NSGroupState dns_servers = 6;
@@ -277,8 +275,7 @@ message FullStatus {
 }
 
 // Networks
-message ListNetworksRequest {
-}
+message ListNetworksRequest {}
 
 message ListNetworksResponse {
   repeated Network routes = 1;
@@ -290,8 +287,7 @@ message SelectNetworksRequest {
   bool all = 3;
 }
 
-message SelectNetworksResponse {
-}
+message SelectNetworksResponse {}
 
 message IPList {
   repeated string ips = 1;
@@ -330,7 +326,6 @@ message ForwardingRulesResponse {
   repeated ForwardingRule rules = 1;
 }
 
-
 // DebugBundler
 message DebugBundleRequest {
   bool anonymize = 1;
@@ -353,8 +348,7 @@ enum LogLevel {
   TRACE = 7;
 }
 
-message GetLogLevelRequest {
-}
+message GetLogLevelRequest {}
 
 message GetLogLevelResponse {
   LogLevel level = 1;
@@ -364,8 +358,7 @@ message SetLogLevelRequest {
   LogLevel level = 1;
 }
 
-message SetLogLevelResponse {
-}
+message SetLogLevelResponse {}
 
 // State represents a daemon state entry
 message State {
@@ -401,7 +394,6 @@ message DeleteStateRequest {
 message DeleteStateResponse {
   int32 deleted_states = 1;
 }
-
 
 message SetNetworkMapPersistenceRequest {
   bool enabled = 1;
@@ -442,7 +434,7 @@ message TracePacketResponse {
   bool final_disposition = 2;
 }
 
-message SubscribeRequest{}
+message SubscribeRequest {}
 
 message SystemEvent {
   enum Severity {
