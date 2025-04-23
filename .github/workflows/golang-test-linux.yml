@@ -607,7 +607,7 @@ jobs:
         run: CGO_ENABLED=0 go test -c -o nftablesmanager-testing.bin ./client/firewall/nftables/...
 
       - name: Generate Engine Test bin
-        run: CGO_ENABLED=0 go test -c -o engine-testing.bin ./client/internal
+        run: CGO_ENABLED=1 go test -c -o engine-testing.bin ./client/internal
 
       - name: Generate Peer Test bin
         run: CGO_ENABLED=0 go test -c -o peer-testing.bin ./client/internal/peer/
