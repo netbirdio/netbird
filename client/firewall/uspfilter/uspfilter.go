@@ -541,7 +541,7 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	}
 
 	if len(matches) == 0 {
-		return fmt.Errorf("no route rule not found for set: %s", set)
+		return fmt.Errorf("no route rule found for set: %s", set)
 	}
 
 	destinations := matches[0].destinations
