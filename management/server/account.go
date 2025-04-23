@@ -17,6 +17,7 @@ import (
 	"time"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
+	"github.com/eko/gocache/store/redis/v4"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
@@ -237,7 +238,7 @@ func BuildManager(
 
 	if !isNil(am.idpManager) {
 		go func() {
-			err := am.warmupIDPCache(ctx)
+			err := am.warmupIDPCache(ctx, cacheStore.GetType())
 			if err != nil {
 				log.WithContext(ctx).Warnf("failed warming up cache due to error: %v", err)
 				// todo retry?
@@ -484,7 +485,34 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 	return nil, status.Errorf(status.Internal, "error while creating new account")
 }
 
-func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
+func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, cacheType string) error {
+	if cacheType == redis.RedisType {
+		accountId, err := am.Store.GetAnyAccountID(ctx)
+		if err != nil {
+			return err
+		}
+
+		// this will call the loadableFunc for the cache which populated the cache with the account details
+		// How to handle this??
+		_, err = am.cacheManager.Get(ctx, accountId)
+		if err != nil {
+			// warm up the cache
+			log.WithContext(ctx).Debugf("account %s not found in cache, warming up cache", accountId)
+			//fmt.Printf("error type: %T\n", err)
+		} else {
+			log.WithContext(ctx).Warnf("redis cache already exists, skipping cache warm up")
+			return nil
+		}
+	}
+
+	if delayStr, ok := os.LookupEnv("NB_IDP_CACHE_WARMUP_DELAY"); ok {
+		delay, err := time.ParseDuration(delayStr)
+		if err != nil {
+			return fmt.Errorf("invalid IDP warmup delay: %w", err)
+		}
+		time.Sleep(delay)
+	}
+
 	userData, err := am.idpManager.GetAllAccounts(ctx)
 	if err != nil {
 		return err
