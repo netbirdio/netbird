@@ -63,19 +63,19 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 }
 
 func uploadDebugBundle(ctx context.Context, url, managementURL, filePath string) (key string, err error) {
-	response, err := getUploadURL(ctx, url, managementURL, err)
+	response, err := getUploadURL(ctx, url, managementURL)
 	if err != nil {
 		return "", err
 	}
 
-	err = upload(ctx, err, filePath, response)
+	err = upload(ctx, filePath, response)
 	if err != nil {
 		return "", err
 	}
 	return response.Key, nil
 }
 
-func upload(ctx context.Context, err error, filePath string, response *types.GetURLResponse) error {
+func upload(ctx context.Context, filePath string, response *types.GetURLResponse) error {
 	fileData, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %v", err)
@@ -113,7 +113,7 @@ func upload(ctx context.Context, err error, filePath string, response *types.Get
 	return nil
 }
 
-func getUploadURL(ctx context.Context, url string, managementURL string, err error) (*types.GetURLResponse, error) {
+func getUploadURL(ctx context.Context, url string, managementURL string) (*types.GetURLResponse, error) {
 	id := fmt.Sprintf("%x", sha256.Sum256([]byte(managementURL)))
 	getReq, err := http.NewRequestWithContext(ctx, "GET", url+"?id="+id, nil)
 	if err != nil {
