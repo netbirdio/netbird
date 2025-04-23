@@ -152,7 +152,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 					},
 				}, nil
 			},
-			GetDNSDomainFunc: func() string {
+			GetDNSDomainFunc: func(settings *types.Settings) string {
 				return "netbird.selfhosted"
 			},
 			GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {

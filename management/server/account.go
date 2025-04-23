@@ -275,7 +275,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	if !isDomainValid(newSettings.DNSDomain) {
+	if newSettings.DNSDomain != "" && !isDomainValid(newSettings.DNSDomain) {
 		return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
 	}
 
