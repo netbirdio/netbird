@@ -196,14 +196,19 @@ func BuildManager(
 	}
 
 	var initialInterval int64
-	intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
+	intervalStr := os.Getenv("NB_PEER_UPDATE_INTERVAL_MS")
 	interval, err := strconv.Atoi(intervalStr)
 	if err != nil {
 		initialInterval = 1
 	} else {
 		initialInterval = int64(interval) * 10
 		go func() {
-			time.Sleep(30 * time.Second)
+			startupPeriodStr := os.Getenv("NB_PEER_UPDATE_STARTUP_PERIOD_S")
+			startupPeriod, err := strconv.Atoi(startupPeriodStr)
+			if err != nil {
+				startupPeriod = 1
+			}
+			time.Sleep(time.Duration(startupPeriod) * time.Second)
 			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
 			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
 		}()
