@@ -586,16 +586,16 @@ jobs:
       - name: Generate RouteManager Test bin
         run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin ./client/internal/routemanager
 
-      - name: Generate SystemOps Test bin (fully static via Alpine)
+      - name: Generate SystemOps Test bin (static via Alpine, no systemd)
         run: |
           docker run --rm -v $PWD:/app -w /app \
             -e CGO_ENABLED=1 -e GOOS=linux -e GOARCH=amd64 \
             alpine:latest \
             sh -c "
-              apk add --no-cache go gcc musl-dev libpcap-dev dbus-dev systemd-dev &&
+              apk add --no-cache go gcc musl-dev libpcap-dev dbus-dev &&
               go test -c -o /app/systemops-testing.bin \
                 -tags netgo \
-                -ldflags='-w -extldflags \"-static -ldbus-1 -lpcap -lsystemd\"' \
+                -ldflags='-w -extldflags \"-static -ldbus-1 -lpcap\"' \
                 ./client/internal/routemanager/systemops
             "
 
