@@ -806,10 +806,10 @@ func (am *MockAccountManager) GetAccountByID(ctx context.Context, accountID stri
 
 // GetAccountByID mocks GetAccountByID of the AccountManager interface
 func (am *MockAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
-	if am.GetAccountByIDFunc != nil {
+	if am.GetAccountMetaFunc != nil {
 		return am.GetAccountMetaFunc(ctx, accountID, userID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByID is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountMeta is not implemented")
 }
 
 // GetUserByID mocks GetUserByID of the AccountManager interface
