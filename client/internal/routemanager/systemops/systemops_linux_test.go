@@ -153,7 +153,6 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 				t.Cleanup(func() {
 					err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
 					if err != nil && !errors.Is(err, syscall.EEXIST) {
-						t.Logf("Error is %+#v", err)
 						t.Fatalf("Failed to add route: %v", err)
 					}
 				})
@@ -179,10 +178,8 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 
 	err = netlink.RouteAdd(route)
 	if err != nil && !errors.Is(err, syscall.EEXIST) {
-		t.Logf("Error is %+#v", err)
 		t.Fatalf("Failed to add route: %v", err)
 	}
-	require.NoError(t, err)
 }
 
 func fetchOriginalGateway(family int) (net.IP, int, error) {
