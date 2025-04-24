@@ -1289,7 +1289,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer 
 		if route.Peer != peer.Key {
 			continue
 		}
-		resourceAppliedPolicies := resourcePolicies[route.GetResourceID()]
+		resourceAppliedPolicies := resourcePolicies[string(route.GetResourceID())]
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)

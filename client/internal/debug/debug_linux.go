@@ -59,6 +59,16 @@ func collectIPTablesRules() (string, error) {
 		builder.WriteString("\n")
 	}
 
+	// Collect ipset information
+	ipsetOutput, err := collectIPSets()
+	if err != nil {
+		log.Warnf("Failed to collect ipset information: %v", err)
+	} else {
+		builder.WriteString("=== ipset list output ===\n")
+		builder.WriteString(ipsetOutput)
+		builder.WriteString("\n")
+	}
+
 	builder.WriteString("=== iptables -v -n -L output ===\n")
 
 	tables := []string{"filter", "nat", "mangle", "raw", "security"}
@@ -76,6 +86,28 @@ func collectIPTablesRules() (string, error) {
 	}
 
 	return builder.String(), nil
+}
+
+// collectIPSets collects information about ipsets
+func collectIPSets() (string, error) {
+	cmd := exec.Command("ipset", "list")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if strings.Contains(err.Error(), "executable file not found") {
+			return "", fmt.Errorf("ipset command not found: %w", err)
+		}
+		return "", fmt.Errorf("execute ipset list: %w (stderr: %s)", err, stderr.String())
+	}
+
+	ipsets := stdout.String()
+	if strings.TrimSpace(ipsets) == "" {
+		return "No ipsets found", nil
+	}
+
+	return ipsets, nil
 }
 
 // collectIPTablesSave uses iptables-save to get rule definitions
