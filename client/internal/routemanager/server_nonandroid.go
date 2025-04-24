@@ -35,7 +35,10 @@ func newServerRouter(ctx context.Context, wgInterface iface.WGIface, firewall fi
 	}, nil
 }
 
-func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
+func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRoute bool) error {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
 	serverRoutesToRemove := make([]route.ID, 0)
 
 	for routeID := range m.routes {
@@ -73,7 +76,7 @@ func (m *serverRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
 			continue
 		}
 
-		err := m.addToServerNetwork(newRoute)
+		err := m.addToServerNetwork(newRoute, useNewDNSRoute)
 		if err != nil {
 			log.Errorf("Unable to add route %s from server, got: %v", newRoute.ID, err)
 			continue
@@ -90,57 +93,30 @@ func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
 		return m.ctx.Err()
 	}
 
-	m.mux.Lock()
-	defer m.mux.Unlock()
-
-	routerPair, err := routeToRouterPair(route)
-	if err != nil {
-		return fmt.Errorf("parse prefix: %w", err)
-	}
-
-	err = m.firewall.RemoveNatRule(routerPair)
-	if err != nil {
+	routerPair := routeToRouterPair(route, false)
+	if err := m.firewall.RemoveNatRule(routerPair); err != nil {
 		return fmt.Errorf("remove routing rules: %w", err)
 	}
 
 	delete(m.routes, route.ID)
-
-	routeStr := route.Network.String()
-	if route.IsDynamic() {
-		routeStr = route.Domains.SafeString()
-	}
-	m.statusRecorder.RemoveLocalPeerStateRoute(routeStr)
+	m.statusRecorder.RemoveLocalPeerStateRoute(route.NetString())
 
 	return nil
 }
 
-func (m *serverRouter) addToServerNetwork(route *route.Route) error {
+func (m *serverRouter) addToServerNetwork(route *route.Route, useNewDNSRoute bool) error {
 	if m.ctx.Err() != nil {
 		log.Infof("Not adding to server network because context is done")
 		return m.ctx.Err()
 	}
 
-	m.mux.Lock()
-	defer m.mux.Unlock()
-
-	routerPair, err := routeToRouterPair(route)
-	if err != nil {
-		return fmt.Errorf("parse prefix: %w", err)
-	}
-
-	err = m.firewall.AddNatRule(routerPair)
-	if err != nil {
+	routerPair := routeToRouterPair(route, useNewDNSRoute)
+	if err := m.firewall.AddNatRule(routerPair); err != nil {
 		return fmt.Errorf("insert routing rules: %w", err)
 	}
 
 	m.routes[route.ID] = route
-
-	routeStr := route.Network.String()
-	if route.IsDynamic() {
-		routeStr = route.Domains.SafeString()
-	}
-
-	m.statusRecorder.AddLocalPeerStateRoute(routeStr, route.GetResourceID())
+	m.statusRecorder.AddLocalPeerStateRoute(route.NetString(), route.GetResourceID())
 
 	return nil
 }
@@ -148,31 +124,29 @@ func (m *serverRouter) addToServerNetwork(route *route.Route) error {
 func (m *serverRouter) cleanUp() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	for _, r := range m.routes {
-		routerPair, err := routeToRouterPair(r)
-		if err != nil {
-			log.Errorf("Failed to convert route to router pair: %v", err)
-			continue
-		}
 
-		err = m.firewall.RemoveNatRule(routerPair)
-		if err != nil {
+	for _, r := range m.routes {
+		routerPair := routeToRouterPair(r, false)
+		if err := m.firewall.RemoveNatRule(routerPair); err != nil {
 			log.Errorf("Failed to remove cleanup route: %v", err)
 		}
-
 	}
 
 	m.statusRecorder.CleanLocalPeerStateRoutes()
 }
 
-func routeToRouterPair(route *route.Route) (firewall.RouterPair, error) {
-	// TODO: add ipv6
+func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterPair {
 	source := getDefaultPrefix(route.Network)
-
-	destination := route.Network.Masked()
+	destination := firewall.Network{}
 	if route.IsDynamic() {
-		// TODO: add ipv6 additionally
-		destination = getDefaultPrefix(destination)
+		if useNewDNSRoute {
+			destination.Set = firewall.NewDomainSet(route.Domains)
+		} else {
+			// TODO: add ipv6 additionally
+			destination = getDefaultPrefix(destination.Prefix)
+		}
+	} else {
+		destination.Prefix = route.Network.Masked()
 	}
 
 	return firewall.RouterPair{
@@ -180,12 +154,16 @@ func routeToRouterPair(route *route.Route) (firewall.RouterPair, error) {
 		Source:      source,
 		Destination: destination,
 		Masquerade:  route.Masquerade,
-	}, nil
+	}
 }
 
-func getDefaultPrefix(prefix netip.Prefix) netip.Prefix {
+func getDefaultPrefix(prefix netip.Prefix) firewall.Network {
 	if prefix.Addr().Is6() {
-		return netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+		return firewall.Network{
+			Prefix: netip.PrefixFrom(netip.IPv6Unspecified(), 0),
+		}
 	}
-	return netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+	return firewall.Network{
+		Prefix: netip.PrefixFrom(netip.IPv4Unspecified(), 0),
+	}
 }
