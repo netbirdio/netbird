@@ -57,18 +57,18 @@ type ruleInfo struct {
 }
 
 type routeFilteringRuleParams struct {
-	Sources     []netip.Prefix
-	Destination netip.Prefix
+	Source      firewall.Network
+	Destination firewall.Network
 	Proto       firewall.Protocol
 	SPort       *firewall.Port
 	DPort       *firewall.Port
 	Direction   firewall.RuleDirection
 	Action      firewall.Action
-	SetName     string
 }
 
 type routeRules map[string][]string
 
+// the ipset library currently does not support comments, so we use the name only (string)
 type ipsetCounter = refcounter.Counter[string, []netip.Prefix, struct{}]
 
 type router struct {
@@ -129,7 +129,7 @@ func (r *router) init(stateManager *statemanager.Manager) error {
 func (r *router) AddRouteFiltering(
 	id []byte,
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination firewall.Network,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
@@ -140,27 +140,28 @@ func (r *router) AddRouteFiltering(
 		return ruleKey, nil
 	}
 
-	var setName string
+	var source firewall.Network
 	if len(sources) > 1 {
-		setName = firewall.GenerateSetName(sources)
-		if _, err := r.ipsetCounter.Increment(setName, sources); err != nil {
-			return nil, fmt.Errorf("create or get ipset: %w", err)
-		}
+		source.Set = firewall.NewPrefixSet(sources)
+	} else if len(sources) > 0 {
+		source.Prefix = sources[0]
 	}
 
 	params := routeFilteringRuleParams{
-		Sources:     sources,
+		Source:      source,
 		Destination: destination,
 		Proto:       proto,
 		SPort:       sPort,
 		DPort:       dPort,
 		Action:      action,
-		SetName:     setName,
 	}
 
-	rule := genRouteFilteringRuleSpec(params)
+	rule, err := r.genRouteRuleSpec(params, sources)
+	if err != nil {
+		return nil, fmt.Errorf("generate route rule spec: %w", err)
+	}
+
 	// Insert DROP rules at the beginning, append ACCEPT rules at the end
-	var err error
 	if action == firewall.ActionDrop {
 		// after the established rule
 		err = r.iptablesClient.Insert(tableFilter, chainRTFWDIN, 2, rule...)
@@ -183,17 +184,13 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	ruleKey := rule.ID()
 
 	if rule, exists := r.rules[ruleKey]; exists {
-		setName := r.findSetNameInRule(rule)
-
 		if err := r.iptablesClient.Delete(tableFilter, chainRTFWDIN, rule...); err != nil {
 			return fmt.Errorf("delete route rule: %v", err)
 		}
 		delete(r.rules, ruleKey)
 
-		if setName != "" {
-			if _, err := r.ipsetCounter.Decrement(setName); err != nil {
-				return fmt.Errorf("failed to remove ipset: %w", err)
-			}
+		if err := r.decrementSetCounter(rule); err != nil {
+			return fmt.Errorf("decrement ipset counter: %w", err)
 		}
 	} else {
 		log.Debugf("route rule %s not found", ruleKey)
@@ -204,13 +201,26 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	return nil
 }
 
-func (r *router) findSetNameInRule(rule []string) string {
-	for i, arg := range rule {
-		if arg == "-m" && i+3 < len(rule) && rule[i+1] == "set" && rule[i+2] == matchSet {
-			return rule[i+3]
+func (r *router) decrementSetCounter(rule []string) error {
+	sets := r.findSets(rule)
+	var merr *multierror.Error
+	for _, setName := range sets {
+		if _, err := r.ipsetCounter.Decrement(setName); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("decrement counter: %w", err))
 		}
 	}
-	return ""
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *router) findSets(rule []string) []string {
+	var sets []string
+	for i, arg := range rule {
+		if arg == "-m" && i+3 < len(rule) && rule[i+1] == "set" && rule[i+2] == matchSet {
+			sets = append(sets, rule[i+3])
+		}
+	}
+	return sets
 }
 
 func (r *router) createIpSet(setName string, sources []netip.Prefix) error {
@@ -231,6 +241,8 @@ func (r *router) deleteIpSet(setName string) error {
 	if err := ipset.Destroy(setName); err != nil {
 		return fmt.Errorf("destroy set %s: %w", setName, err)
 	}
+
+	log.Debugf("Deleted unused ipset %s", setName)
 	return nil
 }
 
@@ -270,12 +282,14 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 		log.Errorf("%v", err)
 	}
 
-	if err := r.removeNatRule(pair); err != nil {
-		return fmt.Errorf("remove nat rule: %w", err)
-	}
+	if pair.Masquerade {
+		if err := r.removeNatRule(pair); err != nil {
+			return fmt.Errorf("remove nat rule: %w", err)
+		}
 
-	if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
-		return fmt.Errorf("remove inverse nat rule: %w", err)
+		if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
+			return fmt.Errorf("remove inverse nat rule: %w", err)
+		}
 	}
 
 	if err := r.removeLegacyRouteRule(pair); err != nil {
@@ -313,8 +327,10 @@ func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
 			return fmt.Errorf("remove legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
 		}
 		delete(r.rules, ruleKey)
-	} else {
-		log.Debugf("legacy forwarding rule %s not found", ruleKey)
+
+		if err := r.decrementSetCounter(rule); err != nil {
+			return fmt.Errorf("decrement ipset counter: %w", err)
+		}
 	}
 
 	return nil
@@ -599,12 +615,24 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	rule = append(rule,
 		"-m", "conntrack",
 		"--ctstate", "NEW",
-		"-s", pair.Source.String(),
-		"-d", pair.Destination.String(),
+	)
+	sourceExp, err := r.applyNetwork("-s", pair.Source, nil)
+	if err != nil {
+		return fmt.Errorf("apply network -s: %w", err)
+	}
+	destExp, err := r.applyNetwork("-d", pair.Destination, nil)
+	if err != nil {
+		return fmt.Errorf("apply network -d: %w", err)
+	}
+
+	rule = append(rule, sourceExp...)
+	rule = append(rule, destExp...)
+	rule = append(rule,
 		"-j", "MARK", "--set-mark", fmt.Sprintf("%#x", markValue),
 	)
 
 	if err := r.iptablesClient.Append(tableMangle, chainRTPRE, rule...); err != nil {
+		// TODO: rollback ipset counter
 		return fmt.Errorf("error while adding marking rule for %s: %v", pair.Destination, err)
 	}
 
@@ -622,6 +650,10 @@ func (r *router) removeNatRule(pair firewall.RouterPair) error {
 			return fmt.Errorf("error while removing marking rule for %s: %v", pair.Destination, err)
 		}
 		delete(r.rules, ruleKey)
+
+		if err := r.decrementSetCounter(rule); err != nil {
+			return fmt.Errorf("decrement ipset counter: %w", err)
+		}
 	} else {
 		log.Debugf("marking rule %s not found", ruleKey)
 	}
@@ -787,17 +819,21 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {
+func (r *router) genRouteRuleSpec(params routeFilteringRuleParams, sources []netip.Prefix) ([]string, error) {
 	var rule []string
 
-	if params.SetName != "" {
-		rule = append(rule, "-m", "set", matchSet, params.SetName, "src")
-	} else if len(params.Sources) > 0 {
-		source := params.Sources[0]
-		rule = append(rule, "-s", source.String())
+	sourceExp, err := r.applyNetwork("-s", params.Source, sources)
+	if err != nil {
+		return nil, fmt.Errorf("apply network -s: %w", err)
+
+	}
+	destExp, err := r.applyNetwork("-d", params.Destination, nil)
+	if err != nil {
+		return nil, fmt.Errorf("apply network -d: %w", err)
 	}
 
-	rule = append(rule, "-d", params.Destination.String())
+	rule = append(rule, sourceExp...)
+	rule = append(rule, destExp...)
 
 	if params.Proto != firewall.ProtocolALL {
 		rule = append(rule, "-p", strings.ToLower(string(params.Proto)))
@@ -807,7 +843,47 @@ func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {
 
 	rule = append(rule, "-j", actionToStr(params.Action))
 
-	return rule
+	return rule, nil
+}
+
+func (r *router) applyNetwork(flag string, network firewall.Network, prefixes []netip.Prefix) ([]string, error) {
+	direction := "src"
+	if flag == "-d" {
+		direction = "dst"
+	}
+
+	if network.IsSet() {
+		if _, err := r.ipsetCounter.Increment(network.Set.HashedName(), prefixes); err != nil {
+			return nil, fmt.Errorf("create or get ipset: %w", err)
+		}
+
+		return []string{"-m", "set", matchSet, network.Set.HashedName(), direction}, nil
+	}
+	if network.IsPrefix() {
+		return []string{flag, network.Prefix.String()}, nil
+	}
+
+	// nolint:nilnil
+	return nil, nil
+}
+
+func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	var merr *multierror.Error
+	for _, prefix := range prefixes {
+		// TODO: Implement IPv6 support
+		if prefix.Addr().Is6() {
+			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
+			continue
+		}
+		if err := ipset.AddPrefix(set.HashedName(), prefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("increment ipset counter: %w", err))
+		}
+	}
+	if merr == nil {
+		log.Debugf("updated set %s with prefixes %v", set.HashedName(), prefixes)
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func applyPort(flag string, port *firewall.Port) []string {
