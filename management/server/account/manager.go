@@ -37,6 +37,7 @@ type Manager interface {
 	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*types.User, addIfNotExists bool) ([]*types.UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error)
 	GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error)
+	GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error)
 	AccountExists(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
@@ -80,7 +81,7 @@ type Manager interface {
 	SaveNameServerGroup(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
-	GetDNSDomain() string
+	GetDNSDomain(settings *types.Settings) string
 	StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error)
