@@ -1614,6 +1614,7 @@ func (e *Engine) RunHealthProbes() bool {
 		stats, err := e.wgInterface.GetStats()
 		if err != nil {
 			log.Warnf("failed to get wireguard stats: %v", err)
+			e.syncMsgMux.Unlock()
 			return false
 		}
 		for _, key := range e.peerStore.PeersPubKey() {
