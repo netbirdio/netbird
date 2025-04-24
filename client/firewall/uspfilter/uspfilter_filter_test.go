@@ -1091,7 +1091,7 @@ func TestRouteACLFiltering(t *testing.T) {
 				dest:    fw.Network{Set: fw.Set{}},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{80}},
-				action:  fw.ActionDrop,
+				action:  fw.ActionAccept,
 			},
 			shouldPass: false,
 		},
