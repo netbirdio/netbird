@@ -223,6 +223,18 @@ type AccessiblePeer struct {
 
 // Account defines model for Account.
 type Account struct {
+	// CreatedAt Account creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy Account creator
+	CreatedBy string `json:"created_by"`
+
+	// Domain Account domain
+	Domain string `json:"domain"`
+
+	// DomainCategory Account domain category
+	DomainCategory string `json:"domain_category"`
+
 	// Id Account ID
 	Id       string          `json:"id"`
 	Settings AccountSettings `json:"settings"`
@@ -247,7 +259,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
-	Extra *AccountExtraSettings `json:"extra,omitempty"`
+	// DnsDomain Allows to define a custom dns domain for the account
+	DnsDomain *string               `json:"dns_domain,omitempty"`
+	Extra     *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
