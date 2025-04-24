@@ -238,7 +238,7 @@ func BuildManager(
 
 	if !isNil(am.idpManager) {
 		go func() {
-			err := am.warmupIDPCache(ctx, cacheStore.GetType())
+			err := am.warmupIDPCache(ctx, cacheStore)
 			if err != nil {
 				log.WithContext(ctx).Warnf("failed warming up cache due to error: %v", err)
 				// todo retry?
@@ -485,24 +485,15 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 	return nil, status.Errorf(status.Internal, "error while creating new account")
 }
 
-func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, cacheType string) error {
-	if cacheType == redis.RedisType {
-		accountId, err := am.Store.GetAnyAccountID(ctx)
-		if err != nil {
-			return err
-		}
+func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, store cacheStore.StoreInterface) error {
+	cold, err := am.isCacheCold(ctx, store)
+	if err != nil {
+		return err
+	}
 
-		// this will call the loadableFunc for the cache which populated the cache with the account details
-		// How to handle this??
-		_, err = am.cacheManager.Get(ctx, accountId)
-		if err != nil {
-			// warm up the cache
-			log.WithContext(ctx).Debugf("account %s not found in cache, warming up cache", accountId)
-			//fmt.Printf("error type: %T\n", err)
-		} else {
-			log.WithContext(ctx).Warnf("redis cache already exists, skipping cache warm up")
-			return nil
-		}
+	if !cold {
+		log.WithContext(ctx).Debug("cache already populated, skipping warm up")
+		return nil
 	}
 
 	if delayStr, ok := os.LookupEnv("NB_IDP_CACHE_WARMUP_DELAY"); ok {
@@ -550,6 +541,29 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, cacheType s
 	}
 	log.WithContext(ctx).Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
 	return nil
+}
+
+// isCacheCold checks if the cache needs warming up.
+func (am *DefaultAccountManager) isCacheCold(ctx context.Context, store cacheStore.StoreInterface) (bool, error) {
+	if store.GetType() != redis.RedisType {
+		return true, nil
+	}
+
+	accountID, err := am.Store.GetAnyAccountID(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	_, err = store.Get(ctx, accountID)
+	if err == nil {
+		return false, nil
+	}
+
+	if notFoundErr := new(cacheStore.NotFound); errors.As(err, &notFoundErr) {
+		return true, nil
+	}
+
+	return false, fmt.Errorf("failed to check cache: %w", err)
 }
 
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
