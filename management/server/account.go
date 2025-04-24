@@ -551,6 +551,9 @@ func (am *DefaultAccountManager) isCacheCold(ctx context.Context, store cacheSto
 
 	accountID, err := am.Store.GetAnyAccountID(ctx)
 	if err != nil {
+		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+			return true, nil
+		}
 		return false, err
 	}
 
