@@ -133,19 +133,22 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 
 // AcquireWriteLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
 func (s *SqlStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
-	log.WithContext(ctx).Tracef("acquiring write lock for ID %s", uniqueID)
-
-	start := time.Now()
-	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
-	mtx := value.(*sync.RWMutex)
-	mtx.Lock()
-
-	unlock = func() {
-		mtx.Unlock()
-		log.WithContext(ctx).Tracef("released write lock for ID %s in %v", uniqueID, time.Since(start))
+	// log.WithContext(ctx).Tracef("acquiring write lock for ID %s", uniqueID)
+	//
+	// start := time.Now()
+	// value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
+	// mtx := value.(*sync.RWMutex)
+	// mtx.Lock()
+	//
+	// unlock = func() {
+	// 	mtx.Unlock()
+	// 	log.WithContext(ctx).Tracef("released write lock for ID %s in %v", uniqueID, time.Since(start))
+	// }
+	//
+	// return unlock
+	return func() {
+		// noop
 	}
-
-	return unlock
 }
 
 // AcquireReadLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
