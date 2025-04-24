@@ -3247,3 +3247,19 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 8003, len(accountGroups))
 }
+
+func TestSqlStore_GetAccountMeta(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	accountMeta, err := store.GetAccountMeta(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.NotNil(t, accountMeta)
+	require.Equal(t, accountID, accountMeta.AccountID)
+	require.Equal(t, "edafee4e-63fb-11ec-90d6-0242ac120003", accountMeta.CreatedBy)
+	require.Equal(t, "test.com", accountMeta.Domain)
+	require.Equal(t, "private", accountMeta.DomainCategory)
+	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210000000, time.UTC), accountMeta.CreatedAt.UTC())
+}
