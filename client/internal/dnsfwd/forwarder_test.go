@@ -13,49 +13,49 @@ import (
 func Test_getMatchingEntries(t *testing.T) {
 	testCases := []struct {
 		name           string
-		storedMappings map[string]route.ID // key: domain pattern, value: resId
+		storedMappings map[string]route.ResID // key: domain pattern, value: resId
 		queryDomain    string
-		expectedResId  route.ID
+		expectedResId  route.ResID
 	}{
 		{
 			name:           "Empty map returns empty string",
-			storedMappings: map[string]route.ID{},
+			storedMappings: map[string]route.ResID{},
 			queryDomain:    "example.com",
 			expectedResId:  "",
 		},
 		{
 			name:           "Exact match returns stored resId",
-			storedMappings: map[string]route.ID{"example.com": "res1"},
+			storedMappings: map[string]route.ResID{"example.com": "res1"},
 			queryDomain:    "example.com",
 			expectedResId:  "res1",
 		},
 		{
 			name:           "Wildcard pattern matches base domain",
-			storedMappings: map[string]route.ID{"*.example.com": "res2"},
+			storedMappings: map[string]route.ResID{"*.example.com": "res2"},
 			queryDomain:    "example.com",
 			expectedResId:  "res2",
 		},
 		{
 			name:           "Wildcard pattern matches subdomain",
-			storedMappings: map[string]route.ID{"*.example.com": "res3"},
+			storedMappings: map[string]route.ResID{"*.example.com": "res3"},
 			queryDomain:    "foo.example.com",
 			expectedResId:  "res3",
 		},
 		{
 			name:           "Wildcard pattern does not match different domain",
-			storedMappings: map[string]route.ID{"*.example.com": "res4"},
+			storedMappings: map[string]route.ResID{"*.example.com": "res4"},
 			queryDomain:    "foo.notexample.com",
 			expectedResId:  "",
 		},
 		{
 			name:           "Non-wildcard pattern does not match subdomain",
-			storedMappings: map[string]route.ID{"example.com": "res5"},
+			storedMappings: map[string]route.ResID{"example.com": "res5"},
 			queryDomain:    "foo.example.com",
 			expectedResId:  "",
 		},
 		{
 			name: "Exact match over overlapping wildcard",
-			storedMappings: map[string]route.ID{
+			storedMappings: map[string]route.ResID{
 				"*.example.com":   "resWildcard",
 				"foo.example.com": "resExact",
 			},
@@ -64,7 +64,7 @@ func Test_getMatchingEntries(t *testing.T) {
 		},
 		{
 			name: "Overlapping wildcards: Select more specific wildcard",
-			storedMappings: map[string]route.ID{
+			storedMappings: map[string]route.ResID{
 				"*.example.com":     "resA",
 				"*.sub.example.com": "resB",
 			},
@@ -73,7 +73,7 @@ func Test_getMatchingEntries(t *testing.T) {
 		},
 		{
 			name: "Wildcard multi-level subdomain match",
-			storedMappings: map[string]route.ID{
+			storedMappings: map[string]route.ResID{
 				"*.example.com": "resMulti",
 			},
 			queryDomain:   "a.b.example.com",
@@ -91,7 +91,7 @@ func Test_getMatchingEntries(t *testing.T) {
 				require.NoError(t, err)
 				entries = append(entries, &ForwarderEntry{
 					Domain: d,
-					ResId:  resId,
+					ResID:  resId,
 				})
 			}
 			fwd.UpdateDomains(entries)

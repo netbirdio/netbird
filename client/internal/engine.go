@@ -972,7 +972,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap, dnsRouteFeatureFlag)
 	}
 
-	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), networkMap.GetRoutes())
+	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
 	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
 
 	// Ingress forward rules
@@ -1079,25 +1079,19 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	return routes
 }
 
-func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) []*dnsfwd.ForwarderEntry {
-	if protoRoutes == nil {
-		protoRoutes = []*mgmProto.Route{}
-	}
-
+func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderEntry {
 	var entries []*dnsfwd.ForwarderEntry
-	for _, protoRoute := range protoRoutes {
-		if len(protoRoute.Domains) == 0 {
+	for _, route := range routes {
+		if len(route.Domains) == 0 {
 			continue
 		}
-		if protoRoute.Peer == myPubKey {
-			// resource ID is the first part of the ID
-			resId := strings.Split(protoRoute.ID, ":")
-			pDomains := domain.FromPunycodeList(protoRoute.Domains)
-			for _, d := range pDomains {
+		if route.Peer == myPubKey {
+			domainSet := firewallManager.NewDomainSet(route.Domains)
+			for _, d := range route.Domains {
 				entries = append(entries, &dnsfwd.ForwarderEntry{
-					Domain:     d,
-					DomainHash: firewallManager.NewDomainSet(pDomains),
-					ResId:      route.ID(resId[0]),
+					Domain: d,
+					Set:    domainSet,
+					ResID:  route.GetResourceID(),
 				})
 			}
 		}

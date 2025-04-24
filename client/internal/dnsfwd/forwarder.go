@@ -154,7 +154,7 @@ func (f *DNSForwarder) updateInternalState(domain string, ips []netip.Addr) {
 				prefix = netip.PrefixFrom(ip, 128)
 			}
 			prefixes = append(prefixes, prefix)
-			f.statusRecorder.AddResolvedIPLookupEntry(prefix, string(mostSpecificResId))
+			f.statusRecorder.AddResolvedIPLookupEntry(prefix, mostSpecificResId)
 		}
 	}
 
@@ -166,7 +166,7 @@ func (f *DNSForwarder) updateInternalState(domain string, ips []netip.Addr) {
 func (f *DNSForwarder) updateFirewall(matchingEntries []*ForwarderEntry, prefixes []netip.Prefix) {
 	var merr *multierror.Error
 	for _, entry := range matchingEntries {
-		if err := f.firewall.UpdateSet(entry.DomainHash, prefixes); err != nil {
+		if err := f.firewall.UpdateSet(entry.Set, prefixes); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("update set for domain=%s: %w", entry.Domain, err))
 		}
 	}
@@ -240,8 +240,8 @@ func (f *DNSForwarder) addIPsToResponse(resp *dns.Msg, domain string, ips []neti
 
 // getMatchingEntries retrieves the resource IDs for a given domain.
 // It returns the most specific match and all matching resource IDs.
-func (f *DNSForwarder) getMatchingEntries(domain string) (route.ID, []*ForwarderEntry) {
-	var selectedResId route.ID
+func (f *DNSForwarder) getMatchingEntries(domain string) (route.ResID, []*ForwarderEntry) {
+	var selectedResId route.ResID
 	var bestScore int
 	var matches []*ForwarderEntry
 
@@ -269,7 +269,7 @@ func (f *DNSForwarder) getMatchingEntries(domain string) (route.ID, []*Forwarder
 
 		if score > bestScore {
 			bestScore = score
-			selectedResId = entry.ResId
+			selectedResId = entry.ResID
 		}
 	}
 

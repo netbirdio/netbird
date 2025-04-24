@@ -44,10 +44,16 @@ const (
 	DomainNetwork
 )
 
+// ID is the unique route ID.
 type ID string
 
+// ResID is the resourceID part of a route.ID (first part before the colon).
+type ResID string
+
+// NetID is the route network identifier, a human-readable string.
 type NetID string
 
+// HAMap is a map of HAUniqueID to a list of routes.
 type HAMap map[HAUniqueID][]*Route
 
 // NetworkType route network type
@@ -160,13 +166,15 @@ func (r *Route) IsDynamic() bool {
 	return r.NetworkType == DomainNetwork
 }
 
+// GetHAUniqueID returns the HAUniqueID for the route, it can be used for grouping.
 func (r *Route) GetHAUniqueID() HAUniqueID {
 	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.NetString()))
 }
 
-// GetResourceID returns the Networks Resource ID from a route ID
-func (r *Route) GetResourceID() string {
-	return strings.Split(string(r.ID), ":")[0]
+// GetResourceID returns the Networks ResID from the route ID.
+// It's the part before the first colon in the ID string.
+func (r *Route) GetResourceID() ResID {
+	return ResID(strings.Split(string(r.ID), ":")[0])
 }
 
 // NetString returns the network string.

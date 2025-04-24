@@ -23,9 +23,9 @@ const (
 
 // ForwarderEntry is a mapping from a domain to a resource ID and a hash of the parent domain list.
 type ForwarderEntry struct {
-	Domain     domain.Domain
-	ResId      route.ID
-	DomainHash firewall.Set
+	Domain domain.Domain
+	ResID  route.ResID
+	Set    firewall.Set
 }
 
 type Manager struct {
