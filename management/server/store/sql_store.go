@@ -153,19 +153,21 @@ func (s *SqlStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (
 
 // AcquireReadLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
 func (s *SqlStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
-	log.WithContext(ctx).Tracef("acquiring read lock for ID %s", uniqueID)
+	// log.WithContext(ctx).Tracef("acquiring read lock for ID %s", uniqueID)
+	//
+	// start := time.Now()
+	// value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
+	// mtx := value.(*sync.RWMutex)
+	// mtx.RLock()
+	//
+	// unlock = func() {
+	// 	mtx.RUnlock()
+	// 	log.WithContext(ctx).Tracef("released read lock for ID %s in %v", uniqueID, time.Since(start))
+	// }
 
-	start := time.Now()
-	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
-	mtx := value.(*sync.RWMutex)
-	mtx.RLock()
-
-	unlock = func() {
-		mtx.RUnlock()
-		log.WithContext(ctx).Tracef("released read lock for ID %s in %v", uniqueID, time.Since(start))
+	return func() {
+		// noop
 	}
-
-	return unlock
 }
 
 func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) error {
