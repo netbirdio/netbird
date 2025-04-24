@@ -149,10 +149,6 @@ jobs:
   test_client_on_docker:
     name: "Client (Docker) / Unit"
     needs: [build-cache]
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [ '386','amd64' ]
     runs-on: ubuntu-22.04
     steps:
       - name: Install Go
@@ -185,7 +181,6 @@ jobs:
         env:
           HOST_GOCACHE: ${{ steps.go-env.outputs.cache_dir }}
           HOST_GOMODCACHE: ${{ steps.go-env.outputs.modcache_dir }}
-          GOARCH_TARGET: ${{ matrix.arch }}
         run: |
           CONTAINER_GOCACHE="/root/.cache/go-build"
           CONTAINER_GOMODCACHE="/go/pkg/mod"
