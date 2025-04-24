@@ -200,7 +200,7 @@ jobs:
             golang:1.23-alpine \
             sh -c ' \
               apk update; apk add --no-cache \
-                ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
+                ca-certificates iptables ip6tables dbus dbus-dev libx11-dev libpcap-dev build-base; \
               go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay)
             '
 
