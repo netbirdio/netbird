@@ -289,7 +289,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	_, err = manager.AddRouteFiltering(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("192.168.2.0/24")},
-		netip.MustParsePrefix("10.1.0.0/24"),
+		fw.Network{Prefix: netip.MustParsePrefix("10.1.0.0/24")},
 		fw.ProtocolTCP,
 		nil,
 		&fw.Port{Values: []uint16{443}},
@@ -298,8 +298,8 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	require.NoError(t, err, "failed to add route filtering rule")
 
 	pair := fw.RouterPair{
-		Source:      netip.MustParsePrefix("192.168.1.0/24"),
-		Destination: netip.MustParsePrefix("10.0.0.0/24"),
+		Source:      fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+		Destination: fw.Network{Prefix: netip.MustParsePrefix("10.0.0.0/24")},
 		Masquerade:  true,
 	}
 	err = manager.AddNatRule(pair)

@@ -1,15 +1,13 @@
 package manager
 
 import (
-	"net/netip"
-
 	"github.com/netbirdio/netbird/route"
 )
 
 type RouterPair struct {
 	ID          route.ID
-	Source      netip.Prefix
-	Destination netip.Prefix
+	Source      Network
+	Destination Network
 	Masquerade  bool
 	Inverse     bool
 }
