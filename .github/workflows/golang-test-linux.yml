@@ -205,8 +205,8 @@ jobs:
             golang:1.23-alpine \
             sh -c ' \
               apk update; apk add --no-cache \
-                ca-certificates git sudo dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay)
+                ca-certificates dbus dbus-dev libpcap-dev build-base; \
+              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay)
             '
 
   test_relay:
