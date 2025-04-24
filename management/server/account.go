@@ -1444,9 +1444,15 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
 	defer peerUnlock()
 
-	peer, netMap, postureChecks, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
+	// peer, netMap, postureChecks, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
+	// if err != nil {
+	// 	return nil, nil, nil, fmt.Errorf("error syncing peer: %w", err)
+	// }
+
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error syncing peer: %w", err)
+		log.WithContext(ctx).Errorf("error getting peer by pubkey %s: %v", peerPubKey, err)
+		return nil, nil, nil, err
 	}
 
 	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, accountID)
@@ -1454,7 +1460,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
-	return peer, netMap, postureChecks, nil
+	return peer, &types.NetworkMap{}, []*posture.Checks{}, nil
 }
 
 func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error {

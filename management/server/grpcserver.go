@@ -172,17 +172,17 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
+	peer, _, _, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
 		return mapError(ctx, err)
 	}
 
-	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv)
-	if err != nil {
-		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
-		return err
-	}
+	// err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv)
+	// if err != nil {
+	// 	log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
+	// 	return err
+	// }
 
 	updates := s.peersUpdateManager.CreateChannel(ctx, peer.ID)
 
