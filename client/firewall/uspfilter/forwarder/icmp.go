@@ -146,7 +146,7 @@ func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.T
 			fields.RuleID = ruleId
 		}
 	} else {
-		f.deleteRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort)
+		f.DeleteRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort)
 	}
 
 	f.flowLogger.StoreEvent(fields)

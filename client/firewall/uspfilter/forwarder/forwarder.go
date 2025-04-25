@@ -188,7 +188,7 @@ func (f *Forwarder) getRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) 
 	return nil, false
 }
 
-func (f *Forwarder) deleteRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) {
+func (f *Forwarder) DeleteRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) {
 	if _, ok := f.ruleIdMap.LoadAndDelete(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
 		return
 	} else if _, ok := f.ruleIdMap.LoadAndDelete(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
@@ -196,6 +196,18 @@ func (f *Forwarder) deleteRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint1
 	}
 }
 
-func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) string {
-	return fmt.Sprintf("%s:%d-%s:%d", srcIP, srcPort, dstIP, dstPort)
+type ruleIdMapKey struct {
+	srcIP   netip.Addr
+	dstIP   netip.Addr
+	srcPort uint16
+	dstPort uint16
+}
+
+func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ruleIdMapKey {
+	return ruleIdMapKey{
+		srcIP:   srcIP,
+		dstIP:   dstIP,
+		srcPort: srcPort,
+		dstPort: dstPort,
+	}
 }

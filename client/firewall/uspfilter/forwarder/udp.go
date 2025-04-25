@@ -257,10 +257,10 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	}
 
 	var rxPackets, txPackets uint64
-	if tcpStats, ok := ep.Stats().(*tcpip.TransportEndpointStats); ok {
+	if udpStats, ok := ep.Stats().(*tcpip.TransportEndpointStats); ok {
 		// fields are flipped since this is the in conn
-		rxPackets = tcpStats.PacketsSent.Value()
-		txPackets = tcpStats.PacketsReceived.Value()
+		rxPackets = udpStats.PacketsSent.Value()
+		txPackets = udpStats.PacketsReceived.Value()
 	}
 
 	f.logger.Trace("Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
@@ -297,7 +297,7 @@ func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 			fields.RuleID = ruleId
 		}
 	} else {
-		f.deleteRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort)
+		f.DeleteRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort)
 	}
 
 	f.flowLogger.StoreEvent(fields)

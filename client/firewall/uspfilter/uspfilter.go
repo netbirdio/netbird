@@ -791,10 +791,11 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	if fwd == nil {
 		m.logger.Trace("failed to forward routed packet (forwarder not initialized)")
 	} else {
+		fwd.RegisterRuleID(srcIP, dstIP, srcPort, dstPort, ruleID)
+
 		if err := fwd.InjectIncomingPacket(packetData); err != nil {
 			m.logger.Error("Failed to inject routed packet: %v", err)
-		} else {
-			fwd.RegisterRuleID(srcIP, dstIP, srcPort, dstPort, ruleID)
+			fwd.DeleteRuleID(srcIP, dstIP, srcPort, dstPort)
 		}
 	}
 

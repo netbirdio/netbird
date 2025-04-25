@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -94,13 +95,16 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	)
 
 	go func() {
-		defer wg.Done()
 		bytesFromInToOut, errInToOut = io.Copy(outConn, inConn)
+		cancel()
+		wg.Done()
 	}()
 
 	go func() {
-		defer wg.Done()
+
 		bytesFromOutToIn, errOutToIn = io.Copy(inConn, outConn)
+		cancel()
+		wg.Done()
 	}()
 
 	wg.Wait()
@@ -117,10 +121,10 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	}
 
 	var rxPackets, txPackets uint64
-	if tcpStats, ok := ep.Stats().(*tcpip.TransportEndpointStats); ok {
+	if tcpStats, ok := ep.Stats().(*tcp.Stats); ok {
 		// fields are flipped since this is the in conn
-		rxPackets = tcpStats.PacketsSent.Value()
-		txPackets = tcpStats.PacketsReceived.Value()
+		rxPackets = tcpStats.SegmentsSent.Value()
+		txPackets = tcpStats.SegmentsReceived.Value()
 	}
 
 	f.logger.Trace("Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
@@ -152,7 +156,7 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 			fields.RuleID = ruleId
 		}
 	} else {
-		f.deleteRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort)
+		f.DeleteRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort)
 	}
 
 	f.flowLogger.StoreEvent(fields)
