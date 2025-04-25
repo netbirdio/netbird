@@ -443,14 +443,6 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 			for _, handler := range handlers {
 				handler.AssertExpectations(t)
 			}
-
-			// Verify handler exists check
-			for priority, shouldExist := range tt.expectedCalls {
-				if shouldExist {
-					assert.True(t, chain.HasHandlers(tt.ops[0].pattern),
-						"Handler chain should have handlers for pattern after removing priority %d", priority)
-				}
-			}
 		})
 	}
 }
@@ -470,45 +462,69 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	r := new(dns.Msg)
 	r.SetQuestion(testQuery, dns.TypeA)
 
+	// Keep track of mocks for the final assertion in Step 4
+	mocks := []*nbdns.MockSubdomainHandler{routeHandler, matchHandler, defaultHandler}
+
 	// Add handlers in mixed order
 	chain.AddHandler(testDomain, defaultHandler, nbdns.PriorityDefault)
 	chain.AddHandler(testDomain, routeHandler, nbdns.PriorityDNSRoute)
 	chain.AddHandler(testDomain, matchHandler, nbdns.PriorityMatchDomain)
 
-	// Test 1: Initial state with all three handlers
-	w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	// Test 1: Initial state
+	w1 := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
 	// Highest priority handler (routeHandler) should be called
 	routeHandler.On("ServeDNS", mock.Anything, r).Return().Once()
+	matchHandler.On("ServeDNS", mock.Anything, r).Maybe()   // Ensure others are not expected yet
+	defaultHandler.On("ServeDNS", mock.Anything, r).Maybe() // Ensure others are not expected yet
 
-	chain.ServeDNS(w, r)
+	chain.ServeDNS(w1, r)
 	routeHandler.AssertExpectations(t)
+
+	routeHandler.ExpectedCalls = nil
+	routeHandler.Calls = nil
+	matchHandler.ExpectedCalls = nil
+	matchHandler.Calls = nil
+	defaultHandler.ExpectedCalls = nil
+	defaultHandler.Calls = nil
 
 	// Test 2: Remove highest priority handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityDNSRoute)
-	assert.True(t, chain.HasHandlers(testDomain))
 
-	w = &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w2 := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
 	// Now middle priority handler (matchHandler) should be called
 	matchHandler.On("ServeDNS", mock.Anything, r).Return().Once()
+	defaultHandler.On("ServeDNS", mock.Anything, r).Maybe() // Ensure default is not expected yet
 
-	chain.ServeDNS(w, r)
+	chain.ServeDNS(w2, r)
 	matchHandler.AssertExpectations(t)
+
+	matchHandler.ExpectedCalls = nil
+	matchHandler.Calls = nil
+	defaultHandler.ExpectedCalls = nil
+	defaultHandler.Calls = nil
 
 	// Test 3: Remove middle priority handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityMatchDomain)
-	assert.True(t, chain.HasHandlers(testDomain))
 
-	w = &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w3 := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
 	// Now lowest priority handler (defaultHandler) should be called
 	defaultHandler.On("ServeDNS", mock.Anything, r).Return().Once()
 
-	chain.ServeDNS(w, r)
+	chain.ServeDNS(w3, r)
 	defaultHandler.AssertExpectations(t)
+
+	defaultHandler.ExpectedCalls = nil
+	defaultHandler.Calls = nil
 
 	// Test 4: Remove last handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityDefault)
 
-	assert.False(t, chain.HasHandlers(testDomain))
+	w4 := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	chain.ServeDNS(w4, r) // Call ServeDNS on the now empty chain for this domain
+
+	for _, m := range mocks {
+		m.AssertNumberOfCalls(t, "ServeDNS", 0)
+	}
 }
 
 func TestHandlerChain_CaseSensitivity(t *testing.T) {
@@ -826,6 +842,168 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				} else {
 					handler.AssertNumberOfCalls(t, "ServeDNS", 0)
 				}
+			}
+		})
+	}
+}
+
+func TestHandlerChain_AddRemoveRoundtrip(t *testing.T) {
+	tests := []struct {
+		name            string
+		addPattern      string
+		removePattern   string
+		queryPattern    string
+		shouldBeRemoved bool
+		description     string
+	}{
+		{
+			name:            "exact same pattern",
+			addPattern:      "example.com.",
+			removePattern:   "example.com.",
+			queryPattern:    "example.com.",
+			shouldBeRemoved: true,
+			description:     "Adding and removing with identical patterns",
+		},
+		{
+			name:            "case difference",
+			addPattern:      "Example.Com.",
+			removePattern:   "EXAMPLE.COM.",
+			queryPattern:    "example.com.",
+			shouldBeRemoved: true,
+			description:     "Adding with mixed case, removing with uppercase",
+		},
+		{
+			name:            "reversed case difference",
+			addPattern:      "EXAMPLE.ORG.",
+			removePattern:   "example.org.",
+			queryPattern:    "example.org.",
+			shouldBeRemoved: true,
+			description:     "Adding with uppercase, removing with lowercase",
+		},
+		{
+			name:            "add wildcard, remove wildcard",
+			addPattern:      "*.example.com.",
+			removePattern:   "*.example.com.",
+			queryPattern:    "sub.example.com.",
+			shouldBeRemoved: true,
+			description:     "Adding and removing with identical wildcard patterns",
+		},
+		{
+			name:            "add wildcard, remove transformed pattern",
+			addPattern:      "*.example.net.",
+			removePattern:   "example.net.",
+			queryPattern:    "sub.example.net.",
+			shouldBeRemoved: false,
+			description:     "Adding with wildcard, removing with non-wildcard pattern",
+		},
+		{
+			name:            "add transformed pattern, remove wildcard",
+			addPattern:      "example.io.",
+			removePattern:   "*.example.io.",
+			queryPattern:    "example.io.",
+			shouldBeRemoved: false,
+			description:     "Adding with non-wildcard pattern, removing with wildcard pattern",
+		},
+		{
+			name:            "trailing dot difference",
+			addPattern:      "example.dev",
+			removePattern:   "example.dev.",
+			queryPattern:    "example.dev.",
+			shouldBeRemoved: true,
+			description:     "Adding without trailing dot, removing with trailing dot",
+		},
+		{
+			name:            "reversed trailing dot difference",
+			addPattern:      "example.app.",
+			removePattern:   "example.app",
+			queryPattern:    "example.app.",
+			shouldBeRemoved: true,
+			description:     "Adding with trailing dot, removing without trailing dot",
+		},
+		{
+			name:            "mixed case and wildcard",
+			addPattern:      "*.Example.Site.",
+			removePattern:   "*.EXAMPLE.SITE.",
+			queryPattern:    "sub.example.site.",
+			shouldBeRemoved: true,
+			description:     "Adding mixed case wildcard, removing uppercase wildcard",
+		},
+		{
+			name:            "root zone",
+			addPattern:      ".",
+			removePattern:   ".",
+			queryPattern:    "random.domain.",
+			shouldBeRemoved: true,
+			description:     "Adding and removing root zone",
+		},
+		{
+			name:            "wrong domain",
+			addPattern:      "example.com.",
+			removePattern:   "different.com.",
+			queryPattern:    "example.com.",
+			shouldBeRemoved: false,
+			description:     "Adding one domain, trying to remove a different domain",
+		},
+		{
+			name:            "subdomain mismatch",
+			addPattern:      "sub.example.com.",
+			removePattern:   "example.com.",
+			queryPattern:    "sub.example.com.",
+			shouldBeRemoved: false,
+			description:     "Adding subdomain, trying to remove parent domain",
+		},
+		{
+			name:            "parent domain mismatch",
+			addPattern:      "example.com.",
+			removePattern:   "sub.example.com.",
+			queryPattern:    "example.com.",
+			shouldBeRemoved: false,
+			description:     "Adding parent domain, trying to remove subdomain",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain := nbdns.NewHandlerChain()
+
+			handler := &nbdns.MockHandler{}
+			r := new(dns.Msg)
+			r.SetQuestion(tt.queryPattern, dns.TypeA)
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+
+			// First verify no handler is called before adding any
+			chain.ServeDNS(w, r)
+			handler.AssertNotCalled(t, "ServeDNS")
+
+			// Add handler
+			chain.AddHandler(tt.addPattern, handler, nbdns.PriorityDefault)
+
+			// Verify handler is called after adding
+			handler.On("ServeDNS", mock.Anything, r).Once()
+			chain.ServeDNS(w, r)
+			handler.AssertExpectations(t)
+
+			// Reset mock for the next test
+			handler.ExpectedCalls = nil
+
+			// Remove handler
+			chain.RemoveHandler(tt.removePattern, nbdns.PriorityDefault)
+
+			// Set up expectations based on whether removal should succeed
+			if !tt.shouldBeRemoved {
+				handler.On("ServeDNS", mock.Anything, r).Once()
+			}
+
+			// Test if handler is still called after removal attempt
+			chain.ServeDNS(w, r)
+
+			if tt.shouldBeRemoved {
+				handler.AssertNotCalled(t, "ServeDNS",
+					"Handler should not be called after successful removal with pattern %q",
+					tt.removePattern)
+			} else {
+				handler.AssertExpectations(t)
+				handler.ExpectedCalls = nil
 			}
 		})
 	}

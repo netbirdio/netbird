@@ -14,6 +14,7 @@ import (
 	"github.com/ti-mo/netfilter"
 
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const defaultChannelSize = 100
@@ -176,7 +177,7 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 	srcIP := flow.TupleOrig.IP.SourceAddress
 	dstIP := flow.TupleOrig.IP.DestinationAddress
 
-	if !c.relevantFlow(srcIP, dstIP) {
+	if !c.relevantFlow(flow.Mark, srcIP, dstIP) {
 		return
 	}
 
@@ -193,7 +194,7 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 	}
 
 	flowID := c.getFlowID(flow.ID)
-	direction := c.inferDirection(srcIP, dstIP)
+	direction := c.inferDirection(flow.Mark, srcIP, dstIP)
 
 	eventType := nftypes.TypeStart
 	eventStr := "New"
@@ -224,15 +225,14 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 }
 
 // relevantFlow checks if the flow is related to the specified interface
-func (c *ConnTrack) relevantFlow(srcIP, dstIP netip.Addr) bool {
-	// TODO: filter traffic by interface
-
-	wgnet := c.iface.Address().Network
-	if !wgnet.Contains(srcIP.AsSlice()) && !wgnet.Contains(dstIP.AsSlice()) {
-		return false
+func (c *ConnTrack) relevantFlow(mark uint32, srcIP, dstIP netip.Addr) bool {
+	if nbnet.IsDataPlaneMark(mark) {
+		return true
 	}
 
-	return true
+	// fallback if mark rules are not in place
+	wgnet := c.iface.Address().Network
+	return wgnet.Contains(srcIP.AsSlice()) || wgnet.Contains(dstIP.AsSlice())
 }
 
 // mapRxPackets maps packet counts to RX based on flow direction
@@ -282,7 +282,15 @@ func (c *ConnTrack) getFlowID(conntrackID uint32) uuid.UUID {
 	return uuid.NewSHA1(c.instanceID, buf[:])
 }
 
-func (c *ConnTrack) inferDirection(srcIP, dstIP netip.Addr) nftypes.Direction {
+func (c *ConnTrack) inferDirection(mark uint32, srcIP, dstIP netip.Addr) nftypes.Direction {
+	switch mark {
+	case nbnet.DataPlaneMarkIn:
+		return nftypes.Ingress
+	case nbnet.DataPlaneMarkOut:
+		return nftypes.Egress
+	}
+
+	// fallback if marks are not set
 	wgaddr := c.iface.Address().IP
 	wgnetwork := c.iface.Address().Network
 	src, dst := srcIP.AsSlice(), dstIP.AsSlice()
@@ -298,8 +306,6 @@ func (c *ConnTrack) inferDirection(srcIP, dstIP netip.Addr) nftypes.Direction {
 	case wgnetwork.Contains(dst):
 		// resource network -> netbird network
 		return nftypes.Egress
-
-		// TODO: handle site2site traffic
 	}
 
 	return nftypes.DirectionUnknown

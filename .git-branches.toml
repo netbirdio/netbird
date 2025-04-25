@@ -1,0 +1,27 @@
+# More info around this file at https://www.git-town.com/configuration-file
+
+[branches]
+main = "main"
+perennials = []
+perennial-regex = ""
+
+[create]
+new-branch-type = "feature"
+push-new-branches = false
+
+[hosting]
+dev-remote = "origin"
+# platform = ""
+# origin-hostname = ""
+
+[ship]
+delete-tracking-branch = false
+strategy = "squash-merge"
+
+[sync]
+feature-strategy = "merge"
+perennial-strategy = "rebase"
+prototype-strategy = "merge"
+push-hook = true
+tags = true
+upstream = false

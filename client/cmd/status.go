@@ -127,12 +127,12 @@ func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
 
 func parseFilters() error {
 	switch strings.ToLower(statusFilter) {
-	case "", "disconnected", "connected":
+	case "", "idle", "connecting", "connected":
 		if strings.ToLower(statusFilter) != "" {
 			enableDetailFlagWhenFilterFlag()
 		}
 	default:
-		return fmt.Errorf("wrong status filter, should be one of connected|disconnected, got: %s", statusFilter)
+		return fmt.Errorf("wrong status filter, should be one of connected|connecting|idle, got: %s", statusFilter)
 	}
 
 	if len(ipsFilter) > 0 {

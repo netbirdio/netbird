@@ -41,7 +41,7 @@ type GRPCServer struct {
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peersUpdateManager *PeersUpdateManager
-	config             *Config
+	config             *types.Config
 	secretsManager     SecretsManager
 	appMetrics         telemetry.AppMetrics
 	ephemeralManager   *EphemeralManager
@@ -52,7 +52,7 @@ type GRPCServer struct {
 // NewServer creates a new Management server
 func NewServer(
 	ctx context.Context,
-	config *Config,
+	config *types.Config,
 	accountManager account.Manager,
 	settingsManager settings.Manager,
 	peersUpdateManager *PeersUpdateManager,
@@ -531,24 +531,24 @@ func (s *GRPCServer) processJwtToken(ctx context.Context, loginReq *proto.LoginR
 	return userID, nil
 }
 
-func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
+func ToResponseProto(configProto types.Protocol) proto.HostConfig_Protocol {
 	switch configProto {
-	case UDP:
+	case types.UDP:
 		return proto.HostConfig_UDP
-	case DTLS:
+	case types.DTLS:
 		return proto.HostConfig_DTLS
-	case HTTP:
+	case types.HTTP:
 		return proto.HostConfig_HTTP
-	case HTTPS:
+	case types.HTTPS:
 		return proto.HostConfig_HTTPS
-	case TCP:
+	case types.TCP:
 		return proto.HostConfig_TCP
 	default:
 		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
 	}
 }
 
-func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
+func toNetbirdConfig(config *types.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -611,8 +611,6 @@ func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token, 
 		Relay:  relayCfg,
 	}
 
-	integrationsConfig.ExtendNetBirdConfig(nbConfig, extraSettings)
-
 	return nbConfig
 }
 
@@ -627,10 +625,9 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dns
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnabled bool, extraSettings *types.ExtraSettings) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *types.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnabled bool, extraSettings *types.ExtraSettings) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		NetbirdConfig: toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings),
-		PeerConfig:    toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnabled),
+		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnabled),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
@@ -638,6 +635,10 @@ func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turn
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
+
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, nbConfig, extraSettings)
+	response.NetbirdConfig = extendedConfig
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
@@ -756,7 +757,7 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(NONE) {
+	if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(types.NONE) {
 		return nil, status.Error(codes.NotFound, "no device authorization flow information available")
 	}
 
@@ -828,6 +829,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
 			RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
 			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
+			DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
 		},
 	}
 
