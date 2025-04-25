@@ -48,6 +48,9 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
+		// update host's static platform and system information
+		system.UpdateStaticInfo()
+
 		// workaround to run without service
 		if logFile == "console" {
 			err = handleRebrand(cmd)
