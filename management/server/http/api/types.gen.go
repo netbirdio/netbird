@@ -223,6 +223,18 @@ type AccessiblePeer struct {
 
 // Account defines model for Account.
 type Account struct {
+	// CreatedAt Account creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy Account creator
+	CreatedBy string `json:"created_by"`
+
+	// Domain Account domain
+	Domain string `json:"domain"`
+
+	// DomainCategory Account domain category
+	DomainCategory string `json:"domain_category"`
+
 	// Id Account ID
 	Id       string          `json:"id"`
 	Settings AccountSettings `json:"settings"`
@@ -230,7 +242,7 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
-	// NetworkTrafficLogsEnabled Enables or disables network traffic logs. If enabled, all network traffic logs from peers will be stored.
+	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
 	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
 
 	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
@@ -247,7 +259,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
-	Extra *AccountExtraSettings `json:"extra,omitempty"`
+	// DnsDomain Allows to define a custom dns domain for the account
+	DnsDomain *string               `json:"dns_domain,omitempty"`
+	Extra     *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`

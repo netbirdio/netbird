@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
@@ -94,6 +97,9 @@ type DefaultAccountManager struct {
 	metrics telemetry.AppMetrics
 
 	permissionsManager permissions.Manager
+
+	accountUpdateLocks               sync.Map
+	updateAccountPeersBufferInterval atomic.Int64
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -188,6 +194,23 @@ func BuildManager(
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
 	}
+
+	var initialInterval int64
+	intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
+	interval, err := strconv.Atoi(intervalStr)
+	if err != nil {
+		initialInterval = 1
+	} else {
+		initialInterval = int64(interval) * 10
+		go func() {
+			time.Sleep(30 * time.Second)
+			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
+			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
+		}()
+	}
+	am.updateAccountPeersBufferInterval.Store(initialInterval)
+	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
+
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
 		log.WithContext(ctx).Error(err)
@@ -252,6 +275,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
+	if newSettings.DNSDomain != "" && !isDomainValid(newSettings.DNSDomain) {
+		return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
+	}
+
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -260,7 +287,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
@@ -298,6 +325,12 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
 		}
+		updateAccountPeers = true
+		account.Network.Serial++
+	}
+
+	if oldSettings.DNSDomain != newSettings.DNSDomain {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, nil)
 		updateAccountPeers = true
 		account.Network.Serial++
 	}
@@ -510,7 +543,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Delete)
 	if err != nil {
 		return fmt.Errorf("failed to validate user permissions: %w", err)
 	}
@@ -1034,6 +1067,19 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 	return am.Store.GetAccount(ctx, accountID)
 }
 
+// GetAccountMeta returns the account metadata associated with this account ID.
+func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	return am.Store.GetAccountMeta(ctx, store.LockingStrengthShare, accountID)
+}
+
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
 	if userAuth.UserId == "" {
 		return "", "", errors.New(emptyUserID)
@@ -1224,7 +1270,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-			am.UpdateAccountPeers(ctx, userAuth.AccountId)
+			am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
 		}
 	}
 
@@ -1457,13 +1503,20 @@ func isDomainValid(domain string) bool {
 }
 
 // GetDNSDomain returns the configured dnsDomain
-func (am *DefaultAccountManager) GetDNSDomain() string {
-	return am.dnsDomain
+func (am *DefaultAccountManager) GetDNSDomain(settings *types.Settings) string {
+	if settings == nil {
+		return am.dnsDomain
+	}
+	if settings.DNSDomain == "" {
+		return am.dnsDomain
+	}
+
+	return settings.DNSDomain
 }
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	am.UpdateAccountPeers(ctx, accountID)
+	am.BufferUpdateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {

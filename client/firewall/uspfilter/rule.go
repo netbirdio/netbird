@@ -29,14 +29,15 @@ func (r *PeerRule) ID() string {
 }
 
 type RouteRule struct {
-	id          string
-	mgmtId      []byte
-	sources     []netip.Prefix
-	destination netip.Prefix
-	proto       firewall.Protocol
-	srcPort     *firewall.Port
-	dstPort     *firewall.Port
-	action      firewall.Action
+	id           string
+	mgmtId       []byte
+	sources      []netip.Prefix
+	dstSet       firewall.Set
+	destinations []netip.Prefix
+	proto        firewall.Protocol
+	srcPort      *firewall.Port
+	dstPort      *firewall.Port
+	action       firewall.Action
 }
 
 // ID returns the rule id

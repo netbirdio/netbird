@@ -37,7 +37,8 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 	}
 
 	fac := logging.NewDefaultLoggerFactory()
-	fac.Writer = log.StandardLogger().Writer()
+
+	//fac.Writer = log.StandardLogger().Writer()
 
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,

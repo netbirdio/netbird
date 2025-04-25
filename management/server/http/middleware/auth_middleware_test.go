@@ -190,6 +190,9 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
 			return nil
 		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
+		},
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -290,6 +293,9 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
 			return nil
+		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
 		},
 	)
 

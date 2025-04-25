@@ -49,10 +49,10 @@ var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
-type RouteRules []RouteRule
+type RouteRules []*RouteRule
 
 func (r RouteRules) Sort() {
-	slices.SortStableFunc(r, func(a, b RouteRule) int {
+	slices.SortStableFunc(r, func(a, b *RouteRule) int {
 		// Deny rules come first
 		if a.action == firewall.ActionDrop && b.action != firewall.ActionDrop {
 			return -1
@@ -99,6 +99,8 @@ type Manager struct {
 	forwarder   atomic.Pointer[forwarder.Forwarder]
 	logger      *nblog.Logger
 	flowLogger  nftypes.FlowLogger
+
+	blockRule firewall.Rule
 }
 
 // decoder for packages
@@ -201,41 +203,35 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		}
 	}
 
-	if err := m.blockInvalidRouted(iface); err != nil {
-		log.Errorf("failed to block invalid routed traffic: %v", err)
-	}
-
 	if err := iface.SetFilter(m); err != nil {
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
 	return m, nil
 }
 
-func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) error {
-	if m.forwarder.Load() == nil {
-		return nil
-	}
+func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, error) {
 	wgPrefix, err := netip.ParsePrefix(iface.Address().Network.String())
 	if err != nil {
-		return fmt.Errorf("parse wireguard network: %w", err)
+		return nil, fmt.Errorf("parse wireguard network: %w", err)
 	}
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
-	if _, err := m.AddRouteFiltering(
+	rule, err := m.addRouteFiltering(
 		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
-		wgPrefix,
+		firewall.Network{Prefix: wgPrefix},
 		firewall.ProtocolALL,
 		nil,
 		nil,
 		firewall.ActionDrop,
-	); err != nil {
-		return fmt.Errorf("block wg nte : %w", err)
+	)
+	if err != nil {
+		return nil, fmt.Errorf("block wg nte : %w", err)
 	}
 
 	// TODO: Block networks that we're a client of
 
-	return nil
+	return rule, nil
 }
 
 func (m *Manager) determineRouting() error {
@@ -413,10 +409,23 @@ func (m *Manager) AddPeerFiltering(
 func (m *Manager) AddRouteFiltering(
 	id []byte,
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination firewall.Network,
 	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
+	sPort, dPort *firewall.Port,
+	action firewall.Action,
+) (firewall.Rule, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.addRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
+}
+
+func (m *Manager) addRouteFiltering(
+	id []byte,
+	sources []netip.Prefix,
+	destination firewall.Network,
+	proto firewall.Protocol,
+	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
@@ -426,34 +435,39 @@ func (m *Manager) AddRouteFiltering(
 	ruleID := uuid.New().String()
 	rule := RouteRule{
 		// TODO: consolidate these IDs
-		id:          ruleID,
-		mgmtId:      id,
-		sources:     sources,
-		destination: destination,
-		proto:       proto,
-		srcPort:     sPort,
-		dstPort:     dPort,
-		action:      action,
+		id:      ruleID,
+		mgmtId:  id,
+		sources: sources,
+		dstSet:  destination.Set,
+		proto:   proto,
+		srcPort: sPort,
+		dstPort: dPort,
+		action:  action,
+	}
+	if destination.IsPrefix() {
+		rule.destinations = []netip.Prefix{destination.Prefix}
 	}
 
-	m.mutex.Lock()
-	m.routeRules = append(m.routeRules, rule)
+	m.routeRules = append(m.routeRules, &rule)
 	m.routeRules.Sort()
-	m.mutex.Unlock()
 
 	return &rule, nil
 }
 
 func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.deleteRouteRule(rule)
+}
+
+func (m *Manager) deleteRouteRule(rule firewall.Rule) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.DeleteRouteRule(rule)
 	}
 
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	ruleID := rule.ID()
-	idx := slices.IndexFunc(m.routeRules, func(r RouteRule) bool {
+	idx := slices.IndexFunc(m.routeRules, func(r *RouteRule) bool {
 		return r.id == ruleID
 	})
 	if idx < 0 {
@@ -507,6 +521,52 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 		return errNatNotSupported
 	}
 	return m.nativeFirewall.DeleteDNATRule(rule)
+}
+
+// UpdateSet updates the rule destinations associated with the given set
+// by merging the existing prefixes with the new ones, then deduplicating.
+func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	if m.nativeRouter.Load() && m.nativeFirewall != nil {
+		return m.nativeFirewall.UpdateSet(set, prefixes)
+	}
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	var matches []*RouteRule
+	for _, rule := range m.routeRules {
+		if rule.dstSet == set {
+			matches = append(matches, rule)
+		}
+	}
+
+	if len(matches) == 0 {
+		return fmt.Errorf("no route rule found for set: %s", set)
+	}
+
+	destinations := matches[0].destinations
+	for _, prefix := range prefixes {
+		if prefix.Addr().Is4() {
+			destinations = append(destinations, prefix)
+		}
+	}
+
+	slices.SortFunc(destinations, func(a, b netip.Prefix) int {
+		cmp := a.Addr().Compare(b.Addr())
+		if cmp != 0 {
+			return cmp
+		}
+		return a.Bits() - b.Bits()
+	})
+
+	destinations = slices.Compact(destinations)
+
+	for _, rule := range matches {
+		rule.destinations = destinations
+	}
+	log.Debugf("updated set %s to prefixes %v", set.HashedName(), destinations)
+
+	return nil
 }
 
 // DropOutgoing filter outgoing packets
@@ -992,8 +1052,15 @@ func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, proto firewall.Protocol
 	return nil, false
 }
 
-func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
-	if !rule.destination.Contains(dstAddr) {
+func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+	destMatched := false
+	for _, dst := range rule.destinations {
+		if dst.Contains(dstAddr) {
+			destMatched = true
+			break
+		}
+	}
+	if !destMatched {
 		return false
 	}
 
@@ -1095,7 +1162,22 @@ func (m *Manager) EnableRouting() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.determineRouting()
+	if err := m.determineRouting(); err != nil {
+		return fmt.Errorf("determine routing: %w", err)
+	}
+
+	if m.forwarder.Load() == nil {
+		return nil
+	}
+
+	rule, err := m.blockInvalidRouted(m.wgIface)
+	if err != nil {
+		return fmt.Errorf("block invalid routed: %w", err)
+	}
+
+	m.blockRule = rule
+
+	return nil
 }
 
 func (m *Manager) DisableRouting() error {
@@ -1119,6 +1201,13 @@ func (m *Manager) DisableRouting() error {
 	m.forwarder.Store(nil)
 
 	log.Debug("forwarder stopped")
+
+	if m.blockRule != nil {
+		if err := m.deleteRouteRule(m.blockRule); err != nil {
+			return fmt.Errorf("delete block rule: %w", err)
+		}
+		m.blockRule = nil
+	}
 
 	return nil
 }
