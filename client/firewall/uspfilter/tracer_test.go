@@ -198,12 +198,12 @@ func TestTracePacket(t *testing.T) {
 				m.forwarder.Store(&forwarder.Forwarder{})
 
 				src := netip.PrefixFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 32)
-				dst := netip.PrefixFrom(netip.AddrFrom4([4]byte{172, 17, 0, 2}), 32)
+				dst := netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 168, 17, 2}), 32)
 				_, err := m.AddRouteFiltering(nil, []netip.Prefix{src}, fw.Network{Prefix: dst}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
-				return createPacketBuilder("1.1.1.1", "172.17.0.2", "tcp", 12345, 80, fw.RuleDirectionIN)
+				return createPacketBuilder("1.1.1.1", "192.168.17.2", "tcp", 12345, 80, fw.RuleDirectionIN)
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
@@ -222,12 +222,12 @@ func TestTracePacket(t *testing.T) {
 				m.nativeRouter.Store(false)
 
 				src := netip.PrefixFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 32)
-				dst := netip.PrefixFrom(netip.AddrFrom4([4]byte{172, 17, 0, 2}), 32)
+				dst := netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 168, 17, 2}), 32)
 				_, err := m.AddRouteFiltering(nil, []netip.Prefix{src}, fw.Network{Prefix: dst}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
-				return createPacketBuilder("1.1.1.1", "172.17.0.2", "tcp", 12345, 80, fw.RuleDirectionIN)
+				return createPacketBuilder("1.1.1.1", "192.168.17.2", "tcp", 12345, 80, fw.RuleDirectionIN)
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
@@ -245,7 +245,7 @@ func TestTracePacket(t *testing.T) {
 				m.nativeRouter.Store(true)
 			},
 			packetBuilder: func() *PacketBuilder {
-				return createPacketBuilder("1.1.1.1", "172.17.0.2", "tcp", 12345, 80, fw.RuleDirectionIN)
+				return createPacketBuilder("1.1.1.1", "192.168.17.2", "tcp", 12345, 80, fw.RuleDirectionIN)
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
@@ -263,7 +263,7 @@ func TestTracePacket(t *testing.T) {
 				m.routingEnabled.Store(false)
 			},
 			packetBuilder: func() *PacketBuilder {
-				return createPacketBuilder("1.1.1.1", "172.17.0.2", "tcp", 12345, 80, fw.RuleDirectionIN)
+				return createPacketBuilder("1.1.1.1", "192.168.17.2", "tcp", 12345, 80, fw.RuleDirectionIN)
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
@@ -425,8 +425,8 @@ func TestTracePacket(t *testing.T) {
 
 			require.True(t, m.localipmanager.IsLocalIP(netip.MustParseAddr("100.10.0.100")),
 				"100.10.0.100 should be recognized as a local IP")
-			require.False(t, m.localipmanager.IsLocalIP(netip.MustParseAddr("172.17.0.2")),
-				"172.17.0.2 should not be recognized as a local IP")
+			require.False(t, m.localipmanager.IsLocalIP(netip.MustParseAddr("192.168.17.2")),
+				"192.168.17.2 should not be recognized as a local IP")
 
 			pb := tc.packetBuilder()
 
