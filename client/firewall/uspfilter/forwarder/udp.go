@@ -263,7 +263,7 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		txPackets = udpStats.PacketsReceived.Value()
 	}
 
-	f.logger.Trace("Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
+	f.logger.Trace("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
 
 	f.udpForwarder.Lock()
 	delete(f.udpForwarder.conns, id)
