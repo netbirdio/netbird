@@ -139,11 +139,10 @@ func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.T
 		TxPackets: txPackets,
 	}
 
-	remoteIp, _ := netip.ParseAddr(id.RemoteAddress.String())
-	localIp, _ := netip.ParseAddr(id.LocalAddress.String())
-
-	if ruleId, ok := f.getRuleID(typ, remoteIp, localIp, id.RemotePort, id.LocalPort); ok {
-		fields.RuleID = ruleId
+	if typ == nftypes.TypeStart {
+		if ruleId, ok := f.getRuleID(typ, netip.AddrFrom4(id.RemoteAddress.As4()), netip.AddrFrom4(id.LocalAddress.As4()), id.RemotePort, id.LocalPort); ok {
+			fields.RuleID = ruleId
+		}
 	}
 
 	f.flowLogger.StoreEvent(fields)

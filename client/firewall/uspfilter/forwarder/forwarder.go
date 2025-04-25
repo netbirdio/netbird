@@ -174,7 +174,7 @@ func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {
 
 func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, ruleID []byte) {
 	key := buildKey(srcIP, dstIP, srcPort, dstPort)
-	f.ruleIdMap.Store(key, ruleID)
+	f.ruleIdMap.LoadOrStore(key, ruleID)
 }
 
 func (f *Forwarder) getRuleID(eventType nftypes.Type, srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ([]byte, bool) {

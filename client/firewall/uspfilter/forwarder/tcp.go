@@ -97,16 +97,12 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 
 	go func() {
 		defer wg.Done()
-		var n int64
-		n, errInToOut = io.Copy(outConn, inConn)
-		bytesFromInToOut = n
+		bytesFromInToOut, errInToOut = io.Copy(outConn, inConn)
 	}()
 
 	go func() {
 		defer wg.Done()
-		var n int64
-		n, errOutToIn = io.Copy(inConn, outConn)
-		bytesFromOutToIn = n
+		bytesFromOutToIn, errOutToIn = io.Copy(inConn, outConn)
 	}()
 
 	wg.Wait()
@@ -149,11 +145,10 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		}
 	}
 
-	remoteIp, _ := netip.ParseAddr(id.RemoteAddress.String())
-	localIp, _ := netip.ParseAddr(id.LocalAddress.String())
-
-	if ruleId, ok := f.getRuleID(typ, remoteIp, localIp, id.RemotePort, id.LocalPort); ok {
-		fields.RuleID = ruleId
+	if typ == nftypes.TypeStart {
+		if ruleId, ok := f.getRuleID(typ, netip.AddrFrom4(id.RemoteAddress.As4()), netip.AddrFrom4(id.LocalAddress.As4()), id.RemotePort, id.LocalPort); ok {
+			fields.RuleID = ruleId
+		}
 	}
 
 	f.flowLogger.StoreEvent(fields)
