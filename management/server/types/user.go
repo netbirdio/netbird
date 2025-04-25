@@ -15,6 +15,7 @@ const (
 	UserRoleUser         UserRole = "user"
 	UserRoleUnknown      UserRole = "unknown"
 	UserRoleBillingAdmin UserRole = "billing_admin"
+	UserRoleAuditor      UserRole = "auditor"
 	UserRoleNetworkAdmin UserRole = "network_admin"
 
 	UserStatusActive   UserStatus = "active"
@@ -36,6 +37,8 @@ func StrRoleToUserRole(strRole string) UserRole {
 		return UserRoleUser
 	case "billing_admin":
 		return UserRoleBillingAdmin
+	case "auditor":
+		return UserRoleAuditor
 	default:
 		return UserRoleUnknown
 	}
