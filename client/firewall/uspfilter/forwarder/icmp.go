@@ -122,14 +122,17 @@ func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.T
 		txPackets = 1
 	}
 
+	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
+	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
+
 	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
 		Direction: nftypes.Ingress,
 		Protocol:  nftypes.ICMP,
 		// TODO: handle ipv6
-		SourceIP: netip.AddrFrom4(id.RemoteAddress.As4()),
-		DestIP:   netip.AddrFrom4(id.LocalAddress.As4()),
+		SourceIP: srcIp,
+		DestIP:   dstIp,
 		ICMPType: icmpType,
 		ICMPCode: icmpCode,
 
@@ -139,8 +142,6 @@ func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.T
 		TxPackets: txPackets,
 	}
 
-	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
-	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
 	if typ == nftypes.TypeStart {
 		if ruleId, ok := f.getRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort); ok {
 			fields.RuleID = ruleId

@@ -19,6 +19,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
@@ -196,18 +197,11 @@ func (f *Forwarder) DeleteRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint1
 	}
 }
 
-type ruleIdMapKey struct {
-	srcIP   netip.Addr
-	dstIP   netip.Addr
-	srcPort uint16
-	dstPort uint16
-}
-
-func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ruleIdMapKey {
-	return ruleIdMapKey{
-		srcIP:   srcIP,
-		dstIP:   dstIP,
-		srcPort: srcPort,
-		dstPort: dstPort,
+func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) conntrack.ConnKey {
+	return conntrack.ConnKey{
+		SrcIP:   srcIP,
+		DstIP:   dstIP,
+		SrcPort: srcPort,
+		DstPort: dstPort,
 	}
 }

@@ -133,14 +133,17 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 }
 
 func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64) {
+	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
+	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
+
 	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
 		Direction: nftypes.Ingress,
 		Protocol:  nftypes.TCP,
 		// TODO: handle ipv6
-		SourceIP:   netip.AddrFrom4(id.RemoteAddress.As4()),
-		DestIP:     netip.AddrFrom4(id.LocalAddress.As4()),
+		SourceIP:   srcIp,
+		DestIP:     dstIp,
 		SourcePort: id.RemotePort,
 		DestPort:   id.LocalPort,
 		RxBytes:    rxBytes,
@@ -149,8 +152,6 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		TxPackets:  txPackets,
 	}
 
-	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
-	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
 	if typ == nftypes.TypeStart {
 		if ruleId, ok := f.getRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort); ok {
 			fields.RuleID = ruleId
