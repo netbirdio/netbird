@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 func TestPeerACLFiltering(t *testing.T) {
@@ -188,6 +189,281 @@ func TestPeerACLFiltering(t *testing.T) {
 			ruleAction:      fw.ActionAccept,
 			shouldBeBlocked: true,
 		},
+		{
+			name:            "Allow TCP traffic without port specification",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         443,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "Allow UDP traffic without port specification",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolUDP,
+			srcPort:         12345,
+			dstPort:         53,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolUDP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "TCP packet doesn't match UDP filter with same port",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         443,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolUDP,
+			ruleDstPort:     &fw.Port{Values: []uint16{443}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "UDP packet doesn't match TCP filter with same port",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolUDP,
+			srcPort:         12345,
+			dstPort:         443,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{443}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "ICMP packet doesn't match TCP filter",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolICMP,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "ICMP packet doesn't match UDP filter",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolICMP,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolUDP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Allow TCP traffic within port range",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         8080,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{IsRange: true, Values: []uint16{8000, 8100}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "Block TCP traffic outside port range",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         7999,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{IsRange: true, Values: []uint16{8000, 8100}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Edge Case - Port at Range Boundary",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         8100,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{IsRange: true, Values: []uint16{8000, 8100}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "UDP Port Range",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolUDP,
+			srcPort:         12345,
+			dstPort:         5060,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolUDP,
+			ruleDstPort:     &fw.Port{IsRange: true, Values: []uint16{5060, 5070}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "Allow multiple destination ports",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         8080,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{80, 8080, 443}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "Allow multiple source ports",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         80,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleSrcPort:     &fw.Port{Values: []uint16{12345, 12346, 12347}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		// New drop test cases
+		{
+			name:            "Drop TCP traffic from WG peer",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         443,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{443}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Drop UDP traffic from WG peer",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolUDP,
+			srcPort:         12345,
+			dstPort:         53,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolUDP,
+			ruleDstPort:     &fw.Port{Values: []uint16{53}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Drop ICMP traffic from WG peer",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolICMP,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolICMP,
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Drop all traffic from WG peer",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         443,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolALL,
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Drop traffic from multiple source ports",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         80,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleSrcPort:     &fw.Port{Values: []uint16{12345, 12346, 12347}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Drop multiple destination ports",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         8080,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{80, 8080, 443}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Drop TCP traffic within port range",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         8080,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{IsRange: true, Values: []uint16{8000, 8100}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Accept TCP traffic outside drop port range",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         7999,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{IsRange: true, Values: []uint16{8000, 8100}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "Drop TCP traffic with source port range",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         32100,
+			dstPort:         80,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleSrcPort:     &fw.Port{IsRange: true, Values: []uint16{32000, 33000}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Mixed rule - drop specific port but allow other ports",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         443,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{443}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
 	}
 
 	t.Run("Implicit DROP (no rules)", func(t *testing.T) {
@@ -198,6 +474,28 @@ func TestPeerACLFiltering(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+
+			if tc.ruleAction == fw.ActionDrop {
+				// add general accept rule to test drop rule
+				// TODO: this only works because 0.0.0.0 is tested last, we need to implement order
+				rules, err := manager.AddPeerFiltering(
+					nil,
+					net.ParseIP("0.0.0.0"),
+					fw.ProtocolALL,
+					nil,
+					nil,
+					fw.ActionAccept,
+					"",
+				)
+				require.NoError(t, err)
+				require.NotEmpty(t, rules)
+				t.Cleanup(func() {
+					for _, rule := range rules {
+						require.NoError(t, manager.DeletePeerRule(rule))
+					}
+				})
+			}
+
 			rules, err := manager.AddPeerFiltering(
 				nil,
 				net.ParseIP(tc.ruleIP),
@@ -303,8 +601,8 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 	}
 
 	manager, err := Create(ifaceMock, false, flowLogger)
-	require.NoError(tb, manager.EnableRouting())
 	require.NoError(tb, err)
+	require.NoError(tb, manager.EnableRouting())
 	require.NotNil(tb, manager)
 	require.True(tb, manager.routingEnabled.Load())
 	require.False(tb, manager.nativeRouter.Load())
@@ -321,7 +619,7 @@ func TestRouteACLFiltering(t *testing.T) {
 
 	type rule struct {
 		sources []netip.Prefix
-		dest    netip.Prefix
+		dest    fw.Network
 		proto   fw.Protocol
 		srcPort *fw.Port
 		dstPort *fw.Port
@@ -347,7 +645,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 443,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{443}},
 				action:  fw.ActionAccept,
@@ -363,7 +661,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 443,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{443}},
 				action:  fw.ActionAccept,
@@ -379,7 +677,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 443,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
-				dest:    netip.MustParsePrefix("0.0.0.0/0"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{443}},
 				action:  fw.ActionAccept,
@@ -395,7 +693,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 53,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolUDP,
 				dstPort: &fw.Port{Values: []uint16{53}},
 				action:  fw.ActionAccept,
@@ -409,7 +707,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			proto: fw.ProtocolICMP,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("0.0.0.0/0"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
 				proto:   fw.ProtocolICMP,
 				action:  fw.ActionAccept,
 			},
@@ -424,7 +722,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolALL,
 				dstPort: &fw.Port{Values: []uint16{80}},
 				action:  fw.ActionAccept,
@@ -440,7 +738,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 8080,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{80}},
 				action:  fw.ActionAccept,
@@ -456,7 +754,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{80}},
 				action:  fw.ActionAccept,
@@ -472,7 +770,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{80}},
 				action:  fw.ActionAccept,
@@ -488,7 +786,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				srcPort: &fw.Port{Values: []uint16{12345}},
 				action:  fw.ActionAccept,
@@ -507,7 +805,7 @@ func TestRouteACLFiltering(t *testing.T) {
 					netip.MustParsePrefix("100.10.0.0/16"),
 					netip.MustParsePrefix("172.16.0.0/16"),
 				},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{80}},
 				action:  fw.ActionAccept,
@@ -521,7 +819,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			proto: fw.ProtocolICMP,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolALL,
 				action:  fw.ActionAccept,
 			},
@@ -536,32 +834,12 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolALL,
 				dstPort: &fw.Port{Values: []uint16{80}},
 				action:  fw.ActionAccept,
 			},
 			shouldPass: true,
-		},
-		{
-			name:  "Multiple source networks with mismatched protocol",
-			srcIP: "172.16.0.1",
-			dstIP: "192.168.1.100",
-			// Should not match TCP rule
-			proto:   fw.ProtocolUDP,
-			srcPort: 12345,
-			dstPort: 80,
-			rule: rule{
-				sources: []netip.Prefix{
-					netip.MustParsePrefix("100.10.0.0/16"),
-					netip.MustParsePrefix("172.16.0.0/16"),
-				},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
-				proto:   fw.ProtocolTCP,
-				dstPort: &fw.Port{Values: []uint16{80}},
-				action:  fw.ActionAccept,
-			},
-			shouldPass: false,
 		},
 		{
 			name:    "Allow multiple destination ports",
@@ -572,7 +850,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 8080,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{80, 8080, 443}},
 				action:  fw.ActionAccept,
@@ -588,7 +866,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				srcPort: &fw.Port{Values: []uint16{12345, 12346, 12347}},
 				action:  fw.ActionAccept,
@@ -604,7 +882,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolALL,
 				srcPort: &fw.Port{Values: []uint16{12345}},
 				dstPort: &fw.Port{Values: []uint16{80}},
@@ -621,7 +899,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 8080,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{
 					IsRange: true,
@@ -640,7 +918,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 7999,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{
 					IsRange: true,
@@ -659,7 +937,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				srcPort: &fw.Port{
 					IsRange: true,
@@ -678,7 +956,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 443,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				srcPort: &fw.Port{
 					IsRange: true,
@@ -700,7 +978,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 8100,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{
 					IsRange: true,
@@ -719,7 +997,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 5060,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolUDP,
 				dstPort: &fw.Port{
 					IsRange: true,
@@ -738,7 +1016,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 8080,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolALL,
 				dstPort: &fw.Port{
 					IsRange: true,
@@ -757,7 +1035,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 443,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{443}},
 				action:  fw.ActionDrop,
@@ -773,7 +1051,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			dstPort: 80,
 			rule: rule{
 				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolALL,
 				action:  fw.ActionDrop,
 			},
@@ -791,10 +1069,133 @@ func TestRouteACLFiltering(t *testing.T) {
 					netip.MustParsePrefix("100.10.0.0/16"),
 					netip.MustParsePrefix("172.16.0.0/16"),
 				},
-				dest:    netip.MustParsePrefix("192.168.1.0/24"),
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 				proto:   fw.ProtocolTCP,
 				dstPort: &fw.Port{Values: []uint16{80}},
 				action:  fw.ActionDrop,
+			},
+			shouldPass: false,
+		},
+
+		{
+			name:    "Drop empty destination set",
+			srcIP:   "172.16.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolTCP,
+			srcPort: 12345,
+			dstPort: 80,
+			rule: rule{
+				sources: []netip.Prefix{
+					netip.MustParsePrefix("172.16.0.0/16"),
+				},
+				dest:    fw.Network{Set: fw.Set{}},
+				proto:   fw.ProtocolTCP,
+				dstPort: &fw.Port{Values: []uint16{80}},
+				action:  fw.ActionAccept,
+			},
+			shouldPass: false,
+		},
+		{
+			name:    "Accept TCP traffic outside drop port range",
+			srcIP:   "100.10.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolTCP,
+			srcPort: 12345,
+			dstPort: 7999,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+				proto:   fw.ProtocolTCP,
+				dstPort: &fw.Port{IsRange: true, Values: []uint16{8000, 8100}},
+				action:  fw.ActionDrop,
+			},
+			shouldPass: true,
+		},
+		{
+			name:    "Allow TCP traffic without port specification",
+			srcIP:   "100.10.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolTCP,
+			srcPort: 12345,
+			dstPort: 443,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+				proto:   fw.ProtocolTCP,
+				action:  fw.ActionAccept,
+			},
+			shouldPass: true,
+		},
+		{
+			name:    "Allow UDP traffic without port specification",
+			srcIP:   "100.10.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolUDP,
+			srcPort: 12345,
+			dstPort: 53,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+				proto:   fw.ProtocolUDP,
+				action:  fw.ActionAccept,
+			},
+			shouldPass: true,
+		},
+		{
+			name:    "TCP packet doesn't match UDP filter with same port",
+			srcIP:   "100.10.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolTCP,
+			srcPort: 12345,
+			dstPort: 80,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+				proto:   fw.ProtocolUDP,
+				dstPort: &fw.Port{Values: []uint16{80}},
+				action:  fw.ActionAccept,
+			},
+			shouldPass: false,
+		},
+		{
+			name:    "UDP packet doesn't match TCP filter with same port",
+			srcIP:   "100.10.0.1",
+			dstIP:   "192.168.1.100",
+			proto:   fw.ProtocolUDP,
+			srcPort: 12345,
+			dstPort: 80,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+				proto:   fw.ProtocolTCP,
+				dstPort: &fw.Port{Values: []uint16{80}},
+				action:  fw.ActionAccept,
+			},
+			shouldPass: false,
+		},
+		{
+			name:  "ICMP packet doesn't match TCP filter",
+			srcIP: "100.10.0.1",
+			dstIP: "192.168.1.100",
+			proto: fw.ProtocolICMP,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+				proto:   fw.ProtocolTCP,
+				action:  fw.ActionAccept,
+			},
+			shouldPass: false,
+		},
+		{
+			name:  "ICMP packet doesn't match UDP filter",
+			srcIP: "100.10.0.1",
+			dstIP: "192.168.1.100",
+			proto: fw.ProtocolICMP,
+			rule: rule{
+				sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
+				dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+				proto:   fw.ProtocolUDP,
+				action:  fw.ActionAccept,
 			},
 			shouldPass: false,
 		},
@@ -802,6 +1203,24 @@ func TestRouteACLFiltering(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.rule.action == fw.ActionDrop {
+				// add general accept rule to test drop rule
+				rule, err := manager.AddRouteFiltering(
+					nil,
+					[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+					fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
+					fw.ProtocolALL,
+					nil,
+					nil,
+					fw.ActionAccept,
+				)
+				require.NoError(t, err)
+				require.NotNil(t, rule)
+				t.Cleanup(func() {
+					require.NoError(t, manager.DeleteRouteRule(rule))
+				})
+			}
+
 			rule, err := manager.AddRouteFiltering(
 				nil,
 				tc.rule.sources,
@@ -836,7 +1255,7 @@ func TestRouteACLOrder(t *testing.T) {
 		name  string
 		rules []struct {
 			sources []netip.Prefix
-			dest    netip.Prefix
+			dest    fw.Network
 			proto   fw.Protocol
 			srcPort *fw.Port
 			dstPort *fw.Port
@@ -857,7 +1276,7 @@ func TestRouteACLOrder(t *testing.T) {
 			name: "Drop rules take precedence over accept",
 			rules: []struct {
 				sources []netip.Prefix
-				dest    netip.Prefix
+				dest    fw.Network
 				proto   fw.Protocol
 				srcPort *fw.Port
 				dstPort *fw.Port
@@ -866,7 +1285,7 @@ func TestRouteACLOrder(t *testing.T) {
 				{
 					// Accept rule added first
 					sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-					dest:    netip.MustParsePrefix("192.168.1.0/24"),
+					dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 					proto:   fw.ProtocolTCP,
 					dstPort: &fw.Port{Values: []uint16{80, 443}},
 					action:  fw.ActionAccept,
@@ -874,7 +1293,7 @@ func TestRouteACLOrder(t *testing.T) {
 				{
 					// Drop rule added second but should be evaluated first
 					sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-					dest:    netip.MustParsePrefix("192.168.1.0/24"),
+					dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 					proto:   fw.ProtocolTCP,
 					dstPort: &fw.Port{Values: []uint16{443}},
 					action:  fw.ActionDrop,
@@ -912,7 +1331,7 @@ func TestRouteACLOrder(t *testing.T) {
 			name: "Multiple drop rules take precedence",
 			rules: []struct {
 				sources []netip.Prefix
-				dest    netip.Prefix
+				dest    fw.Network
 				proto   fw.Protocol
 				srcPort *fw.Port
 				dstPort *fw.Port
@@ -921,14 +1340,14 @@ func TestRouteACLOrder(t *testing.T) {
 				{
 					// Accept all
 					sources: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
-					dest:    netip.MustParsePrefix("0.0.0.0/0"),
+					dest:    fw.Network{Prefix: netip.MustParsePrefix("0.0.0.0/0")},
 					proto:   fw.ProtocolALL,
 					action:  fw.ActionAccept,
 				},
 				{
 					// Drop specific port
 					sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-					dest:    netip.MustParsePrefix("192.168.1.0/24"),
+					dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 					proto:   fw.ProtocolTCP,
 					dstPort: &fw.Port{Values: []uint16{443}},
 					action:  fw.ActionDrop,
@@ -936,7 +1355,7 @@ func TestRouteACLOrder(t *testing.T) {
 				{
 					// Drop different port
 					sources: []netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
-					dest:    netip.MustParsePrefix("192.168.1.0/24"),
+					dest:    fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
 					proto:   fw.ProtocolTCP,
 					dstPort: &fw.Port{Values: []uint16{80}},
 					action:  fw.ActionDrop,
@@ -1014,4 +1433,54 @@ func TestRouteACLOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRouteACLSet(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP: net.ParseIP("100.10.0.100"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("100.10.0.0"),
+					Mask: net.CIDRMask(16, 32),
+				},
+			}
+		},
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+
+	set := fw.NewDomainSet(domain.List{"example.org"})
+
+	// Add rule that uses the set (initially empty)
+	rule, err := manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+		fw.Network{Set: set},
+		fw.ProtocolTCP,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rule)
+
+	srcIP := netip.MustParseAddr("100.10.0.1")
+	dstIP := netip.MustParseAddr("192.168.1.100")
+
+	// Check that traffic is dropped (empty set shouldn't match anything)
+	_, isAllowed := manager.routeACLsPass(srcIP, dstIP, fw.ProtocolTCP, 12345, 80)
+	require.False(t, isAllowed, "Empty set should not allow any traffic")
+
+	err = manager.UpdateSet(set, []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")})
+	require.NoError(t, err)
+
+	// Now the packet should be allowed
+	_, isAllowed = manager.routeACLsPass(srcIP, dstIP, fw.ProtocolTCP, 12345, 80)
+	require.True(t, isAllowed, "After set update, traffic to the added network should be allowed")
 }
