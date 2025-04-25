@@ -16,6 +16,7 @@ const (
 	UserRoleUnknown      UserRole = "unknown"
 	UserRoleBillingAdmin UserRole = "billing_admin"
 	UserRoleAuditor      UserRole = "auditor"
+	UserRoleNetworkAdmin UserRole = "network_admin"
 
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
