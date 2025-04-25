@@ -132,6 +132,16 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	_, dstIPNet, err := net.ParseCIDR(dstCIDR)
 	require.NoError(t, err)
 
+	link, err := netlink.LinkByName(intf)
+	require.NoError(t, err)
+	linkIndex := link.Attrs().Index
+
+	route := &netlink.Route{
+		Dst:       dstIPNet,
+		Gw:        gw,
+		LinkIndex: linkIndex,
+	}
+
 	// Handle existing routes with metric 0
 	var originalNexthop net.IP
 	var originalLinkIndex int
@@ -143,32 +153,24 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 		}
 
 		if originalNexthop != nil {
+			// remove original route
 			err = netlink.RouteDel(&netlink.Route{Dst: dstIPNet, Priority: 0})
-			switch {
-			case err != nil && !errors.Is(err, syscall.ESRCH):
-				t.Logf("Failed to delete route: %v", err)
-			case err == nil:
-				t.Cleanup(func() {
-					err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
-					if err != nil && !errors.Is(err, syscall.EEXIST) {
-						t.Fatalf("Failed to add route: %v", err)
-					}
-				})
-			default:
-				t.Logf("Failed to delete route: %v", err)
-			}
+			assert.NoError(t, err)
+
+			// add new route
+			assert.NoError(t, netlink.RouteAdd(route))
+
+			t.Cleanup(func() {
+				// restore original route
+				assert.NoError(t, netlink.RouteDel(route))
+				err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
+				assert.NoError(t, err)
+			})
+
+			return
 		}
 	}
 
-	link, err := netlink.LinkByName(intf)
-	require.NoError(t, err)
-	linkIndex := link.Attrs().Index
-
-	route := &netlink.Route{
-		Dst:       dstIPNet,
-		Gw:        gw,
-		LinkIndex: linkIndex,
-	}
 	err = netlink.RouteDel(route)
 	if err != nil && !errors.Is(err, syscall.ESRCH) {
 		t.Logf("Failed to delete route: %v", err)
@@ -187,7 +189,11 @@ func fetchOriginalGateway(family int) (net.IP, int, error) {
 	}
 
 	for _, route := range routes {
-		if route.Dst == nil && route.Priority == 0 {
+		ones := -1
+		if route.Dst != nil {
+			ones, _ = route.Dst.Mask.Size()
+		}
+		if route.Dst == nil || ones == 0 && route.Priority == 0 {
 			return route.Gw, route.LinkIndex, nil
 		}
 	}
