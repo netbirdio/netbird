@@ -3,8 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -54,7 +57,8 @@ func NewServer() *Server {
 		presignClient: s3.NewPresignClient(client),
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/upload-url", srv.handler)
+	mux.HandleFunc("/upload-url", srv.handlerGetUploadURL)
+	mux.HandleFunc("/upload", srv.handlePutRequest)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 	})
@@ -67,7 +71,7 @@ func (s *Server) Start() error {
 	return http.ListenAndServe(s.address, s.mux)
 }
 
-func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlerGetUploadURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -111,4 +115,28 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(rdata)
+}
+
+func (s *Server) handlePutRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to read body: %v", err), http.StatusInternalServerError)
+		return
+	}
+	dir, err := os.MkdirTemp("", "example")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	file := filepath.Join(dir, "tmpfile")
+	if err := os.WriteFile(file, body, 0666); err != nil {
+		log.Fatal(err)
+	}
+	log.Infof("Uploading file %s", file)
+	w.WriteHeader(http.StatusOK)
 }
