@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/management/domain"
 	relayClient "github.com/netbirdio/netbird/relay/client"
+	"github.com/netbirdio/netbird/route"
 )
 
 const eventQueueSize = 10
@@ -316,7 +317,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	return nil
 }
 
-func (d *Status) AddPeerStateRoute(peer string, route string, resourceId string) error {
+func (d *Status) AddPeerStateRoute(peer string, route string, resourceId route.ResID) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -584,7 +585,7 @@ func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 }
 
 // AddLocalPeerStateRoute adds a route to the local peer state
-func (d *Status) AddLocalPeerStateRoute(route, resourceId string) {
+func (d *Status) AddLocalPeerStateRoute(route string, resourceId route.ResID) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -614,14 +615,11 @@ func (d *Status) RemoveLocalPeerStateRoute(route string) {
 }
 
 // AddResolvedIPLookupEntry adds a resolved IP lookup entry
-func (d *Status) AddResolvedIPLookupEntry(route, resourceId string) {
+func (d *Status) AddResolvedIPLookupEntry(prefix netip.Prefix, resourceId route.ResID) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	pref, err := netip.ParsePrefix(route)
-	if err == nil {
-		d.routeIDLookup.AddResolvedIP(resourceId, pref)
-	}
+	d.routeIDLookup.AddResolvedIP(resourceId, prefix)
 }
 
 // RemoveResolvedIPLookupEntry removes a resolved IP lookup entry
@@ -732,7 +730,7 @@ func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
 	d.nsGroupStates = dnsStates
 }
 
-func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resolvedDomain domain.Domain, prefixes []netip.Prefix, resourceId string) {
+func (d *Status) UpdateResolvedDomainsStates(originalDomain domain.Domain, resolvedDomain domain.Domain, prefixes []netip.Prefix, resourceId route.ResID) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 

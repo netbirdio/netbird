@@ -65,7 +65,13 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 		util.WriteError(ctx, err, w)
 		return
 	}
-	dnsDomain := h.accountManager.GetDNSDomain()
+	settings, err := h.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	dnsDomain := h.accountManager.GetDNSDomain(settings)
 
 	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
@@ -110,7 +116,13 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		util.WriteError(ctx, err, w)
 		return
 	}
-	dnsDomain := h.accountManager.GetDNSDomain()
+
+	settings, err := h.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+	dnsDomain := h.accountManager.GetDNSDomain(settings)
 
 	peerGroups, err := h.accountManager.GetPeerGroups(ctx, accountID, peer.ID)
 	if err != nil {
@@ -192,7 +204,12 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain()
+	settings, err := h.accountManager.GetAccountSettings(r.Context(), accountID, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	dnsDomain := h.accountManager.GetDNSDomain(settings)
 
 	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 
@@ -279,7 +296,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain()
+	dnsDomain := h.accountManager.GetDNSDomain(account.Settings)
 
 	customZone := account.GetPeersCustomZone(r.Context(), dnsDomain)
 	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)

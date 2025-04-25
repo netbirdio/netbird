@@ -98,6 +98,11 @@ func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
 
+	settingsMockManager.EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&types.Settings{}, nil).
+		AnyTimes()
+
 	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
 	if err != nil {
 		t.Fatal(err)

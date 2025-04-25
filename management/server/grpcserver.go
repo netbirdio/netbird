@@ -480,20 +480,12 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 	}
 
-	var relayToken *Token
-	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
-		relayToken, err = s.secretsManager.GenerateRelayToken()
-		if err != nil {
-			log.Errorf("failed generating Relay token: %v", err)
-		}
+	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed preparing login response for peer %s: %s", peerKey, err)
+		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
-	// if peer has reached this point then it has logged in
-	loginResp := &proto.LoginResponse{
-		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
-		Checks:        toProtocolChecks(ctx, postureChecks),
-	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
@@ -504,6 +496,32 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
+}
+
+func (s *GRPCServer) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
+	var relayToken *Token
+	var err error
+	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
+		relayToken, err = s.secretsManager.GenerateRelayToken()
+		if err != nil {
+			log.Errorf("failed generating Relay token: %v", err)
+		}
+	}
+
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed getting settings for peer %s: %s", peer.Key, err)
+		return nil, status.Errorf(codes.Internal, "failed getting settings")
+	}
+
+	// if peer has reached this point then it has logged in
+	loginResp := &proto.LoginResponse{
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
+		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(settings), false),
+		Checks:        toProtocolChecks(ctx, postureChecks),
+	}
+
+	return loginResp, nil
 }
 
 // processJwtToken validates the existence of a JWT token in the login request, and returns the corresponding user ID if
@@ -713,7 +731,7 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled, settings.Extra)
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled, settings.Extra)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

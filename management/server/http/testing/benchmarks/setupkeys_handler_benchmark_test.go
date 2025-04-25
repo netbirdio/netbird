@@ -33,16 +33,11 @@ var benchCasesSetupKeys = map[string]testing_tools.BenchmarkCase{
 	"Setup Keys - XL": {Peers: 500, Groups: 50, Users: 100, SetupKeys: 25000},
 }
 
+const moduleSetupKeys = "setup_keys"
+
 func BenchmarkCreateSetupKey(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Setup Keys - XS": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 17},
-		"Setup Keys - S":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 17},
-		"Setup Keys - M":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 17},
-		"Setup Keys - L":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 17},
-		"Peers - L":       {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 17},
-		"Groups - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 17},
-		"Users - L":       {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 17},
-		"Setup Keys - XL": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 17},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -74,21 +69,14 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationCreate)
 		})
 	}
 }
 
 func BenchmarkUpdateSetupKey(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Setup Keys - XS": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 19},
-		"Setup Keys - S":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 19},
-		"Setup Keys - M":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 19},
-		"Setup Keys - L":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 19},
-		"Peers - L":       {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 19},
-		"Groups - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 19},
-		"Users - L":       {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 19},
-		"Setup Keys - XL": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 3, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 19},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -121,21 +109,14 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationUpdate)
 		})
 	}
 }
 
 func BenchmarkGetOneSetupKey(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Setup Keys - XS": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 16},
-		"Setup Keys - S":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 16},
-		"Setup Keys - M":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 16},
-		"Setup Keys - L":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 16},
-		"Peers - L":       {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 16},
-		"Groups - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 16},
-		"Users - L":       {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 16},
-		"Setup Keys - XL": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 16},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -155,21 +136,14 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationGetOne)
 		})
 	}
 }
 
 func BenchmarkGetAllSetupKeys(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Setup Keys - XS": {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 12},
-		"Setup Keys - S":  {MinMsPerOpLocal: 0.5, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 0, MaxMsPerOpCICD: 15},
-		"Setup Keys - M":  {MinMsPerOpLocal: 5, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 40},
-		"Setup Keys - L":  {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 150},
-		"Peers - L":       {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 150},
-		"Groups - L":      {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 150},
-		"Users - L":       {MinMsPerOpLocal: 30, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 30, MaxMsPerOpCICD: 150},
-		"Setup Keys - XL": {MinMsPerOpLocal: 140, MaxMsPerOpLocal: 220, MinMsPerOpCICD: 150, MaxMsPerOpCICD: 500},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -189,21 +163,14 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationGetAll)
 		})
 	}
 }
 
 func BenchmarkDeleteSetupKey(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Setup Keys - XS": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
-		"Setup Keys - S":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
-		"Setup Keys - M":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
-		"Setup Keys - L":  {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
-		"Peers - L":       {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
-		"Groups - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
-		"Users - L":       {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
-		"Setup Keys - XL": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 2, MinMsPerOpCICD: 1, MaxMsPerOpCICD: 16},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -223,7 +190,7 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationDelete)
 		})
 	}
 }

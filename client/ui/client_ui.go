@@ -458,7 +458,7 @@ func (s *serviceClient) menuUpClick() error {
 
 	if status.Status == string(internal.StatusConnected) {
 		log.Warnf("already connected")
-		return err
+		return nil
 	}
 
 	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
@@ -483,7 +483,7 @@ func (s *serviceClient) menuDownClick() error {
 		return err
 	}
 
-	if status.Status != string(internal.StatusConnected) {
+	if status.Status != string(internal.StatusConnected) && status.Status != string(internal.StatusConnecting) {
 		log.Warnf("already down")
 		return nil
 	}
@@ -521,7 +521,9 @@ func (s *serviceClient) updateStatus() error {
 		}
 
 		var systrayIconState bool
-		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
+
+		switch {
+		case status.Status == string(internal.StatusConnected):
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -536,7 +538,9 @@ func (s *serviceClient) updateStatus() error {
 			s.mNetworks.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
-		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
+		case status.Status == string(internal.StatusConnecting):
+			s.setConnectingStatus()
+		case status.Status != string(internal.StatusConnected) && s.mUp.Disabled():
 			s.setDisconnectedStatus()
 			systrayIconState = false
 		}
@@ -593,6 +597,17 @@ func (s *serviceClient) setDisconnectedStatus() {
 	s.mNetworks.Disable()
 	s.mExitNode.Disable()
 	go s.updateExitNodes()
+}
+
+func (s *serviceClient) setConnectingStatus() {
+	s.connected = false
+	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
+	systray.SetTooltip("NetBird (Connecting)")
+	s.mStatus.SetTitle("Connecting")
+	s.mUp.Disable()
+	s.mDown.Enable()
+	s.mNetworks.Disable()
+	s.mExitNode.Disable()
 }
 
 func (s *serviceClient) onTrayReady() {
