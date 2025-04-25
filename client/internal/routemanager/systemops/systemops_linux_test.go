@@ -27,14 +27,12 @@ func init() {
 	testCases = append(testCases, []testCase{
 		{
 			name:              "To more specific route without custom dialer via physical interface",
-			destination:       "10.10.0.2:53",
 			expectedInterface: expectedInternalInt,
 			dialer:            &net.Dialer{},
 			expectedPacket:    createPacketExpectation("192.168.1.1", 12345, "10.10.0.2", 53),
 		},
 		{
 			name:              "To more specific route (local) without custom dialer via physical interface",
-			destination:       "127.0.10.1:53",
 			expectedInterface: expectedLoopbackInt,
 			dialer:            &net.Dialer{},
 			expectedPacket:    createPacketExpectation("127.0.0.1", 12345, "127.0.10.1", 53),
