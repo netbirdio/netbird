@@ -167,6 +167,11 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, auth []string) (*h
 		IsPAT:          true,
 	}
 
+	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
+		userAuth.AccountId = impersonate[0]
+		userAuth.IsChild = ok
+	}
+
 	return nbcontext.SetUserAuthInRequest(r, userAuth), nil
 }
 
