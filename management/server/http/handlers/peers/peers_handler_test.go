@@ -122,6 +122,18 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				}
 				return p, nil
 			},
+			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
+				switch id {
+				case adminUser:
+					return account.Users[adminUser], nil
+				case regularUser:
+					return account.Users[regularUser], nil
+				case serviceUser:
+					return account.Users[serviceUser], nil
+				default:
+					return nil, fmt.Errorf("user not found")
+				}
+			},
 			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
@@ -140,7 +152,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 					},
 				}, nil
 			},
-			GetDNSDomainFunc: func() string {
+			GetDNSDomainFunc: func(settings *types.Settings) string {
 				return "netbird.selfhosted"
 			},
 			GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
@@ -159,6 +171,9 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				}
 				_, ok := statuses[peerID]
 				return ok
+			},
+			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
+				return account.Settings, nil
 			},
 		},
 	}

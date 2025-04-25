@@ -10,6 +10,8 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
+const ZoneID = 0x1BD0
+
 type Protocol uint8
 
 const (
@@ -120,9 +122,6 @@ type FlowLogger interface {
 	Close()
 	// Enable enables the flow logger receiver
 	Enable()
-	// Disable disables the flow logger receiver
-	Disable()
-
 	// UpdateConfig updates the flow manager configuration
 	UpdateConfig(dnsCollection, exitNodeCollection bool)
 }

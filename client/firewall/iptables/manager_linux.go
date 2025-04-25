@@ -113,17 +113,16 @@ func (m *Manager) AddPeerFiltering(
 func (m *Manager) AddRouteFiltering(
 	id []byte,
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination firewall.Network,
 	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
+	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if !destination.Addr().Is4() {
-		return nil, fmt.Errorf("unsupported IP version: %s", destination.Addr().String())
+	if destination.IsPrefix() && !destination.Prefix.Addr().Is4() {
+		return nil, fmt.Errorf("unsupported IP version: %s", destination.Prefix.Addr().String())
 	}
 
 	return m.router.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
@@ -241,6 +240,14 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 	defer m.mutex.Unlock()
 
 	return m.router.DeleteDNATRule(rule)
+}
+
+// UpdateSet updates the set with the given prefixes
+func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.UpdateSet(set, prefixes)
 }
 
 func getConntrackEstablished() []string {

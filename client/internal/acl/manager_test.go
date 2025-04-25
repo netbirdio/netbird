@@ -1,7 +1,6 @@
 package acl
 
 import (
-	"context"
 	"net"
 	"testing"
 
@@ -15,7 +14,7 @@ import (
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
-var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
+var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 func TestDefaultManager(t *testing.T) {
 	networkMap := &mgmProto.NetworkMap{
@@ -67,7 +66,7 @@ func TestDefaultManager(t *testing.T) {
 	acl := NewDefaultManager(fw)
 
 	t.Run("apply firewall rules", func(t *testing.T) {
-		acl.ApplyFiltering(networkMap)
+		acl.ApplyFiltering(networkMap, false)
 
 		if len(acl.peerRulesPairs) != 2 {
 			t.Errorf("firewall rules not applied: %v", acl.peerRulesPairs)
@@ -93,7 +92,7 @@ func TestDefaultManager(t *testing.T) {
 			},
 		)
 
-		acl.ApplyFiltering(networkMap)
+		acl.ApplyFiltering(networkMap, false)
 
 		// we should have one old and one new rule in the existed rules
 		if len(acl.peerRulesPairs) != 2 {
@@ -117,13 +116,13 @@ func TestDefaultManager(t *testing.T) {
 		networkMap.FirewallRules = networkMap.FirewallRules[:0]
 
 		networkMap.FirewallRulesIsEmpty = true
-		if acl.ApplyFiltering(networkMap); len(acl.peerRulesPairs) != 0 {
+		if acl.ApplyFiltering(networkMap, false); len(acl.peerRulesPairs) != 0 {
 			t.Errorf("rules should be empty if FirewallRulesIsEmpty is set, got: %v", len(acl.peerRulesPairs))
 			return
 		}
 
 		networkMap.FirewallRulesIsEmpty = false
-		acl.ApplyFiltering(networkMap)
+		acl.ApplyFiltering(networkMap, false)
 		if len(acl.peerRulesPairs) != 1 {
 			t.Errorf("rules should contain 1 rules if FirewallRulesIsEmpty is not set, got: %v", len(acl.peerRulesPairs))
 			return
@@ -360,7 +359,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	}(fw)
 	acl := NewDefaultManager(fw)
 
-	acl.ApplyFiltering(networkMap)
+	acl.ApplyFiltering(networkMap, false)
 
 	if len(acl.peerRulesPairs) != 3 {
 		t.Errorf("expect 3 rules (last must be SSH), got: %d", len(acl.peerRulesPairs))

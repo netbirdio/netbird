@@ -50,6 +50,7 @@ type Store interface {
 	GetAccountsCounter(ctx context.Context) (int64, error)
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
 	GetAccountByUser(ctx context.Context, userID string) (*types.Account, error)
@@ -69,10 +70,12 @@ type Store interface {
 	DeleteAccount(ctx context.Context, account *types.Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
+	CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error)
 
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
+	GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error)
 	SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*types.User) error
 	SaveUser(ctx context.Context, lockStrength LockingStrength, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
@@ -164,7 +167,7 @@ type Store interface {
 	Close(ctx context.Context) error
 	// GetStoreEngine should return Engine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
-	GetStoreEngine() Engine
+	GetStoreEngine() types.Engine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
 
 	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networkTypes.Network, error)
@@ -187,44 +190,37 @@ type Store interface {
 	GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error)
 }
 
-type Engine string
-
 const (
-	FileStoreEngine     Engine = "jsonfile"
-	SqliteStoreEngine   Engine = "sqlite"
-	PostgresStoreEngine Engine = "postgres"
-	MysqlStoreEngine    Engine = "mysql"
-
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
 
-var supportedEngines = []Engine{SqliteStoreEngine, PostgresStoreEngine, MysqlStoreEngine}
+var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine, types.MysqlStoreEngine}
 
-func getStoreEngineFromEnv() Engine {
+func getStoreEngineFromEnv() types.Engine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
 		return ""
 	}
 
-	value := Engine(strings.ToLower(kind))
+	value := types.Engine(strings.ToLower(kind))
 	if slices.Contains(supportedEngines, value) {
 		return value
 	}
 
-	return SqliteStoreEngine
+	return types.SqliteStoreEngine
 }
 
 // getStoreEngine determines the store engine to use.
 // If no engine is specified, it attempts to retrieve it from the environment.
 // If still not specified, it defaults to using SQLite.
 // Additionally, it handles the migration from a JSON store file to SQLite if applicable.
-func getStoreEngine(ctx context.Context, dataDir string, kind Engine) Engine {
+func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) types.Engine {
 	if kind == "" {
 		kind = getStoreEngineFromEnv()
 		if kind == "" {
-			kind = SqliteStoreEngine
+			kind = types.SqliteStoreEngine
 
 			// Migrate if it is the first run with a JSON file existing and no SQLite file present
 			jsonStoreFile := filepath.Join(dataDir, storeFileName)
@@ -236,7 +232,7 @@ func getStoreEngine(ctx context.Context, dataDir string, kind Engine) Engine {
 				// Attempt to migrate from JSON store to SQLite
 				if err := MigrateFileStoreToSqlite(ctx, dataDir); err != nil {
 					log.WithContext(ctx).Errorf("failed to migrate filestore to SQLite: %v", err)
-					kind = FileStoreEngine
+					kind = types.FileStoreEngine
 				}
 			}
 		}
@@ -246,7 +242,7 @@ func getStoreEngine(ctx context.Context, dataDir string, kind Engine) Engine {
 }
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
-func NewStore(ctx context.Context, kind Engine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
@@ -254,13 +250,13 @@ func NewStore(ctx context.Context, kind Engine, dataDir string, metrics telemetr
 	}
 
 	switch kind {
-	case SqliteStoreEngine:
+	case types.SqliteStoreEngine:
 		log.WithContext(ctx).Info("using SQLite store engine")
 		return NewSqliteStore(ctx, dataDir, metrics)
-	case PostgresStoreEngine:
+	case types.PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
 		return newPostgresStore(ctx, metrics)
-	case MysqlStoreEngine:
+	case types.MysqlStoreEngine:
 		log.WithContext(ctx).Info("using MySQL store engine")
 		return newMysqlStore(ctx, metrics)
 	default:
@@ -268,12 +264,12 @@ func NewStore(ctx context.Context, kind Engine, dataDir string, metrics telemetr
 	}
 }
 
-func checkFileStoreEngine(kind Engine, dataDir string) error {
-	if kind == FileStoreEngine {
+func checkFileStoreEngine(kind types.Engine, dataDir string) error {
+	if kind == types.FileStoreEngine {
 		storeFile := filepath.Join(dataDir, storeFileName)
 		if util.FileExists(storeFile) {
 			return fmt.Errorf("%s is not supported. Please refer to the documentation for migrating to SQLite: "+
-				"https://docs.netbird.io/selfhosted/sqlite-store#migrating-from-json-store-to-sq-lite-store", FileStoreEngine)
+				"https://docs.netbird.io/selfhosted/sqlite-store#migrating-from-json-store-to-sq-lite-store", types.FileStoreEngine)
 		}
 	}
 	return nil
@@ -326,7 +322,7 @@ func getMigrations(ctx context.Context) []migrationFunc {
 func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
-		kind = SqliteStoreEngine
+		kind = types.SqliteStoreEngine
 	}
 
 	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
@@ -348,7 +344,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		}
 	}
 
-	store, err := NewSqlStore(ctx, db, SqliteStoreEngine, nil)
+	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
@@ -394,13 +390,13 @@ func addAllGroupToAccount(ctx context.Context, store Store) error {
 	return nil
 }
 
-func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
+func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) (Store, func(), error) {
 	var cleanup func()
 	var err error
 	switch kind {
-	case PostgresStoreEngine:
+	case types.PostgresStoreEngine:
 		store, cleanup, err = newReusedPostgresStore(ctx, store, kind)
-	case MysqlStoreEngine:
+	case types.MysqlStoreEngine:
 		store, cleanup, err = newReusedMysqlStore(ctx, store, kind)
 	default:
 		cleanup = func() {
@@ -419,7 +415,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 	return store, closeConnection, nil
 }
 
-func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind Engine) (*SqlStore, func(), error) {
+func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
 	if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
 		var err error
 		_, err = testutil.CreatePostgresTestContainer()
@@ -451,7 +447,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind Engine) (
 	return store, cleanup, nil
 }
 
-func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*SqlStore, func(), error) {
+func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
 	if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
 		var err error
 		_, err = testutil.CreateMysqlTestContainer()
@@ -483,7 +479,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*Sq
 	return store, cleanup, nil
 }
 
-func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), error) {
+func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(), error) {
 	dbName := fmt.Sprintf("test_db_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 
 	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
@@ -493,9 +489,9 @@ func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), err
 	var err error
 	cleanup := func() {
 		switch engine {
-		case PostgresStoreEngine:
+		case types.PostgresStoreEngine:
 			err = db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
-		case MysqlStoreEngine:
+		case types.MysqlStoreEngine:
 			// err = killMySQLConnections(dsn, dbName)
 			err = db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName)).Error
 		}

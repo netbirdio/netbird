@@ -259,8 +259,6 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 		}
 	}
 
-	m.ctx = nil
-
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	m.clientRoutes = nil
@@ -292,7 +290,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		return nil
 	}
 
-	if err := m.serverRouter.updateRoutes(newServerRoutesMap); err != nil {
+	if err := m.serverRouter.updateRoutes(newServerRoutesMap, useNewDNSRoute); err != nil {
 		return fmt.Errorf("update routes: %w", err)
 	}
 

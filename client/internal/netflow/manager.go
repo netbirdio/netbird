@@ -27,18 +27,18 @@ type Manager struct {
 	logger         nftypes.FlowLogger
 	flowConfig     *nftypes.FlowConfig
 	conntrack      nftypes.ConnTracker
-	ctx            context.Context
 	receiverClient *client.GRPCClient
 	publicKey      []byte
+	cancel         context.CancelFunc
 }
 
 // NewManager creates a new netflow manager
-func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
+func NewManager(iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
 	var ipNet net.IPNet
 	if iface != nil {
 		ipNet = *iface.Address().Network
 	}
-	flowLogger := logger.New(ctx, statusRecorder, ipNet)
+	flowLogger := logger.New(statusRecorder, ipNet)
 
 	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
@@ -48,7 +48,6 @@ func NewManager(ctx context.Context, iface nftypes.IFaceMapper, publicKey []byte
 	return &Manager{
 		logger:    flowLogger,
 		conntrack: ct,
-		ctx:       ctx,
 		publicKey: publicKey,
 	}
 }
@@ -68,21 +67,9 @@ func (m *Manager) needsNewClient(previous *nftypes.FlowConfig) bool {
 func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 	// first make sender ready so events don't pile up
 	if m.needsNewClient(previous) {
-		if m.receiverClient != nil {
-			if err := m.receiverClient.Close(); err != nil {
-				log.Warnf("error closing previous flow client: %v", err)
-			}
+		if err := m.resetClient(); err != nil {
+			return fmt.Errorf("reset client: %w", err)
 		}
-
-		flowClient, err := client.NewClient(m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature, m.flowConfig.Interval)
-		if err != nil {
-			return fmt.Errorf("create client: %w", err)
-		}
-		log.Infof("flow client configured to connect to %s", m.flowConfig.URL)
-
-		m.receiverClient = flowClient
-		go m.receiveACKs(flowClient)
-		go m.startSender()
 	}
 
 	m.logger.Enable()
@@ -96,17 +83,50 @@ func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 	return nil
 }
 
+func (m *Manager) resetClient() error {
+	if m.receiverClient != nil {
+		if err := m.receiverClient.Close(); err != nil {
+			log.Warnf("error closing previous flow client: %v", err)
+		}
+	}
+
+	flowClient, err := client.NewClient(m.flowConfig.URL, m.flowConfig.TokenPayload, m.flowConfig.TokenSignature, m.flowConfig.Interval)
+	if err != nil {
+		return fmt.Errorf("create client: %w", err)
+	}
+	log.Infof("flow client configured to connect to %s", m.flowConfig.URL)
+
+	m.receiverClient = flowClient
+
+	if m.cancel != nil {
+		m.cancel()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+
+	go m.receiveACKs(ctx, flowClient)
+	go m.startSender(ctx)
+
+	return nil
+}
+
 // disableFlow stops components for flow tracking
 func (m *Manager) disableFlow() error {
+	if m.cancel != nil {
+		m.cancel()
+	}
+
 	if m.conntrack != nil {
 		m.conntrack.Stop()
 	}
 
-	m.logger.Disable()
+	m.logger.Close()
 
 	if m.receiverClient != nil {
 		return m.receiverClient.Close()
 	}
+
 	return nil
 }
 
@@ -133,17 +153,18 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 
 	m.logger.UpdateConfig(update.DNSCollection, update.ExitNodeCollection)
 
+	changed := previous != nil && update.Enabled != previous.Enabled
 	if update.Enabled {
-		log.Infof("netflow manager enabled; starting netflow manager")
+		if changed {
+			log.Infof("netflow manager enabled; starting netflow manager")
+		}
 		return m.enableFlow(previous)
 	}
 
-	log.Infof("netflow manager disabled; stopping netflow manager")
-	err := m.disableFlow()
-	if err != nil {
-		log.Errorf("failed to disable netflow manager: %v", err)
+	if changed {
+		log.Infof("netflow manager disabled; stopping netflow manager")
 	}
-	return err
+	return m.disableFlow()
 }
 
 // Close cleans up all resources
@@ -151,17 +172,9 @@ func (m *Manager) Close() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
-	if m.conntrack != nil {
-		m.conntrack.Close()
+	if err := m.disableFlow(); err != nil {
+		log.Warnf("failed to disable flow manager: %v", err)
 	}
-
-	if m.receiverClient != nil {
-		if err := m.receiverClient.Close(); err != nil {
-			log.Warnf("failed to close receiver client: %v", err)
-		}
-	}
-
-	m.logger.Close()
 }
 
 // GetLogger returns the flow logger
@@ -169,13 +182,13 @@ func (m *Manager) GetLogger() nftypes.FlowLogger {
 	return m.logger
 }
 
-func (m *Manager) startSender() {
+func (m *Manager) startSender(ctx context.Context) {
 	ticker := time.NewTicker(m.flowConfig.Interval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-m.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			events := m.logger.GetEvents()
@@ -190,8 +203,8 @@ func (m *Manager) startSender() {
 	}
 }
 
-func (m *Manager) receiveACKs(client *client.GRPCClient) {
-	err := client.Receive(m.ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
+func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient) {
+	err := client.Receive(ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
 		id, err := uuid.FromBytes(ack.EventId)
 		if err != nil {
 			log.Warnf("failed to convert ack event id to uuid: %v", err)

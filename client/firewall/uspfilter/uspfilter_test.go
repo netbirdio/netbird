@@ -1,7 +1,6 @@
 package uspfilter
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -21,10 +20,11 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/netflow"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
-var flowLogger = netflow.NewManager(context.Background(), nil, []byte{}, nil).GetLogger()
+var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 type IFaceMock struct {
 	SetFilterFunc   func(device.PacketFilter) error
@@ -710,5 +710,205 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			drop = manager.dropFilter(testBuf.Bytes(), 0)
 			require.True(t, drop, tc.description)
 		})
+	}
+}
+
+func TestUpdateSetMerge(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+
+	set := fw.NewDomainSet(domain.List{"example.org"})
+
+	initialPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/24"),
+		netip.MustParsePrefix("192.168.1.0/24"),
+	}
+
+	rule, err := manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+		fw.Network{Set: set},
+		fw.ProtocolTCP,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rule)
+
+	// Update the set with initial prefixes
+	err = manager.UpdateSet(set, initialPrefixes)
+	require.NoError(t, err)
+
+	// Test initial prefixes work
+	srcIP := netip.MustParseAddr("100.10.0.1")
+	dstIP1 := netip.MustParseAddr("10.0.0.100")
+	dstIP2 := netip.MustParseAddr("192.168.1.100")
+	dstIP3 := netip.MustParseAddr("172.16.0.100")
+
+	_, isAllowed1 := manager.routeACLsPass(srcIP, dstIP1, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed2 := manager.routeACLsPass(srcIP, dstIP2, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed3 := manager.routeACLsPass(srcIP, dstIP3, fw.ProtocolTCP, 12345, 80)
+
+	require.True(t, isAllowed1, "Traffic to 10.0.0.100 should be allowed")
+	require.True(t, isAllowed2, "Traffic to 192.168.1.100 should be allowed")
+	require.False(t, isAllowed3, "Traffic to 172.16.0.100 should be denied")
+
+	newPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("172.16.0.0/16"),
+		netip.MustParsePrefix("10.1.0.0/24"),
+	}
+
+	err = manager.UpdateSet(set, newPrefixes)
+	require.NoError(t, err)
+
+	// Check that all original prefixes are still included
+	_, isAllowed1 = manager.routeACLsPass(srcIP, dstIP1, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed2 = manager.routeACLsPass(srcIP, dstIP2, fw.ProtocolTCP, 12345, 80)
+	require.True(t, isAllowed1, "Traffic to 10.0.0.100 should still be allowed after update")
+	require.True(t, isAllowed2, "Traffic to 192.168.1.100 should still be allowed after update")
+
+	// Check that new prefixes are included
+	dstIP4 := netip.MustParseAddr("172.16.1.100")
+	dstIP5 := netip.MustParseAddr("10.1.0.50")
+
+	_, isAllowed4 := manager.routeACLsPass(srcIP, dstIP4, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed5 := manager.routeACLsPass(srcIP, dstIP5, fw.ProtocolTCP, 12345, 80)
+
+	require.True(t, isAllowed4, "Traffic to new prefix 172.16.0.0/16 should be allowed")
+	require.True(t, isAllowed5, "Traffic to new prefix 10.1.0.0/24 should be allowed")
+
+	// Verify the rule has all prefixes
+	manager.mutex.RLock()
+	foundRule := false
+	for _, r := range manager.routeRules {
+		if r.id == rule.ID() {
+			foundRule = true
+			require.Len(t, r.destinations, len(initialPrefixes)+len(newPrefixes),
+				"Rule should have all prefixes merged")
+		}
+	}
+	manager.mutex.RUnlock()
+	require.True(t, foundRule, "Rule should be found")
+}
+
+func TestUpdateSetDeduplication(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+
+	set := fw.NewDomainSet(domain.List{"example.org"})
+
+	rule, err := manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+		fw.Network{Set: set},
+		fw.ProtocolTCP,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rule)
+
+	initialPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/24"),
+		netip.MustParsePrefix("10.0.0.0/24"), // Duplicate
+		netip.MustParsePrefix("192.168.1.0/24"),
+		netip.MustParsePrefix("192.168.1.0/24"), // Duplicate
+	}
+
+	err = manager.UpdateSet(set, initialPrefixes)
+	require.NoError(t, err)
+
+	// Check the internal state for deduplication
+	manager.mutex.RLock()
+	foundRule := false
+	for _, r := range manager.routeRules {
+		if r.id == rule.ID() {
+			foundRule = true
+			// Should have deduplicated to 2 prefixes
+			require.Len(t, r.destinations, 2, "Duplicate prefixes should be removed")
+
+			// Check the prefixes are correct
+			expectedPrefixes := []netip.Prefix{
+				netip.MustParsePrefix("10.0.0.0/24"),
+				netip.MustParsePrefix("192.168.1.0/24"),
+			}
+			for i, prefix := range expectedPrefixes {
+				require.True(t, r.destinations[i] == prefix,
+					"Prefix should match expected value")
+			}
+		}
+	}
+	manager.mutex.RUnlock()
+	require.True(t, foundRule, "Rule should be found")
+
+	// Test with overlapping prefixes of different sizes
+	overlappingPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/16"),    // More general
+		netip.MustParsePrefix("10.0.0.0/24"),    // More specific (already exists)
+		netip.MustParsePrefix("192.168.0.0/16"), // More general
+		netip.MustParsePrefix("192.168.1.0/24"), // More specific (already exists)
+	}
+
+	err = manager.UpdateSet(set, overlappingPrefixes)
+	require.NoError(t, err)
+
+	// Check that all prefixes are included (no deduplication of overlapping prefixes)
+	manager.mutex.RLock()
+	for _, r := range manager.routeRules {
+		if r.id == rule.ID() {
+			// Should have all 4 prefixes (2 original + 2 new more general ones)
+			require.Len(t, r.destinations, 4,
+				"Overlapping prefixes should not be deduplicated")
+
+			// Verify they're sorted correctly (more specific prefixes should come first)
+			prefixes := make([]string, 0, len(r.destinations))
+			for _, p := range r.destinations {
+				prefixes = append(prefixes, p.String())
+			}
+
+			// Check sorted order
+			require.Equal(t, []string{
+				"10.0.0.0/16",
+				"10.0.0.0/24",
+				"192.168.0.0/16",
+				"192.168.1.0/24",
+			}, prefixes, "Prefixes should be sorted")
+		}
+	}
+	manager.mutex.RUnlock()
+
+	// Test functionality with all prefixes
+	testCases := []struct {
+		dstIP    netip.Addr
+		expected bool
+		desc     string
+	}{
+		{netip.MustParseAddr("10.0.0.100"), true, "IP in both /16 and /24"},
+		{netip.MustParseAddr("10.0.1.100"), true, "IP only in /16"},
+		{netip.MustParseAddr("192.168.1.100"), true, "IP in both /16 and /24"},
+		{netip.MustParseAddr("192.168.2.100"), true, "IP only in /16"},
+		{netip.MustParseAddr("172.16.0.100"), false, "IP not in any prefix"},
+	}
+
+	srcIP := netip.MustParseAddr("100.10.0.1")
+	for _, tc := range testCases {
+		_, isAllowed := manager.routeACLsPass(srcIP, tc.dstIP, fw.ProtocolTCP, 12345, 80)
+		require.Equal(t, tc.expected, isAllowed, tc.desc)
 	}
 }

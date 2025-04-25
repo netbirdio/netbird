@@ -25,6 +25,7 @@ type handler struct {
 func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	userHandler := newHandler(accountManager)
 	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/current", userHandler.getCurrentUser).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.updateUser).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.deleteUser).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users", userHandler.createUser).Methods("POST", "OPTIONS")
@@ -257,6 +258,29 @@ func (h *handler) inviteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
+}
+
+func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	accountID, userID := userAuth.AccountId, userAuth.UserId
+
+	user, err := h.accountManager.GetCurrentUserInfo(ctx, accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toUserResponse(user, userID))
 }
 
 func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {

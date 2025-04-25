@@ -297,7 +297,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -628,7 +628,7 @@ func TestMigrate(t *testing.T) {
 	}
 
 	// TODO: figure out why this fails on postgres
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
@@ -737,7 +737,7 @@ func TestPostgresql_NewStore(t *testing.T) {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -752,7 +752,7 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -825,7 +825,7 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -901,7 +901,7 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -921,7 +921,7 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", string(PostgresStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
@@ -935,7 +935,7 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 }
 
 func TestSqlite_GetTakenIPs(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	defer cleanup()
 	if err != nil {
@@ -980,7 +980,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 }
 
 func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	if err != nil {
 		return
@@ -1022,7 +1022,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 }
 
 func TestSqlite_GetAccountNetwork(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
@@ -1045,7 +1045,7 @@ func TestSqlite_GetAccountNetwork(t *testing.T) {
 }
 
 func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
@@ -1070,7 +1070,7 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 }
 
 func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
@@ -1106,7 +1106,7 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 }
 
 func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	if err != nil {
@@ -1211,7 +1211,7 @@ func TestSqlite_GetGroupByName(t *testing.T) {
 }
 
 func Test_DeleteSetupKeySuccessfully(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
@@ -1227,7 +1227,7 @@ func Test_DeleteSetupKeySuccessfully(t *testing.T) {
 }
 
 func Test_DeleteSetupKeyFailsForNonExistingKey(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(SqliteStoreEngine))
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
@@ -3246,4 +3246,20 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
 	require.NoError(t, err)
 	require.Equal(t, 8003, len(accountGroups))
+}
+
+func TestSqlStore_GetAccountMeta(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	accountMeta, err := store.GetAccountMeta(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.NotNil(t, accountMeta)
+	require.Equal(t, accountID, accountMeta.AccountID)
+	require.Equal(t, "edafee4e-63fb-11ec-90d6-0242ac120003", accountMeta.CreatedBy)
+	require.Equal(t, "test.com", accountMeta.Domain)
+	require.Equal(t, "private", accountMeta.DomainCategory)
+	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210000000, time.UTC), accountMeta.CreatedAt.UTC())
 }

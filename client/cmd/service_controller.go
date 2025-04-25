@@ -16,12 +16,17 @@ import (
 
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
 
 func (p *program) Start(svc service.Service) error {
 	// Start should not block. Do the actual work async.
 	log.Info("starting Netbird service") //nolint
+
+	// Collect static system and platform information
+	system.UpdateStaticInfo()
+
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
 	p.serv = grpc.NewServer()
 
@@ -115,6 +120,7 @@ var runCmd = &cobra.Command{
 
 		ctx, cancel := context.WithCancel(cmd.Context())
 		SetupCloseHandler(ctx, cancel)
+		SetupDebugHandler(ctx, nil, nil, nil, logFile)
 
 		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {

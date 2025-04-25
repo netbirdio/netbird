@@ -39,6 +39,9 @@ type Settings struct {
 	// RoutingPeerDNSResolutionEnabled enabled the DNS resolution on the routing peers
 	RoutingPeerDNSResolutionEnabled bool
 
+	// DNSDomain is the custom domain for that account
+	DNSDomain string
+
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 }
@@ -58,6 +61,7 @@ func (s *Settings) Copy() *Settings {
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
 
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
+		DNSDomain:                       s.DNSDomain,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

@@ -43,9 +43,30 @@ components:
           example: ch8i4ug6lnn4g9hqv7l0
         settings:
           $ref: '#/components/schemas/AccountSettings'
+        domain:
+          description: Account domain
+          type: string
+          example: netbird.io
+        domain_category:
+          description: Account domain category
+          type: string
+          example: private
+        created_at:
+          description: Account creation date (UTC)
+          type: string
+          format: date-time
+          example: "2023-05-05T09:00:35.477782Z"
+        created_by:
+          description: Account creator
+          type: string
+          example: google-oauth2|277474792786460067937
       required:
         - id
         - settings
+        - domain
+        - domain_category
+        - created_at
+        - created_by
     AccountSettings:
       type: object
       properties:
@@ -91,6 +112,10 @@ components:
           description: Enables or disables DNS resolution on the routing peers
           type: boolean
           example: true
+        dns_domain:
+          description: Allows to define a custom dns domain for the account
+          type: string
+          example: my-organization.org
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
       required:
@@ -2415,6 +2440,29 @@ paths:
         '200':
           description: Invite status code
           content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/current:
+    get:
+      summary: Retrieve current user
+      description: Get information about the current user
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A User object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

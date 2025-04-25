@@ -46,7 +46,9 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	// 5. jump rule to PRE nat chain
 	// 6. static outbound masquerade rule
 	// 7. static return masquerade rule
-	require.Len(t, manager.rules, 7, "should have created rules map")
+	// 8. mangle prerouting mark rule
+	// 9. mangle postrouting mark rule
+	require.Len(t, manager.rules, 9, "should have created rules map")
 
 	exists, err := manager.iptablesClient.Exists(tableNat, chainPOSTROUTING, "-j", chainRTNAT)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainPOSTROUTING)
@@ -58,8 +60,8 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 
 	pair := firewall.RouterPair{
 		ID:          "abc",
-		Source:      netip.MustParsePrefix("100.100.100.1/32"),
-		Destination: netip.MustParsePrefix("100.100.100.0/24"),
+		Source:      firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.1/32")},
+		Destination: firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.0/24")},
 		Masquerade:  true,
 	}
 
@@ -330,7 +332,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ruleKey, err := r.AddRouteFiltering(nil, tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.action)
+			ruleKey, err := r.AddRouteFiltering(nil, tt.sources, firewall.Network{Prefix: tt.destination}, tt.proto, tt.sPort, tt.dPort, tt.action)
 			require.NoError(t, err, "AddRouteFiltering failed")
 
 			// Check if the rule is in the internal map
@@ -345,23 +347,29 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			assert.NoError(t, err, "Failed to check rule existence")
 			assert.True(t, exists, "Rule not found in iptables")
 
+			var source firewall.Network
+			if len(tt.sources) > 1 {
+				source.Set = firewall.NewPrefixSet(tt.sources)
+			} else if len(tt.sources) > 0 {
+				source.Prefix = tt.sources[0]
+			}
 			// Verify rule content
 			params := routeFilteringRuleParams{
-				Sources:     tt.sources,
-				Destination: tt.destination,
+				Source:      source,
+				Destination: firewall.Network{Prefix: tt.destination},
 				Proto:       tt.proto,
 				SPort:       tt.sPort,
 				DPort:       tt.dPort,
 				Action:      tt.action,
-				SetName:     "",
 			}
 
-			expectedRule := genRouteFilteringRuleSpec(params)
+			expectedRule, err := r.genRouteRuleSpec(params, nil)
+			require.NoError(t, err, "Failed to generate expected rule spec")
 
 			if tt.expectSet {
-				setName := firewall.GenerateSetName(tt.sources)
-				params.SetName = setName
-				expectedRule = genRouteFilteringRuleSpec(params)
+				setName := firewall.NewPrefixSet(tt.sources).HashedName()
+				expectedRule, err = r.genRouteRuleSpec(params, nil)
+				require.NoError(t, err, "Failed to generate expected rule spec with set")
 
 				// Check if the set was created
 				_, exists := r.ipsetCounter.Get(setName)
@@ -373,6 +381,65 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			// Clean up
 			err = r.DeleteRouteRule(ruleKey)
 			require.NoError(t, err, "Failed to delete rule")
+		})
+	}
+}
+
+func TestFindSetNameInRule(t *testing.T) {
+	r := &router{}
+
+	testCases := []struct {
+		name     string
+		rule     []string
+		expected []string
+	}{
+		{
+			name: "Basic rule with two sets",
+			rule: []string{
+				"-A", "NETBIRD-RT-FWD-IN", "-p", "tcp", "-m", "set", "--match-set", "nb-2e5a2a05", "src",
+				"-m", "set", "--match-set", "nb-349ae051", "dst", "-m", "tcp", "--dport", "8080", "-j", "ACCEPT",
+			},
+			expected: []string{"nb-2e5a2a05", "nb-349ae051"},
+		},
+		{
+			name:     "No sets",
+			rule:     []string{"-A", "NETBIRD-RT-FWD-IN", "-p", "tcp", "-j", "ACCEPT"},
+			expected: []string{},
+		},
+		{
+			name: "Multiple sets with different positions",
+			rule: []string{
+				"-m", "set", "--match-set", "set1", "src", "-p", "tcp",
+				"-m", "set", "--match-set", "set-abc123", "dst", "-j", "ACCEPT",
+			},
+			expected: []string{"set1", "set-abc123"},
+		},
+		{
+			name:     "Boundary case - sequence appears at end",
+			rule:     []string{"-p", "tcp", "-m", "set", "--match-set", "final-set"},
+			expected: []string{"final-set"},
+		},
+		{
+			name:     "Incomplete pattern - missing set name",
+			rule:     []string{"-p", "tcp", "-m", "set", "--match-set"},
+			expected: []string{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := r.findSets(tc.rule)
+
+			if len(result) != len(tc.expected) {
+				t.Errorf("Expected %d sets, got %d. Sets found: %v", len(tc.expected), len(result), result)
+				return
+			}
+
+			for i, set := range result {
+				if set != tc.expected[i] {
+					t.Errorf("Expected set %q at position %d, got %q", tc.expected[i], i, set)
+				}
+			}
 		})
 	}
 }

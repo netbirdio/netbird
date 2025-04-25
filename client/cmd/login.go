@@ -19,6 +19,10 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+func init() {
+	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+}
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "login to the Netbird Management Service (first run)",
@@ -43,6 +47,9 @@ var loginCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
+		// update host's static platform and system information
+		system.UpdateStaticInfo()
 
 		// workaround to run without service
 		if logFile == "console" {
@@ -127,7 +134,7 @@ var loginCmd = &cobra.Command{
 		}
 
 		if loginResp.NeedsSSOLogin {
-			openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
+			openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
 
 			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 			if err != nil {
@@ -198,7 +205,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
-	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode)
+	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode, noBrowser)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
 	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout)
@@ -212,19 +219,27 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 	return &tokenInfo, nil
 }
 
-func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
+func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBrowser bool) {
 	var codeMsg string
 	if userCode != "" && !strings.Contains(verificationURIComplete, userCode) {
 		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
 	}
 
-	cmd.Println("Please do the SSO login in your browser. \n" +
-		"If your browser didn't open automatically, use this URL to log in:\n\n" +
-		verificationURIComplete + " " + codeMsg)
+	if noBrowser {
+		cmd.Println("Use this URL to log in:\n\n" + verificationURIComplete + " " + codeMsg)
+	} else {
+		cmd.Println("Please do the SSO login in your browser. \n" +
+			"If your browser didn't open automatically, use this URL to log in:\n\n" +
+			verificationURIComplete + " " + codeMsg)
+	}
+
 	cmd.Println("")
-	if err := open.Run(verificationURIComplete); err != nil {
-		cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
-			"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
+
+	if !noBrowser {
+		if err := open.Run(verificationURIComplete); err != nil {
+			cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
+				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
+		}
 	}
 }
 

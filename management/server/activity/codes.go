@@ -169,6 +169,8 @@ const (
 
 	ResourceAddedToGroup     Activity = 82
 	ResourceRemovedFromGroup Activity = 83
+
+	AccountDNSDomainUpdated Activity = 84
 )
 
 var activityMap = map[Activity]Code{
@@ -264,6 +266,8 @@ var activityMap = map[Activity]Code{
 
 	ResourceAddedToGroup:     {"Resource added to group", "resource.group.add"},
 	ResourceRemovedFromGroup: {"Resource removed from group", "resource.group.delete"},
+
+	AccountDNSDomainUpdated: {"Account DNS domain updated", "account.dns.domain.update"},
 }
 
 // StringCode returns a string code of the activity

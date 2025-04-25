@@ -18,6 +18,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
@@ -25,7 +26,7 @@ var ErrSourceRangesEmpty = errors.New("sources range is empty")
 
 // Manager is a ACL rules manager
 type Manager interface {
-	ApplyFiltering(networkMap *mgmProto.NetworkMap)
+	ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRouteFeatureFlag bool)
 }
 
 type protoMatch struct {
@@ -53,7 +54,7 @@ func NewDefaultManager(fm firewall.Manager) *DefaultManager {
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
 //
 // If allowByDefault is true it appends allow ALL traffic rules to input and output chains.
-func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
+func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRouteFeatureFlag bool) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -82,7 +83,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		log.Errorf("failed to set legacy management flag: %v", err)
 	}
 
-	if err := d.applyRouteACLs(networkMap.RoutesFirewallRules); err != nil {
+	if err := d.applyRouteACLs(networkMap.RoutesFirewallRules, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("Failed to apply route ACLs: %v", err)
 	}
 
@@ -176,16 +177,16 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 	d.peerRulesPairs = newRulePairs
 }
 
-func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) error {
+func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule, dynamicResolver bool) error {
 	newRouteRules := make(map[id.RuleID]struct{}, len(rules))
 	var merr *multierror.Error
 
 	// Apply new rules - firewall manager will return existing rule ID if already present
 	for _, rule := range rules {
-		id, err := d.applyRouteACL(rule)
+		id, err := d.applyRouteACL(rule, dynamicResolver)
 		if err != nil {
 			if errors.Is(err, ErrSourceRangesEmpty) {
-				log.Debugf("skipping empty rule with destination %s: %v", rule.Destination, err)
+				log.Debugf("skipping empty sources rule with destination %s: %v", rule.Destination, err)
 			} else {
 				merr = multierror.Append(merr, fmt.Errorf("add route rule: %w", err))
 			}
@@ -208,7 +209,7 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) err
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.RuleID, error) {
+func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule, dynamicResolver bool) (id.RuleID, error) {
 	if len(rule.SourceRanges) == 0 {
 		return "", ErrSourceRangesEmpty
 	}
@@ -222,15 +223,9 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.Rul
 		sources = append(sources, source)
 	}
 
-	var destination netip.Prefix
-	if rule.IsDynamic {
-		destination = getDefault(sources[0])
-	} else {
-		var err error
-		destination, err = netip.ParsePrefix(rule.Destination)
-		if err != nil {
-			return "", fmt.Errorf("parse destination: %w", err)
-		}
+	destination, err := determineDestination(rule, dynamicResolver, sources)
+	if err != nil {
+		return "", fmt.Errorf("determine destination: %w", err)
 	}
 
 	protocol, err := convertToFirewallProtocol(rule.Protocol)
@@ -578,6 +573,33 @@ func convertPortInfo(portInfo *mgmProto.PortInfo) *firewall.Port {
 	}
 
 	return nil
+}
+
+func determineDestination(rule *mgmProto.RouteFirewallRule, dynamicResolver bool, sources []netip.Prefix) (firewall.Network, error) {
+	var destination firewall.Network
+
+	if rule.IsDynamic {
+		if dynamicResolver {
+			if len(rule.Domains) > 0 {
+				destination.Set = firewall.NewDomainSet(domain.FromPunycodeList(rule.Domains))
+			} else {
+				// isDynamic is set but no domains = outdated management server
+				log.Warn("connected to an older version of management server (no domains in rules), using default destination")
+				destination.Prefix = getDefault(sources[0])
+			}
+		} else {
+			// client resolves DNS, we (router) don't know the destination
+			destination.Prefix = getDefault(sources[0])
+		}
+		return destination, nil
+	}
+
+	prefix, err := netip.ParsePrefix(rule.Destination)
+	if err != nil {
+		return destination, fmt.Errorf("parse destination: %w", err)
+	}
+	destination.Prefix = prefix
+	return destination, nil
 }
 
 func getDefault(prefix netip.Prefix) netip.Prefix {

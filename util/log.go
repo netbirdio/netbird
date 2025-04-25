@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/grpclog"
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/netbirdio/netbird/formatter"
@@ -48,7 +49,26 @@ func InitLog(logLevel string, logPath string) error {
 		formatter.SetTextFormatter(log.StandardLogger())
 	}
 	log.SetLevel(level)
+
+	setGRPCLibLogger()
+
 	return nil
+}
+
+func setGRPCLibLogger() {
+	logOut := log.StandardLogger().Writer()
+	if os.Getenv("GRPC_GO_LOG_SEVERITY_LEVEL") != "info" {
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, logOut, logOut))
+		return
+	}
+
+	var v int
+	vLevel := os.Getenv("GRPC_GO_LOG_VERBOSITY_LEVEL")
+	if vl, err := strconv.Atoi(vLevel); err == nil {
+		v = vl
+	}
+
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2WithVerbosity(logOut, logOut, logOut, v))
 }
 
 func getLogMaxSize() int {

@@ -55,7 +55,7 @@ type SqlStore struct {
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
-	storeEngine       Engine
+	storeEngine       types.Engine
 }
 
 type installation struct {
@@ -66,7 +66,7 @@ type installation struct {
 type migrationFunc func(*gorm.DB) error
 
 // NewSqlStore creates a new SqlStore instance.
-func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 		conns = runtime.NumCPU()
 	}
 
-	if storeEngine == SqliteStoreEngine {
+	if storeEngine == types.SqliteStoreEngine {
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
 		}
@@ -105,7 +105,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine Engine, metrics t
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
-	if s.storeEngine == MysqlStoreEngine {
+	if s.storeEngine == types.MysqlStoreEngine {
 		return mysqlKeyQueryCondition
 	}
 	return keyQueryCondition
@@ -586,6 +586,19 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 	return users, nil
 }
 
+func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error) {
+	var user types.User
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).First(&user, "account_id = ? AND role = ?", accountID, types.UserRoleOwner)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account owner not found: index lookup failed")
+		}
+		return nil, status.Errorf(status.Internal, "failed to get account owner from the store")
+	}
+
+	return &user, nil
+}
+
 func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error) {
 	var groups []*types.Group
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&groups, accountIDCondition, accountID)
@@ -643,6 +656,21 @@ func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	}
 
 	return all
+}
+
+func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error) {
+	var accountMeta types.AccountMeta
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&types.Account{}).
+		First(&accountMeta, idQueryCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when getting account meta %s from the store: %s", accountID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewAccountNotFoundError(accountID)
+		}
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
+
+	return &accountMeta, nil
 }
 
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
@@ -970,7 +998,7 @@ func (s *SqlStore) Close(_ context.Context) error {
 }
 
 // GetStoreEngine returns underlying store engine
-func (s *SqlStore) GetStoreEngine() Engine {
+func (s *SqlStore) GetStoreEngine() types.Engine {
 	return s.storeEngine
 }
 
@@ -988,7 +1016,7 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, SqliteStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.SqliteStoreEngine, metrics)
 }
 
 // NewPostgresqlStore creates a new Postgres store.
@@ -998,7 +1026,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics)
 }
 
 // NewMysqlStore creates a new MySQL store.
@@ -1008,7 +1036,7 @@ func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, MysqlStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics)
 }
 
 func getGormConfig() *gorm.Config {
@@ -1517,9 +1545,9 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	query := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Preload(clause.Associations)
 
 	switch s.storeEngine {
-	case PostgresStoreEngine:
+	case types.PostgresStoreEngine:
 		query = query.Order("json_array_length(peers::json) DESC")
-	case MysqlStoreEngine:
+	case types.MysqlStoreEngine:
 		query = query.Order("JSON_LENGTH(JSON_EXTRACT(peers, \"$\")) DESC")
 	default:
 		query = query.Order("json_array_length(peers) DESC")
@@ -2193,4 +2221,18 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 	}
 
 	return &peer, nil
+}
+
+func (s *SqlStore) CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error) {
+	var count int64
+	result := s.db.Model(&types.Account{}).
+		Where("domain = ? AND domain_category = ?",
+			strings.ToLower(domain), types.PrivateCategory,
+		).Count(&count)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to count accounts by private domain %s: %s", domain, result.Error)
+		return 0, status.Errorf(status.Internal, "failed to count accounts by private domain")
+	}
+
+	return count, nil
 }

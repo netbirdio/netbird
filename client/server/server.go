@@ -84,6 +84,7 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		},
 		logFile:           logFile,
 		persistNetworkMap: true,
+		statusRecorder:    peer.NewRecorder(""),
 	}
 }
 
@@ -136,9 +137,6 @@ func (s *Server) Start() error {
 
 	s.config = config
 
-	if s.statusRecorder == nil {
-		s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
-	}
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 
@@ -622,9 +620,6 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
 
-	if s.statusRecorder == nil {
-		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
-	}
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
@@ -692,9 +687,6 @@ func (s *Server) Status(
 
 	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
 
-	if s.statusRecorder == nil {
-		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
-	}
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 

@@ -40,6 +40,17 @@ const (
 
 type LookupMap map[string]struct{}
 
+// AccountMeta is a struct that contains a stripped down version of the Account object.
+// It doesn't carry any peers, groups, policies, or routes, etc. Just some metadata (e.g. ID, created by, created at, etc).
+type AccountMeta struct {
+	// AccountId is the unique identifier of the account
+	AccountID      string `gorm:"column:id"`
+	CreatedAt      time.Time
+	CreatedBy      string
+	Domain         string
+	DomainCategory string
+}
+
 // Account represents a unique account of the system
 type Account struct {
 	// we have to name column to aid as it collides with Network.Id when work with associations
@@ -146,11 +157,6 @@ func (a *Account) getRoutingPeerRoutes(ctx context.Context, peerID string) (enab
 	peer := a.GetPeer(peerID)
 	if peer == nil {
 		log.WithContext(ctx).Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
-		return enabledRoutes, disabledRoutes
-	}
-
-	// currently we support only linux routing peers
-	if peer.Meta.GoOS != "linux" {
 		return enabledRoutes, disabledRoutes
 	}
 
@@ -860,6 +866,16 @@ func (a *Account) Copy() *Account {
 	}
 }
 
+func (a *Account) GetMeta() *AccountMeta {
+	return &AccountMeta{
+		AccountID:      a.Id,
+		CreatedBy:      a.CreatedBy,
+		CreatedAt:      a.CreatedAt,
+		Domain:         a.Domain,
+		DomainCategory: a.DomainCategory,
+	}
+}
+
 func (a *Account) GetGroupAll() (*Group, error) {
 	for _, g := range a.Groups {
 		if g.Name == "All" {
@@ -1224,6 +1240,7 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 		Protocol:     string(PolicyRuleProtocolALL),
 		Domains:      route.Domains,
 		IsDynamic:    route.IsDynamic(),
+		RouteID:      route.ID,
 	}
 
 	rules = append(rules, &rule)
@@ -1272,7 +1289,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer 
 		if route.Peer != peer.Key {
 			continue
 		}
-		resourceAppliedPolicies := resourcePolicies[route.GetResourceID()]
+		resourceAppliedPolicies := resourcePolicies[string(route.GetResourceID())]
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)

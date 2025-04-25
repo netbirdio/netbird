@@ -301,7 +301,7 @@ func (h *handler) getRoute(w http.ResponseWriter, r *http.Request) {
 
 	foundRoute, err := h.accountManager.GetRoute(r.Context(), accountID, route.ID(routeID), userID)
 	if err != nil {
-		util.WriteError(r.Context(), status.Errorf(status.NotFound, "route not found"), w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 

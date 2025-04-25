@@ -20,9 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -302,12 +303,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1)
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1, true)
 	if err != nil {
 		t.Errorf("expecting group1 to be added, got failure %v", err)
 		return
 	}
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2)
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2, true)
 	if err != nil {
 		t.Errorf("expecting group2 to be added, got failure %v", err)
 		return
@@ -326,7 +327,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 			},
 		},
 	}
-	policy, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+	policy, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -374,7 +375,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	}
 
 	policy.Enabled = false
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -723,7 +724,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 }
 
-func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccountManager, string, string, error) {
+func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, string, string, error) {
 	b.Helper()
 
 	manager, err := createManager(b)
@@ -998,6 +999,53 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 	}
 }
 
+func TestUpdateAccountPeers(t *testing.T) {
+	testCases := []struct {
+		name   string
+		peers  int
+		groups int
+	}{
+		{"Small", 50, 1},
+		{"Medium", 500, 1},
+		{"Large", 1000, 1},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, accountID, _, err := setupTestAccountManager(t, tc.peers, tc.groups)
+			if err != nil {
+				t.Fatalf("Failed to setup test account manager: %v", err)
+			}
+
+			ctx := context.Background()
+
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				t.Fatalf("Failed to get account: %v", err)
+			}
+
+			peerChannels := make(map[string]chan *UpdateMessage)
+
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+
+			manager.peersUpdateManager.peerChannels = peerChannels
+			manager.UpdateAccountPeers(ctx, account.Id)
+
+			for _, channel := range peerChannels {
+				update := <-channel
+				assert.Nil(t, update.Update.NetbirdConfig)
+				assert.Equal(t, tc.peers, len(update.NetworkMap.Peers))
+				assert.Equal(t, tc.peers*2, len(update.NetworkMap.FirewallRules))
+			}
+		})
+	}
+}
+
 func TestToSyncResponse(t *testing.T) {
 	_, ipnet, err := net.ParseCIDR("192.168.1.0/24")
 	if err != nil {
@@ -1008,16 +1056,16 @@ func TestToSyncResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	config := &Config{
-		Signal: &Host{
+	config := &types.Config{
+		Signal: &types.Host{
 			Proto:    "https",
 			URI:      "signal.uri",
 			Username: "",
 			Password: "",
 		},
-		Stuns: []*Host{{URI: "stun.uri", Proto: UDP}},
-		TURNConfig: &TURNConfig{
-			Turns: []*Host{{URI: "turn.uri", Proto: UDP, Username: "turn-user", Password: "turn-pass"}},
+		Stuns: []*types.Host{{URI: "stun.uri", Proto: types.UDP}},
+		TURNConfig: &types.TURNConfig{
+			Turns: []*types.Host{{URI: "turn.uri", Proto: types.UDP, Username: "turn-user", Password: "turn-pass"}},
 		},
 	}
 	peer := &nbpeer.Peer{
@@ -1216,8 +1264,9 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1284,8 +1333,9 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1356,7 +1406,9 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager)
+	permissionsManager := permissions.NewManager(s)
+
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1426,7 +1478,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{},
 		},
-	})
+	}, true)
 	require.NoError(t, err)
 
 	// create a user with auto groups
@@ -1602,7 +1654,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		require.NoError(t, err)
 
 		done := make(chan struct{})

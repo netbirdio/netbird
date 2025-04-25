@@ -37,6 +37,7 @@ type Manager interface {
 	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*types.User, addIfNotExists bool) ([]*types.UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error)
 	GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error)
+	GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error)
 	AccountExists(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
@@ -59,15 +60,15 @@ type Manager interface {
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
-	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group) error
-	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
+	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
+	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group, create bool) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
 	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
-	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
+	SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error)
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
 	ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
@@ -80,7 +81,7 @@ type Manager interface {
 	SaveNameServerGroup(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
-	GetDNSDomain() string
+	GetDNSDomain(settings *types.Settings) string
 	StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error)
@@ -93,7 +94,7 @@ type Manager interface {
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
 	GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error)
+	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, create bool) (*posture.Checks, error)
 	DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManager() idp.Manager
@@ -111,4 +112,8 @@ type Manager interface {
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
 	GetStore() store.Store
+	CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error)
+	UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error)
+	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
+	GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error)
 }

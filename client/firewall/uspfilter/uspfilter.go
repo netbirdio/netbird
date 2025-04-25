@@ -49,10 +49,10 @@ var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
-type RouteRules []RouteRule
+type RouteRules []*RouteRule
 
 func (r RouteRules) Sort() {
-	slices.SortStableFunc(r, func(a, b RouteRule) int {
+	slices.SortStableFunc(r, func(a, b *RouteRule) int {
 		// Deny rules come first
 		if a.action == firewall.ActionDrop && b.action != firewall.ActionDrop {
 			return -1
@@ -99,6 +99,8 @@ type Manager struct {
 	forwarder   atomic.Pointer[forwarder.Forwarder]
 	logger      *nblog.Logger
 	flowLogger  nftypes.FlowLogger
+
+	blockRule firewall.Rule
 }
 
 // decoder for packages
@@ -201,41 +203,35 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		}
 	}
 
-	if err := m.blockInvalidRouted(iface); err != nil {
-		log.Errorf("failed to block invalid routed traffic: %v", err)
-	}
-
 	if err := iface.SetFilter(m); err != nil {
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
 	return m, nil
 }
 
-func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) error {
-	if m.forwarder.Load() == nil {
-		return nil
-	}
+func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, error) {
 	wgPrefix, err := netip.ParsePrefix(iface.Address().Network.String())
 	if err != nil {
-		return fmt.Errorf("parse wireguard network: %w", err)
+		return nil, fmt.Errorf("parse wireguard network: %w", err)
 	}
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
-	if _, err := m.AddRouteFiltering(
+	rule, err := m.addRouteFiltering(
 		nil,
 		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
-		wgPrefix,
+		firewall.Network{Prefix: wgPrefix},
 		firewall.ProtocolALL,
 		nil,
 		nil,
 		firewall.ActionDrop,
-	); err != nil {
-		return fmt.Errorf("block wg nte : %w", err)
+	)
+	if err != nil {
+		return nil, fmt.Errorf("block wg nte : %w", err)
 	}
 
 	// TODO: Block networks that we're a client of
 
-	return nil
+	return rule, nil
 }
 
 func (m *Manager) determineRouting() error {
@@ -413,10 +409,23 @@ func (m *Manager) AddPeerFiltering(
 func (m *Manager) AddRouteFiltering(
 	id []byte,
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination firewall.Network,
 	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
+	sPort, dPort *firewall.Port,
+	action firewall.Action,
+) (firewall.Rule, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.addRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
+}
+
+func (m *Manager) addRouteFiltering(
+	id []byte,
+	sources []netip.Prefix,
+	destination firewall.Network,
+	proto firewall.Protocol,
+	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
@@ -426,34 +435,39 @@ func (m *Manager) AddRouteFiltering(
 	ruleID := uuid.New().String()
 	rule := RouteRule{
 		// TODO: consolidate these IDs
-		id:          ruleID,
-		mgmtId:      id,
-		sources:     sources,
-		destination: destination,
-		proto:       proto,
-		srcPort:     sPort,
-		dstPort:     dPort,
-		action:      action,
+		id:      ruleID,
+		mgmtId:  id,
+		sources: sources,
+		dstSet:  destination.Set,
+		proto:   proto,
+		srcPort: sPort,
+		dstPort: dPort,
+		action:  action,
+	}
+	if destination.IsPrefix() {
+		rule.destinations = []netip.Prefix{destination.Prefix}
 	}
 
-	m.mutex.Lock()
-	m.routeRules = append(m.routeRules, rule)
+	m.routeRules = append(m.routeRules, &rule)
 	m.routeRules.Sort()
-	m.mutex.Unlock()
 
 	return &rule, nil
 }
 
 func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.deleteRouteRule(rule)
+}
+
+func (m *Manager) deleteRouteRule(rule firewall.Rule) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.DeleteRouteRule(rule)
 	}
 
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	ruleID := rule.ID()
-	idx := slices.IndexFunc(m.routeRules, func(r RouteRule) bool {
+	idx := slices.IndexFunc(m.routeRules, func(r *RouteRule) bool {
 		return r.id == ruleID
 	})
 	if idx < 0 {
@@ -507,6 +521,52 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 		return errNatNotSupported
 	}
 	return m.nativeFirewall.DeleteDNATRule(rule)
+}
+
+// UpdateSet updates the rule destinations associated with the given set
+// by merging the existing prefixes with the new ones, then deduplicating.
+func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	if m.nativeRouter.Load() && m.nativeFirewall != nil {
+		return m.nativeFirewall.UpdateSet(set, prefixes)
+	}
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	var matches []*RouteRule
+	for _, rule := range m.routeRules {
+		if rule.dstSet == set {
+			matches = append(matches, rule)
+		}
+	}
+
+	if len(matches) == 0 {
+		return fmt.Errorf("no route rule found for set: %s", set)
+	}
+
+	destinations := matches[0].destinations
+	for _, prefix := range prefixes {
+		if prefix.Addr().Is4() {
+			destinations = append(destinations, prefix)
+		}
+	}
+
+	slices.SortFunc(destinations, func(a, b netip.Prefix) int {
+		cmp := a.Addr().Compare(b.Addr())
+		if cmp != 0 {
+			return cmp
+		}
+		return a.Bits() - b.Bits()
+	})
+
+	destinations = slices.Compact(destinations)
+
+	for _, rule := range matches {
+		rule.destinations = destinations
+	}
+	log.Debugf("updated set %s to prefixes %v", set.HashedName(), destinations)
+
+	return nil
 }
 
 // DropOutgoing filter outgoing packets
@@ -658,7 +718,8 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
-	if !m.isValidPacket(d, packetData) {
+	valid, fragment := m.isValidPacket(d, packetData)
+	if !valid {
 		return true
 	}
 
@@ -666,6 +727,13 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 	if !srcIP.IsValid() {
 		m.logger.Error("Unknown network layer: %v", d.decoded[0])
 		return true
+	}
+
+	// TODO: pass fragments of routed packets to forwarder
+	if fragment {
+		m.logger.Trace("packet is a fragment: src=%v dst=%v id=%v flags=%v",
+			srcIP, dstIP, d.ip4.Id, d.ip4.Flags)
+		return false
 	}
 
 	// For all inbound traffic, first check if it matches a tracked connection.
@@ -678,7 +746,7 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 		return m.handleLocalTraffic(d, srcIP, dstIP, packetData, size)
 	}
 
-	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData)
+	return m.handleRoutedTraffic(d, srcIP, dstIP, packetData, size)
 }
 
 // handleLocalTraffic handles local traffic.
@@ -739,7 +807,7 @@ func (m *Manager) handleNetstackLocalTraffic(packetData []byte) bool {
 
 // handleRoutedTraffic handles routed traffic.
 // If it returns true, the packet should be dropped.
-func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte) bool {
+func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	// Drop if routing is disabled
 	if !m.routingEnabled.Load() {
 		m.logger.Trace("Dropping routed packet (routing disabled): src=%s dst=%s",
@@ -749,6 +817,7 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 
 	// Pass to native stack if native router is enabled or forced
 	if m.nativeRouter.Load() {
+		m.trackInbound(d, srcIP, dstIP, nil, size)
 		return false
 	}
 
@@ -770,6 +839,8 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 			SourcePort: srcPort,
 			DestPort:   dstPort,
 			// TODO: icmp type/code
+			RxPackets: 1,
+			RxBytes:   uint64(size),
 		})
 		return true
 	}
@@ -812,17 +883,32 @@ func getPortsFromPacket(d *decoder) (srcPort, dstPort uint16) {
 	}
 }
 
-func (m *Manager) isValidPacket(d *decoder, packetData []byte) bool {
+// isValidPacket checks if the packet is valid.
+// It returns true, false if the packet is valid and not a fragment.
+// It returns true, true if the packet is a fragment and valid.
+func (m *Manager) isValidPacket(d *decoder, packetData []byte) (bool, bool) {
 	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
 		m.logger.Trace("couldn't decode packet, err: %s", err)
-		return false
+		return false, false
 	}
 
-	if len(d.decoded) < 2 {
-		m.logger.Trace("packet doesn't have network and transport layers")
-		return false
+	l := len(d.decoded)
+
+	// L3 and L4 are mandatory
+	if l >= 2 {
+		return true, false
 	}
-	return true
+
+	// Fragments are also valid
+	if l == 1 && d.decoded[0] == layers.LayerTypeIPv4 {
+		ip4 := d.ip4
+		if ip4.Flags&layers.IPv4MoreFragments != 0 || ip4.FragOffset != 0 {
+			return true, true
+		}
+	}
+
+	m.logger.Trace("packet doesn't have network and transport layers")
+	return false, false
 }
 
 func (m *Manager) isValidTrackedConnection(d *decoder, srcIP, dstIP netip.Addr, size int) bool {
@@ -962,8 +1048,15 @@ func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, proto firewall.Protocol
 	return nil, false
 }
 
-func (m *Manager) ruleMatches(rule RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
-	if !rule.destination.Contains(dstAddr) {
+func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+	destMatched := false
+	for _, dst := range rule.destinations {
+		if dst.Contains(dstAddr) {
+			destMatched = true
+			break
+		}
+	}
+	if !destMatched {
 		return false
 	}
 
@@ -1065,7 +1158,22 @@ func (m *Manager) EnableRouting() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.determineRouting()
+	if err := m.determineRouting(); err != nil {
+		return fmt.Errorf("determine routing: %w", err)
+	}
+
+	if m.forwarder.Load() == nil {
+		return nil
+	}
+
+	rule, err := m.blockInvalidRouted(m.wgIface)
+	if err != nil {
+		return fmt.Errorf("block invalid routed: %w", err)
+	}
+
+	m.blockRule = rule
+
+	return nil
 }
 
 func (m *Manager) DisableRouting() error {
@@ -1089,6 +1197,13 @@ func (m *Manager) DisableRouting() error {
 	m.forwarder.Store(nil)
 
 	log.Debug("forwarder stopped")
+
+	if m.blockRule != nil {
+		if err := m.deleteRouteRule(m.blockRule); err != nil {
+			return fmt.Errorf("delete block rule: %w", err)
+		}
+		m.blockRule = nil
+	}
 
 	return nil
 }

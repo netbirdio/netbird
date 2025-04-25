@@ -32,12 +32,16 @@ const (
 
 const (
 	dnsLabelsFlag = "extra-dns-labels"
+
+	noBrowserFlag = "no-browser"
+	noBrowserDesc = "do not open the browser for SSO login"
 )
 
 var (
 	foregroundMode     bool
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
+	noBrowser          bool
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -65,6 +69,9 @@ func init() {
 			`E.g. --extra-dns-labels vpc1 or --extra-dns-labels vpc1,mgmt1 `+
 			`or --extra-dns-labels ""`,
 	)
+
+	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -212,6 +219,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	r.GetFullStatus()
 
 	connectClient := internal.NewConnectClient(ctx, config, r)
+	SetupDebugHandler(ctx, config, r, connectClient, "")
+
 	return connectClient.Run(nil)
 }
 
@@ -349,7 +358,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if loginResp.NeedsSSOLogin {
 
-		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
+		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
 
 		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 		if err != nil {
