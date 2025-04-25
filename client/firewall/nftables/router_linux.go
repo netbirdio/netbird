@@ -666,7 +666,9 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 		}
 	}
 
-	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
+	// Ensure nat rules come first, so the mark can be overwritten.
+	// Currently overwritten by the dst-type LOCAL rules for redirected traffic.
+	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
 		Table:    r.workTable,
 		Chain:    r.chains[chainNameManglePrerouting],
 		Exprs:    exprs,
