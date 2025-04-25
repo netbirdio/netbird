@@ -3247,3 +3247,26 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 8003, len(accountGroups))
 }
+
+func TestSqlStore_GetAnyAccountID(t *testing.T) {
+	t.Run("should return account ID when accounts exist", func(t *testing.T) {
+		store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+		t.Cleanup(cleanup)
+		require.NoError(t, err)
+
+		accountID, err := store.GetAnyAccountID(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", accountID)
+	})
+
+	t.Run("should return error when no accounts exist", func(t *testing.T) {
+		store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+		t.Cleanup(cleanup)
+		accountID, err := store.GetAnyAccountID(context.Background())
+		require.Error(t, err)
+		sErr, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, sErr.Type(), status.NotFound)
+		assert.Empty(t, accountID)
+	})
+}
