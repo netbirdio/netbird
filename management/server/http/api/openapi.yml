@@ -2018,7 +2018,7 @@ components:
     NetworkTrafficEventsResponse:
       type: object
       properties:
-        events:
+        data:
           type: array
           description: List of network traffic events
           items:
@@ -2036,7 +2036,7 @@ components:
           type: integer
           description: Total number of pages available
       required:
-        - events
+        - data
         - page
         - page_size
         - total_records
