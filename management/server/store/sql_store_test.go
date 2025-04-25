@@ -3278,6 +3278,8 @@ func TestSqlStore_GetAnyAccountID(t *testing.T) {
 	t.Run("should return error when no accounts exist", func(t *testing.T) {
 		store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 		t.Cleanup(cleanup)
+		require.NoError(t, err)
+
 		accountID, err := store.GetAnyAccountID(context.Background())
 		require.Error(t, err)
 		sErr, ok := status.FromError(err)
