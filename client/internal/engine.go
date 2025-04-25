@@ -560,6 +560,16 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
 		peerPubKey := p.GetWgPubKey()
+		currentPeer, ok := e.peerStore.PeerConn(peerPubKey)
+		if !ok {
+			continue
+		}
+
+		if currentPeer.AgentVersionString() != p.AgentVersion {
+			modified = append(modified, p)
+			continue
+		}
+
 		allowedIPs, ok := e.peerStore.AllowedIPs(peerPubKey)
 		if !ok {
 			continue
@@ -569,8 +579,7 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 			continue
 		}
 
-		err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn())
-		if err != nil {
+		if err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn()); err != nil {
 			log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
 		}
 	}
@@ -1205,7 +1214,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		peerIPs = append(peerIPs, allowedNetIP)
 	}
 
-	conn, err := e.createPeerConn(peerKey, peerIPs)
+	conn, err := e.createPeerConn(peerKey, peerIPs, peerConfig.AgentVersion)
 	if err != nil {
 		return fmt.Errorf("create peer connection: %w", err)
 	}
@@ -1227,7 +1236,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	return nil
 }
 
-func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix) (*peer.Conn, error) {
+func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentVersion string) (*peer.Conn, error) {
 	log.Debugf("creating peer connection %s", pubKey)
 
 	wgConfig := peer.WgConfig{
@@ -1243,6 +1252,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix) (*peer
 	config := peer.ConnConfig{
 		Key:         pubKey,
 		LocalKey:    e.config.WgPrivateKey.PublicKey().String(),
+		AgentVersion:    agentVersion,
 		Timeout:     timeout,
 		WgConfig:    wgConfig,
 		LocalWgPort: e.config.WgPort,

@@ -68,6 +68,8 @@ type ConnConfig struct {
 	// LocalKey is a public key of a local peer
 	LocalKey string
 
+	AgentVersion string
+
 	Timeout time.Duration
 
 	WgConfig WgConfig
@@ -800,6 +802,10 @@ func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
 // AllowedIP returns the allowed IP of the remote peer
 func (conn *Conn) AllowedIP() netip.Addr {
 	return conn.config.WgConfig.AllowedIps[0].Addr()
+}
+
+func (conn *Conn) AgentVersionString() string {
+	return conn.config.AgentVersion
 }
 
 func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {

@@ -54,7 +54,7 @@ type Manager struct {
 }
 
 func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
-	log.Infof("setup lazy connetion service")
+	log.Infof("setup lazy connection service")
 	m := &Manager{
 		connStateDispatcher:  connStateDispatcher,
 		inactivityThreshold:  inactivity.DefaultInactivityThreshold,
@@ -80,6 +80,7 @@ func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *di
 	return m
 }
 
+// Start starts the manager and listens for peer activity and inactivity events
 func (m *Manager) Start(ctx context.Context, activeFn func(peerID string), inactiveFn func(peerID string)) {
 	defer m.close()
 
@@ -93,6 +94,18 @@ func (m *Manager) Start(ctx context.Context, activeFn func(peerID string), inact
 		case peerConnID := <-m.onInactive:
 			m.onPeerInactivityTimedOut(peerConnID, inactiveFn)
 		}
+	}
+}
+
+// ExcludePeer marks peers for a permanent connection
+func (m *Manager) ExcludePeer(peerIDs []string) {
+	m.managedPeersMu.Lock()
+	defer m.managedPeersMu.Unlock()
+	log.Infof("update excluded peers from lazy connection: %v", peerIDs)
+
+	m.excludes = make(map[string]struct{})
+	for _, peerID := range peerIDs {
+		m.excludes[peerID] = struct{}{}
 	}
 }
 
@@ -149,6 +162,7 @@ func (m *Manager) RemovePeer(peerID string) {
 	delete(m.managedPeersByConnID, cfg.PeerConnID)
 }
 
+// ActivatePeer activates a peer connection when a signal message is received
 func (m *Manager) ActivatePeer(peerID string) (found bool) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
@@ -175,18 +189,6 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 	cfg.Log.Debugf("reset inactivity monitor timer")
 	m.inactivityMonitors[cfg.PeerConnID].ResetTimer()
 	return true
-}
-
-// ExcludePeer marks peers for a permanent connection
-func (m *Manager) ExcludePeer(peerIDs []string) {
-	m.managedPeersMu.Lock()
-	defer m.managedPeersMu.Unlock()
-	log.Infof("update excluded peers from lazy connection: %v", peerIDs)
-
-	m.excludes = make(map[string]struct{})
-	for _, peerID := range peerIDs {
-		m.excludes[peerID] = struct{}{}
-	}
 }
 
 func (m *Manager) close() {

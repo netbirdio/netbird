@@ -673,10 +673,11 @@ func toSyncResponse(ctx context.Context, config *types.Config, peer *nbpeer.Peer
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		dst = append(dst, &proto.RemotePeerConfig{
-			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{rPeer.IP.String() + "/32"},
-			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
-			Fqdn:       rPeer.FQDN(dnsName),
+			WgPubKey:     rPeer.Key,
+			AllowedIps:   []string{rPeer.IP.String() + "/32"},
+			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
+			Fqdn:         rPeer.FQDN(dnsName),
+			AgentVersion: rPeer.Meta.WtVersion,
 		})
 	}
 	return dst
