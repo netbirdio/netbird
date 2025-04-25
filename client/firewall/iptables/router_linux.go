@@ -631,7 +631,9 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 		"-j", "MARK", "--set-mark", fmt.Sprintf("%#x", markValue),
 	)
 
-	if err := r.iptablesClient.Append(tableMangle, chainRTPRE, rule...); err != nil {
+	// Ensure nat rules come first, so the mark can be overwritten.
+	// Currently overwritten by the dst-type LOCAL rules for redirected traffic.
+	if err := r.iptablesClient.Insert(tableMangle, chainRTPRE, 1, rule...); err != nil {
 		// TODO: rollback ipset counter
 		return fmt.Errorf("error while adding marking rule for %s: %v", pair.Destination, err)
 	}
