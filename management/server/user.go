@@ -940,6 +940,12 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return err
+	}
+	dnsDomain := am.GetDNSDomain(settings)
+
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
@@ -957,7 +963,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		am.StoreEvent(
 			ctx,
 			peer.UserID, peer.ID, accountID,
-			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
+			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
 		)
 	}
 

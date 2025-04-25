@@ -276,6 +276,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
+	if newSettings.DNSDomain != "" && !isDomainValid(newSettings.DNSDomain) {
+		return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
+	}
+
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -322,6 +326,12 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
 		}
+		updateAccountPeers = true
+		account.Network.Serial++
+	}
+
+	if oldSettings.DNSDomain != newSettings.DNSDomain {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, nil)
 		updateAccountPeers = true
 		account.Network.Serial++
 	}
@@ -1102,6 +1112,19 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 	return am.Store.GetAccount(ctx, accountID)
 }
 
+// GetAccountMeta returns the account metadata associated with this account ID.
+func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	return am.Store.GetAccountMeta(ctx, store.LockingStrengthShare, accountID)
+}
+
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
 	if userAuth.UserId == "" {
 		return "", "", errors.New(emptyUserID)
@@ -1525,8 +1548,15 @@ func isDomainValid(domain string) bool {
 }
 
 // GetDNSDomain returns the configured dnsDomain
-func (am *DefaultAccountManager) GetDNSDomain() string {
-	return am.dnsDomain
+func (am *DefaultAccountManager) GetDNSDomain(settings *types.Settings) string {
+	if settings == nil {
+		return am.dnsDomain
+	}
+	if settings.DNSDomain == "" {
+		return am.dnsDomain
+	}
+
+	return settings.DNSDomain
 }
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {

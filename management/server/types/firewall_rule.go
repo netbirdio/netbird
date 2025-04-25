@@ -62,6 +62,7 @@ func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 
 	baseRule := RouteFirewallRule{
 		PolicyID:     rule.PolicyID,
+		RouteID:      route.ID,
 		SourceRanges: sourceRanges,
 		Action:       string(rule.Action),
 		Destination:  route.Network.String(),
