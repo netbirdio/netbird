@@ -217,13 +217,12 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 
 	go func() {
 		<-ctx.Done()
-		f.logger.Trace("forwarder: tearing down UDP connection %v due to context done", epID(id))
 
 		pConn.cancel()
-		if err := pConn.conn.Close(); err != nil {
+		if err := pConn.conn.Close(); err != nil && !isClosedError(err) {
 			f.logger.Debug("forwarder: UDP inConn close error for %v: %v", epID(id), err)
 		}
-		if err := pConn.outConn.Close(); err != nil {
+		if err := pConn.outConn.Close(); err != nil && !isClosedError(err) {
 			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
 

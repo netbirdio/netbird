@@ -24,11 +24,11 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 
 	flowID := uuid.New()
 
-	f.sendTCPEvent(nftypes.TypeStart, flowID, id, nil, 0, 0)
+	f.sendTCPEvent(nftypes.TypeStart, flowID, id, 0, 0, 0, 0)
 	var success bool
 	defer func() {
 		if !success {
-			f.sendTCPEvent(nftypes.TypeEnd, flowID, id, nil, 0, 0)
+			f.sendTCPEvent(nftypes.TypeEnd, flowID, id, 0, 0, 0, 0)
 		}
 	}()
 
@@ -73,14 +73,12 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 	go func() {
 		<-ctx.Done()
 		// Close connections and endpoint.
-		if err := inConn.Close(); err != nil {
+		if err := inConn.Close(); err != nil && !isClosedError(err) {
 			f.logger.Debug("forwarder: inConn close error: %v", err)
 		}
-		if err := outConn.Close(); err != nil {
+		if err := outConn.Close(); err != nil && !isClosedError(err) {
 			f.logger.Debug("forwarder: outConn close error: %v", err)
 		}
-
-		f.logger.Trace("forwarder: tearing down TCP connection %v due to context done", epID(id))
 
 		ep.Close()
 	}()
@@ -118,10 +116,19 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 		}
 	}
 
-	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, ep, uint64(bytesFromOutToIn), uint64(bytesFromInToOut))
+	var rxPackets, txPackets uint64
+	if tcpStats, ok := ep.Stats().(*tcpip.TransportEndpointStats); ok {
+		// fields are flipped since this is the in conn
+		rxPackets = tcpStats.PacketsSent.Value()
+		txPackets = tcpStats.PacketsReceived.Value()
+	}
+
+	f.logger.Trace("Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
+
+	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, uint64(bytesFromOutToIn), uint64(bytesFromInToOut), rxPackets, txPackets)
 }
 
-func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, ep tcpip.Endpoint, rxBytes, txBytes uint64) {
+func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64) {
 	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
@@ -134,15 +141,8 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		DestPort:   id.LocalPort,
 		RxBytes:    rxBytes,
 		TxBytes:    txBytes,
-	}
-
-	if ep != nil {
-		if tcpStats, ok := ep.Stats().(*tcp.Stats); ok {
-			// fields are flipped since this is the in conn
-			// TODO: get bytes
-			fields.RxPackets = tcpStats.SegmentsSent.Value()
-			fields.TxPackets = tcpStats.SegmentsReceived.Value()
-		}
+		RxPackets:  rxPackets,
+		TxPackets:  txPackets,
 	}
 
 	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
