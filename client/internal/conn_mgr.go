@@ -36,7 +36,7 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 	e := &ConnMgr{
 		peerStore: peerStore,
 	}
-	if engineConfig.LazyConnectionEnabled || os.Getenv(lazyconn.EnvEnableLazyConn) == "true" {
+	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
 		cfg := manager.Config{
 			InactivityThreshold: inactivityThresholdEnv(),
 		}
