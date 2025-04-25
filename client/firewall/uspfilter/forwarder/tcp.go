@@ -145,10 +145,14 @@ func (f *Forwarder) sendTCPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.Tr
 		}
 	}
 
+	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
+	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
 	if typ == nftypes.TypeStart {
-		if ruleId, ok := f.getRuleID(typ, netip.AddrFrom4(id.RemoteAddress.As4()), netip.AddrFrom4(id.LocalAddress.As4()), id.RemotePort, id.LocalPort); ok {
+		if ruleId, ok := f.getRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort); ok {
 			fields.RuleID = ruleId
 		}
+	} else {
+		f.deleteRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort)
 	}
 
 	f.flowLogger.StoreEvent(fields)

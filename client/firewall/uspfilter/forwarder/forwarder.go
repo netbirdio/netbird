@@ -177,23 +177,23 @@ func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uin
 	f.ruleIdMap.LoadOrStore(key, ruleID)
 }
 
-func (f *Forwarder) getRuleID(eventType nftypes.Type, srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ([]byte, bool) {
-	if eventType == nftypes.TypeStart {
-		if value, ok := f.ruleIdMap.Load(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
-			return value.([]byte), true
-		} else if value, ok := f.ruleIdMap.Load(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
-			return value.([]byte), true
-		}
+func (f *Forwarder) getRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ([]byte, bool) {
 
-	} else {
-		if value, ok := f.ruleIdMap.LoadAndDelete(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
-			return value.([]byte), true
-		} else if value, ok := f.ruleIdMap.LoadAndDelete(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
-			return value.([]byte), true
-		}
+	if value, ok := f.ruleIdMap.Load(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
+		return value.([]byte), true
+	} else if value, ok := f.ruleIdMap.Load(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
+		return value.([]byte), true
 	}
 
 	return nil, false
+}
+
+func (f *Forwarder) deleteRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) {
+	if _, ok := f.ruleIdMap.LoadAndDelete(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
+		return
+	} else if _, ok := f.ruleIdMap.LoadAndDelete(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
+		return
+	}
 }
 
 func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) string {
