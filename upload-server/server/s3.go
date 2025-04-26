@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -18,16 +19,16 @@ type sThree struct {
 	presignClient *s3.PresignClient
 }
 
-func configureS3Handlers(mux *http.ServeMux) {
+func configureS3Handlers(mux *http.ServeMux) error {
 	bucket := os.Getenv(bucketVar)
 	region, ok := os.LookupEnv("AWS_REGION")
 	if !ok {
-		log.Fatalf("AWS_REGION environment variable is required")
+		return fmt.Errorf("AWS_REGION environment variable is required")
 	}
 	ctx := context.Background()
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
-		log.Fatalf("Unable to load SDK config: %v", err)
+		return fmt.Errorf("unable to load SDK config: %v", err)
 	}
 
 	client := s3.NewFromConfig(cfg)
@@ -38,6 +39,7 @@ func configureS3Handlers(mux *http.ServeMux) {
 		presignClient: s3.NewPresignClient(client),
 	}
 	mux.HandleFunc(getURLPath, handler.handlerGetUploadURL)
+	return nil
 }
 
 func (s *sThree) handlerGetUploadURL(w http.ResponseWriter, r *http.Request) {

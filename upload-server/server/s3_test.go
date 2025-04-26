@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"runtime"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -18,7 +19,10 @@ import (
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
-func TestAccessS3(t *testing.T) {
+func Test_S3HandlerGetUploadURL(t *testing.T) {
+	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" {
+		t.Skip("Skipping test on non-Linux and CI environment due to docker dependency")
+	}
 	awsEndpoint := "http://127.0.0.1:4566"
 	awsRegion := "us-east-1"
 
@@ -38,7 +42,7 @@ func TestAccessS3(t *testing.T) {
 	}
 	defer func(c testcontainers.Container, ctx context.Context) {
 		if err := c.Terminate(ctx); err != nil {
-			fmt.Println(err)
+			t.Log(err)
 		}
 	}(c, ctx)
 
@@ -74,7 +78,8 @@ func TestAccessS3(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
 
 	mux := http.NewServeMux()
-	configureS3Handlers(mux)
+	err = configureS3Handlers(mux)
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, getURLPath+"?id=test-file", nil)
 	req.Header.Set(types.ClientHeader, types.ClientHeaderValue)

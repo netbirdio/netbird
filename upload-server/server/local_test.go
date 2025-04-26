@@ -14,14 +14,14 @@ import (
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
-func Test_HandlerGetUploadURL(t *testing.T) {
+func Test_LocalHandlerGetUploadURL(t *testing.T) {
 	mockURL := "http://localhost:8080"
-	l := &local{
-		url: mockURL,
-	}
+	t.Setenv("SERVER_URL", mockURL)
+	t.Setenv("STORE_DIR", t.TempDir())
 
 	mux := http.NewServeMux()
-	mux.HandleFunc(getURLPath, l.handlerGetUploadURL)
+	err := configureLocalHandlers(mux)
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, getURLPath+"?id=test-file", nil)
 	req.Header.Set(types.ClientHeader, types.ClientHeaderValue)
@@ -32,7 +32,7 @@ func Test_HandlerGetUploadURL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var response types.GetURLResponse
-	err := json.Unmarshal(rec.Body.Bytes(), &response)
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
 	require.NoError(t, err)
 	require.Contains(t, response.URL, "test-file/")
 	require.NotEmpty(t, response.Key)
@@ -40,14 +40,15 @@ func Test_HandlerGetUploadURL(t *testing.T) {
 
 }
 
-func Test_HandlePutRequest(t *testing.T) {
+func Test_LocalHandlePutRequest(t *testing.T) {
 	mockDir := t.TempDir()
-	l := &local{
-		dir: mockDir,
-	}
+	mockURL := "http://localhost:8080"
+	t.Setenv("SERVER_URL", mockURL)
+	t.Setenv("STORE_DIR", mockDir)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc(putURLPath+putHandler, l.handlePutRequest)
+	err := configureLocalHandlers(mux)
+	require.NoError(t, err)
 
 	fileContent := []byte("test file content")
 	req := httptest.NewRequest(http.MethodPut, putURLPath+"/uploads/test.txt", bytes.NewReader(fileContent))

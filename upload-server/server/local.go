@@ -35,7 +35,7 @@ func configureLocalHandlers(mux *http.ServeMux) error {
 	envDir, ok := os.LookupEnv("STORE_DIR")
 	if ok {
 		if !filepath.IsAbs(envDir) {
-			return fmt.Errorf("STORE_DIR environment variable should point to an absolut path, e.g. /tmp")
+			return fmt.Errorf("STORE_DIR environment variable should point to an absolute path, e.g. /tmp")
 		}
 		log.Infof("Using local directory: %s", envDir)
 		dir = envDir
@@ -106,13 +106,13 @@ func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 	dirPath := filepath.Join(l.dir, uploadDir)
 	err = os.MkdirAll(dirPath, 0750)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create upload dir"), http.StatusInternalServerError)
+		http.Error(w, "failed to create upload dir", http.StatusInternalServerError)
 		log.Errorf("Failed to create upload dir: %v", err)
 		return
 	}
 
 	file := filepath.Join(dirPath, uploadFile)
-	if err := os.WriteFile(file, body, 0666); err != nil {
+	if err := os.WriteFile(file, body, 0640); err != nil {
 		log.Fatal(err)
 	}
 	log.Infof("Uploading file %s", file)

@@ -29,7 +29,10 @@ func NewServer() *Server {
 		address = "0.0.0.0:8080"
 	}
 	mux := http.NewServeMux()
-	configureMux(mux)
+	err := configureMux(mux)
+	if err != nil {
+		log.Fatalf("Failed to configure server: %v", err)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 	})
@@ -45,12 +48,12 @@ func (s *Server) Start() error {
 	return http.ListenAndServe(s.address, s.mux)
 }
 
-func configureMux(mux *http.ServeMux) {
+func configureMux(mux *http.ServeMux) error {
 	_, ok := os.LookupEnv(bucketVar)
 	if ok {
-		configureS3Handlers(mux)
+		return configureS3Handlers(mux)
 	} else {
-		configureLocalHandlers(mux)
+		return configureLocalHandlers(mux)
 	}
 }
 
@@ -90,5 +93,8 @@ func respondGetRequest(w http.ResponseWriter, uploadURL string, objectKey string
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write(rdata)
+	_, err = w.Write(rdata)
+	if err != nil {
+		log.Errorf("Write error: %v", err)
+	}
 }
