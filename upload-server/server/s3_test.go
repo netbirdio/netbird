@@ -23,6 +23,10 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" {
 		t.Skip("Skipping test on non-Linux and CI environment due to docker dependency")
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping test on Windows due to docker dependency")
+	}
+
 	awsEndpoint := "http://127.0.0.1:4566"
 	awsRegion := "us-east-1"
 
