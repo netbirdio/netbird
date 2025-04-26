@@ -20,7 +20,6 @@ const (
 
 type Server struct {
 	srv *http.Server
-	mux *http.ServeMux
 }
 
 func NewServer() *Server {
