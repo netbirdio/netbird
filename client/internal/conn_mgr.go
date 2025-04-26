@@ -67,13 +67,43 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 }
 
 // SetExcludeList sets the list of peer IDs that should always have permanent connections.
-// Must be called before Add/Remove peer conn.
 func (e *ConnMgr) SetExcludeList(peerIDs []string) {
 	if e.lazyConnMgr == nil {
 		return
 	}
 
-	e.lazyConnMgr.ExcludePeer(peerIDs)
+	excludedPeers := make([]lazyconn.PeerConfig, 0, len(peerIDs))
+
+	for _, peerID := range peerIDs {
+		var peerConn *peer.Conn
+		var exists bool
+		if peerConn, exists = e.peerStore.PeerConn(peerID); !exists {
+			continue
+		}
+
+		lazyPeerCfg := lazyconn.PeerConfig{
+			PublicKey:  peerID,
+			AllowedIPs: peerConn.WgConfig().AllowedIps,
+			PeerConnID: peerConn.ConnID(),
+			Log:        peerConn.Log,
+		}
+		excludedPeers = append(excludedPeers, lazyPeerCfg)
+	}
+
+	added := e.lazyConnMgr.ExcludePeer(e.ctx, excludedPeers)
+	for _, peerID := range added {
+		var peerConn *peer.Conn
+		var exists bool
+		if peerConn, exists = e.peerStore.PeerConn(peerID); !exists {
+			// if the peer not exist in the store, it means that the engine will call the AddPeerConn
+			continue
+		}
+
+		peerConn.Log.Infof("peer has been added to lazy connection exclude list, opening permanent connection")
+		if err := peerConn.Open(e.ctx); err != nil {
+			peerConn.Log.Errorf("failed to open connection: %v", err)
+		}
+	}
 }
 
 func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
