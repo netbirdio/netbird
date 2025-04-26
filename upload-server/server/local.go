@@ -4,14 +4,80 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	defaultDir = "/var/lib/netbird"
+	putHandler = "/{dir}/{file}"
+)
+
 type local struct {
+	url string
 	dir string
+}
+
+func configureLocalHandlers(mux *http.ServeMux) error {
+	envURL, ok := os.LookupEnv("SERVER_URL")
+	if !ok {
+		return fmt.Errorf("SERVER_URL environment variable is required")
+	}
+	_, err := url.Parse(envURL)
+	if err != nil {
+		return fmt.Errorf("SERVER_URL environment variable is invalid: %v", err)
+	}
+
+	dir := defaultDir
+	envDir, ok := os.LookupEnv("STORE_DIR")
+	if ok {
+		if !filepath.IsAbs(envDir) {
+			return fmt.Errorf("STORE_DIR environment variable should point to an absolut path, e.g. /tmp")
+		}
+		log.Infof("Using local directory: %s", envDir)
+		dir = envDir
+	}
+
+	l := &local{
+		url: envURL,
+		dir: dir,
+	}
+	mux.HandleFunc(getURLPath, l.handlerGetUploadURL)
+	mux.HandleFunc(putURLPath+putHandler, l.handlePutRequest)
+
+	return nil
+}
+
+func (l *local) handlerGetUploadURL(w http.ResponseWriter, r *http.Request) {
+	if !isValidRequest(w, r) {
+		return
+	}
+
+	objectKey := getObjectKey(w, r)
+	if objectKey == "" {
+		return
+	}
+
+	uploadURL, err := l.getUploadURL(objectKey)
+	if err != nil {
+		http.Error(w, "failed to get upload URL", http.StatusInternalServerError)
+		log.Errorf("Failed to get upload URL: %v", err)
+		return
+	}
+
+	respondGetRequest(w, uploadURL, objectKey)
+}
+
+func (l *local) getUploadURL(objectKey string) (string, error) {
+	parsedUploadURL, err := url.Parse(l.url)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse upload URL: %v", err)
+	}
+	parsedUploadURL.Path = filepath.Join(parsedUploadURL.Path, putURLPath, objectKey)
+	return parsedUploadURL.String(), nil
 }
 
 func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
@@ -26,14 +92,26 @@ func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	os.MkdirAll(l.dir, 0750)
-
-	dir, err := os.MkdirTemp("", "example")
-	if err != nil {
-		log.Fatal(err)
+	uploadDir := r.PathValue("dir")
+	if uploadDir == "" {
+		http.Error(w, "missing dir path", http.StatusBadRequest)
+		return
+	}
+	uploadFile := r.PathValue("file")
+	if uploadFile == "" {
+		http.Error(w, "missing file name", http.StatusBadRequest)
+		return
 	}
 
-	file := filepath.Join(dir, "tmpfile")
+	dirPath := filepath.Join(l.dir, uploadDir)
+	err = os.MkdirAll(dirPath, 0750)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create upload dir"), http.StatusInternalServerError)
+		log.Errorf("Failed to create upload dir: %v", err)
+		return
+	}
+
+	file := filepath.Join(dirPath, uploadFile)
 	if err := os.WriteFile(file, body, 0666); err != nil {
 		log.Fatal(err)
 	}

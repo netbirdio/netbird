@@ -1,69 +1,43 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"os"
-	"path/filepath"
-	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
+const (
+	getURLPath = "/upload-url"
+	putURLPath = "/upload"
+	bucketVar  = "BUCKET"
+)
+
 type Server struct {
-	ctx           context.Context
-	address       string
-	bucket        string
-	presignClient *s3.PresignClient
-	mux           *http.ServeMux
+	address string
+	mux     *http.ServeMux
 }
 
 func NewServer() *Server {
-	bucket := os.Getenv("BUCKET")
-	if bucket == "" {
-		log.Fatalf("BUCKET environment variable is required")
-	}
-	region := os.Getenv("AWS_REGION")
-	if region == "" {
-		log.Fatalf("AWS_REGION environment variable is required")
-	}
-
 	address := os.Getenv("SERVER_ADDRESS")
 	if address == "" {
 		log.Infof("SERVER_ADDRESS environment variable was not set, using 0.0.0.0:8080")
 		address = "0.0.0.0:8080"
 	}
-	ctx := context.Background()
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-	if err != nil {
-		log.Fatalf("Unable to load SDK config: %v", err)
-	}
-
-	client := s3.NewFromConfig(cfg)
-
-	srv := &Server{
-		ctx:           ctx,
-		address:       address,
-		bucket:        bucket,
-		presignClient: s3.NewPresignClient(client),
-	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/upload-url", srv.handlerGetUploadURL)
-	mux.HandleFunc("/upload", srv.handlePutRequest)
+	configureMux(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 	})
-	srv.mux = mux
-	return srv
+
+	return &Server{
+		address: address,
+		mux:     mux,
+	}
 }
 
 func (s *Server) Start() error {
@@ -71,38 +45,40 @@ func (s *Server) Start() error {
 	return http.ListenAndServe(s.address, s.mux)
 }
 
-func (s *Server) handlerGetUploadURL(w http.ResponseWriter, r *http.Request) {
+func configureMux(mux *http.ServeMux) {
+	_, ok := os.LookupEnv(bucketVar)
+	if ok {
+		configureS3Handlers(mux)
+	} else {
+		configureLocalHandlers(mux)
+	}
+}
+
+func getObjectKey(w http.ResponseWriter, r *http.Request) string {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "id query param required", http.StatusBadRequest)
+		return ""
+	}
+
+	return id + "/" + uuid.New().String()
+}
+
+func isValidRequest(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+		return false
 	}
 
 	if r.Header.Get(types.ClientHeader) != types.ClientHeaderValue {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+		return false
 	}
-
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		http.Error(w, "filename query param required", http.StatusBadRequest)
-		return
-	}
-
-	objectKey := id + "/" + uuid.New().String()
-
-	req, err := s.presignClient.PresignPutObject(s.ctx, &s3.PutObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(objectKey),
-	}, s3.WithPresignExpires(15*time.Minute))
-
-	if err != nil {
-		http.Error(w, "failed to presign URL", http.StatusInternalServerError)
-		log.Errorf("Presign error: %v", err)
-		return
-	}
-
+	return true
+}
+func respondGetRequest(w http.ResponseWriter, uploadURL string, objectKey string) {
 	response := types.GetURLResponse{
-		URL: req.URL,
+		URL: uploadURL,
 		Key: objectKey,
 	}
 
@@ -115,28 +91,4 @@ func (s *Server) handlerGetUploadURL(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(rdata)
-}
-
-func (s *Server) handlePutRequest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to read body: %v", err), http.StatusInternalServerError)
-		return
-	}
-	dir, err := os.MkdirTemp("", "example")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	file := filepath.Join(dir, "tmpfile")
-	if err := os.WriteFile(file, body, 0666); err != nil {
-		log.Fatal(err)
-	}
-	log.Infof("Uploading file %s", file)
-	w.WriteHeader(http.StatusOK)
 }
