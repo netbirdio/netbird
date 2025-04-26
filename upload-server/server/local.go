@@ -115,7 +115,9 @@ func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 
 	file := filepath.Join(dirPath, uploadFile)
 	if err := os.WriteFile(file, body, 0600); err != nil {
-		log.Fatal(err)
+		http.Error(w, "failed to write file", http.StatusInternalServerError)
+		log.Errorf("Failed to write file %s: %v", file, err)
+		return
 	}
 	log.Infof("Uploading file %s", file)
 	w.WriteHeader(http.StatusOK)
