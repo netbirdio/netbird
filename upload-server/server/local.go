@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/upload-server/types"
 )
 
 const (
@@ -45,7 +47,7 @@ func configureLocalHandlers(mux *http.ServeMux) error {
 		url: envURL,
 		dir: dir,
 	}
-	mux.HandleFunc(getURLPath, l.handlerGetUploadURL)
+	mux.HandleFunc(types.GetURLPath, l.handlerGetUploadURL)
 	mux.HandleFunc(putURLPath+putHandler, l.handlePutRequest)
 
 	return nil
@@ -112,7 +114,7 @@ func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	file := filepath.Join(dirPath, uploadFile)
-	if err := os.WriteFile(file, body, 0640); err != nil {
+	if err := os.WriteFile(file, body, 0600); err != nil {
 		log.Fatal(err)
 	}
 	log.Infof("Uploading file %s", file)

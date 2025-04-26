@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"log"
+	"net/http"
 
 	"github.com/netbirdio/netbird/upload-server/server"
 	"github.com/netbirdio/netbird/util"
@@ -14,7 +16,7 @@ func main() {
 	}
 
 	srv := server.NewServer()
-	if err = srv.Start(); err != nil {
+	if err = srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

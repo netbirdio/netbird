@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/upload-server/types"
 )
 
 type sThree struct {
@@ -38,7 +40,7 @@ func configureS3Handlers(mux *http.ServeMux) error {
 		bucket:        bucket,
 		presignClient: s3.NewPresignClient(client),
 	}
-	mux.HandleFunc(getURLPath, handler.handlerGetUploadURL)
+	mux.HandleFunc(types.GetURLPath, handler.handlerGetUploadURL)
 	return nil
 }
 

@@ -5,6 +5,8 @@ const (
 	ClientHeader = "x-nb-client"
 	// ClientHeaderValue is the value of the ClientHeader
 	ClientHeaderValue = "netbird"
+	// GetURLPath is the path for the GetURL request
+	GetURLPath = "/upload-url"
 )
 
 // GetURLResponse is the response for the GetURL request

@@ -23,7 +23,7 @@ func Test_LocalHandlerGetUploadURL(t *testing.T) {
 	err := configureLocalHandlers(mux)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, getURLPath+"?id=test-file", nil)
+	req := httptest.NewRequest(http.MethodGet, types.GetURLPath+"?id=test-file", nil)
 	req.Header.Set(types.ClientHeader, types.ClientHeaderValue)
 
 	rec := httptest.NewRecorder()

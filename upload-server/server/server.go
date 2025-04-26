@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -12,14 +14,13 @@ import (
 )
 
 const (
-	getURLPath = "/upload-url"
 	putURLPath = "/upload"
 	bucketVar  = "BUCKET"
 )
 
 type Server struct {
-	address string
-	mux     *http.ServeMux
+	srv *http.Server
+	mux *http.ServeMux
 }
 
 func NewServer() *Server {
@@ -38,14 +39,23 @@ func NewServer() *Server {
 	})
 
 	return &Server{
-		address: address,
-		mux:     mux,
+		srv: &http.Server{Addr: address, Handler: mux},
 	}
 }
 
 func (s *Server) Start() error {
-	log.Infof("Starting upload server on %s", s.address)
-	return http.ListenAndServe(s.address, s.mux)
+	log.Infof("Starting upload server on %s", s.srv.Addr)
+	return s.srv.ListenAndServe()
+}
+
+func (s *Server) Stop() error {
+	if s.srv != nil {
+		log.Infof("Stopping upload server on %s", s.srv.Addr)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return s.srv.Shutdown(ctx)
+	}
+	return nil
 }
 
 func configureMux(mux *http.ServeMux) error {

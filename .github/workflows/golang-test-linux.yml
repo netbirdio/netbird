@@ -201,7 +201,7 @@ jobs:
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /client/ui)
+              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /client/ui -e /upload-server)
             '
 
   test_relay:

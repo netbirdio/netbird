@@ -114,7 +114,7 @@ func upload(ctx context.Context, filePath string, response *types.GetURLResponse
 }
 
 func getUploadURL(ctx context.Context, url string, managementURL string) (*types.GetURLResponse, error) {
-	id := fmt.Sprintf("%x", sha256.Sum256([]byte(managementURL)))
+	id := getURLHash(managementURL)
 	getReq, err := http.NewRequestWithContext(ctx, "GET", url+"?id="+id, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GET request: %v", err)
@@ -137,6 +137,10 @@ func getUploadURL(ctx context.Context, url string, managementURL string) (*types
 		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
 	}
 	return &response, nil
+}
+
+func getURLHash(url string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(url)))
 }
 
 // GetLogLevel gets the current logging level for the server.

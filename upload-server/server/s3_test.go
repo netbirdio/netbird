@@ -46,6 +46,11 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 		}
 	}(c, ctx)
 
+	t.Setenv("AWS_REGION", awsRegion)
+	t.Setenv("AWS_ENDPOINT_URL", awsEndpoint)
+	t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(awsRegion), config.WithBaseEndpoint(awsEndpoint))
 	if err != nil {
 		t.Error(err)
@@ -72,16 +77,12 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 	assert.Equal(t, *list.Buckets[0].Name, bucketName)
 
 	t.Setenv(bucketVar, bucketName)
-	t.Setenv("AWS_REGION", awsRegion)
-	t.Setenv("AWS_ENDPOINT_URL", awsEndpoint)
-	t.Setenv("AWS_ACCESS_KEY_ID", "test")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
 
 	mux := http.NewServeMux()
 	err = configureS3Handlers(mux)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, getURLPath+"?id=test-file", nil)
+	req := httptest.NewRequest(http.MethodGet, types.GetURLPath+"?id=test-file", nil)
 	req.Header.Set(types.ClientHeader, types.ClientHeaderValue)
 
 	rec := httptest.NewRecorder()
