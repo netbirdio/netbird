@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/upload-server/types"
 )
 
 const (
@@ -41,7 +42,7 @@ const (
 	blockLANAccessFlag      = "block-lan-access"
 	uploadBundle            = "upload-bundle"
 	uploadBundleURL         = "upload-bundle-url"
-	defaultBundleURL        = "http://localhost:8080/upload-url"
+	defaultBundleURL        = "https://upload.debug.netbird.io" + types.GetURLPath
 )
 
 var (
