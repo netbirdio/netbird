@@ -121,7 +121,7 @@ func (m *Manager) ExcludePeer(ctx context.Context, peerConfigs []lazyconn.PeerCo
 		}
 
 		added = append(added, pubKey)
-		peerCfg.Log.Infof("exclude peer from lazy connection managment")
+		peerCfg.Log.Infof("peer newly added to lazy connection exclude list")
 		m.removePeer(pubKey)
 	}
 
@@ -130,6 +130,8 @@ func (m *Manager) ExcludePeer(ctx context.Context, peerConfigs []lazyconn.PeerCo
 		if _, stillExcluded := excludes[pubKey]; stillExcluded {
 			continue
 		}
+
+		peerCfg.Log.Infof("peer removed from lazy connection exclude list")
 
 		if err := m.addActivePeer(ctx, peerCfg); err != nil {
 			log.Errorf("failed to add peer to lazy connection manager: %s", err)
