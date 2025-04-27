@@ -98,6 +98,10 @@ func (m *Manager) Start(ctx context.Context, activeFn func(peerID string), inact
 }
 
 // ExcludePeer marks peers for a permanent connection
+// It removes peers from the managed list if they are added to the exclude list
+// Adds them back to the managed list and start the inactivity listener if they are removed from the exclude list. In
+// this case, we suppose that the connection status is connected or connecting.
+// If the peer is not exists yet in the managed list then the responsibility is the upper layer to call the AddPeer function
 func (m *Manager) ExcludePeer(ctx context.Context, peerConfigs []lazyconn.PeerConfig) []string {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
@@ -106,7 +110,7 @@ func (m *Manager) ExcludePeer(ctx context.Context, peerConfigs []lazyconn.PeerCo
 	excludes := make(map[string]lazyconn.PeerConfig, len(peerConfigs))
 
 	for _, peerCfg := range peerConfigs {
-		log.Infof("update excluded peers from lazy connection: %s", peerCfg.PublicKey)
+		log.Infof("update excluded lazy connection list with peer: %s", peerCfg.PublicKey)
 		excludes[peerCfg.PublicKey] = peerCfg
 	}
 

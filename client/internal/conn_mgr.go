@@ -95,7 +95,7 @@ func (e *ConnMgr) SetExcludeList(peerIDs []string) {
 		var peerConn *peer.Conn
 		var exists bool
 		if peerConn, exists = e.peerStore.PeerConn(peerID); !exists {
-			// if the peer not exist in the store, it means that the engine will call the AddPeerConn
+			// if the peer not exist in the store, it means that the engine will call the AddPeerConn in next step
 			continue
 		}
 
