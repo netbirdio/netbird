@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"runtime"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -17,6 +19,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
@@ -29,8 +32,10 @@ const (
 )
 
 type Forwarder struct {
-	logger       *nblog.Logger
-	flowLogger   nftypes.FlowLogger
+	logger     *nblog.Logger
+	flowLogger nftypes.FlowLogger
+	// ruleIdMap is used to store the rule ID for a given connection
+	ruleIdMap    sync.Map
 	stack        *stack.Stack
 	endpoint     *endpoint
 	udpForwarder *udpForwarder
@@ -166,4 +171,36 @@ func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {
 		return net.IPv4(127, 0, 0, 1)
 	}
 	return addr.AsSlice()
+}
+
+func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, ruleID []byte) {
+	key := buildKey(srcIP, dstIP, srcPort, dstPort)
+	f.ruleIdMap.LoadOrStore(key, ruleID)
+}
+
+func (f *Forwarder) getRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ([]byte, bool) {
+
+	if value, ok := f.ruleIdMap.Load(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
+		return value.([]byte), true
+	} else if value, ok := f.ruleIdMap.Load(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
+		return value.([]byte), true
+	}
+
+	return nil, false
+}
+
+func (f *Forwarder) DeleteRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) {
+	if _, ok := f.ruleIdMap.LoadAndDelete(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
+		return
+	}
+	f.ruleIdMap.LoadAndDelete(buildKey(dstIP, srcIP, dstPort, srcPort))
+}
+
+func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) conntrack.ConnKey {
+	return conntrack.ConnKey{
+		SrcIP:   srcIP,
+		DstIP:   dstIP,
+		SrcPort: srcPort,
+		DstPort: dstPort,
+	}
 }
