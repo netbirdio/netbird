@@ -194,6 +194,7 @@ jobs:
             -v "${HOST_GOMODCACHE}:${CONTAINER_GOMODCACHE}" \
             -e CGO_ENABLED=1 \
             -e CI=true \
+            -e DOCKER_CI=true \
             -e GOARCH=${GOARCH_TARGET} \
             -e GOCACHE=${CONTAINER_GOCACHE} \
             -e GOMODCACHE=${CONTAINER_GOMODCACHE} \

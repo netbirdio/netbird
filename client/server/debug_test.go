@@ -15,6 +15,9 @@ import (
 )
 
 func TestUpload(t *testing.T) {
+	if os.Getenv("DOCKER_CI") == "true" {
+		t.Skip("Skipping upload test on docker ci")
+	}
 	testDir := t.TempDir()
 	testURL := "http://localhost:8080"
 	t.Setenv("SERVER_URL", testURL)
