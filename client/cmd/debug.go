@@ -102,7 +102,7 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	cmd.Printf("Local file: %s\n", resp.GetPath())
 
 	if resp.GetUploadFailureReason() != "" {
-		return fmt.Errorf("Upload failed with error: %s", resp.GetUploadFailureReason())
+		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
 	if debugUploadBundle {
@@ -259,7 +259,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	cmd.Printf("Local file: %s\n", resp.GetPath())
 
 	if resp.GetUploadFailureReason() != "" {
-		return fmt.Errorf("Upload failed with error: %s", resp.GetUploadFailureReason())
+		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
 	if debugUploadBundle {

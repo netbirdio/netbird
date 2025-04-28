@@ -30,7 +30,7 @@ func configureS3Handlers(mux *http.ServeMux) error {
 	ctx := context.Background()
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
-		return fmt.Errorf("unable to load SDK config: %v", err)
+		return fmt.Errorf("unable to load SDK config: %w", err)
 	}
 
 	client := s3.NewFromConfig(cfg)
