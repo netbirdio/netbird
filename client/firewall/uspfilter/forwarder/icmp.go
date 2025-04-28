@@ -25,7 +25,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	}
 
 	flowID := uuid.New()
-	f.sendICMPEvent(nftypes.TypeStart, flowID, id, icmpType, icmpCode)
+	f.sendICMPEvent(nftypes.TypeStart, flowID, id, icmpType, icmpCode, 0, 0)
 
 	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 	defer cancel()
@@ -34,14 +34,14 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	// TODO: support non-root
 	conn, err := lc.ListenPacket(ctx, "ip4:icmp", "0.0.0.0")
 	if err != nil {
-		f.logger.Error("Failed to create ICMP socket for %v: %v", epID(id), err)
+		f.logger.Error("forwarder: Failed to create ICMP socket for %v: %v", epID(id), err)
 
 		// This will make netstack reply on behalf of the original destination, that's ok for now
 		return false
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			f.logger.Debug("Failed to close ICMP socket: %v", err)
+			f.logger.Debug("forwarder: Failed to close ICMP socket: %v", err)
 		}
 	}()
 
@@ -52,36 +52,37 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	payload := fullPacket.AsSlice()
 
 	if _, err = conn.WriteTo(payload, dst); err != nil {
-		f.logger.Error("Failed to write ICMP packet for %v: %v", epID(id), err)
+		f.logger.Error("forwarder: Failed to write ICMP packet for %v: %v", epID(id), err)
 		return true
 	}
 
-	f.logger.Trace("Forwarded ICMP packet %v type %v code %v",
+	f.logger.Trace("forwarder: Forwarded ICMP packet %v type %v code %v",
 		epID(id), icmpHdr.Type(), icmpHdr.Code())
 
 	// For Echo Requests, send and handle response
 	if header.ICMPv4Type(icmpType) == header.ICMPv4Echo {
-		f.handleEchoResponse(icmpHdr, conn, id)
-		f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode)
+		rxBytes := pkt.Size()
+		txBytes := f.handleEchoResponse(icmpHdr, conn, id)
+		f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 	}
 
 	// For other ICMP types (Time Exceeded, Destination Unreachable, etc) do nothing
 	return true
 }
 
-func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, conn net.PacketConn, id stack.TransportEndpointID) {
+func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, conn net.PacketConn, id stack.TransportEndpointID) int {
 	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		f.logger.Error("Failed to set read deadline for ICMP response: %v", err)
-		return
+		f.logger.Error("forwarder: Failed to set read deadline for ICMP response: %v", err)
+		return 0
 	}
 
 	response := make([]byte, f.endpoint.mtu)
 	n, _, err := conn.ReadFrom(response)
 	if err != nil {
 		if !isTimeout(err) {
-			f.logger.Error("Failed to read ICMP response: %v", err)
+			f.logger.Error("forwarder: Failed to read ICMP response: %v", err)
 		}
-		return
+		return 0
 	}
 
 	ipHdr := make([]byte, header.IPv4MinimumSize)
@@ -100,28 +101,54 @@ func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, conn net.PacketCon
 	fullPacket = append(fullPacket, response[:n]...)
 
 	if err := f.InjectIncomingPacket(fullPacket); err != nil {
-		f.logger.Error("Failed to inject ICMP response: %v", err)
+		f.logger.Error("forwarder: Failed to inject ICMP response: %v", err)
 
-		return
+		return 0
 	}
 
-	f.logger.Trace("Forwarded ICMP echo reply for %v type %v code %v",
+	f.logger.Trace("forwarder: Forwarded ICMP echo reply for %v type %v code %v",
 		epID(id), icmpHdr.Type(), icmpHdr.Code())
+
+	return len(fullPacket)
 }
 
 // sendICMPEvent stores flow events for ICMP packets
-func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8) {
-	f.flowLogger.StoreEvent(nftypes.EventFields{
+func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8, rxBytes, txBytes uint64) {
+	var rxPackets, txPackets uint64
+	if rxBytes > 0 {
+		rxPackets = 1
+	}
+	if txBytes > 0 {
+		txPackets = 1
+	}
+
+	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
+	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
+
+	fields := nftypes.EventFields{
 		FlowID:    flowID,
 		Type:      typ,
 		Direction: nftypes.Ingress,
 		Protocol:  nftypes.ICMP,
 		// TODO: handle ipv6
-		SourceIP: netip.AddrFrom4(id.RemoteAddress.As4()),
-		DestIP:   netip.AddrFrom4(id.LocalAddress.As4()),
+		SourceIP: srcIp,
+		DestIP:   dstIp,
 		ICMPType: icmpType,
 		ICMPCode: icmpCode,
 
-		// TODO: get packets/bytes
-	})
+		RxBytes:   rxBytes,
+		TxBytes:   txBytes,
+		RxPackets: rxPackets,
+		TxPackets: txPackets,
+	}
+
+	if typ == nftypes.TypeStart {
+		if ruleId, ok := f.getRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort); ok {
+			fields.RuleID = ruleId
+		}
+	} else {
+		f.DeleteRuleID(srcIp, dstIp, id.RemotePort, id.LocalPort)
+	}
+
+	f.flowLogger.StoreEvent(fields)
 }
