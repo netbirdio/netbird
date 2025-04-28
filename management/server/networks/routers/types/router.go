@@ -10,7 +10,7 @@ import (
 )
 
 type NetworkRouter struct {
-	ID         string `gorm:"index"`
+	ID         string `gorm:"primaryKey"`
 	NetworkID  string `gorm:"index"`
 	AccountID  string `gorm:"index"`
 	Peer       string
