@@ -824,7 +824,8 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	proto, pnum := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
 
-	if ruleID, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort); !pass {
+	ruleID, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	if !pass {
 		m.logger.Trace("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
 			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
 
@@ -850,8 +851,11 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	if fwd == nil {
 		m.logger.Trace("failed to forward routed packet (forwarder not initialized)")
 	} else {
+		fwd.RegisterRuleID(srcIP, dstIP, srcPort, dstPort, ruleID)
+
 		if err := fwd.InjectIncomingPacket(packetData); err != nil {
 			m.logger.Error("Failed to inject routed packet: %v", err)
+			fwd.DeleteRuleID(srcIP, dstIP, srcPort, dstPort)
 		}
 	}
 
