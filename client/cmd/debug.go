@@ -99,14 +99,14 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
-	cmd.Printf("Local file: %s\n", resp.GetPath())
+	cmd.Printf("Local file:\n%s\n", resp.GetPath())
 
 	if resp.GetUploadFailureReason() != "" {
 		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
 	if debugUploadBundle {
-		cmd.Printf("Upload file key: %s\n", resp.GetUploadedKey())
+		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
 	}
 
 	return nil
@@ -256,14 +256,14 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		cmd.Println("Log level restored to", initialLogLevel.GetLevel())
 	}
 
-	cmd.Printf("Local file: %s\n", resp.GetPath())
+	cmd.Printf("Local file:\n%s\n", resp.GetPath())
 
 	if resp.GetUploadFailureReason() != "" {
 		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
 	if debugUploadBundle {
-		cmd.Printf("Upload file key: %s\n", resp.GetUploadedKey())
+		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
 	}
 
 	return nil
