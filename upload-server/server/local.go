@@ -30,7 +30,7 @@ func configureLocalHandlers(mux *http.ServeMux) error {
 	}
 	_, err := url.Parse(envURL)
 	if err != nil {
-		return fmt.Errorf("SERVER_URL environment variable is invalid: %v", err)
+		return fmt.Errorf("SERVER_URL environment variable is invalid: %w", err)
 	}
 
 	dir := defaultDir
@@ -76,7 +76,7 @@ func (l *local) handlerGetUploadURL(w http.ResponseWriter, r *http.Request) {
 func (l *local) getUploadURL(objectKey string) (string, error) {
 	parsedUploadURL, err := url.Parse(l.url)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse upload URL: %v", err)
+		return "", fmt.Errorf("failed to parse upload URL: %w", err)
 	}
 	newURL := parsedUploadURL.JoinPath(parsedUploadURL.Path, putURLPath, objectKey)
 	return newURL.String(), nil

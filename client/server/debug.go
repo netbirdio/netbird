@@ -78,14 +78,14 @@ func uploadDebugBundle(ctx context.Context, url, managementURL, filePath string)
 func upload(ctx context.Context, filePath string, response *types.GetURLResponse) error {
 	fileData, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %v", err)
+		return fmt.Errorf("open file: %w", err)
 	}
 
 	defer fileData.Close()
 
 	stat, err := fileData.Stat()
 	if err != nil {
-		return fmt.Errorf("failed to stat file: %v", err)
+		return fmt.Errorf("stat file: %w", err)
 	}
 
 	if stat.Size() > maxBundleUploadSize {
@@ -94,7 +94,7 @@ func upload(ctx context.Context, filePath string, response *types.GetURLResponse
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", response.URL, fileData)
 	if err != nil {
-		return fmt.Errorf("failed to create PUT request: %v", err)
+		return fmt.Errorf("create PUT request: %w", err)
 	}
 
 	req.ContentLength = stat.Size()
@@ -117,24 +117,24 @@ func getUploadURL(ctx context.Context, url string, managementURL string) (*types
 	id := getURLHash(managementURL)
 	getReq, err := http.NewRequestWithContext(ctx, "GET", url+"?id="+id, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GET request: %v", err)
+		return nil, fmt.Errorf("create GET request: %w", err)
 	}
 
 	getReq.Header.Set(types.ClientHeader, types.ClientHeaderValue)
 
 	resp, err := http.DefaultClient.Do(getReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get presigned URL: %v", err)
+		return nil, fmt.Errorf("get presigned URL: %w", err)
 	}
 	defer resp.Body.Close()
 
 	urlBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("read response body: %w", err)
 	}
 	var response types.GetURLResponse
 	if err := json.Unmarshal(urlBytes, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
+		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 	return &response, nil
 }
