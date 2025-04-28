@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"net"
 	"sync"
@@ -13,7 +15,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/proto"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
@@ -160,25 +161,74 @@ func (n *Network) Copy() *Network {
 // AllocatePeerIP pics an available IP from an net.IPNet.
 // This method considers already taken IPs and reuses IPs if there are gaps in takenIps
 // E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
-func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
-	takenIPMap := make(map[string]struct{})
-	takenIPMap[ipNet.IP.String()] = struct{}{}
-	for _, ip := range takenIps {
-		takenIPMap[ip.String()] = struct{}{}
+func AllocatePeerIP(ipNet net.IPNet, takenIps map[string]struct{}) (net.IP, error) {
+	numOfIPsInSubnet := numOfIPs(ipNet)
+	if len(takenIps) < numOfIPsInSubnet {
+		ip, err := allocateRandomFreeIP(ipNet, takenIps, numOfIPsInSubnet)
+		if err == nil {
+			return ip, nil
+		}
+	}
+	return allocateNextFreeIP(ipNet, takenIps, numOfIPsInSubnet)
+}
+
+func allocateNextFreeIP(ipNet net.IPNet, takenIps map[string]struct{}, numIPs int) (net.IP, error) {
+	ip := ipNet.IP.Mask(ipNet.Mask)
+
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return nil, fmt.Errorf("only IPv4 is supported")
+	}
+	start := binary.BigEndian.Uint32(ip4)
+
+	for i := uint32(1); i < uint32(numIPs-1); i++ {
+		candidate := make(net.IP, 4)
+		binary.BigEndian.PutUint32(candidate, start+i)
+
+		if _, taken := takenIps[candidate.String()]; !taken {
+			return candidate, nil
+		}
 	}
 
-	ips, _ := generateIPs(&ipNet, takenIPMap)
+	return nil, fmt.Errorf("no available IPs in network %s", ipNet.String())
+}
 
-	if len(ips) == 0 {
-		return nil, status.Errorf(status.PreconditionFailed, "failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
+func allocateRandomFreeIP(ipNet net.IPNet, takenIps map[string]struct{}, numIPs int) (net.IP, error) {
+	ip := ipNet.IP.Mask(ipNet.Mask)
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return nil, fmt.Errorf("only IPv4 is supported")
+	}
+	start := binary.BigEndian.Uint32(ip4)
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	const maxTries = 1000
+	for i := 0; i < maxTries; i++ {
+		randomOffset := uint32(r.Intn(numIPs-2)) + 1
+		candidate := make(net.IP, 4)
+		binary.BigEndian.PutUint32(candidate, start+randomOffset)
+
+		if _, taken := takenIps[candidate.String()]; !taken {
+			return candidate, nil
+		}
 	}
 
-	// pick a random IP
-	s := rand.NewSource(time.Now().Unix())
-	r := rand.New(s)
-	intn := r.Intn(len(ips))
+	for i := uint32(1); i < uint32(numIPs-1); i++ {
+		candidate := make(net.IP, 4)
+		binary.BigEndian.PutUint32(candidate, start+i)
+		if _, taken := takenIps[candidate.String()]; !taken {
+			return candidate, nil
+		}
+	}
 
-	return ips[intn], nil
+	return nil, fmt.Errorf("failed to randomly generate ip in network %s", ipNet.String())
+}
+
+func numOfIPs(ipNet net.IPNet) int {
+	ones, bits := ipNet.Mask.Size()
+	numIPs := 1 << (bits - ones)
+	return numIPs
 }
 
 // generateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list

@@ -232,7 +232,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 
 		if peer.Name != update.Name {
-			existingLabels, err := getPeerDNSLabels(ctx, transaction, accountID)
+			existingLabels, err := getPeerDNSLabels(ctx, transaction, accountID, update.Name)
 			if err != nil {
 				return err
 			}
@@ -1467,13 +1467,13 @@ func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID str
 	return groupIDs, err
 }
 
-func getPeerDNSLabels(ctx context.Context, transaction store.Store, accountID string) (types.LookupMap, error) {
-	dnsLabels, err := transaction.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID)
+func getPeerDNSLabels(ctx context.Context, transaction store.Store, accountID string, peerName string) (types.LookupMap, error) {
+	dnsLabels, err := transaction.GetPeerLabelsInAccountForName(ctx, store.LockingStrengthShare, accountID, peerName)
 	if err != nil {
 		return nil, err
 	}
 
-	existingLabels := make(types.LookupMap)
+	existingLabels := make(types.LookupMap, len(dnsLabels))
 	for _, label := range dnsLabels {
 		existingLabels[label] = struct{}{}
 	}

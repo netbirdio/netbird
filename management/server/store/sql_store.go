@@ -873,7 +873,7 @@ func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) 
 	return accountID, nil
 }
 
-func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]net.IP, error) {
+func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountID string) (map[string]struct{}, error) {
 	var ipJSONStrings []string
 
 	// Fetch the IP addresses as JSON strings
@@ -887,23 +887,22 @@ func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength
 		return nil, status.Errorf(status.Internal, "issue getting IPs from store: %s", result.Error)
 	}
 
-	// Convert the JSON strings to net.IP objects
-	ips := make([]net.IP, len(ipJSONStrings))
-	for i, ipJSON := range ipJSONStrings {
+	ips := make(map[string]struct{}, len(ipJSONStrings))
+	for _, ipJSON := range ipJSONStrings {
 		var ip net.IP
 		if err := json.Unmarshal([]byte(ipJSON), &ip); err != nil {
 			return nil, status.Errorf(status.Internal, "issue parsing IP JSON from store")
 		}
-		ips[i] = ip
+		ips[ip.String()] = struct{}{}
 	}
 
 	return ips, nil
 }
 
-func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
+func (s *SqlStore) GetPeerLabelsInAccountForName(ctx context.Context, lockStrength LockingStrength, accountID string, peerName string) ([]string, error) {
 	var labels []string
 	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&nbpeer.Peer{}).
-		Where("account_id = ?", accountID).
+		Where("account_id = ? AND dns_label LIKE ?", accountID, peerName+"%").
 		Pluck("dns_label", &labels)
 
 	if result.Error != nil {
@@ -1194,12 +1193,6 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, lockStrength LockingSt
 			return status.Errorf(status.NotFound, "group 'All' not found for account")
 		}
 		return status.Errorf(status.Internal, "issue finding group 'All': %s", result.Error)
-	}
-
-	for _, existingPeerID := range group.Peers {
-		if existingPeerID == peerID {
-			return nil
-		}
 	}
 
 	group.Peers = append(group.Peers, peerID)

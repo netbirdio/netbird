@@ -1595,7 +1595,7 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction
 }
 
 func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, s store.Store, accountID string, peerHostName string) (string, error) {
-	existingLabels, err := s.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID)
+	existingLabels, err := s.GetPeerLabelsInAccountForName(ctx, store.LockingStrengthShare, accountID, peerHostName)
 	if err != nil {
 		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
 	}
