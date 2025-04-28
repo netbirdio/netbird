@@ -39,6 +39,8 @@ func StrRoleToUserRole(strRole string) UserRole {
 		return UserRoleBillingAdmin
 	case "auditor":
 		return UserRoleAuditor
+	case "network_admin":
+		return UserRoleNetworkAdmin
 	default:
 		return UserRoleUnknown
 	}
