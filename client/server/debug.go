@@ -108,7 +108,7 @@ func upload(ctx context.Context, filePath string, response *types.GetURLResponse
 
 	if putResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(putResp.Body)
-		return fmt.Errorf("upload failed with status %d: %s", putResp.StatusCode, string(body))
+		return fmt.Errorf("upload status %d: %s", putResp.StatusCode, string(body))
 	}
 	return nil
 }
@@ -127,6 +127,11 @@ func getUploadURL(ctx context.Context, url string, managementURL string) (*types
 		return nil, fmt.Errorf("get presigned URL: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get presigned URL status %d: %s", resp.StatusCode, string(body))
+	}
 
 	urlBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
