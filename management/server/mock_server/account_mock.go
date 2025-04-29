@@ -116,7 +116,7 @@ type MockAccountManager struct {
 	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
-	GetCurrentUserInfoFunc              func(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error)
+	GetCurrentUserInfoFunc              func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetAccountMetaFunc                  func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
 }
 
@@ -883,9 +883,9 @@ func (am *MockAccountManager) GetOwnerInfo(ctx context.Context, accountId string
 	return nil, status.Errorf(codes.Unimplemented, "method GetOwnerInfo is not implemented")
 }
 
-func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error) {
+func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
 	if am.GetCurrentUserInfoFunc != nil {
-		return am.GetCurrentUserInfoFunc(ctx, accountID, userID)
+		return am.GetCurrentUserInfoFunc(ctx, userAuth)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
 }

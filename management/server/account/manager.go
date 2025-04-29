@@ -116,5 +116,5 @@ type Manager interface {
 	CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
-	GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error)
+	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
 }
