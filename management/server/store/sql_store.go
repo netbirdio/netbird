@@ -116,10 +116,11 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	log.WithContext(ctx).Tracef("acquiring global lock")
 	start := time.Now()
 	s.globalAccountLock.Lock()
+	lockTime := time.Now()
 
 	unlock = func() {
 		s.globalAccountLock.Unlock()
-		log.WithContext(ctx).Tracef("released global lock in %v", time.Since(start))
+		log.WithContext(ctx).Tracef("released global lock: acquired in %v, hold for %v", time.Since(start), time.Since(lockTime))
 	}
 
 	took := time.Since(start)
@@ -139,10 +140,11 @@ func (s *SqlStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (
 	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
 	mtx := value.(*sync.RWMutex)
 	mtx.Lock()
+	lockTime := time.Now()
 
 	unlock = func() {
 		mtx.Unlock()
-		log.WithContext(ctx).Tracef("released write lock for ID %s in %v", uniqueID, time.Since(start))
+		log.WithContext(ctx).Tracef("released write lock for ID %s: acquired in %v, hold for %v", uniqueID, time.Since(start), time.Since(lockTime))
 	}
 
 	return unlock
@@ -156,10 +158,11 @@ func (s *SqlStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (u
 	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
 	mtx := value.(*sync.RWMutex)
 	mtx.RLock()
+	lockTime := time.Now()
 
 	unlock = func() {
 		mtx.RUnlock()
-		log.WithContext(ctx).Tracef("released read lock for ID %s in %v", uniqueID, time.Since(start))
+		log.WithContext(ctx).Tracef("released read lock for ID %s: acquired in %v, hold for %v", uniqueID, time.Since(start), time.Since(lockTime))
 	}
 
 	return unlock
