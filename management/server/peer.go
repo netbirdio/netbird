@@ -49,20 +49,9 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	peers := make([]*nbpeer.Peer, 0)
-	peersMap := make(map[string]*nbpeer.Peer)
-
-	for _, peer := range accountPeers {
-		if user.Role != types.UserRoleAuditor && user.IsRegularUser() && user.Id != peer.UserID {
-			// only display peers that belong to the current user if the current user is not an admin or an auditor
-			continue
-		}
-		peers = append(peers, peer)
-		peersMap[peer.ID] = peer
-	}
-
+	// @note if the user has permission to read peers it shows all account peers
 	if allowed {
-		return peers, nil
+		return accountPeers, nil
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
@@ -72,6 +61,18 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 
 	if settings.RegularUsersViewBlocked {
 		return []*nbpeer.Peer{}, nil
+	}
+
+	// @note if it does not have permission read peers then only display it's own peers
+	peers := make([]*nbpeer.Peer, 0)
+	peersMap := make(map[string]*nbpeer.Peer)
+
+	for _, peer := range accountPeers {
+		if user.Id != peer.UserID {
+			continue
+		}
+		peers = append(peers, peer)
+		peersMap[peer.ID] = peer
 	}
 
 	return am.getUserAccessiblePeers(ctx, accountID, peersMap, peers)
