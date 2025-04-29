@@ -53,8 +53,8 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	peersMap := make(map[string]*nbpeer.Peer)
 
 	for _, peer := range accountPeers {
-		if user.IsRegularUser() && user.Id != peer.UserID {
-			// only display peers that belong to the current user if the current user is not an admin
+		if user.Role != types.UserRoleAuditor && user.IsRegularUser() && user.Id != peer.UserID {
+			// only display peers that belong to the current user if the current user is not an admin or an auditor
 			continue
 		}
 		peers = append(peers, peer)
