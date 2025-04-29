@@ -209,9 +209,9 @@ install_pkg() {
 
   PKG_URL=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
   echo "Downloading NetBird macOS installer from https://pkgs.netbird.io/macos/${ARCH}"
-  ${SUDO} curl -fsSL -o /tmp/netbird.pkg "${PKG_URL}"
+  curl -fsSL -o /tmp/netbird.pkg "${PKG_URL}"
   ${SUDO} installer -pkg /tmp/netbird.pkg -target /
-  ${SUDO} rm -f /tmp/netbird.pkg
+  rm -f /tmp/netbird.pkg
 }
 
 check_use_bin_variable() {
