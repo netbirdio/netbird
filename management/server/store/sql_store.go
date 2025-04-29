@@ -800,6 +800,19 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 	return s.GetAccount(ctx, peer.AccountID)
 }
 
+func (s *SqlStore) GetAnyAccountID(ctx context.Context) (string, error) {
+	var account types.Account
+	result := s.db.WithContext(ctx).Select("id").Limit(1).Find(&account)
+	if result.Error != nil {
+		return "", status.NewGetAccountFromStoreError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	return account.Id, nil
+}
+
 func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
 	var peer nbpeer.Peer
 	var accountID string

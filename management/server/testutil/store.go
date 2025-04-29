@@ -12,6 +12,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -83,4 +84,29 @@ func CreatePostgresTestContainer() (func(), error) {
 	}
 
 	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
+}
+
+// CreateRedisTestContainer creates a new Redis container for testing.
+func CreateRedisTestContainer() (func(), string, error) {
+	ctx := context.Background()
+
+	redisContainer, err := testcontainersredis.RunContainer(ctx, testcontainers.WithImage("redis:7"))
+	if err != nil {
+		return nil, "", err
+	}
+
+	cleanup := func() {
+		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 1*time.Second)
+		defer cancelFunc()
+		if err = redisContainer.Terminate(timeoutCtx); err != nil {
+			log.WithContext(ctx).Warnf("failed to stop redis container %s: %s", redisContainer.GetContainerID(), err)
+		}
+	}
+
+	redisURL, err := redisContainer.ConnectionString(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return cleanup, redisURL, nil
 }
