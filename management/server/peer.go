@@ -59,7 +59,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, fmt.Errorf("failed to get account settings: %w", err)
 	}
 
-	if settings.RegularUsersViewBlocked {
+	if user.IsRestrictable() && settings.RegularUsersViewBlocked {
 		return []*nbpeer.Peer{}, nil
 	}
 

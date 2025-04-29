@@ -278,15 +278,13 @@ func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
-	user, err := h.accountManager.GetCurrentUserInfo(ctx, accountID, userID)
+	user, err := h.accountManager.GetCurrentUserInfo(ctx, userAuth)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userID))
+	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userAuth.UserId))
 }
 
 func (h *handler) getRoles(w http.ResponseWriter, r *http.Request) {

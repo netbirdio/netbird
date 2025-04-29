@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -1217,7 +1218,9 @@ func validateUserInvite(invite *types.UserInfo) error {
 }
 
 // GetCurrentUserInfo retrieves the account's current user info and permissions
-func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error) {
+func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
+	accountID, userID := userAuth.AccountId, userAuth.UserId
+
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
@@ -1247,7 +1250,7 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, account
 
 	userWithPermissions := &users.UserInfoWithPermissions{
 		UserInfo:   userInfo,
-		Restricted: user.IsRestrictable() && settings.RegularUsersViewBlocked,
+		Restricted: !userAuth.IsChild && user.IsRestrictable() && settings.RegularUsersViewBlocked,
 	}
 
 	permissions, err := am.permissionsManager.GetPermissionsByRole(ctx, user.Role)

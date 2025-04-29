@@ -1573,39 +1573,33 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 
 	tt := []struct {
 		name           string
-		accountId      string
-		userId         string
+		userAuth       nbcontext.UserAuth
 		expectedErr    error
 		expectedResult *users.UserInfoWithPermissions
 	}{
 		{
 			name:        "not found",
-			accountId:   account1.Id,
-			userId:      "not-found",
+			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "not-found"},
 			expectedErr: status.NewUserNotFoundError("not-found"),
 		},
 		{
 			name:        "not part of account",
-			accountId:   account1.Id,
-			userId:      "account2Owner",
+			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
 			expectedErr: status.NewUserNotPartOfAccountError(),
 		},
 		{
 			name:        "blocked",
-			accountId:   account1.Id,
-			userId:      "blocked-user",
+			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
 			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:        "service user",
-			accountId:   account1.Id,
-			userId:      "service-user",
+			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
 		},
 		{
-			name:      "owner user",
-			accountId: account1.Id,
-			userId:    "account1Owner",
+			name:     "owner user",
+			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "account1Owner"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "account1Owner",
@@ -1624,9 +1618,8 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			},
 		},
 		{
-			name:      "regular user",
-			accountId: account1.Id,
-			userId:    "regular-user",
+			name:     "regular user",
+			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "regular-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "regular-user",
@@ -1644,9 +1637,8 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			},
 		},
 		{
-			name:      "admin user",
-			accountId: account1.Id,
-			userId:    "admin-user",
+			name:     "admin user",
+			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "admin-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "admin-user",
@@ -1664,9 +1656,8 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			},
 		},
 		{
-			name:      "settings blocked regular user",
-			accountId: account2.Id,
-			userId:    "settings-blocked-user",
+			name:     "settings blocked regular user",
+			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "settings-blocked-user",
@@ -1684,10 +1675,30 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 				Restricted:  true,
 			},
 		},
+
 		{
-			name:      "settings blocked owner user",
-			accountId: account2.Id,
-			userId:    "account2Owner",
+			name:     "settings blocked regular user child account",
+			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user", IsChild: true},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "settings-blocked-user",
+					Name:                 "",
+					Role:                 "user",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.User),
+				Restricted:  false,
+			},
+		},
+		{
+			name:     "settings blocked owner user",
+			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "account2Owner"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "account2Owner",
@@ -1709,7 +1720,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := am.GetCurrentUserInfo(context.Background(), tc.accountId, tc.userId)
+			result, err := am.GetCurrentUserInfo(context.Background(), tc.userAuth)
 
 			if tc.expectedErr != nil {
 				assert.Equal(t, err, tc.expectedErr)

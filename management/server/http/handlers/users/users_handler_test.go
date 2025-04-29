@@ -128,8 +128,8 @@ func initUsersTestData() *handler {
 
 				return nil
 			},
-			GetCurrentUserInfoFunc: func(ctx context.Context, accountID, userID string) (*users.UserInfoWithPermissions, error) {
-				switch userID {
+			GetCurrentUserInfoFunc: func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
+				switch userAuth.UserId {
 				case "not-found":
 					return nil, status.NewUserNotFoundError("not-found")
 				case "not-of-account":
@@ -200,7 +200,7 @@ func initUsersTestData() *handler {
 					}, nil
 				}
 
-				return nil, fmt.Errorf("user id %s not handled", userID)
+				return nil, fmt.Errorf("user id %s not handled", userAuth.UserId)
 			},
 		},
 	}
