@@ -337,7 +337,7 @@ install_netbird() {
     echo "package_manager=$PACKAGE_MANAGER" | ${SUDO} tee "$CONFIG_FILE" > /dev/null
 
     # Load and start netbird service
-    if [ "$PACKAGE_MANAGER" != "rpm-ostree" ]; then
+    if [ "$PACKAGE_MANAGER" != "rpm-ostree" ] && [ "$PACKAGE_MANAGER" != "pkg" ]; then
         if ! ${SUDO} netbird service install 2>&1; then
             echo "NetBird service has already been loaded"
         fi
