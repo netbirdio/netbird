@@ -194,6 +194,7 @@ jobs:
             -v "${HOST_GOMODCACHE}:${CONTAINER_GOMODCACHE}" \
             -e CGO_ENABLED=1 \
             -e CI=true \
+            -e DOCKER_CI=true \
             -e GOARCH=${GOARCH_TARGET} \
             -e GOCACHE=${CONTAINER_GOCACHE} \
             -e GOMODCACHE=${CONTAINER_GOMODCACHE} \
@@ -201,7 +202,7 @@ jobs:
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /client/ui)
+              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /client/ui -e /upload-server)
             '
 
   test_relay:
@@ -415,7 +416,7 @@ jobs:
           CI=true \
           go test -tags devcert -run=^$ -bench=. \
           -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
-          -timeout 20m ./...
+          -timeout 20m ./management/...
 
   api_benchmark:
     name: "Management / Benchmark (API)"

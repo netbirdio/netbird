@@ -8,12 +8,11 @@ import (
 
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/redis/go-redis/v9"
-	"github.com/testcontainers/testcontainers-go"
-	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/testutil"
 )
 
 func TestNewIDPCacheManagers(t *testing.T) {
@@ -27,21 +26,11 @@ func TestNewIDPCacheManagers(t *testing.T) {
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.redis {
-				ctx := context.Background()
-				redisContainer, err := testcontainersredis.RunContainer(ctx, testcontainers.WithImage("redis:7"))
+				cleanup, redisURL, err := testutil.CreateRedisTestContainer()
 				if err != nil {
 					t.Fatalf("couldn't start redis container: %s", err)
 				}
-				defer func() {
-					if err := redisContainer.Terminate(ctx); err != nil {
-						t.Logf("failed to terminate container: %s", err)
-					}
-				}()
-				redisURL, err := redisContainer.ConnectionString(ctx)
-				if err != nil {
-					t.Fatalf("couldn't get connection string: %s", err)
-				}
-
+				t.Cleanup(cleanup)
 				t.Setenv(cache.RedisStoreEnvVar, redisURL)
 			}
 			cacheStore, err := cache.NewStore(context.Background(), cache.DefaultIDPCacheExpirationMax, cache.DefaultIDPCacheCleanupInterval)

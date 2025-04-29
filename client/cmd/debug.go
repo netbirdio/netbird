@@ -87,16 +87,27 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	}()
 
 	client := proto.NewDaemonServiceClient(conn)
-	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
+	request := &proto.DebugBundleRequest{
 		Anonymize:  anonymizeFlag,
 		Status:     getStatusOutput(cmd, anonymizeFlag),
 		SystemInfo: debugSystemInfoFlag,
-	})
+	}
+	if debugUploadBundle {
+		request.UploadURL = debugUploadBundleURL
+	}
+	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
+	cmd.Printf("Local file:\n%s\n", resp.GetPath())
 
-	cmd.Println(resp.GetPath())
+	if resp.GetUploadFailureReason() != "" {
+		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
+	}
+
+	if debugUploadBundle {
+		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
+	}
 
 	return nil
 }
@@ -211,12 +222,15 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	headerPreDown := fmt.Sprintf("----- Netbird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
 	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd, anonymizeFlag))
-
-	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
+	request := &proto.DebugBundleRequest{
 		Anonymize:  anonymizeFlag,
 		Status:     statusOutput,
 		SystemInfo: debugSystemInfoFlag,
-	})
+	}
+	if debugUploadBundle {
+		request.UploadURL = debugUploadBundleURL
+	}
+	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
@@ -242,7 +256,15 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		cmd.Println("Log level restored to", initialLogLevel.GetLevel())
 	}
 
-	cmd.Println(resp.GetPath())
+	cmd.Printf("Local file:\n%s\n", resp.GetPath())
+
+	if resp.GetUploadFailureReason() != "" {
+		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
+	}
+
+	if debugUploadBundle {
+		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
+	}
 
 	return nil
 }
