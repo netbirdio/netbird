@@ -128,13 +128,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 			return err
 		}
 
-		streamErr := c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
-		if c.conn.GetState() != connectivity.Shutdown {
-			if err := c.conn.Close(); err != nil {
-				log.Warnf("failed closing connection to Management service: %s", err)
-			}
-		}
-		return streamErr
+		return c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
 	}
 
 	err := backoff.Retry(operation, defaultBackoff(ctx))
