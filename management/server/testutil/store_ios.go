@@ -14,3 +14,9 @@ func CreateMysqlTestContainer() (func(), string, error) {
 		// Empty function for MySQL
 	}, "", nil
 }
+
+func CreateRedisTestContainer() (func(), string, error) {
+	return func() {
+		// Empty function for Redis
+	}, "", nil
+}

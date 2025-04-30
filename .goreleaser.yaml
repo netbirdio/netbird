@@ -96,6 +96,20 @@ builds:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: netbird-upload
+    dir: upload-server
+    env: [CGO_ENABLED=0]
+    binary: netbird-upload
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 universal_binaries:
   - id: netbird
 
@@ -409,6 +423,52 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/upload:{{ .Version }}-amd64
+    ids:
+      - netbird-upload
+    goarch: amd64
+    use: buildx
+    dockerfile: upload-server/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/upload:{{ .Version }}-arm64v8
+    ids:
+      - netbird-upload
+    goarch: arm64
+    use: buildx
+    dockerfile: upload-server/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/upload:{{ .Version }}-arm
+    ids:
+      - netbird-upload
+    goarch: arm
+    goarm: 6
+    use: buildx
+    dockerfile: upload-server/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=dev@netbird.io"
 docker_manifests:
   - name_template: netbirdio/netbird:{{ .Version }}
     image_templates:
@@ -475,7 +535,17 @@ docker_manifests:
       - netbirdio/management:{{ .Version }}-debug-arm64v8
       - netbirdio/management:{{ .Version }}-debug-arm
       - netbirdio/management:{{ .Version }}-debug-amd64
+  - name_template: netbirdio/upload:{{ .Version }}
+    image_templates:
+      - netbirdio/upload:{{ .Version }}-arm64v8
+      - netbirdio/upload:{{ .Version }}-arm
+      - netbirdio/upload:{{ .Version }}-amd64
 
+  - name_template: netbirdio/upload:latest
+    image_templates:
+      - netbirdio/upload:{{ .Version }}-arm64v8
+      - netbirdio/upload:{{ .Version }}-arm
+      - netbirdio/upload:{{ .Version }}-amd64
 brews:
   - ids:
       - default

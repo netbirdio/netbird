@@ -190,7 +190,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -206,6 +206,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	var sshChanged bool
 	var loginExpirationChanged bool
 	var inactivityExpirationChanged bool
+	var dnsDomain string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, update.ID)
@@ -223,7 +224,9 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			return err
 		}
 
-		update, requiresPeerUpdates, err = am.integratedPeerValidator.ValidatePeer(ctx, update, peer, userID, accountID, am.GetDNSDomain(), peerGroupList, settings.Extra)
+		dnsDomain = am.GetDNSDomain(settings)
+
+		update, requiresPeerUpdates, err = am.integratedPeerValidator.ValidatePeer(ctx, update, peer, userID, accountID, dnsDomain, peerGroupList, settings.Extra)
 		if err != nil {
 			return err
 		}
@@ -276,11 +279,11 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		if !peer.SSHEnabled {
 			event = activity.PeerSSHDisabled
 		}
-		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(dnsDomain))
 	}
 
 	if peerLabelChanged {
-		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(dnsDomain))
 	}
 
 	if loginExpirationChanged {
@@ -288,7 +291,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		if !peer.LoginExpirationEnabled {
 			event = activity.PeerLoginExpirationDisabled
 		}
-		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(dnsDomain))
 
 		if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
 			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
@@ -300,7 +303,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		if !peer.InactivityExpirationEnabled {
 			event = activity.PeerInactivityExpirationDisabled
 		}
-		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(dnsDomain))
 
 		if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
 			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
@@ -321,7 +324,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -413,7 +416,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 	if err != nil {
 		return nil, err
 	}
-	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
 	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
 	if err != nil {
@@ -574,8 +577,13 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			ExtraDNSLabels:              peer.ExtraDNSLabels,
 			AllowExtraDNSLabels:         allowExtraDNSLabels,
 		}
+		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to get account settings: %w", err)
+		}
+
 		opEvent.TargetID = newPeer.ID
-		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
+		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain(settings))
 		if !addedByUser {
 			opEvent.Meta["setup_key_name"] = setupKeyName
 		}
@@ -591,10 +599,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
-		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return fmt.Errorf("failed to get account settings: %w", err)
-		}
 		newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
 
 		err = transaction.AddPeerToAllGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID)
@@ -1024,7 +1028,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
 	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
 	if err != nil {
@@ -1060,7 +1064,12 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transact
 		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 	}
 
-	am.StoreEvent(ctx, user.Id, peer.ID, user.AccountID, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, peer.AccountID)
+	if err != nil {
+		return fmt.Errorf("failed to get account settings: %w", err)
+	}
+
+	am.StoreEvent(ctx, user.Id, peer.ID, user.AccountID, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain(settings)))
 	return nil
 }
 
@@ -1174,7 +1183,8 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	semaphore := make(chan struct{}, 10)
 
 	dnsCache := &DNSConfigCache{}
-	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	dnsDomain := am.GetDNSDomain(account.Settings)
+	customZone := account.GetPeersCustomZone(ctx, dnsDomain)
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
@@ -1215,7 +1225,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 				return
 			}
 
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled, extraSetting)
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled, extraSetting)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 		}(peer)
 	}
@@ -1270,7 +1280,8 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 	}
 
 	dnsCache := &DNSConfigCache{}
-	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	dnsDomain := am.GetDNSDomain(account.Settings)
+	customZone := account.GetPeersCustomZone(ctx, dnsDomain)
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
@@ -1299,7 +1310,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled, extraSettings)
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings.RoutingPeerDNSResolutionEnabled, extraSettings)
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 
@@ -1484,6 +1495,12 @@ func isPeerInActiveGroup(ctx context.Context, transaction store.Store, accountID
 func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction store.Store, accountID, userID string, peers []*nbpeer.Peer) ([]func(), error) {
 	var peerDeletedEvents []func()
 
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+	dnsDomain := am.GetDNSDomain(settings)
+
 	for _, peer := range peers {
 		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID); err != nil {
 			return nil, err
@@ -1514,7 +1531,7 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 		})
 		am.peersUpdateManager.CloseChannel(ctx, peer.ID)
 		peerDeletedEvents = append(peerDeletedEvents, func() {
-			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
+			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
 		})
 	}
 

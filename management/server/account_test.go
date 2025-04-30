@@ -14,30 +14,30 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-
-	nbAccount "github.com/netbirdio/netbird/management/server/account"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/util"
-
-	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
-
+	"github.com/netbirdio/netbird/management/server/idp"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -1115,7 +1115,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		Name:  "GroupA",
 		Peers: []string{},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1131,7 +1131,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -1150,7 +1150,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	}()
 
 	group.Peers = []string{peer1.ID, peer2.ID, peer3.ID}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1192,7 +1192,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1223,7 +1223,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	if err != nil {
 		t.Errorf("delete default rule: %v", err)
 		return
@@ -1240,7 +1240,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer3.ID},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1256,7 +1256,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
@@ -1295,7 +1295,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
+	}, true)
 
 	require.NoError(t, err, "failed to save group")
 
@@ -1315,7 +1315,7 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
@@ -3200,4 +3200,54 @@ func Test_UpdateToPrimaryAccount(t *testing.T) {
 	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
 	assert.NoError(t, err)
 	assert.True(t, account.IsDomainPrimaryAccount)
+}
+
+func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err)
+
+	t.Run("memory cache", func(t *testing.T) {
+		t.Run("should always return true", func(t *testing.T) {
+			cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond)
+			require.NoError(t, err)
+
+			cold, err := manager.isCacheCold(context.Background(), cacheStore)
+			assert.NoError(t, err)
+			assert.True(t, cold)
+		})
+	})
+
+	t.Run("redis cache", func(t *testing.T) {
+		cleanup, redisURL, err := testutil.CreateRedisTestContainer()
+		require.NoError(t, err)
+		t.Cleanup(cleanup)
+		t.Setenv(cache.RedisStoreEnvVar, redisURL)
+
+		cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond)
+		require.NoError(t, err)
+
+		t.Run("should return true when no account exists", func(t *testing.T) {
+			cold, err := manager.isCacheCold(context.Background(), cacheStore)
+			assert.NoError(t, err)
+			assert.True(t, cold)
+		})
+
+		account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+		require.NoError(t, err)
+
+		t.Run("should return true when account is not found in cache", func(t *testing.T) {
+			cold, err := manager.isCacheCold(context.Background(), cacheStore)
+			assert.NoError(t, err)
+			assert.True(t, cold)
+		})
+
+		t.Run("should return false when account is found in cache", func(t *testing.T) {
+			err = cacheStore.Set(context.Background(), account.Id, &idp.UserData{ID: "v", Name: "vv"})
+			require.NoError(t, err)
+
+			cold, err := manager.isCacheCold(context.Background(), cacheStore)
+			assert.NoError(t, err)
+			assert.False(t, cold)
+		})
+	})
 }

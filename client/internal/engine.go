@@ -527,7 +527,7 @@ func (e *Engine) blockLanAccess() {
 		if _, err := e.firewall.AddRouteFiltering(
 			nil,
 			[]netip.Prefix{v4},
-			network,
+			firewallManager.Network{Prefix: network},
 			firewallManager.ProtocolALL,
 			nil,
 			nil,
@@ -960,20 +960,20 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 	}
 
-	// DNS forwarder
 	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
-	dnsRouteDomains, resourceIds := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), networkMap.GetRoutes())
-	e.updateDNSForwarder(dnsRouteFeatureFlag, dnsRouteDomains, resourceIds)
 
+	// apply routes first, route related actions might depend on routing being enabled
 	routes := toRoutes(networkMap.GetRoutes())
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
-	// acls might need routing to be enabled, so we apply after routes
 	if e.acl != nil {
-		e.acl.ApplyFiltering(networkMap)
+		e.acl.ApplyFiltering(networkMap, dnsRouteFeatureFlag)
 	}
+
+	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
+	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
 
 	// Ingress forward rules
 	if err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
@@ -1079,29 +1079,24 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	return routes
 }
 
-func toRouteDomains(myPubKey string, protoRoutes []*mgmProto.Route) ([]string, map[string]string) {
-	if protoRoutes == nil {
-		protoRoutes = []*mgmProto.Route{}
-	}
-
-	var dnsRoutes []string
-	resIds := make(map[string]string)
-	for _, protoRoute := range protoRoutes {
-		if len(protoRoute.Domains) == 0 {
+func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderEntry {
+	var entries []*dnsfwd.ForwarderEntry
+	for _, route := range routes {
+		if len(route.Domains) == 0 {
 			continue
 		}
-		if protoRoute.Peer == myPubKey {
-			dnsRoutes = append(dnsRoutes, protoRoute.Domains...)
-			// resource ID is the first part of the ID
-			resId := strings.Split(protoRoute.ID, ":")
-			for _, domain := range protoRoute.Domains {
-				if len(resId) > 0 {
-					resIds[domain] = resId[0]
-				}
+		if route.Peer == myPubKey {
+			domainSet := firewallManager.NewDomainSet(route.Domains)
+			for _, d := range route.Domains {
+				entries = append(entries, &dnsfwd.ForwarderEntry{
+					Domain: d,
+					Set:    domainSet,
+					ResID:  route.GetResourceID(),
+				})
 			}
 		}
 	}
-	return dnsRoutes, resIds
+	return entries
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network *net.IPNet) nbdns.Config {
@@ -1231,36 +1226,19 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix) (*peer
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
-	if e.config.RosenpassEnabled && !e.config.RosenpassPermissive {
-		lk := []byte(e.config.WgPrivateKey.PublicKey().String())
-		rk := []byte(wgConfig.RemoteKey)
-		var keyInput []byte
-		if string(lk) > string(rk) {
-			//nolint:gocritic
-			keyInput = append(lk[:16], rk[:16]...)
-		} else {
-			//nolint:gocritic
-			keyInput = append(rk[:16], lk[:16]...)
-		}
-
-		key, err := wgtypes.NewKey(keyInput)
-		if err != nil {
-			return nil, err
-		}
-
-		wgConfig.PreSharedKey = &key
-	}
-
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
-		Key:             pubKey,
-		LocalKey:        e.config.WgPrivateKey.PublicKey().String(),
-		Timeout:         timeout,
-		WgConfig:        wgConfig,
-		LocalWgPort:     e.config.WgPort,
-		RosenpassPubKey: e.getRosenpassPubKey(),
-		RosenpassAddr:   e.getRosenpassAddr(),
+		Key:         pubKey,
+		LocalKey:    e.config.WgPrivateKey.PublicKey().String(),
+		Timeout:     timeout,
+		WgConfig:    wgConfig,
+		LocalWgPort: e.config.WgPort,
+		RosenpassConfig: peer.RosenpassConfig{
+			PubKey:         e.getRosenpassPubKey(),
+			Addr:           e.getRosenpassAddr(),
+			PermissiveMode: e.config.RosenpassPermissive,
+		},
 		ICEConfig: icemaker.Config{
 			StunTurn:             &e.stunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,
@@ -1768,7 +1746,10 @@ func (e *Engine) GetWgAddr() net.IP {
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
-func (e *Engine) updateDNSForwarder(enabled bool, domains []string, resIds map[string]string) {
+func (e *Engine) updateDNSForwarder(
+	enabled bool,
+	fwdEntries []*dnsfwd.ForwarderEntry,
+) {
 	if !enabled {
 		if e.dnsForwardMgr == nil {
 			return
@@ -1779,18 +1760,18 @@ func (e *Engine) updateDNSForwarder(enabled bool, domains []string, resIds map[s
 		return
 	}
 
-	if len(domains) > 0 {
-		log.Infof("enable domain router service for domains: %v", domains)
+	if len(fwdEntries) > 0 {
 		if e.dnsForwardMgr == nil {
 			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder)
 
-			if err := e.dnsForwardMgr.Start(domains, resIds); err != nil {
+			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
 				e.dnsForwardMgr = nil
 			}
+
+			log.Infof("started domain router service with %d entries", len(fwdEntries))
 		} else {
-			log.Infof("update domain router service for domains: %v", domains)
-			e.dnsForwardMgr.UpdateDomains(domains, resIds)
+			e.dnsForwardMgr.UpdateDomains(fwdEntries)
 		}
 	} else if e.dnsForwardMgr != nil {
 		log.Infof("disable domain router service")

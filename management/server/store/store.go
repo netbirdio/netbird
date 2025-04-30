@@ -50,10 +50,12 @@ type Store interface {
 	GetAccountsCounter(ctx context.Context) (int64, error)
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
 	GetAccountByUser(ctx context.Context, userID string) (*types.Account, error)
 	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error)
+	GetAnyAccountID(ctx context.Context) (string, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)

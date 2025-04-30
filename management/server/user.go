@@ -27,7 +27,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -85,7 +85,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		return nil, err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Users, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Users, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -238,7 +238,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -295,7 +295,7 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 		return status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -342,7 +342,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between 1 and 365")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -384,7 +384,7 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -506,7 +506,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, nil //nolint:nilnil
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create) // TODO: split by Create and Update
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -824,31 +824,32 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
+
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	accountUsers := []*types.User{user}
-	if allowed {
+	accountUsers := []*types.User{}
+	switch {
+	case allowed:
 		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return nil, err
 		}
+	case user.AccountID == accountID:
+		accountUsers = append(accountUsers, user)
+	default:
+		return map[string]*types.UserInfo{}, nil
 	}
 
 	return am.BuildUserInfosForAccount(ctx, accountID, initiatorUserID, accountUsers)
 }
 
 // BuildUserInfosForAccount builds user info for the given account.
-func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
+func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, accountID, _ string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
 	var queriedUsers []*idp.UserData
 	var err error
-
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
-	if err != nil {
-		return nil, err
-	}
 
 	if !isNil(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
@@ -888,11 +889,6 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
 		for _, accountUser := range accountUsers {
-			if initiatorUser.IsRegularUser() && initiatorUser.Id != accountUser.Id {
-				// if user is not an admin then show only current user and do not show other users
-				continue
-			}
-
 			info, err := accountUser.ToUserInfo(nil, settings)
 			if err != nil {
 				return nil, err
@@ -904,11 +900,6 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	}
 
 	for _, localUser := range accountUsers {
-		if initiatorUser.IsRegularUser() && initiatorUser.Id != localUser.Id {
-			// if user is not an admin then show only current user and do not show other users
-			continue
-		}
-
 		var info *types.UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
 			info, err = localUser.ToUserInfo(queriedUser, settings)
@@ -949,6 +940,12 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return err
+	}
+	dnsDomain := am.GetDNSDomain(settings)
+
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
@@ -966,7 +963,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		am.StoreEvent(
 			ctx,
 			peer.UserID, peer.ID, accountID,
-			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
+			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
 		)
 	}
 
@@ -1005,7 +1002,7 @@ func (am *DefaultAccountManager) deleteUserFromIDP(ctx context.Context, targetUs
 // If an error occurs while deleting the user, the function skips it and continues deleting other users.
 // Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Write)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -1240,4 +1237,31 @@ func validateUserInvite(invite *types.UserInfo) error {
 	}
 
 	return nil
+}
+
+// GetCurrentUserInfo retrieves the account's current user info
+func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.IsBlocked() {
+		return nil, status.NewUserBlockedError()
+	}
+
+	if user.IsServiceUser {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+		return nil, err
+	}
+
+	userInfo, err := am.getUserInfo(ctx, user, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return userInfo, nil
 }

@@ -44,8 +44,8 @@ type MockAccountManager struct {
 	GetGroupFunc                        func(ctx context.Context, accountID, groupID, userID string) (*types.Group, error)
 	GetAllGroupsFunc                    func(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByNameFunc                  func(ctx context.Context, accountID, groupName string) (*types.Group, error)
-	SaveGroupFunc                       func(ctx context.Context, accountID, userID string, group *types.Group) error
-	SaveGroupsFunc                      func(ctx context.Context, accountID, userID string, groups []*types.Group) error
+	SaveGroupFunc                       func(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
+	SaveGroupsFunc                      func(ctx context.Context, accountID, userID string, groups []*types.Group, create bool) error
 	DeleteGroupFunc                     func(ctx context.Context, accountID, userId, groupID string) error
 	DeleteGroupsFunc                    func(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeerFunc                    func(ctx context.Context, accountID, groupID, peerID string) error
@@ -53,7 +53,7 @@ type MockAccountManager struct {
 	GetPeerGroupsFunc                   func(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
 	DeleteRuleFunc                      func(ctx context.Context, accountID, ruleID, userID string) error
 	GetPolicyFunc                       func(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error)
-	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error)
+	SavePolicyFunc                      func(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error)
 	DeletePolicyFunc                    func(ctx context.Context, accountID, policyID, userID string) error
 	ListPoliciesFunc                    func(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetUsersFromAccountFunc             func(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
@@ -83,7 +83,7 @@ type MockAccountManager struct {
 	CreateUserFunc                      func(ctx context.Context, accountID, userID string, key *types.UserInfo) (*types.UserInfo, error)
 	GetAccountIDFromUserAuthFunc        func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
 	DeleteAccountFunc                   func(ctx context.Context, accountID, userID string) error
-	GetDNSDomainFunc                    func() string
+	GetDNSDomainFunc                    func(settings *types.Settings) string
 	StoreEventFunc                      func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEventsFunc                       func(ctx context.Context, accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettingsFunc                  func(ctx context.Context, accountID, userID string) (*types.DNSSettings, error)
@@ -97,7 +97,7 @@ type MockAccountManager struct {
 	HasConnectedChannelFunc             func(peerID string) bool
 	GetExternalCacheManagerFunc         func() account.ExternalCacheManager
 	GetPostureChecksFunc                func(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecksFunc               func(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error)
+	SavePostureChecksFunc               func(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, create bool) (*posture.Checks, error)
 	DeletePostureChecksFunc             func(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc               func(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManagerFunc                   func() idp.Manager
@@ -115,6 +115,8 @@ type MockAccountManager struct {
 	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
+	GetCurrentUserInfoFunc              func(ctx context.Context, accountID, userID string) (*types.UserInfo, error)
+	GetAccountMetaFunc                  func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -322,17 +324,17 @@ func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, gro
 }
 
 // SaveGroup mock implementation of SaveGroup from server.AccountManager interface
-func (am *MockAccountManager) SaveGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
+func (am *MockAccountManager) SaveGroup(ctx context.Context, accountID, userID string, group *types.Group, create bool) error {
 	if am.SaveGroupFunc != nil {
-		return am.SaveGroupFunc(ctx, accountID, userID, group)
+		return am.SaveGroupFunc(ctx, accountID, userID, group, create)
 	}
 	return status.Errorf(codes.Unimplemented, "method SaveGroup is not implemented")
 }
 
 // SaveGroups mock implementation of SaveGroups from server.AccountManager interface
-func (am *MockAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
+func (am *MockAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group, create bool) error {
 	if am.SaveGroupsFunc != nil {
-		return am.SaveGroupsFunc(ctx, accountID, userID, groups)
+		return am.SaveGroupsFunc(ctx, accountID, userID, groups, create)
 	}
 	return status.Errorf(codes.Unimplemented, "method SaveGroups is not implemented")
 }
@@ -386,9 +388,9 @@ func (am *MockAccountManager) GetPolicy(ctx context.Context, accountID, policyID
 }
 
 // SavePolicy mock implementation of SavePolicy from server.AccountManager interface
-func (am *MockAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy) (*types.Policy, error) {
+func (am *MockAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
 	if am.SavePolicyFunc != nil {
-		return am.SavePolicyFunc(ctx, accountID, userID, policy)
+		return am.SavePolicyFunc(ctx, accountID, userID, policy, create)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SavePolicy is not implemented")
 }
@@ -618,9 +620,9 @@ func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, n
 }
 
 // GetDNSDomain mocks GetDNSDomain of the AccountManager interface
-func (am *MockAccountManager) GetDNSDomain() string {
+func (am *MockAccountManager) GetDNSDomain(settings *types.Settings) string {
 	if am.GetDNSDomainFunc != nil {
-		return am.GetDNSDomainFunc()
+		return am.GetDNSDomainFunc(settings)
 	}
 	return ""
 }
@@ -722,9 +724,9 @@ func (am *MockAccountManager) GetPostureChecks(ctx context.Context, accountID, p
 }
 
 // SavePostureChecks mocks SavePostureChecks of the AccountManager interface
-func (am *MockAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) (*posture.Checks, error) {
+func (am *MockAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, create bool) (*posture.Checks, error) {
 	if am.SavePostureChecksFunc != nil {
-		return am.SavePostureChecksFunc(ctx, accountID, userID, postureChecks)
+		return am.SavePostureChecksFunc(ctx, accountID, userID, postureChecks, create)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SavePostureChecks is not implemented")
 }
@@ -802,6 +804,14 @@ func (am *MockAccountManager) GetAccountByID(ctx context.Context, accountID stri
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByID is not implemented")
 }
 
+// GetAccountByID mocks GetAccountByID of the AccountManager interface
+func (am *MockAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+	if am.GetAccountMetaFunc != nil {
+		return am.GetAccountMetaFunc(ctx, accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountMeta is not implemented")
+}
+
 // GetUserByID mocks GetUserByID of the AccountManager interface
 func (am *MockAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
 	if am.GetUserByIDFunc != nil {
@@ -870,4 +880,11 @@ func (am *MockAccountManager) GetOwnerInfo(ctx context.Context, accountId string
 		return am.GetOwnerInfoFunc(ctx, accountId)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetOwnerInfo is not implemented")
+}
+
+func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+	if am.GetCurrentUserInfoFunc != nil {
+		return am.GetCurrentUserInfoFunc(ctx, accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
 }

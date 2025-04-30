@@ -185,3 +185,10 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, erro
 
 	return info, nil
 }
+
+// UpdateStaticInfo asynchronously updates static system and platform information
+func UpdateStaticInfo() {
+	go func() {
+		_ = updateStaticInfo()
+	}()
+}

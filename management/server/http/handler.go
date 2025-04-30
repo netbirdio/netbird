@@ -62,6 +62,7 @@ func NewAPIHandler(
 		authManager,
 		accountManager.GetAccountIDFromUserAuth,
 		accountManager.SyncUserJWTGroups,
+		accountManager.GetUserFromUserAuth,
 	)
 
 	corsMiddleware := cors.AllowAll()
@@ -83,6 +84,8 @@ func NewAPIHandler(
 	users.AddEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)
+	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
+	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
 	groups.AddEndpoints(accountManager, router)
 	routes.AddEndpoints(accountManager, router)
 	dns.AddEndpoints(accountManager, router)
