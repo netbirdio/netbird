@@ -227,14 +227,10 @@ components:
               type: boolean
             propertyNames:
               type: string
-              enum:
-                - read
-                - write
+              description: The operation type
           propertyNames:
             type: string
-            enum:
-              - read
-              - write
+            description: The module name
           example: {"networks": { "read": true, "create": false, "update": false, "delete": false}, "peers": { "read": false, "create": false, "update": false, "delete": false} }
       required:
         - modules
