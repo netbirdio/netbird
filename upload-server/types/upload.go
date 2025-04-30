@@ -7,6 +7,8 @@ const (
 	ClientHeaderValue = "netbird"
 	// GetURLPath is the path for the GetURL request
 	GetURLPath = "/upload-url"
+
+	DefaultBundleURL = "https://upload.debug.netbird.io" + GetURLPath
 )
 
 // GetURLResponse is the response for the GetURL request
