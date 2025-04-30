@@ -209,6 +209,10 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
+
+	data, _ := json.MarshalIndent(account, "", "  ")
+	log.WithContext(ctx).Debugf("saved an account Account ID: %s, state: %s Trace: %s", account.Id, data, debug.Stack())
+
 	log.WithContext(ctx).Debugf("took %d ms to persist an account to the store", took.Milliseconds())
 
 	return err

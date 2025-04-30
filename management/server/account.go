@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -1054,6 +1055,9 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 		return "", err
 	}
 
+	log.WithContext(ctx).Debugf("created new regular user ID: %s, domainAccountId: %s, accountID: %s Trace: %s", userAuth.UserId,
+		domainAccountID, userAuth.AccountId, debug.Stack(),
+	)
 	am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
 
 	return domainAccountID, nil
