@@ -230,7 +230,7 @@ install_netbird() {
           echo "Warning: could not reach NetBird daemon (timeout), proceeding anyway"
       else
           if echo "$status_output" | grep -q 'Management: Connected' && \
-            echo "$status_output" | grep -q 'Signal: Connected'; then
+              echo "$status_output" | grep -q 'Signal: Connected'; then
               echo "NetBird service is running, please stop it before proceeding"
               exit 1
           fi
@@ -241,7 +241,6 @@ install_netbird() {
           fi
       fi
     fi
-
 
     # Run the installation, if a desktop environment is not detected
     # only the CLI will be installed
