@@ -910,15 +910,6 @@ type NetworkTrafficEvent struct {
 	User      NetworkTrafficUser `json:"user"`
 }
 
-// NetworkTrafficICMP defines model for NetworkTrafficICMP.
-type NetworkTrafficICMP struct {
-	// Code ICMP code (if applicable).
-	Code int `json:"code"`
-
-	// Type ICMP type (if applicable).
-	Type int `json:"type"`
-}
-
 // NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
 type NetworkTrafficEventsResponse struct {
 	// Data List of network traffic events
@@ -935,6 +926,15 @@ type NetworkTrafficEventsResponse struct {
 
 	// TotalRecords Total number of event records available
 	TotalRecords int `json:"total_records"`
+}
+
+// NetworkTrafficICMP defines model for NetworkTrafficICMP.
+type NetworkTrafficICMP struct {
+	// Code ICMP code (if applicable).
+	Code int `json:"code"`
+
+	// Type ICMP type (if applicable).
+	Type int `json:"type"`
 }
 
 // NetworkTrafficLocation defines model for NetworkTrafficLocation.
