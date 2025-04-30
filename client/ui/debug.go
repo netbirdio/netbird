@@ -23,13 +23,13 @@ func (s *serviceClient) showDebugUI() {
 	w.Resize(fyne.NewSize(600, 400))
 	w.SetFixedSize(true)
 
-	anonymizeCheck := widget.NewCheck("Anonymize sensitive information (IPs, domains, ...)", nil)
+	anonymizeCheck := widget.NewCheck("Anonymize sensitive information (Public IPs, domains, ...)", nil)
 	systemInfoCheck := widget.NewCheck("Include system information", nil)
 	systemInfoCheck.SetChecked(true)
 	uploadCheck := widget.NewCheck("Upload bundle automatically after creation", nil)
 	uploadCheck.SetChecked(true)
 
-	uploadURLLabel := widget.NewLabel("Debug Upload URL:")
+	uploadURLLabel := widget.NewLabel("Debug upload URL:")
 	uploadURL := widget.NewEntry()
 	uploadURL.SetText(uptypes.DefaultBundleURL)
 	uploadURL.SetPlaceHolder("Enter upload URL")
