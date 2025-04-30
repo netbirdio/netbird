@@ -224,17 +224,24 @@ check_use_bin_variable() {
 
 install_netbird() {
     if [ -x "$(command -v netbird)" ]; then
-        status_output=$(netbird status)
-        if echo "$status_output" | grep -q 'Management: Connected' && echo "$status_output" | grep -q 'Signal: Connected'; then
-            echo "NetBird service is running, please stop it before proceeding"
-            exit 1
-        fi
+      status_output="$(netbird status 2>&1 || true)"
 
-        if [ -n "$status_output" ]; then
-            echo "NetBird seems to be installed already, please remove it before proceeding"
-            exit 1
-        fi
+      if echo "$status_output" | grep -q 'failed to connect to daemon error: context deadline exceeded'; then
+          echo "Warning: could not reach NetBird daemon (timeout), proceeding anyway"
+      else
+          if echo "$status_output" | grep -q 'Management: Connected' && \
+            echo "$status_output" | grep -q 'Signal: Connected'; then
+              echo "NetBird service is running, please stop it before proceeding"
+              exit 1
+          fi
+
+          if [ -n "$status_output" ]; then
+              echo "NetBird seems to be installed already, please remove it before proceeding"
+              exit 1
+          fi
+      fi
     fi
+
 
     # Run the installation, if a desktop environment is not detected
     # only the CLI will be installed
