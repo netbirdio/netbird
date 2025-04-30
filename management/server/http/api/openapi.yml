@@ -235,7 +235,7 @@ components:
             enum:
               - read
               - write
-          example: {"networks": { "read": true, "write": false}, "peers": { "read": false, "write": false} }
+          example: {"networks": { "read": true, "create": false, "update": false, "delete": false}, "peers": { "read": false, "create": false, "update": false, "delete": false} }
       required:
         - modules
         - is_restricted
