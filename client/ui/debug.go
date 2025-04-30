@@ -24,7 +24,6 @@ func (s *serviceClient) showDebugUI() {
 	w.SetFixedSize(true)
 
 	anonymizeCheck := widget.NewCheck("Anonymize sensitive information (IPs, domains, ...)", nil)
-	anonymizeCheck.SetChecked(true)
 	systemInfoCheck := widget.NewCheck("Include system information", nil)
 	systemInfoCheck.SetChecked(true)
 	uploadCheck := widget.NewCheck("Upload bundle automatically after creation", nil)
