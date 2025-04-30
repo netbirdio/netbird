@@ -51,7 +51,7 @@ const (
 )
 
 func main() {
-	daemonAddr, showSettings, showNetworks, errorMsg, saveLogsInFile := parseFlags()
+	daemonAddr, showSettings, showNetworks, showDebug, errorMsg, saveLogsInFile := parseFlags()
 
 	// Initialize file logging if needed.
 	if saveLogsInFile {
@@ -72,13 +72,13 @@ func main() {
 	}
 
 	// Create the service client (this also builds the settings or networks UI if requested).
-	client := newServiceClient(daemonAddr, a, showSettings, showNetworks)
+	client := newServiceClient(daemonAddr, a, showSettings, showNetworks, showDebug)
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if showSettings || showNetworks {
+	if showSettings || showNetworks || showDebug {
 		a.Run()
 		return
 	}
@@ -99,7 +99,7 @@ func main() {
 }
 
 // parseFlags reads and returns all needed command-line flags.
-func parseFlags() (daemonAddr string, showSettings, showNetworks bool, errorMsg string, saveLogsInFile bool) {
+func parseFlags() (daemonAddr string, showSettings, showNetworks, showDebug bool, errorMsg string, saveLogsInFile bool) {
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
@@ -107,24 +107,16 @@ func parseFlags() (daemonAddr string, showSettings, showNetworks bool, errorMsg 
 	flag.StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	flag.BoolVar(&showSettings, "settings", false, "run settings window")
 	flag.BoolVar(&showNetworks, "networks", false, "run networks window")
+	flag.BoolVar(&showDebug, "debug", false, "run debug window")
 	flag.StringVar(&errorMsg, "error-msg", "", "displays an error message window")
-
-	tmpDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		tmpDir = os.TempDir()
-	}
-	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
+	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.Parse()
 	return
 }
 
 // initLogFile initializes logging into a file.
 func initLogFile() error {
-	tmpDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		tmpDir = os.TempDir()
-	}
-	logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
+	logFile := path.Join(os.TempDir(), fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
 	return util.InitLog("trace", logFile)
 }
 
@@ -231,7 +223,7 @@ type serviceClient struct {
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
-	showRoutes           bool
+	showNetworks         bool
 	wRoutes              fyne.Window
 
 	eventManager *event.Manager
@@ -248,7 +240,7 @@ type menuHandler struct {
 // newServiceClient instance constructor
 //
 // This constructor also builds the UI elements for the settings window.
-func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes bool) *serviceClient {
+func newServiceClient(addr string, a fyne.App, showSettings bool, showNetworks bool, showDebug bool) *serviceClient {
 	s := &serviceClient{
 		ctx:              context.Background(),
 		addr:             addr,
@@ -256,17 +248,20 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 		sendNotification: false,
 
 		showAdvancedSettings: showSettings,
-		showRoutes:           showRoutes,
+		showNetworks:         showNetworks,
 		update:               version.NewUpdate(),
 	}
 
 	s.setNewIcons()
 
-	if showSettings {
+	switch {
+	case showSettings:
 		s.showSettingsUI()
 		return s
-	} else if showRoutes {
+	case showNetworks:
 		s.showNetworksUI()
+	case showDebug:
+		s.showDebugUI()
 	}
 
 	return s
@@ -743,11 +738,10 @@ func (s *serviceClient) onTrayReady() {
 					s.runSelfCommand("settings", "true")
 				}()
 			case <-s.mCreateDebugBundle.ClickedCh:
+				s.mCreateDebugBundle.Disable()
 				go func() {
-					if err := s.createAndOpenDebugBundle(); err != nil {
-						log.Errorf("Failed to create debug bundle: %v", err)
-						s.app.SendNotification(fyne.NewNotification("Error", "Failed to create debug bundle"))
-					}
+					defer s.mCreateDebugBundle.Enable()
+					s.runSelfCommand("debug", "true")
 				}()
 			case <-s.mQuit.ClickedCh:
 				systray.Quit()

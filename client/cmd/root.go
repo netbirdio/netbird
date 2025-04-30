@@ -42,7 +42,6 @@ const (
 	blockLANAccessFlag      = "block-lan-access"
 	uploadBundle            = "upload-bundle"
 	uploadBundleURL         = "upload-bundle-url"
-	defaultBundleURL        = "https://upload.debug.netbird.io" + types.GetURLPath
 )
 
 var (
@@ -188,7 +187,7 @@ func init() {
 
 	debugCmd.PersistentFlags().BoolVarP(&debugSystemInfoFlag, systemInfoFlag, "S", true, "Adds system information to the debug bundle")
 	debugCmd.PersistentFlags().BoolVarP(&debugUploadBundle, uploadBundle, "U", false, fmt.Sprintf("Uploads the debug bundle to a server from URL defined by %s", uploadBundleURL))
-	debugCmd.PersistentFlags().StringVar(&debugUploadBundleURL, uploadBundleURL, defaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	debugCmd.PersistentFlags().StringVar(&debugUploadBundleURL, uploadBundleURL, types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
