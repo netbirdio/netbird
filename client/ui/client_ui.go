@@ -256,6 +256,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showNetworks b
 
 	switch {
 	case showSettings:
+
 		s.showSettingsUI()
 		return s
 	case showNetworks:

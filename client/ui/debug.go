@@ -87,18 +87,17 @@ func (s *serviceClient) getCreateHandler(
 		statusLabel.SetText("Creating debug bundle...")
 		statusLabel.Show()
 
-		var uploadUrl string
+		var url string
 		if uploadCheck.Checked {
-			uploadUrl = uploadURL.Text
-
-			if uploadUrl == "" {
+			url = uploadURL.Text
+			if url == "" {
 				statusLabel.SetText("Error: Upload URL is required when upload is enabled")
 				createButton.Enable()
 				return
 			}
 		}
 
-		go s.handleDebugCreation(anonymizeCheck.Checked, systemInfoCheck.Checked, uploadCheck.Checked, uploadUrl, statusLabel, createButton, w)
+		go s.handleDebugCreation(anonymizeCheck.Checked, systemInfoCheck.Checked, uploadCheck.Checked, url, statusLabel, createButton, w)
 	}
 }
 
@@ -106,7 +105,7 @@ func (s *serviceClient) handleDebugCreation(
 	anonymize bool,
 	systemInfo bool,
 	upload bool,
-	uploadUrl string,
+	uploadURL string,
 	statusLabel *widget.Label,
 	createButton *widget.Button,
 	w fyne.Window,
@@ -114,7 +113,7 @@ func (s *serviceClient) handleDebugCreation(
 	log.Infof("Creating debug bundle (Anonymized: %v, System Info: %v, Upload Attempt: %v)...",
 		anonymize, systemInfo, upload)
 
-	resp, err := s.createDebugBundle(anonymize, systemInfo, uploadUrl)
+	resp, err := s.createDebugBundle(anonymize, systemInfo, uploadURL)
 	if err != nil {
 		log.Errorf("Failed to create debug bundle: %v", err)
 		statusLabel.SetText(fmt.Sprintf("Error creating bundle: %v", err))
@@ -248,7 +247,7 @@ func showUploadSuccessDialog(parent fyne.Window, localPath, uploadedKey string) 
 func showBundleCreatedDialog(parent fyne.Window, localPath string) {
 	content := container.NewVBox(
 		widget.NewLabel(fmt.Sprintf("Bundle created locally at:\n%s\n\n"+
-			"Administrator privileges may be required depending on location.", localPath)),
+			"Administrator privileges may be required to access the file.", localPath)),
 	)
 
 	customDialog := dialog.NewCustom("Debug Bundle Created", "Cancel", content, parent)
