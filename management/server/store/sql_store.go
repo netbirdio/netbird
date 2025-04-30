@@ -84,7 +84,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		conns = 1
 		_, err = sql.Exec("PRAGMA foreign_keys = ON")
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed to set foreign keys for sqlite: %s", err)
+			return nil, fmt.Errorf("failed to set foreign keys for sqlite: %w", err)
 		}
 	}
 
