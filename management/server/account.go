@@ -721,7 +721,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	if err != nil {
 		return nil, nil, err
 	}
-	log.WithContext(ctx).Debugf("%d entries received from IdP management", len(userData))
+	log.WithContext(ctx).Debugf("%d entries received from IdP management for account %s", len(userData), account.Id)
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
