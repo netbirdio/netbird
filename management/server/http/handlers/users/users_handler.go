@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
@@ -272,15 +273,33 @@ func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
-	user, err := h.accountManager.GetCurrentUserInfo(ctx, accountID, userID)
+	user, err := h.accountManager.GetCurrentUserInfo(ctx, userAuth)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, toUserResponse(user, userID))
+	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userAuth.UserId))
+}
+
+func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
+	response := toUserResponse(user.UserInfo, userID)
+
+	// stringify modules and operations keys
+	modules := make(map[string]map[string]bool)
+	for module, operations := range user.Permissions {
+		modules[string(module)] = make(map[string]bool)
+		for op, val := range operations {
+			modules[string(module)][string(op)] = val
+		}
+	}
+
+	response.Permissions = &api.UserPermissions{
+		IsRestricted: user.Restricted,
+		Modules:      modules,
+	}
+
+	return response
 }
 
 func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
@@ -316,8 +335,5 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 		IsBlocked:     user.IsBlocked,
 		LastLogin:     &user.LastLogin,
 		Issued:        &user.Issued,
-		Permissions: &api.UserPermissions{
-			DashboardView: (*api.UserPermissionsDashboardView)(&user.Permissions.DashboardView),
-		},
 	}
 }
