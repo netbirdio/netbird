@@ -51,13 +51,15 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	}
 
 	if req.GetUploadURL() == "" {
-
 		return &proto.DebugBundleResponse{Path: path}, nil
 	}
 	key, err := uploadDebugBundle(context.Background(), req.GetUploadURL(), s.config.ManagementURL.String(), path)
 	if err != nil {
+		log.Errorf("failed to upload debug bundle to %s: %v", req.GetUploadURL(), err)
 		return &proto.DebugBundleResponse{Path: path, UploadFailureReason: err.Error()}, nil
 	}
+
+	log.Infof("debug bundle uploaded to %s with key %s", req.GetUploadURL(), key)
 
 	return &proto.DebugBundleResponse{Path: path, UploadedKey: key}, nil
 }
