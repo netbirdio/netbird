@@ -357,6 +357,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, err
 	}
 
+	// @note this is essential to prevent non admin users with Pats create permission frpm creating one for a service user
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return nil, status.NewAdminPermissionError()
 	}
