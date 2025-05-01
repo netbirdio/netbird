@@ -712,7 +712,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
-	account, err := am.Store.GetAccount(ctx, accountIDString)
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountIDString)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -721,7 +721,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	if err != nil {
 		return nil, nil, err
 	}
-	log.WithContext(ctx).Debugf("%d entries received from IdP management for account %s", len(userData), account.Id)
+	log.WithContext(ctx).Debugf("%d entries received from IdP management for account %s", len(userData), accountIDString)
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
@@ -729,7 +729,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	}
 
 	matchedUserData := make([]*idp.UserData, 0)
-	for _, user := range account.Users {
+	for _, user := range accountUsers {
 		if user.IsServiceUser {
 			continue
 		}
