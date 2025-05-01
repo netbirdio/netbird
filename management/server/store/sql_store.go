@@ -802,7 +802,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 
 func (s *SqlStore) GetAnyAccountID(ctx context.Context) (string, error) {
 	var account types.Account
-	result := s.db.WithContext(ctx).Select("id").Limit(1).Find(&account)
+	result := s.db.WithContext(ctx).Select("id").Order("created_at desc").Limit(1).Find(&account)
 	if result.Error != nil {
 		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
