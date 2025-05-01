@@ -216,11 +216,25 @@ components:
     UserPermissions:
       type: object
       properties:
-        dashboard_view:
-          description: User's permission to view the dashboard
-          type: string
-          enum: [ "limited", "blocked", "full" ]
-          example: limited
+        is_restricted:
+          type: boolean
+          description: Indicates whether this User's Peers view is restricted
+        modules:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: boolean
+            propertyNames:
+              type: string
+              description: The operation type
+          propertyNames:
+            type: string
+            description: The module name
+          example: {"networks": { "read": true, "create": false, "update": false, "delete": false}, "peers": { "read": false, "create": false, "update": false, "delete": false} }
+      required:
+        - modules
+        - is_restricted
     UserRequest:
       type: object
       properties:
