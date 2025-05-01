@@ -319,6 +319,7 @@ func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container
 
 	s.wNetworks.SetOnClosed(func() {
 		ticker.Stop()
+		s.cancel()
 	})
 }
 
