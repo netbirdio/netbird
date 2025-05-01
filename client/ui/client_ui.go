@@ -56,7 +56,7 @@ func main() {
 	// Initialize file logging if needed.
 	var logFile string
 	if saveLogsInFile {
-		err, file := initLogFile()
+		file, err := initLogFile()
 		if err != nil {
 			log.Errorf("error while initializing log: %v", err)
 			return
@@ -118,9 +118,9 @@ func parseFlags() (daemonAddr string, showSettings, showNetworks, showDebug bool
 }
 
 // initLogFile initializes logging into a file.
-func initLogFile() (error, string) {
+func initLogFile() (string, error) {
 	logFile := path.Join(os.TempDir(), fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
-	return util.InitLog("trace", logFile), logFile
+	return logFile, util.InitLog("trace", logFile)
 }
 
 // watchSettingsChanges listens for Fyne theme/settings changes and updates the client icon.
