@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
@@ -1942,4 +1943,70 @@ func TestDomainCaseHandling(t *testing.T) {
 	}
 	assert.Contains(t, domains, "config.example.com.", "Mixed case domain should be normalized and pre.sent")
 	assert.Contains(t, domains, "mixed.example.com.", "Mixed case domain should be normalized and present")
+}
+
+// TestDefaultServer_UpdateLocalRecords_StaleRecord verifies that updating
+// a CustomZone record correctly replaces the old one, preventing stale entries.
+func TestDefaultServer_UpdateLocalRecords_StaleRecord(t *testing.T) {
+	mockHostMgr := newNoopHostMocker()
+	mockSvc := &mockService{}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	dnsServer := newDefaultServer(
+		ctx,
+		&mocWGIface{},
+		mockSvc,
+		peer.NewRecorder("test"),
+		nil,
+		true,
+	)
+	dnsServer.hostManager = mockHostMgr
+
+	recordName := "host.example.com."
+	recordType := dns.TypeA
+	recordClass := dns.ClassINET
+
+	record1 := nbdns.SimpleRecord{
+		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "1.1.1.1",
+	}
+	config1 := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones:   []nbdns.CustomZone{{Domain: "example.com", Records: []nbdns.SimpleRecord{record1}}},
+	}
+
+	record2 := nbdns.SimpleRecord{
+		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "2.2.2.2",
+	}
+	config2 := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones:   []nbdns.CustomZone{{Domain: "example.com", Records: []nbdns.SimpleRecord{record2}}},
+	}
+
+	recordKey := buildRecordKey(recordName, uint16(recordClass), uint16(recordType))
+
+	// Update 1
+	err := dnsServer.applyConfiguration(config1)
+	require.NoError(t, err, "applyConfiguration for config1 failed")
+
+	value1, found1 := dnsServer.localResolver.records.Load(recordKey)
+	require.True(t, found1, "Record key %s not found after first update", recordKey)
+	rrSlice1, ok1 := value1.([]dns.RR)
+	require.True(t, ok1, "Failed to cast value to []dns.RR after first update")
+	require.Len(t, rrSlice1, 1, "Should have exactly 1 record after first update")
+	assert.Contains(t, rrSlice1[0].String(), record1.RData, "Record after first update should be %s", record1.RData)
+
+	// Update 2
+	err = dnsServer.applyConfiguration(config2)
+	require.NoError(t, err, "applyConfiguration for config2 failed")
+
+	value2, found2 := dnsServer.localResolver.records.Load(recordKey)
+	require.True(t, found2, "Record key %s not found after second update", recordKey)
+	rrSlice2, ok2 := value2.([]dns.RR)
+	require.True(t, ok2, "Failed to cast value to []dns.RR after second update")
+
+	require.Len(t, rrSlice2, 1, "Should have exactly 1 record after update overwriting the key")
+
+	assert.Contains(t, rrSlice2[0].String(), record2.RData, "The single record should be the updated one (%s)", record2.RData)
+	assert.NotContains(t, rrSlice2[0].String(), record1.RData, "The stale record (%s) should not be present", record1.RData)
 }
