@@ -325,7 +325,7 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 	handler3.AssertExpectations(t)
 }
 
-// mockResponseWriter implements dns.ResponseWriter for testing
+// MockResponseWriter implements dns.ResponseWriter for testing
 type mockResponseWriter struct {
 	mock.Mock
 }

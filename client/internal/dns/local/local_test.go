@@ -1,4 +1,4 @@
-package dns
+package local
 
 import (
 	"strings"
@@ -6,6 +6,8 @@ import (
 
 	"github.com/miekg/dns"
 
+	"github.com/netbirdio/netbird/client/internal/dns/test"
+	"github.com/netbirdio/netbird/client/internal/dns/types"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -52,12 +54,12 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolver := &localResolver{
-				registeredMap: make(registrationMap),
+			resolver := &Resolver{
+				RegisteredMap: make(types.RegistrationMap),
 			}
-			_, _ = resolver.registerRecord(testCase.inputRecord)
+			_, _ = resolver.RegisterRecord(testCase.inputRecord)
 			var responseMSG *dns.Msg
-			responseWriter := &mockResponseWriter{
+			responseWriter := &test.MockResponseWriter{
 				WriteMsgFunc: func(m *dns.Msg) error {
 					responseMSG = m
 					return nil

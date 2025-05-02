@@ -1,4 +1,4 @@
-package dns
+package local
 
 import (
 	"fmt"
@@ -8,35 +8,42 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/dns/types"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
-type registrationMap map[string]struct{}
-
-type localResolver struct {
-	registeredMap registrationMap
-	records       sync.Map // key: string (domain_class_type), value: []dns.RR
+type Resolver struct {
+	// TODO: decouple these from server tests and make them private
+	RegisteredMap types.RegistrationMap
+	Records       sync.Map // key: string (domain_class_type), value: []dns.RR
 }
 
-func (d *localResolver) MatchSubdomains() bool {
+func NewResolver() *Resolver {
+	return &Resolver{
+		RegisteredMap: make(types.RegistrationMap),
+	}
+}
+
+func (d *Resolver) MatchSubdomains() bool {
 	return true
 }
 
-func (d *localResolver) stop() {
+// String returns a string representation of the local resolver
+func (d *Resolver) String() string {
+	return fmt.Sprintf("local resolver [%d records]", len(d.RegisteredMap))
 }
 
-// String returns a string representation of the local resolver
-func (d *localResolver) String() string {
-	return fmt.Sprintf("local resolver [%d records]", len(d.registeredMap))
-}
+func (d *Resolver) Stop() {}
 
 // ID returns the unique handler ID
-func (d *localResolver) id() handlerID {
+func (d *Resolver) ID() types.HandlerID {
 	return "local-resolver"
 }
 
+func (d *Resolver) ProbeAvailability() {}
+
 // ServeDNS handles a DNS request
-func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if len(r.Question) > 0 {
 		log.Tracef("received local question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 	}
@@ -61,15 +68,15 @@ func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 // lookupRecords fetches *all* DNS records matching the first question in r.
-func (d *localResolver) lookupRecords(r *dns.Msg) []dns.RR {
+func (d *Resolver) lookupRecords(r *dns.Msg) []dns.RR {
 	if len(r.Question) == 0 {
 		return nil
 	}
 	question := r.Question[0]
 	question.Name = strings.ToLower(question.Name)
-	key := buildRecordKey(question.Name, question.Qclass, question.Qtype)
+	key := types.BuildRecordKey(question.Name, question.Qclass, question.Qtype)
 
-	value, found := d.records.Load(key)
+	value, found := d.Records.Load(key)
 	if !found {
 		// alternatively check if we have a cname
 		if question.Qtype != dns.TypeCNAME {
@@ -90,14 +97,41 @@ func (d *localResolver) lookupRecords(r *dns.Msg) []dns.RR {
 	if len(records) > 1 {
 		first := records[0]
 		records = append(records[1:], first)
-		d.records.Store(key, records)
+		d.Records.Store(key, records)
 	}
 
 	return records
 }
 
-// registerRecord stores a new record by appending it to any existing list
-func (d *localResolver) registerRecord(record nbdns.SimpleRecord) (string, error) {
+func (d *Resolver) Update(update map[types.RecordKey][]nbdns.SimpleRecord) {
+	// remove old records that are no longer present
+	for key := range d.RegisteredMap {
+		_, found := update[key]
+		if !found {
+			d.deleteRecord(key)
+		}
+	}
+
+	updatedMap := make(types.RegistrationMap)
+	for _, recs := range update {
+		for _, rec := range recs {
+			// convert the record to a dns.RR and register
+			key, err := d.RegisterRecord(rec)
+			if err != nil {
+				log.Warnf("got an error while registering the record (%s), error: %v",
+					rec.String(), err)
+				continue
+			}
+
+			updatedMap[key] = struct{}{}
+		}
+	}
+
+	d.RegisteredMap = updatedMap
+}
+
+// RegisterRecord stores a new record by appending it to any existing list
+func (d *Resolver) RegisterRecord(record nbdns.SimpleRecord) (types.RecordKey, error) {
 	rr, err := dns.NewRR(record.String())
 	if err != nil {
 		return "", fmt.Errorf("register record: %w", err)
@@ -105,26 +139,19 @@ func (d *localResolver) registerRecord(record nbdns.SimpleRecord) (string, error
 
 	rr.Header().Rdlength = record.Len()
 	header := rr.Header()
-	key := buildRecordKey(header.Name, header.Class, header.Rrtype)
+	key := types.BuildRecordKey(header.Name, header.Class, header.Rrtype)
 
 	// load any existing slice of records, then append
-	existing, _ := d.records.LoadOrStore(key, []dns.RR{})
+	existing, _ := d.Records.LoadOrStore(key, []dns.RR{})
 	records := existing.([]dns.RR)
 	records = append(records, rr)
 
 	// store updated slice
-	d.records.Store(key, records)
+	d.Records.Store(key, records)
 	return key, nil
 }
 
 // deleteRecord removes *all* records under the recordKey.
-func (d *localResolver) deleteRecord(recordKey string) {
-	d.records.Delete(dns.Fqdn(recordKey))
+func (d *Resolver) deleteRecord(recordKey types.RecordKey) {
+	d.Records.Delete(dns.Fqdn(string(recordKey)))
 }
-
-// buildRecordKey consistently generates a key: name_class_type
-func buildRecordKey(name string, class, qType uint16) string {
-	return fmt.Sprintf("%s_%d_%d", dns.Fqdn(name), class, qType)
-}
-
-func (d *localResolver) probeAvailability() {}
