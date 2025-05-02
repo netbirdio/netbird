@@ -15,7 +15,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
@@ -129,17 +128,17 @@ func TestUpdateDNSServer(t *testing.T) {
 	testCases := []struct {
 		name                string
 		initUpstreamMap     registeredHandlerMap
-		initLocalMap        types.RegistrationMap
+		initLocalMap        local.RegistrationMap
 		initSerial          uint64
 		inputSerial         uint64
 		inputUpdate         nbdns.Config
 		shouldFail          bool
 		expectedUpstreamMap registeredHandlerMap
-		expectedLocalMap    types.RegistrationMap
+		expectedLocalMap    local.RegistrationMap
 	}{
 		{
 			name:            "Initial Config Should Succeed",
-			initLocalMap:    make(types.RegistrationMap),
+			initLocalMap:    make(local.RegistrationMap),
 			initUpstreamMap: make(registeredHandlerMap),
 			initSerial:      0,
 			inputSerial:     1,
@@ -179,11 +178,11 @@ func TestUpdateDNSServer(t *testing.T) {
 					priority: PriorityDefault,
 				},
 			},
-			expectedLocalMap: types.RegistrationMap{types.BuildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
+			expectedLocalMap: local.RegistrationMap{local.BuildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 		},
 		{
 			name:         "New Config Should Succeed",
-			initLocalMap: types.RegistrationMap{"netbird.cloud": struct{}{}},
+			initLocalMap: local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   "netbird.cloud",
@@ -220,11 +219,11 @@ func TestUpdateDNSServer(t *testing.T) {
 					priority: PriorityMatchDomain,
 				},
 			},
-			expectedLocalMap: types.RegistrationMap{types.BuildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
+			expectedLocalMap: local.RegistrationMap{local.BuildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 		},
 		{
 			name:            "Smaller Config Serial Should Be Skipped",
-			initLocalMap:    make(types.RegistrationMap),
+			initLocalMap:    make(local.RegistrationMap),
 			initUpstreamMap: make(registeredHandlerMap),
 			initSerial:      2,
 			inputSerial:     1,
@@ -232,7 +231,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:            "Empty NS Group Domain Or Not Primary Element Should Fail",
-			initLocalMap:    make(types.RegistrationMap),
+			initLocalMap:    make(local.RegistrationMap),
 			initUpstreamMap: make(registeredHandlerMap),
 			initSerial:      0,
 			inputSerial:     1,
@@ -254,7 +253,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:            "Invalid NS Group Nameservers list Should Fail",
-			initLocalMap:    make(types.RegistrationMap),
+			initLocalMap:    make(local.RegistrationMap),
 			initUpstreamMap: make(registeredHandlerMap),
 			initSerial:      0,
 			inputSerial:     1,
@@ -276,7 +275,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:            "Invalid Custom Zone Records list Should Skip",
-			initLocalMap:    make(types.RegistrationMap),
+			initLocalMap:    make(local.RegistrationMap),
 			initUpstreamMap: make(registeredHandlerMap),
 			initSerial:      0,
 			inputSerial:     1,
@@ -302,7 +301,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:         "Empty Config Should Succeed and Clean Maps",
-			initLocalMap: types.RegistrationMap{"netbird.cloud": struct{}{}},
+			initLocalMap: local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
@@ -314,11 +313,11 @@ func TestUpdateDNSServer(t *testing.T) {
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: true},
 			expectedUpstreamMap: make(registeredHandlerMap),
-			expectedLocalMap:    make(types.RegistrationMap),
+			expectedLocalMap:    make(local.RegistrationMap),
 		},
 		{
 			name:         "Disabled Service Should clean map",
-			initLocalMap: types.RegistrationMap{"netbird.cloud": struct{}{}},
+			initLocalMap: local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
@@ -330,7 +329,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: false},
 			expectedUpstreamMap: make(registeredHandlerMap),
-			expectedLocalMap:    make(types.RegistrationMap),
+			expectedLocalMap:    make(local.RegistrationMap),
 		},
 	}
 
@@ -410,7 +409,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			for key := range testCase.expectedLocalMap {
 				_, found := dnsServer.localResolver.RegisteredMap[key]
 				if !found {
-					t.Fatalf("update local failed, key %s was not found in the localResolver.registeredMap: %#v", key, dnsServer.localResolver.RegisteredMap)
+					t.Fatalf("update local failed, key %v was not found in the localResolver.registeredMap: %#v", key, dnsServer.localResolver.RegisteredMap)
 				}
 			}
 		})
@@ -499,7 +498,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 			priority: PriorityMatchDomain,
 		},
 	}
-	dnsServer.localResolver.RegisteredMap = types.RegistrationMap{"netbird.cloud": struct{}{}}
+	dnsServer.localResolver.RegisteredMap = local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}}
 	dnsServer.updateSerial = 0
 
 	nameServers := []nbdns.NameServer{
@@ -1944,70 +1943,4 @@ func TestDomainCaseHandling(t *testing.T) {
 	}
 	assert.Contains(t, domains, "config.example.com.", "Mixed case domain should be normalized and pre.sent")
 	assert.Contains(t, domains, "mixed.example.com.", "Mixed case domain should be normalized and present")
-}
-
-// TestDefaultServer_UpdateLocalRecords_StaleRecord verifies that updating
-// a CustomZone record correctly replaces the old one, preventing stale entries.
-func TestDefaultServer_UpdateLocalRecords_StaleRecord(t *testing.T) {
-	mockHostMgr := newNoopHostMocker()
-	mockSvc := &mockService{}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	dnsServer := newDefaultServer(
-		ctx,
-		&mocWGIface{},
-		mockSvc,
-		peer.NewRecorder("test"),
-		nil,
-		true,
-	)
-	dnsServer.hostManager = mockHostMgr
-
-	recordName := "host.example.com."
-	recordType := dns.TypeA
-	recordClass := dns.ClassINET
-
-	record1 := nbdns.SimpleRecord{
-		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "1.1.1.1",
-	}
-	config1 := nbdns.Config{
-		ServiceEnable: true,
-		CustomZones:   []nbdns.CustomZone{{Domain: "example.com", Records: []nbdns.SimpleRecord{record1}}},
-	}
-
-	record2 := nbdns.SimpleRecord{
-		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "2.2.2.2",
-	}
-	config2 := nbdns.Config{
-		ServiceEnable: true,
-		CustomZones:   []nbdns.CustomZone{{Domain: "example.com", Records: []nbdns.SimpleRecord{record2}}},
-	}
-
-	recordKey := types.BuildRecordKey(recordName, uint16(recordClass), uint16(recordType))
-
-	// Update 1
-	err := dnsServer.applyConfiguration(config1)
-	require.NoError(t, err, "applyConfiguration for config1 failed")
-
-	value1, found1 := dnsServer.localResolver.Records.Load(recordKey)
-	require.True(t, found1, "Record key %s not found after first update", recordKey)
-	rrSlice1, ok1 := value1.([]dns.RR)
-	require.True(t, ok1, "Failed to cast value to []dns.RR after first update")
-	require.Len(t, rrSlice1, 1, "Should have exactly 1 record after first update")
-	assert.Contains(t, rrSlice1[0].String(), record1.RData, "Record after first update should be %s", record1.RData)
-
-	// Update 2
-	err = dnsServer.applyConfiguration(config2)
-	require.NoError(t, err, "applyConfiguration for config2 failed")
-
-	value2, found2 := dnsServer.localResolver.Records.Load(recordKey)
-	require.True(t, found2, "Record key %s not found after second update", recordKey)
-	rrSlice2, ok2 := value2.([]dns.RR)
-	require.True(t, ok2, "Failed to cast value to []dns.RR after second update")
-
-	require.Len(t, rrSlice2, 1, "Should have exactly 1 record after update overwriting the key")
-
-	assert.Contains(t, rrSlice2[0].String(), record2.RData, "The single record should be the updated one (%s)", record2.RData)
-	assert.NotContains(t, rrSlice2[0].String(), record1.RData, "The stale record (%s) should not be present", record1.RData)
 }

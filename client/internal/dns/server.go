@@ -514,13 +514,9 @@ func (s *DefaultServer) handleErrNoGroupaAll(err error) {
 	)
 }
 
-func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) (
-	[]handlerWrapper,
-	map[types.RecordKey][]nbdns.SimpleRecord,
-	error,
-) {
+func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.SimpleRecord, error) {
 	var muxUpdates []handlerWrapper
-	localRecords := make(map[types.RecordKey][]nbdns.SimpleRecord)
+	var localRecords []nbdns.SimpleRecord
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
@@ -534,17 +530,13 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 			priority: PriorityMatchDomain,
 		})
 
-		// group all records under this domain
 		for _, record := range customZone.Records {
-			var class uint16 = dns.ClassINET
 			if record.Class != nbdns.DefaultClass {
 				log.Warnf("received an invalid class type: %s", record.Class)
 				continue
 			}
-
-			key := types.BuildRecordKey(record.Name, class, uint16(record.Type))
-
-			localRecords[key] = append(localRecords[key], record)
+			// zone records contain the fqdn, so we can just flatten them
+			localRecords = append(localRecords, record)
 		}
 	}
 
